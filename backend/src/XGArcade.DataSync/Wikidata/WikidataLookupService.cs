@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -10,14 +12,29 @@ namespace XGArcade.DataSync.Wikidata;
 // for PersistMatchesAsync's batch upsert; playerCareerStintRepository
 // carries GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync
 // (PersistCareerStintsAsync) — see ADR-0067.
+//
+// logger (ADR-0069): trailing optional param, same "tests can construct
+// without wiring DI's logging" shape as WikidataClient's own logger param —
+// falls back to NullLogger<T> so none of this class's many existing
+// positional-arg test call sites needed to change. Real callers (DI's
+// AddScoped<IWikidataLookupService, WikidataLookupService> registration,
+// and CliVerbDispatcher's warm-player-cache verb, which builds its own
+// dependency graph by hand) supply a real one. Needed because
+// PersistCareerStintsAsync now goes through
+// PlayerCareerStintRefreshService.BuildNewStintsByPlayerId's shared
+// reconciliation logic, which logs a warning on ADR-0069's case-3
+// (unresolved conflict) outcome.
 public class WikidataLookupService(
     IWikidataClient wikidataClient,
     IPlayerCareerStintRepository playerCareerStintRepository,
     IPlayerRepository playerRepository,
     IPlayerAttributeRepository playerAttributeRepository,
     IPlayerAliasRepository playerAliasRepository,
-    IPlayerDataRepository playerDataRepository) : IWikidataLookupService
+    IPlayerDataRepository playerDataRepository,
+    ILogger<WikidataLookupService>? logger = null) : IWikidataLookupService
 {
+    private readonly ILogger<WikidataLookupService> _logger = logger ?? NullLogger<WikidataLookupService>.Instance;
+
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
     // S-031/REQ-108: PlayerAttribute.AttributeType's vocabulary spells this
@@ -336,25 +353,29 @@ public class WikidataLookupService(
     // player this match set assigned at least one CareerStints qualifier
     // to) instead of one GetCareerStintsAsync round trip per player, and one
     // AddCareerStintsBatchAsync call instead of one per player.
+    //
+    // ADR-0069: this method used to carry its own inline copy of the
+    // dedup-against-what's-already-stored comparison logic. It now goes
+    // through PlayerCareerStintRefreshService.BuildNewStintsByPlayerId — the
+    // same shared reconciliation helper the two full-career-fetch writers
+    // (PlayerCareerStintRefreshService.RefreshCareerStintsAsync,
+    // PlayerCareerPrefetchService) use — so all three PlayerCareerStint
+    // writer paths apply the exact same (ClubName, StartYear) match key and
+    // null->non-null EndYear close-in-place behavior. clubNameByClubQid is
+    // passed empty here: every match's CareerStints entries are converted
+    // to a WikidataCareerStintEntry with ClubQid left null, since this
+    // call site already knows the exact seeded ClubDefinition.Name it
+    // queried for (clubName, the parameter below) and needs no QID-based
+    // canonicalization (see WikidataCareerStintEntry's own doc comment for
+    // why only the full-career-fetch writers need that).
     private async Task PersistCareerStintsAsync(
         IReadOnlyList<WikidataPlayerMatch> matches,
         IReadOnlyList<Player> persistedPlayers,
         string clubName,
         CancellationToken cancellationToken)
     {
-        var playerIdsWithStints = new List<Guid>();
-        for (var i = 0; i < matches.Count; i++)
-        {
-            if (matches[i].CareerStints.Count > 0)
-                playerIdsWithStints.Add(persistedPlayers[i].Id);
-        }
-
-        if (playerIdsWithStints.Count == 0)
-            return;
-
-        var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(playerIdsWithStints, cancellationToken);
-
-        var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
+        var stintsByQid = new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>();
+        var qidToPlayerId = new Dictionary<string, Guid>();
 
         for (var i = 0; i < matches.Count; i++)
         {
@@ -362,39 +383,27 @@ public class WikidataLookupService(
             if (match.CareerStints.Count == 0)
                 continue;
 
-            var playerId = persistedPlayers[i].Id;
-
-            // Idempotency: re-running the same query must not create
-            // duplicate stint rows — skip a tuple that already exists for
-            // this player (same ClubName/StartYear/EndYear/AppearanceCount),
-            // same "fetch once, HashSet.Add as the dedup+select gate"
-            // pattern as before this method was batched.
-            HashSet<(string ClubName, int StartYear, int? EndYear, int? AppearanceCount)> seenTuples =
-                existingStintsByPlayerId.TryGetValue(playerId, out var existingStints)
-                    ? existingStints.Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount)).ToHashSet()
-                    : [];
-
-            var newStints = match.CareerStints
-                .Where(q => seenTuples.Add((clubName, q.StartYear, q.EndYear, q.AppearanceCount)))
-                .Select(q => new PlayerCareerStint
-                {
-                    Id = Guid.NewGuid(),
-                    PlayerId = playerId,
-                    ClubName = clubName,
-                    StartYear = q.StartYear,
-                    EndYear = q.EndYear,
-                    AppearanceCount = q.AppearanceCount,
-                    // Resolved by IPlayerStoreRepository.AddCareerStintsBatchAsync
-                    // across the player's full stint set — this placeholder
-                    // is always overwritten before SaveChangesAsync.
-                    SequenceOrder = 0,
-                })
+            qidToPlayerId[match.WikidataQid] = persistedPlayers[i].Id;
+            stintsByQid[match.WikidataQid] = match.CareerStints
+                .Select(q => new WikidataCareerStintEntry(clubName, q.StartYear, q.EndYear, q.AppearanceCount))
                 .ToList();
-
-            if (newStints.Count > 0)
-                newStintsByPlayerId[playerId] = newStints;
         }
 
-        await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        if (stintsByQid.Count == 0)
+            return;
+
+        var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(qidToPlayerId.Values.ToList(), cancellationToken);
+
+        var (newStintsByPlayerId, closuresByPlayerId) = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
+            stintsByQid, qidToPlayerId, existingStintsByPlayerId, EmptyClubNameByClubQid, _logger);
+
+        if (newStintsByPlayerId.Count > 0 || closuresByPlayerId.Count > 0)
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, closuresByPlayerId, cancellationToken);
     }
+
+    // ADR-0069: PersistCareerStintsAsync above never has a ClubQid to
+    // canonicalize by (see that method's own comment) — a single shared,
+    // never-mutated empty instance rather than allocating a fresh empty
+    // dictionary on every call.
+    private static readonly IReadOnlyDictionary<string, string> EmptyClubNameByClubQid = new Dictionary<string, string>();
 }

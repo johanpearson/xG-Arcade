@@ -5711,6 +5711,42 @@ Nwakali-shape case (ongoing stint + newly-reported end date + newly-reported
 next club) and confirms the old row gets closed, not duplicated.
 *Deps:* none, but should land after S-127 (no point reconciling against
 data nothing is refreshing).
+**Built as:** matches ADR-0069/REQ-1210 exactly, no deviations — the ADR
+and REQ were already accepted/final going into this story, so this was a
+pure implementation pass. Match key narrowed to `(ClubName, StartYear)` in
+one shared helper, `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`
+(extended, not replaced — now `internal static` returning both
+new-stints-to-insert and existing-stints-to-close, the latter as the new
+`CareerStintClosure` record, `XGArcade.Data.Repositories`, identified by
+row `Id`), used by all three writer paths: `RefreshCareerStintsAsync` and
+`PlayerCareerPrefetchService` already called it; `WikidataLookupService
+.PersistCareerStintsAsync` was refactored off its own inline dedup copy
+onto the same helper (also removing that duplication, the ADR's called-out
+secondary benefit). `AddCareerStintsBatchAsync`
+(`PlayerCareerStintRepository`) gained an optional `closuresByPlayerId`
+parameter, applied against its existing tracked (non-`AsNoTracking`)
+existing-row query in the same batch/`SaveChangesAsync` as inserts, closing
+*every* row sharing a key with `EndYear: null` (not just the first) per the
+architecture-review-hardened case-2 rule, before the existing
+`SequenceOrder` resequencing pass re-reads the mutated rows.
+`WikidataLookupService` gained a trailing optional `ILogger` constructor
+parameter (defaults to `NullLogger`, same shape `WikidataClient` already
+uses) so ADR-0069's case-3 (ambiguous conflict) warning has somewhere to
+log without touching this class's ~16 existing positional-arg test call
+sites. Tests: five `REQ1210_`-named cases in
+`PlayerCareerStintRefreshServiceTests.cs` (Nwakali-shape close, duplicate-
+pair both-closed, ambiguous-conflict left untouched, idempotent exact-match
+no-op, genuinely-new-stint insert), one `REQ1210_` cross-writer-parity test
+each in `PlayerCareerPrefetchServiceTests.cs` and
+`WikidataLookupServiceTests.cs` (the latter needed a new "ongoing, no end
+date" JSON fixture), plus repository-level (not REQ-named, matching that
+file's existing convention) coverage in `PlayerCareerStintRepositoryTests.cs`
+for `AddCareerStintsBatchAsync`'s new closures mechanism directly,
+including a resequencing case proving the sort reads a closure's mutated
+`EndYear` rather than its stale pre-closure value. `dotnet` was unavailable
+in the sandbox this story was built in — every test was hand-traced against
+its scenario, not run; CI/a follow-up session must run the real suite
+before this is treated as verified green.
 
 **S-130 · Live-lookup speed/UX improvements — done, 2026-08-16**
 Issue #189 (slow lookups, "failed to look up" instead of "incorrect") is

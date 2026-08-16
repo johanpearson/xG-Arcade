@@ -81,10 +81,11 @@ public class PlayerCareerStintRefreshService(
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
         var clubNameByClubQid = await BuildClubNameByClubQidAsync(categoryValueRepository, cancellationToken);
 
-        var newStintsByPlayerId = BuildNewStintsByPlayerId(stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
+        var (newStintsByPlayerId, closuresByPlayerId) =
+            BuildNewStintsByPlayerId(stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid, logger);
 
-        if (newStintsByPlayerId.Count > 0)
-            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        if (newStintsByPlayerId.Count > 0 || closuresByPlayerId.Count > 0)
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, closuresByPlayerId, cancellationToken);
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
@@ -110,14 +111,44 @@ public class PlayerCareerStintRefreshService(
             .ToDictionary(c => c.WikidataQid!, c => c.Name);
     }
 
-    // ADR-0055: extracted so PlayerCareerPrefetchService's bulk job can share
-    // the exact same dedup-against-what's-already-stored logic RefreshCareerStintsAsync
-    // uses above, rather than a second, easy-to-drift-apart copy. Same
-    // "additive only, never a wipe-and-replace" discipline as
-    // WikidataLookupService.PersistCareerStintsAsync — a previously wrong
-    // stint is not this method's concern (see ADR-0054's Consequences
-    // section). Internal, not private: XGArcade.DataSync is a shared
-    // assembly between the two callers.
+    // ADR-0055/ADR-0069: extracted so PlayerCareerPrefetchService's bulk job
+    // AND WikidataLookupService.PersistCareerStintsAsync (ADR-0069's
+    // refactor — it used to carry its own, inline-duplicated copy of this
+    // comparison logic) share the exact same reconciliation-against-what's-
+    // already-stored logic RefreshCareerStintsAsync uses above, rather than
+    // a second/third, easy-to-drift-apart copy. Internal, not private:
+    // XGArcade.DataSync is a shared assembly between all three callers.
+    //
+    // ADR-0069: the per-stint match key is (ClubName, StartYear) — narrower
+    // than the full (ClubName, StartYear, EndYear, AppearanceCount) 4-tuple
+    // this method used pre-ADR-0069. For each fetched entry matched against
+    // existing row(s) sharing that key:
+    //   1. Exact match on EndYear/AppearanceCount too -> no-op (idempotent
+    //      re-fetch, unchanged from before this ADR).
+    //   2. An existing row's EndYear is null, fetched entry's EndYear is
+    //      non-null -> that row is queued to CLOSE (EndYear/AppearanceCount
+    //      overwritten to the fetched values). Applies to EVERY existing row
+    //      sharing the key with EndYear: null, not just the first found — an
+    //      outstanding, not-yet-DuplicateCareerStintCleaner-cleaned
+    //      cross-writer duplicate pair (ADR-0059/ADR-0063) must be closed
+    //      identically on both rows, or the cleaner (which requires exact
+    //      EndYear equality to merge a pair) can never merge it again. See
+    //      ADR-0069's Decision and Consequences sections — do not simplify
+    //      this back down to "close the first/only matching row."
+    //   3. Existing row's EndYear is already non-null and disagrees with the
+    //      fetched value (or any other shape not covered by 1/2/4 above,
+    //      e.g. an existing null-EndYear row whose AppearanceCount alone
+    //      differs from a fetched, still-null-EndYear entry) -> deliberately
+    //      NOT auto-resolved. Neither updated nor inserted; logged as a
+    //      warning and left untouched — could be a genuine Wikidata
+    //      correction or two distinct real stints sharing a
+    //      (ClubName, StartYear), and guessing wrong in either direction
+    //      risks corrupting a real historical record.
+    //   4. No existing row shares the key -> inserted as a new row,
+    //      unchanged from before this ADR.
+    // Do NOT widen the match key further (e.g. to ClubName alone) or
+    // auto-resolve case 3 without a fresh ADR — ADR-0069 explicitly
+    // considered and rejected both.
     //
     // clubNameByClubQid (bug fix, 2026-08-04, xG Path duplicate-node bug,
     // REQ-1203 follow-up, ADR-0059): canonicalizes each fetched stint's
@@ -138,49 +169,105 @@ public class PlayerCareerStintRefreshService(
     // normalized label unchanged — still useful for xG Path's own display
     // and for ClubGapAuditService's gap-detection query, which this
     // canonicalization does not touch.
-    internal static Dictionary<Guid, IReadOnlyList<PlayerCareerStint>> BuildNewStintsByPlayerId(
+    //
+    // logger (ADR-0069): optional so existing callers/tests that never
+    // needed to observe case 3's warning don't have to change — a null
+    // logger simply means case 3 is silently skipped rather than logged
+    // (still correctly left untouched either way).
+    internal static (
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> NewStintsByPlayerId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<CareerStintClosure>> ClosuresByPlayerId) BuildNewStintsByPlayerId(
         IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> stintsByQid,
         IReadOnlyDictionary<string, Guid> qidToPlayerId,
         IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> existingStintsByPlayerId,
-        IReadOnlyDictionary<string, string> clubNameByClubQid)
+        IReadOnlyDictionary<string, string> clubNameByClubQid,
+        ILogger? logger = null)
     {
         var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
+        var closuresByPlayerId = new Dictionary<Guid, IReadOnlyList<CareerStintClosure>>();
+
         foreach (var (qid, fetchedStints) in stintsByQid)
         {
             var playerId = qidToPlayerId[qid];
-            var seenTuples = existingStintsByPlayerId.TryGetValue(playerId, out var existingStints)
-                ? existingStints.Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount)).ToHashSet()
-                : [];
+            var existingStints = existingStintsByPlayerId.TryGetValue(playerId, out var existing) ? existing : [];
+
+            // ADR-0069: grouped by the narrowed (ClubName, StartYear) key —
+            // more than one existing row can legitimately share a key (an
+            // outstanding, not-yet-cleaned cross-writer duplicate pair; see
+            // this method's own doc comment above).
+            var existingByKey = existingStints
+                .GroupBy(s => (s.ClubName, s.StartYear))
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Guards against re-processing the exact same fetched entry
+            // twice within one player's own fetchedStints (defensive —
+            // WikidataClient's own binding parsers already dedupe on the
+            // full tuple before this method ever sees the data, but this
+            // keeps the method correct even if a caller doesn't).
+            var handledFetchedTuples = new HashSet<(string ClubName, int StartYear, int? EndYear, int? AppearanceCount)>();
 
             var newStints = new List<PlayerCareerStint>();
+            var closures = new List<CareerStintClosure>();
+
             foreach (var s in fetchedStints)
             {
                 var clubName = s.ClubQid is not null && clubNameByClubQid.TryGetValue(s.ClubQid, out var canonicalName)
                     ? canonicalName
                     : s.ClubName;
 
-                if (!seenTuples.Add((clubName, s.StartYear, s.EndYear, s.AppearanceCount)))
+                if (!handledFetchedTuples.Add((clubName, s.StartYear, s.EndYear, s.AppearanceCount)))
                     continue;
 
-                newStints.Add(new PlayerCareerStint
+                if (!existingByKey.TryGetValue((clubName, s.StartYear), out var matchingExisting))
                 {
-                    Id = Guid.NewGuid(),
-                    PlayerId = playerId,
-                    ClubName = clubName,
-                    StartYear = s.StartYear,
-                    EndYear = s.EndYear,
-                    AppearanceCount = s.AppearanceCount,
-                    // Resolved by IPlayerStoreRepository.AddCareerStintsBatchAsync
-                    // across the player's full stint set — this placeholder is
-                    // always overwritten before SaveChangesAsync.
-                    SequenceOrder = 0,
-                });
+                    // Case 4: no existing row shares this key -> insert.
+                    newStints.Add(new PlayerCareerStint
+                    {
+                        Id = Guid.NewGuid(),
+                        PlayerId = playerId,
+                        ClubName = clubName,
+                        StartYear = s.StartYear,
+                        EndYear = s.EndYear,
+                        AppearanceCount = s.AppearanceCount,
+                        // Resolved by AddCareerStintsBatchAsync across the
+                        // player's full stint set — this placeholder is
+                        // always overwritten before SaveChangesAsync.
+                        SequenceOrder = 0,
+                    });
+                    continue;
+                }
+
+                // Case 1: at least one existing row under this key already
+                // exactly matches the fetched entry -> no-op.
+                if (matchingExisting.Any(e => e.EndYear == s.EndYear && e.AppearanceCount == s.AppearanceCount))
+                    continue;
+
+                var nullEndYearRows = matchingExisting.Where(e => e.EndYear is null).ToList();
+                if (s.EndYear is not null && nullEndYearRows.Count > 0)
+                {
+                    // Case 2: close EVERY existing row sharing this key with
+                    // EndYear: null — not just the first found. See this
+                    // method's own doc comment for why.
+                    closures.AddRange(nullEndYearRows.Select(row => new CareerStintClosure(row.Id, s.EndYear.Value, s.AppearanceCount)));
+                    continue;
+                }
+
+                // Case 3 (and any other shape not covered by 1/2/4 above):
+                // deliberately not auto-resolved. Log and leave untouched.
+                logger?.LogWarning(
+                    "career-stint reconciliation: player {PlayerId}'s existing PlayerCareerStint row(s) for " +
+                    "({ClubName}, {StartYear}) conflict with a freshly-fetched entry (EndYear={FetchedEndYear}, " +
+                    "AppearanceCount={FetchedAppearanceCount}) in a way ADR-0069 does not auto-resolve — leaving " +
+                    "the existing row(s) untouched.",
+                    playerId, clubName, s.StartYear, s.EndYear, s.AppearanceCount);
             }
 
             if (newStints.Count > 0)
                 newStintsByPlayerId[playerId] = newStints;
+            if (closures.Count > 0)
+                closuresByPlayerId[playerId] = closures;
         }
 
-        return newStintsByPlayerId;
+        return (newStintsByPlayerId, closuresByPlayerId);
     }
 }

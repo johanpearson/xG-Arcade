@@ -216,6 +216,118 @@ public class PlayerCareerStintRepositoryTests
         }));
     }
 
+    // ---- ADR-0069: AddCareerStintsBatchAsync's closuresByPlayerId param ---
+    // Repository-level coverage of the update-in-place mechanism itself —
+    // PlayerCareerStintRefreshServiceTests' REQ1210_ tests cover the plan-
+    // building logic (which row(s) to close, and with what values); these
+    // prove AddCareerStintsBatchAsync correctly APPLIES a given plan against
+    // its own freshly-loaded tracked query.
+
+    [Test]
+    public async Task AddCareerStintsBatchAsync_ClosuresParameter_UpdatesExistingRowInPlace()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Kelechi Nwakali", WikidataQid = "Q1" };
+        await _playerRepository.AddPlayerAsync(player);
+        var existingStintId = Guid.NewGuid();
+        await _repository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = existingStintId, PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 40 }]);
+
+        await _repository.AddCareerStintsBatchAsync(
+            new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>(),
+            new Dictionary<Guid, IReadOnlyList<CareerStintClosure>>
+            {
+                [player.Id] = [new CareerStintClosure(existingStintId, EndYear: 2022, AppearanceCount: 55)],
+            });
+
+        var stints = await _repository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1), "a closure must never insert a new row");
+        Assert.That(stints[0].Id, Is.EqualTo(existingStintId), "the SAME row must be mutated, not replaced");
+        Assert.That(stints[0].EndYear, Is.EqualTo(2022));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(55));
+    }
+
+    [Test]
+    public async Task AddCareerStintsBatchAsync_ClosuresParameter_AppliesToMultipleRowsForSamePlayer_Identically()
+    {
+        // ADR-0069's outstanding-cross-writer-duplicate-pair case: a plan
+        // built from BuildNewStintsByPlayerId can legitimately instruct
+        // closing MORE THAN ONE row for the same player in one call.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Duplicate Pair", WikidataQid = "Q1" };
+        await _playerRepository.AddPlayerAsync(player);
+        var firstDuplicateId = Guid.NewGuid();
+        var secondDuplicateId = Guid.NewGuid();
+        await _repository.AddCareerStintsAsync(player.Id,
+        [
+            new PlayerCareerStint { Id = firstDuplicateId, PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 40 },
+            new PlayerCareerStint { Id = secondDuplicateId, PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 41 },
+        ]);
+
+        await _repository.AddCareerStintsBatchAsync(
+            new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>(),
+            new Dictionary<Guid, IReadOnlyList<CareerStintClosure>>
+            {
+                [player.Id] =
+                [
+                    new CareerStintClosure(firstDuplicateId, EndYear: 2022, AppearanceCount: 55),
+                    new CareerStintClosure(secondDuplicateId, EndYear: 2022, AppearanceCount: 55),
+                ],
+            });
+
+        var stints = await _repository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(2));
+        Assert.That(stints, Has.All.Matches<PlayerCareerStint>(s => s.EndYear == 2022 && s.AppearanceCount == 55));
+    }
+
+    [Test]
+    public async Task AddCareerStintsBatchAsync_ClosuresAndNewStints_BothAppliedInSameBatch_ResequencesReflectMutatedEndYear()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Kelechi Nwakali", WikidataQid = "Q1" };
+        await _playerRepository.AddPlayerAsync(player);
+        var huescaId = Guid.NewGuid();
+        await _repository.AddCareerStintsAsync(player.Id,
+        [
+            // Same StartYear as the row below — an ongoing (EndYear: null)
+            // stint sorts LAST among same-StartYear stints (existing rule),
+            // so BEFORE the closure below, Huesca would sort after LoanClub.
+            new PlayerCareerStint { Id = huescaId, PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 40 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "LoanClub", StartYear = 2019, EndYear = 2023 },
+        ]);
+
+        // Closure sets Huesca's EndYear to 2022 — earlier than LoanClub's
+        // 2023 — so Huesca must now sort BEFORE LoanClub, proving
+        // resequencing reads the closure's mutated EndYear, not the stale
+        // pre-closure null value. A new, unrelated stint is inserted in the
+        // same call to also prove closures + inserts combine correctly.
+        await _repository.AddCareerStintsBatchAsync(
+            new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
+            {
+                [player.Id] = [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Ponferradina", StartYear = 2022, EndYear = null }],
+            },
+            new Dictionary<Guid, IReadOnlyList<CareerStintClosure>>
+            {
+                [player.Id] = [new CareerStintClosure(huescaId, EndYear: 2022, AppearanceCount: 55)],
+            });
+
+        var stints = (await _repository.GetCareerStintsAsync(player.Id)).OrderBy(s => s.SequenceOrder).ToList();
+        Assert.That(stints, Has.Count.EqualTo(3));
+        Assert.That(stints[0].ClubName, Is.EqualTo("Huesca"));
+        Assert.That(stints[0].EndYear, Is.EqualTo(2022));
+        Assert.That(stints[1].ClubName, Is.EqualTo("LoanClub"),
+            "must sort AFTER Huesca now that Huesca's closure gave it an earlier EndYear (2022 < 2023) — proves resequencing reads the mutated value");
+        Assert.That(stints[2].ClubName, Is.EqualTo("Ponferradina"));
+    }
+
+    [Test]
+    public void AddCareerStintsBatchAsync_ClosureForUnknownStintId_IsSkippedWithoutThrowing()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddCareerStintsBatchAsync(
+            new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>(),
+            new Dictionary<Guid, IReadOnlyList<CareerStintClosure>>
+            {
+                [Guid.NewGuid()] = [new CareerStintClosure(Guid.NewGuid(), EndYear: 2022, AppearanceCount: null)],
+            }));
+    }
+
     // ---- REQ-1201 perf fix (GetCareerStintCandidatePlayerIdsAsync) --------
     // Same "narrow read" testing shape as
     // PlayerDataQualityRepositoryTests.GetUnseededClubCandidatesAsync tests,

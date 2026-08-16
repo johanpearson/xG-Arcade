@@ -257,4 +257,116 @@ public class PlayerCareerStintRefreshServiceTests
         Assert.That(candidateIds, Does.Contain(player.Id),
             "a stint originally labeled 'Olympique Lyonnais' must canonicalize to the seeded 'Lyon' and satisfy exact-match eligibility");
     }
+
+    // ---- ADR-0069/REQ-1210: career-stint reconciliation --------------------
+    // BuildNewStintsByPlayerId's shared reconciliation logic, exercised via
+    // RefreshCareerStintsAsync (this class's own writer path) — see
+    // WikidataLookupServiceTests/PlayerCareerPrefetchServiceTests for the
+    // cross-writer "same outcome regardless of writer path" coverage
+    // REQ-1210's fifth criterion requires.
+
+    // The exact reported shape (issue #195, Kelechi Nwakali): an ongoing
+    // stint whose EndYear a later fetch reports as concluded, alongside a
+    // genuinely new subsequent club in the same response.
+    [Test]
+    public async Task REQ1210_RefreshCareerStintsAsync_ExistingOngoingStintFetchedWithEndDateAndNewClub_UpdatesOldRowInPlace_InsertsNewClub()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 40 }]);
+
+        _wikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Huesca", 2019, 2022, 55),
+            new WikidataCareerStintEntry("Ponferradina", 2022, null, 10));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(2),
+            "the stale ongoing Huesca row must be updated in place, not left alongside a duplicate new row");
+        var huesca = stints.Single(s => s.ClubName == "Huesca");
+        Assert.That(huesca.EndYear, Is.EqualTo(2022));
+        Assert.That(huesca.AppearanceCount, Is.EqualTo(55));
+        Assert.That(stints.Single(s => s.ClubName == "Ponferradina").EndYear, Is.Null,
+            "the genuinely new, still-ongoing subsequent club must still be inserted");
+    }
+
+    // ADR-0069's Consequences: an outstanding, not-yet-DuplicateCareerStintCleaner
+    // -cleaned cross-writer duplicate pair (two rows sharing (ClubName,
+    // StartYear), both EndYear: null) must be closed IDENTICALLY on both
+    // rows, or the cleaner (which requires exact EndYear equality to merge
+    // a pair) could never merge it again.
+    [Test]
+    public async Task REQ1210_RefreshCareerStintsAsync_TwoExistingRowsShareKeyBothOngoing_BothClosedIdentically()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 40 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 41 },
+        ]);
+
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Huesca", 2019, 2022, 55));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(2), "no new row must be inserted — both existing rows are closed in place");
+        Assert.That(stints, Has.All.Matches<PlayerCareerStint>(s => s.EndYear == 2022 && s.AppearanceCount == 55),
+            "BOTH rows sharing the key must be closed identically, or DuplicateCareerStintCleaner could never merge this pair again");
+    }
+
+    // ADR-0069 case 3: deliberately not auto-resolved.
+    [Test]
+    public async Task REQ1210_RefreshCareerStintsAsync_ExistingNonNullEndYearConflictsWithFetchedValue_LeavesRowUntouched()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Huesca", StartYear = 2019, EndYear = 2020, AppearanceCount = 50 }]);
+
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Huesca", 2019, 2021, 60));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1), "an ambiguous conflict must never be resolved by inserting a second row");
+        Assert.That(stints[0].EndYear, Is.EqualTo(2020), "an ambiguous conflict must never overwrite the existing row's EndYear");
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(50), "an ambiguous conflict must never overwrite the existing row's AppearanceCount either");
+    }
+
+    // ADR-0069 case 1: idempotent re-fetch, unchanged from before this ADR.
+    [Test]
+    public async Task REQ1210_RefreshCareerStintsAsync_ExactMatchAlreadyStored_StaysNoOp()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 }]);
+
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1));
+        Assert.That(stints[0].EndYear, Is.EqualTo(2007));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(254));
+    }
+
+    // ADR-0069 case 4: unchanged from before this ADR.
+    [Test]
+    public async Task REQ1210_RefreshCareerStintsAsync_NoExistingRowSharesKey_InsertsNewStint()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 }]);
+
+        _wikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254),
+            new WikidataCareerStintEntry("Barcelona", 2007, 2010, 90));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Arsenal", "Barcelona" }));
+    }
 }

@@ -156,11 +156,11 @@ public class PlayerCareerPrefetchService(
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 
-        var newStintsByPlayerId = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
-            stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
+        var (newStintsByPlayerId, closuresByPlayerId) = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
+            stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid, logger);
 
-        if (newStintsByPlayerId.Count > 0)
-            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        if (newStintsByPlayerId.Count > 0 || closuresByPlayerId.Count > 0)
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, closuresByPlayerId, cancellationToken);
 
         return (playersByQid.Count, newStintsByPlayerId.Sum(kv => kv.Value.Count), false);
     }

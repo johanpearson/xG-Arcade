@@ -174,7 +174,8 @@ public static class CliVerbDispatcher
         var warmingWikidataClient = new WikidataClient(warmingHttpClient, logger: warmingLoggerFactory.CreateLogger<WikidataClient>());
         var warmingWikidataLookupService = new WikidataLookupService(
             warmingWikidataClient, warmingPlayerCareerStintRepository,
-            warmingPlayerRepository, warmingPlayerAttributeRepository, warmingPlayerAliasRepository, warmingPlayerDataRepository);
+            warmingPlayerRepository, warmingPlayerAttributeRepository, warmingPlayerAliasRepository, warmingPlayerDataRepository,
+            warmingLoggerFactory.CreateLogger<WikidataLookupService>());
 
         var warmingService = new PlayerCacheWarmingService(
             warmingCategoryValueRepository, warmingPlayerDataQualityRepository, warmingPlayerAttributeRepository, warmingWikidataLookupService,

@@ -87,6 +87,23 @@ public interface IPlayerCareerStintRepository
     // dictionary, instead of one round-trip pair per player. A player entry
     // with an empty newStints list is a no-op for that player, same
     // idempotency-is-the-caller's-job contract as AddCareerStintsAsync.
+    //
+    // closuresByPlayerId (ADR-0069): optional, defaults to none — each
+    // closure identifies an EXISTING row (by CareerStintClosure.StintId)
+    // whose EndYear/AppearanceCount must be overwritten in place, applied
+    // in the SAME batch/SaveChangesAsync call as newStintsByPlayerId's
+    // inserts, against this method's own existing-row query, which MUST
+    // stay tracked (no .AsNoTracking()) for the mutation to persist. The
+    // chronological SequenceOrder resequencing pass below still runs across
+    // the player's full updated set (existing rows, including any just
+    // closed, plus new inserts) afterwards — see PlayerCareerStintRepository's
+    // own implementation comment for why re-reading EndYear after the
+    // mutation is sufficient. Building the plan (which existing row(s) to
+    // close, and with what values) is the caller's job — see
+    // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId, shared by
+    // all three PlayerCareerStint writer paths.
     Task AddCareerStintsBatchAsync(
-        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default);
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<CareerStintClosure>>? closuresByPlayerId = null,
+        CancellationToken cancellationToken = default);
 }

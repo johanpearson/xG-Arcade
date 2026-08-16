@@ -101,12 +101,28 @@ public class PlayerCareerStintRepository(XGArcadeDbContext dbContext) : IPlayerC
     }
 
     public async Task AddCareerStintsBatchAsync(
-        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default)
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<CareerStintClosure>>? closuresByPlayerId = null,
+        CancellationToken cancellationToken = default)
     {
-        var playerIds = newStintsByPlayerId.Where(kv => kv.Value.Count > 0).Select(kv => kv.Key).ToList();
+        closuresByPlayerId ??= new Dictionary<Guid, IReadOnlyList<CareerStintClosure>>();
+
+        var playerIds = newStintsByPlayerId.Where(kv => kv.Value.Count > 0).Select(kv => kv.Key)
+            .Concat(closuresByPlayerId.Where(kv => kv.Value.Count > 0).Select(kv => kv.Key))
+            .Distinct()
+            .ToList();
         if (playerIds.Count == 0)
             return;
 
+        // ADR-0069: this query MUST stay tracked (no .AsNoTracking()) —
+        // closuresByPlayerId's update-in-place mechanism below depends on
+        // EF Core's change tracking picking up a mutated EndYear/
+        // AppearanceCount on the SaveChangesAsync call at the end of this
+        // method. GetCareerStintsByPlayerIdsAsync (used to BUILD the
+        // closure plan a caller passes in here) is deliberately AsNoTracking
+        // instead — a separate, freshly-loaded tracked query is exactly why
+        // CareerStintClosure identifies a row by Id rather than
+        // (ClubName, StartYear): only Id can re-locate the same entity here.
         var existingByPlayer = (await dbContext.PlayerCareerStints
                 .Where(s => playerIds.Contains(s.PlayerId))
                 .ToListAsync(cancellationToken))
@@ -115,15 +131,46 @@ public class PlayerCareerStintRepository(XGArcadeDbContext dbContext) : IPlayerC
 
         foreach (var playerId in playerIds)
         {
-            var newStints = newStintsByPlayerId[playerId];
+            var newStints = newStintsByPlayerId.GetValueOrDefault(playerId, []);
             dbContext.PlayerCareerStints.AddRange(newStints);
 
+            var existingRows = existingByPlayer.GetValueOrDefault(playerId, []);
+
+            // ADR-0069 case 2: apply every closure for this player against
+            // the tracked rows above, by Id — the plan may (deliberately,
+            // see ADR-0069's Decision/Consequences) instruct closing MORE
+            // THAN ONE row sharing the same (ClubName, StartYear), e.g. an
+            // outstanding cross-writer duplicate pair
+            // (DuplicateCareerStintCleaner, ADR-0059/ADR-0063) that hasn't
+            // been merged yet — both must be updated identically so the
+            // cleaner can still merge them on its next run. A closure whose
+            // StintId no longer matches any tracked row (e.g. removed by a
+            // different path since the plan was built) is silently skipped
+            // — not expected given this codebase's per-player write cadence
+            // (ADR-0069's Consequences), and not worth failing the whole
+            // batch over.
+            if (closuresByPlayerId.TryGetValue(playerId, out var closures) && closures.Count > 0)
+            {
+                var existingById = existingRows.ToDictionary(s => s.Id);
+                foreach (var closure in closures)
+                {
+                    if (existingById.TryGetValue(closure.StintId, out var row))
+                    {
+                        row.EndYear = closure.EndYear;
+                        row.AppearanceCount = closure.AppearanceCount;
+                    }
+                }
+            }
+
             // ADR-0042/S-079: SequenceOrder is resolved here, across the
-            // player's FULL stint set (existing rows + newStints), not just
-            // the newly-added ones — same chronological re-sequencing rule
-            // as AddCareerStintsAsync's own comment, just applied to every
-            // affected player in this call rather than one at a time.
-            var chronological = existingByPlayer.GetValueOrDefault(playerId, [])
+            // player's FULL stint set (existing rows, including any just
+            // closed above, + newStints), not just the newly-added ones —
+            // same chronological re-sequencing rule as AddCareerStintsAsync's
+            // own comment, just applied to every affected player in this
+            // call rather than one at a time. Runs AFTER the closure loop
+            // above so a row's newly-updated EndYear is what gets re-sorted
+            // on, not its stale pre-closure value.
+            var chronological = existingRows
                 .Concat(newStints)
                 .OrderBy(s => s.StartYear)
                 .ThenBy(s => s.EndYear ?? int.MaxValue)

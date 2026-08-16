@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/backlog.md` (S-129 Built as) — implemented S-129
+  (Epic 10, issue #195): career-stint reconciliation per the already-
+  accepted ADR-0069/REQ-1210 (no redesign — pure implementation). Narrowed
+  the per-stint match key to `(ClubName, StartYear)` in one shared helper
+  (`PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`, extended to
+  also return existing-stints-to-close by row `Id`), now used by all three
+  `PlayerCareerStint` writer paths — `WikidataLookupService
+  .PersistCareerStintsAsync` was refactored off its own inline dedup copy
+  onto this shared logic. `PlayerCareerStintRepository
+  .AddCareerStintsBatchAsync` gained an optional `closuresByPlayerId`
+  parameter (new `CareerStintClosure` record,
+  `XGArcade.Data.Repositories`), applied against its existing tracked
+  (non-`AsNoTracking`) query in the same batch, closing every row sharing a
+  key with `EndYear: null` per the architecture-review-hardened case-2 rule
+  (not just the first), so an outstanding `DuplicateCareerStintCleaner`
+  duplicate pair stays mergeable. No REQ/ADR text changed — both were
+  final going in. Five `REQ1210_`-named tests added to
+  `PlayerCareerStintRefreshServiceTests.cs`, one cross-writer-parity
+  `REQ1210_` test each added to `PlayerCareerPrefetchServiceTests.cs`/
+  `WikidataLookupServiceTests.cs`, plus new repository-level coverage in
+  `PlayerCareerStintRepositoryTests.cs`. `dotnet` was unavailable in the
+  sandbox — tests were hand-traced, not run; not yet verified in CI.
+  REQ-1210, ADR-0069.
+
 - 2026-08-16 — `docs/requirements-document.md` (v1.74), `docs/decisions/0052-...md`,
   `docs/backlog.md`, `NOTES.md` — S-130 (issue #189, Epic 10): investigated
   three angles for guess-time live-lookup speed/UX, confirmed the reported

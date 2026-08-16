@@ -82,6 +82,25 @@ public class WikidataLookupServiceTests
         }
         """;
 
+    // ADR-0069/REQ-1210: same club/StartYear as SingleHenryMatchWithCareerStintJson
+    // above, but no "endTime"/"numberOfMatches" binding at all — an ongoing
+    // stint, used to seed the "stale ongoing row" half of the reconciliation
+    // test below before a later query (SingleHenryMatchWithCareerStintJson)
+    // reports the same real stint has since concluded.
+    private const string SingleHenryMatchWithOngoingCareerStintJson = """
+        {
+          "results": {
+            "bindings": [
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "alias": { "type": "literal", "value": "Titi" },
+                "startTime": { "type": "literal", "value": "2010-08-01T00:00:00Z" }
+              }
+            ]
+          }
+        }
+        """;
+
     // Same shape, no "numberOfMatches" binding (P1350 not present on this
     // statement).
     private const string SingleHenryMatchWithCareerStintNoAppearanceCountJson = """
@@ -671,6 +690,39 @@ public class WikidataLookupServiceTests
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
         Assert.That(stints, Has.Count.EqualTo(1));
+    }
+
+    // ADR-0069/REQ-1210: PersistCareerStintsAsync now goes through the same
+    // shared reconciliation helper (PlayerCareerStintRefreshService.
+    // BuildNewStintsByPlayerId) as the two full-career-fetch writers — this
+    // proves the xG Grid guess-time/generation-time byproduct path applies
+    // the exact same null->non-null EndYear close-in-place behavior, not
+    // just PlayerCareerStintRefreshServiceTests' own coverage of it. See
+    // that test class's REQ1210_ tests for the fuller case-by-case coverage
+    // (duplicate-pair closing, the ambiguous-conflict case, idempotent
+    // re-fetch, genuinely-new-stint insertion) — this one test confirms
+    // this writer path is wired to the same shared logic, per REQ-1210's
+    // "uniform across all three writer paths" criterion.
+    [Test]
+    public async Task REQ1210_LookupAndPersistAsync_ExistingOngoingStintFetchedWithEndDate_UpdatesRowInPlace_NotDuplicated()
+    {
+        var ongoingService = BuildService(SingleHenryMatchWithOngoingCareerStintJson);
+        await ongoingService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var stintBeforeClose = await _dbContext.PlayerCareerStints.SingleAsync(s => s.PlayerId == player.Id);
+        Assert.That(stintBeforeClose.EndYear, Is.Null, "the first lookup must persist an ongoing (EndYear: null) stint");
+
+        // Same club (Arsenal), same StartYear (2010) — Wikidata now reports
+        // an end date and appearance count where it previously reported none.
+        var closingService = BuildService(SingleHenryMatchWithCareerStintJson);
+        await closingService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
+        Assert.That(stints, Has.Count.EqualTo(1),
+            "the stale ongoing row must be updated in place, not left alongside a duplicate new row");
+        Assert.That(stints[0].EndYear, Is.EqualTo(2015));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(100));
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,

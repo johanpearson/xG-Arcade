@@ -139,6 +139,38 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(rowCount, Is.EqualTo(1), "an already-known player must be reused, never duplicated");
     }
 
+    // ADR-0069/REQ-1210: PlayerCareerPrefetchService shares
+    // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId's
+    // reconciliation logic (same as its existing canonicalization
+    // coverage above) — this proves the proactive prefetch job applies the
+    // exact same null->non-null EndYear close-in-place behavior as the
+    // other two writer paths. See PlayerCareerStintRefreshServiceTests'
+    // REQ1210_ tests for the fuller case-by-case coverage (duplicate-pair
+    // closing, the ambiguous-conflict case, idempotent re-fetch,
+    // genuinely-new-stint insertion) — this one test confirms this writer
+    // path is wired to the same shared logic, per REQ-1210's "uniform
+    // across all three writer paths" criterion.
+    [Test]
+    public async Task REQ1210_PrefetchAsync_ExistingOngoingStintFetchedWithEndDate_UpdatesRowInPlace_NotDuplicated()
+    {
+        await SeedCountryAsync("France", "Q142");
+        var existingPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+        await _playerCareerStintRepository.AddCareerStintsAsync(existingPlayer.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = existingPlayer.Id, ClubName = "Huesca", StartYear = 2019, EndYear = null, AppearanceCount = 40 }]);
+
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Huesca", 2019, 2022, 55));
+
+        await BuildService().PrefetchAsync();
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(existingPlayer.Id);
+        Assert.That(stints, Has.Count.EqualTo(1),
+            "the stale ongoing row must be updated in place, not left alongside a duplicate new row");
+        Assert.That(stints[0].EndYear, Is.EqualTo(2022));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(55));
+    }
+
     [Test]
     public async Task PrefetchAsync_CountryWithNoQid_IsSkipped_NeverQueried()
     {
