@@ -21,10 +21,17 @@ export interface LiveLeaderboardProps {
   gameKey: GameKey;
   onAuthError: () => void;
   // Whether "Current Round" is the currently selected scope tab. This
-  // component is always mounted alongside the other three scopes (see
-  // LeaderboardScreen.tsx) so its own state survives a switch away and
-  // back — `active` (rather than unmount/remount) is what drives the
-  // "fetch on entry, refetch on every re-entry" effect below.
+  // component is kept always-mounted alongside the other three scopes (see
+  // LeaderboardScreen.tsx) purely for consistency with them and with the
+  // orchestrator's uniform `active`-prop pattern — not because this
+  // component's own state needs to survive a tab switch: unlike
+  // PastRoundsLeaderboard's `selectedRound`/`pastDetailState` or
+  // WindowedLeaderboard's `windowResolution`, `liveState` here always
+  // resets to `{ phase: 'loading' }` and refetches on every genuine
+  // re-entry (`isEnteringLive` below), so nothing from a previous visit is
+  // ever actually preserved or shown again. `active` (rather than
+  // unmount/remount) is what drives the "fetch on entry, refetch on every
+  // re-entry" effect below.
   active: boolean;
 }
 
