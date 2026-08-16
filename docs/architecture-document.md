@@ -328,7 +328,7 @@ Country × Club, Club × Club, or a Trophy-involving pairing (Country ×
 Trophy, Club × Trophy, or Trophy × Trophy) — never Country × Country
 (REQ-107). Which of the (up to five) allowed pairings a given instance
 uses is chosen once per `GenerateInstanceAsync` call
-(`GridGameModule.SelectPairing`) — uniformly at random among whichever the
+(`GridGenerationService.SelectPairing`) — uniformly at random among whichever the
 seeded reference data can support, deterministically falling back to
 whichever subset is feasible otherwise. REQ-107's Country×Country ban is
 enforced by `CategoryPairingRules.IsAllowedPairing`, checked once per
@@ -839,16 +839,17 @@ when present, else `PlayerData`, in exactly one place (ADR-0015).
 
 `XGArcade.Api.Admin.AdminEndpoints`, behind the "Admin" authorization
 policy (§7), is the admin-facing surface, reached only through
-`IPlayerStoreRepository` (COMP-06) — no separate data-access path.
-`POST/GET/PUT/DELETE /admin/player-overrides[/{id}]` creates and manages
-`PlayerOverride` rows, REQ-501's correction path. `GET
-/admin/player-data/unverified` lists any remaining unverified backlog.
-`POST /admin/player-data/approve` flips one or more `PlayerData` ids to
-`verified` (`PlayerStoreRepository.ApprovePlayerDataAsync`); audit fields
+`IPlayerDataRepository`/`IPlayerOverrideRepository` (COMP-06, ADR-0067) —
+no separate data-access path. `POST/GET/PUT/DELETE
+/admin/player-overrides[/{id}]` creates and manages `PlayerOverride` rows,
+REQ-501's correction path. `GET /admin/player-data/unverified` lists any
+remaining unverified backlog. `POST /admin/player-data/approve` flips one
+or more `PlayerData` ids to `verified`
+(`PlayerDataRepository.ApprovePlayerDataAsync`); audit fields
 (`PlayerData.ApprovedByAdminId`/`ApprovedAt`) mirror `PlayerOverride`'s
 `LockedByAdminId`/`LockedAt` shape rather than a separate audit-log table.
 `POST /admin/player-data/remove` hard-deletes one or more `PlayerData` ids
-(`PlayerStoreRepository.RemovePlayerDataAsync`) regardless of `Confidence`;
+(`PlayerDataRepository.RemovePlayerDataAsync`) regardless of `Confidence`;
 since the row is gone rather than mutated, REQ-503's "the action is logged
 with admin_id and a timestamp" requirement is satisfied by a structured
 `ILogger` line per removed row instead of an audit column. Approve,

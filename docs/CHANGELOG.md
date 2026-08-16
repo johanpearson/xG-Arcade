@@ -51,7 +51,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   explicitly). Frontmatter `version`/`last_updated` bumped on both files;
   `architecture-document.md`'s in-body "Version 0.98 · 2026-08-11" line
   (already back in sync with frontmatter since S-116 fixed a prior drift)
-  bumped to match, 0.99 · 2026-08-16.
+  bumped to match, 0.99 · 2026-08-16. Quality-gate review (`architecture-reviewer`
+  and `quality-architect`, independently) caught two pre-existing stale
+  identifiers carried forward unexamined into the rewritten §6.1/§6.3 prose
+  — `GridGameModule.SelectPairing` (actually `GridGenerationService
+  .SelectPairing`, per §5's own COMP-05 row) and `IPlayerStoreRepository`/
+  `PlayerStoreRepository.Approve/RemovePlayerDataAsync` (that repository no
+  longer exists post-ADR-0067; the correct names are
+  `IPlayerDataRepository`/`PlayerDataRepository.Approve/RemovePlayerDataAsync`,
+  per §5's own COMP-06 row) — both verified against the actual backend code
+  and corrected in the same commit. Two further pre-existing issues found
+  during review are explicitly out of this story's scope and left for a
+  follow-up: §6.2c cites ADR-0052 where it should cite ADR-0053 for
+  player-suggestion admin views, and §6.10 still names the pre-split
+  `XGArcade.Testing`/COMP-09 rather than `Testing.SeedManager`; neither line
+  was touched by this diff.
 
 - 2026-08-16 — no docs changed beyond this entry — S-122 (`docs/backlog.md`
   Epic 9): added direct repository-level tests to
