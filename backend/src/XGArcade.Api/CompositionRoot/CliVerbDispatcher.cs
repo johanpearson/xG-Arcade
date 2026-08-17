@@ -243,9 +243,10 @@ public static class CliVerbDispatcher
     // REQ-214 backfill (S-045): `dotnet run -- backfill-player-photos` is a
     // sixth distinct CLI verb — same shape as warm-player-cache above (builds
     // its dependencies directly rather than the full DI container, since it
-    // runs before WebApplication.CreateBuilder), run manually via its own
-    // workflow (backfill-player-photos.yml, workflow_dispatch only). See
-    // PlayerPhotoBackfillService's own doc comment for the full "why a CLI
+    // runs before WebApplication.CreateBuilder), run manually via
+    // `dotnet run -- backfill-player-photos` (its one-off workflow wrapper,
+    // backfill-player-photos.yml, was deleted in S-132; the verb is unchanged).
+    // See PlayerPhotoBackfillService's own doc comment for the full "why a CLI
     // verb, not an HTTP endpoint or background task" reasoning — squarely
     // inside ADR-0024's existing decision, not a new one.
     private static async Task<bool> HandleBackfillPlayerPhotosAsync(string[] args)
@@ -278,11 +279,13 @@ public static class CliVerbDispatcher
     // REQ-1207 backfill (bug-bundle fix, 2026-08-02): `dotnet run --
     // backfill-player-position-birthyear` — same shape as backfill-player-photos
     // above (builds its dependencies directly rather than the full DI
-    // container), run manually via its own workflow
-    // (backfill-player-position-birthyear.yml, workflow_dispatch only). See
-    // PlayerPositionBirthYearBackfillService's own doc comment for the full "why
-    // a CLI verb, not an HTTP endpoint or background task" reasoning — squarely
-    // inside ADR-0024's existing decision, not a new one.
+    // container), run manually via
+    // `dotnet run -- backfill-player-position-birthyear` (its one-off workflow
+    // wrapper, backfill-player-position-birthyear.yml, was deleted in S-132;
+    // the verb is unchanged). See PlayerPositionBirthYearBackfillService's own
+    // doc comment for the full "why a CLI verb, not an HTTP endpoint or
+    // background task" reasoning — squarely inside ADR-0024's existing
+    // decision, not a new one.
     private static async Task<bool> HandleBackfillPlayerPositionBirthYearAsync(string[] args)
     {
         if (args.Length != 1)
@@ -415,9 +418,10 @@ public static class CliVerbDispatcher
 
     // `dotnet run -- audit-club-gaps` — a one-off, read-only diagnostic (no
     // REQ/ADR; see ClubGapAuditService's own doc comment for why) to help scope
-    // a future seed-list widening decision, run via its own workflow
-    // (audit-club-gaps.yml, workflow_dispatch only, no schedule). Same shape as
-    // verify-wikidata-player-data above (builds its dependencies directly
+    // a future seed-list widening decision, run manually via
+    // `dotnet run -- audit-club-gaps` (its one-off workflow wrapper,
+    // audit-club-gaps.yml, was deleted in S-132; the verb is unchanged). Same
+    // shape as verify-wikidata-player-data above (builds its dependencies directly
     // rather than the full DI container, since it runs before
     // WebApplication.CreateBuilder ever runs) but needs an ILoggerFactory too,
     // since ClubGapAuditService logs its ranked candidate list via ILogger
