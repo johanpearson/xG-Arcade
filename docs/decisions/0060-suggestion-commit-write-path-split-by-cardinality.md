@@ -157,6 +157,77 @@ server-side validation stay in sync, same as before this fix.
 REQ-509/REQ-510's "a reason recorded" acceptance criterion is updated
 alongside this note to say so explicitly, scoped to the nationality path.
 
+## Status note (2026-08-17, S-129, backend half only)
+
+This decision's write path (nationality → `PlayerOverride`, club(s) →
+additive `PlayerAttribute`) is unchanged by this note — nothing here
+reopens or contradicts the §Decision above. What changed is what
+`CommitPlayerDataAsync`'s caller-facing `CommitPlayerDataResponse` reports
+back about that write.
+
+Before this story, `CommitPlayerDataResponse` echoed back the admin's own
+confirmed `Nationality`/`Clubs` values — the exact list `CommitPlayerDataAsync`
+computed as `confirmedClubs`, not necessarily identical to what was
+requested, but still just "what ended up confirmed." That shape could not
+distinguish a genuine write from a no-op: if every asserted club was
+already an effective `PlayerAttribute` for that player (this ADR's own
+`HasEffectiveAttributeAsync` skip path, §Decision above), the response
+looked identical to a request where every club was newly written. Product
+feedback (this story's own framing) was explicit: an admin needs to be
+"100% sure a row was actually added to the DB," not just told back what
+they asked for.
+
+`CommitPlayerDataResponse` now reports the actually-changed facts
+`CommitPlayerDataAsync` already computes internally but previously
+discarded: `PlayerCreated` (true only if this `WikidataQid` had no
+existing `Player` row before this call), `NationalityWritten` (true only
+when the nationality branch actually ran — i.e. `request.Nationality` was
+non-blank, so a `PlayerOverride` insert-or-update happened), and
+`ClubsAdded`/`ClubsAlreadyEffective` — the same `alreadyEffective` check
+this ADR's §Decision already routes through `HasEffectiveAttributeAsync`,
+now surfaced as a partition instead of thrown away.
+
+**Correction (same day, quality-gate finding):** the first version of
+`PlayerCreated` was computed via a separate `GetPlayerByWikidataQidAsync`
+pre-read before the existing `GetOrCreatePlayersByWikidataQidAsync`
+upsert — non-atomic, and racy against exactly the kind of concurrent
+caller this codebase already has for the same `WikidataQid` (REQ-211's
+guess-time live-lookup fallback via `WikidataLookupService`,
+`PlayerCareerPrefetchService`'s own batch sweep, or a second admin
+commit): two concurrent first-ever inserts could both read "no existing
+player" before either committed, so the loser would report
+`PlayerCreated = true` for a request that actually wrote nothing. Worse,
+`GetOrCreatePlayersByWikidataQidAsync` itself had no
+`DbUpdateException`/unique-violation handling at all — unlike this
+codebase's other get-or-create paths (`LeagueRepository
+.GetOrCreateGlobalLeagueAsync`, `PathInstanceRepository
+.GetOrCreateCycleStateAsync`) — so the losing concurrent insert against
+`Player.WikidataQid`'s filtered unique index would throw a raw
+`DbUpdateException`/500 instead of resolving to the winner.
+
+Fixed by bringing `GetOrCreatePlayersByWikidataQidAsync` in line with that
+same precedent: it now catches the unique-violation `DbUpdateException`,
+detaches the losing insert(s), and re-fetches the winner, and its return
+type changed from `IReadOnlyDictionary<string, Player>` to
+`IReadOnlyDictionary<string, PlayerCreationResult>` (`PlayerCreationResult
+(Player Player, bool WasCreated)`) so `WasCreated` is computed atomically
+at the point of insert — including inside the new race-recovery path —
+rather than via any separate read. `CommitPlayerDataAsync` now reads
+`PlayerCreated` directly off that signal; the standalone pre-read is gone.
+Existing high-volume callers (`WikidataLookupService`,
+`PlayerCareerPrefetchService`) were updated to unwrap `.Player` where they
+read the dictionary's values — their own behavior is otherwise unchanged.
+
+No `ValidateCommitRequest` behavior, no write-path routing, and no
+existing `PlayerOverride`/`PlayerAttribute` write changed — only what the
+HTTP response communicates about writes that already happened exactly as
+this ADR describes. Both `/admin/suggestions/{id}/commit` and
+`/admin/player-search/commit` share the updated shape, same as they always
+shared `CommitPlayerDataAsync` itself. Frontend consumption of the new
+fields (`SuggestionsScreen.tsx` currently shows no confirmation message at
+all on the main approval flow) is an explicit follow-up, not part of this
+story.
+
 ## For AI agents
 
 If code you are about to write would contradict this decision, stop and

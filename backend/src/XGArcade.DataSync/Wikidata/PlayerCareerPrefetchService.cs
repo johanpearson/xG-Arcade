@@ -216,7 +216,7 @@ public class PlayerCareerPrefetchService(
         if (stintsByQid.Count == 0)
             return (playersByQid.Count, 0, false);
 
-        var qidToPlayerId = playersByQid.ToDictionary(kv => kv.Key, kv => kv.Value.Id);
+        var qidToPlayerId = playersByQid.ToDictionary(kv => kv.Key, kv => kv.Value.Player.Id);
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 

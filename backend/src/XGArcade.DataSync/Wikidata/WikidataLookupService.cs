@@ -255,7 +255,7 @@ public class WikidataLookupService(
             .ToHashSet();
 
         var existingAliasesByPlayerId = await playerAliasRepository.GetPlayerAliasesByPlayerIdsAsync(
-            playersByQid.Values.Select(p => p.Id).ToList(), cancellationToken);
+            playersByQid.Values.Select(r => r.Player.Id).ToList(), cancellationToken);
 
         var persisted = new List<Player>(matches.Count);
         var playerDataToAdd = new List<PlayerData>();
@@ -266,7 +266,7 @@ public class WikidataLookupService(
 
         foreach (var match in matches)
         {
-            var player = playersByQid[match.WikidataQid];
+            var player = playersByQid[match.WikidataQid].Player;
             persisted.Add(player);
 
             QueueAttribute(player.Id, attributeTypeA, attributeValueA, playerIdsWithAttributeA, confidence, syncedAt, playerDataToAdd, attributesToAdd);

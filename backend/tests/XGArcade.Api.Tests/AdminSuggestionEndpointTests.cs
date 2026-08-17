@@ -287,8 +287,11 @@ public class AdminSuggestionEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
         Assert.That(body, Is.Not.Null);
-        Assert.That(body!.Nationality, Is.EqualTo("Netherlands"));
-        Assert.That(body.Clubs, Is.EquivalentTo(new[] { "AC Milan" }));
+        Assert.That(body!.PlayerCreated, Is.True, "REQ509/S-129: no Player row existed for this WikidataQid before this commit");
+        Assert.That(body.Nationality, Is.EqualTo("Netherlands"));
+        Assert.That(body.NationalityWritten, Is.True);
+        Assert.That(body.ClubsAdded, Is.EquivalentTo(new[] { "AC Milan" }));
+        Assert.That(body.ClubsAlreadyEffective, Is.Empty);
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -352,6 +355,10 @@ public class AdminSuggestionEndpointTests
             $"/admin/suggestions/{suggestionId}/commit",
             new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", ["AC Milan", "Real Madrid"], "Confirmed via live Wikidata lookup"));
         Assert.That(firstResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var firstBody = await firstResponse.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
+        Assert.That(firstBody!.PlayerCreated, Is.True);
+        Assert.That(firstBody.ClubsAdded, Is.EquivalentTo(new[] { "AC Milan", "Real Madrid" }));
+        Assert.That(firstBody.ClubsAlreadyEffective, Is.Empty);
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -375,6 +382,11 @@ public class AdminSuggestionEndpointTests
             "/admin/player-search/commit",
             new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", null, ["AC Milan", "Inter Milan"], "Adding one more confirmed club"));
         Assert.That(secondResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var secondBody = await secondResponse.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
+        Assert.That(secondBody!.PlayerCreated, Is.False, "REQ509/S-129: this WikidataQid already had a Player row from the first commit");
+        Assert.That(secondBody.ClubsAdded, Is.EquivalentTo(new[] { "Inter Milan" }), "only the genuinely new club is reported as added");
+        Assert.That(secondBody.ClubsAlreadyEffective, Is.EquivalentTo(new[] { "AC Milan" }), "the already-effective club is reported separately, not silently folded into ClubsAdded");
+        Assert.That(secondBody.NationalityWritten, Is.False, "no nationality was supplied on this commit");
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -423,6 +435,9 @@ public class AdminSuggestionEndpointTests
             "/admin/player-search/commit",
             new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Suriname", [], "Corrected nationality"));
         Assert.That(secondResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var secondBody = await secondResponse.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
+        Assert.That(secondBody!.NationalityWritten, Is.True, "REQ509/S-129: the update branch still writes the override, and must be reported as such");
+        Assert.That(secondBody.PlayerCreated, Is.False, "the Player row already existed from the first commit");
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -486,7 +501,9 @@ public class AdminSuggestionEndpointTests
         var body = await response.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Nationality, Is.Null);
-        Assert.That(body.Clubs, Is.EquivalentTo(new[] { "AC Milan" }));
+        Assert.That(body.NationalityWritten, Is.False, "no nationality was supplied, so no PlayerOverride write should be reported");
+        Assert.That(body.ClubsAdded, Is.EquivalentTo(new[] { "AC Milan" }));
+        Assert.That(body.ClubsAlreadyEffective, Is.Empty);
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -494,6 +511,50 @@ public class AdminSuggestionEndpointTests
         Assert.That(await dbContext.PlayerOverrides.AnyAsync(o => o.PlayerId == player.Id), Is.False,
             "a clubs-only commit must never write a PlayerOverride row");
         Assert.That(await dbContext.PlayerAttributes.AnyAsync(a => a.PlayerId == player.Id && a.AttributeType == "club" && a.AttributeValue == "AC Milan"), Is.True);
+    }
+
+    // S-129: a genuine full no-op — the player, nationality override, and
+    // club attribute all already exist exactly as re-asserted — must be
+    // unambiguous in the response: PlayerCreated=false, NationalityWritten=
+    // false (nationality omitted here; ADR-0060 doesn't compare/upsert a
+    // matching value, so a resubmission of the SAME nationality would still
+    // hit the update branch and report NationalityWritten=true — that's
+    // still an accurate "yes, a write happened," just not a value CHANGE),
+    // and ClubsAdded empty with the club instead in ClubsAlreadyEffective.
+    // This is exactly the shape the product gap in this story's own
+    // description called out: previously indistinguishable from a real write.
+    [Test]
+    public async Task REQ509_Commit_ReportsUnambiguousNoOp_WhenPlayerExistsAndAllClubsAlreadyEffectiveAndNoNationalitySupplied()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var firstSuggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+
+        var firstResponse = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{firstSuggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", ["AC Milan"], "Confirmed"));
+        Assert.That(firstResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        // Second, independent commit for the SAME player/club, no nationality
+        // this time — nothing left to write.
+        var secondResponse = await client.PostAsJsonAsync(
+            "/admin/player-search/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", null, ["AC Milan"], ""));
+
+        Assert.That(secondResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await secondResponse.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.PlayerCreated, Is.False, "the Player row already existed from the first commit");
+        Assert.That(body.NationalityWritten, Is.False, "no nationality was supplied on this commit");
+        Assert.That(body.ClubsAdded, Is.Empty, "no new PlayerAttribute row was written — the club was already effective");
+        Assert.That(body.ClubsAlreadyEffective, Is.EquivalentTo(new[] { "AC Milan" }),
+            "the already-effective club must still be reported, just not as newly added — this is what makes the no-op unambiguous rather than silent");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var player = await dbContext.Players.SingleAsync(p => p.WikidataQid == "Q188207");
+        Assert.That(await dbContext.PlayerAttributes.CountAsync(a => a.PlayerId == player.Id && a.AttributeType == "club"), Is.EqualTo(1),
+            "confirms no duplicate PlayerAttribute row was written by the no-op commit");
     }
 
     // ---- REQ-509: reject ------------------------------------------------
@@ -711,7 +772,11 @@ public class AdminSuggestionEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
         Assert.That(body, Is.Not.Null);
-        Assert.That(body!.Nationality, Is.EqualTo("France"));
+        Assert.That(body!.PlayerCreated, Is.True, "REQ510/S-129: this WikidataQid is being seen for the first time");
+        Assert.That(body.Nationality, Is.EqualTo("France"));
+        Assert.That(body.NationalityWritten, Is.True);
+        Assert.That(body.ClubsAdded, Is.EquivalentTo(new[] { "Arsenal" }));
+        Assert.That(body.ClubsAlreadyEffective, Is.Empty);
 
         using var scope2 = _factory.Services.CreateScope();
         var dbContext2 = scope2.ServiceProvider.GetRequiredService<XGArcadeDbContext>();

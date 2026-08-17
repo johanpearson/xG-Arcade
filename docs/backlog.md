@@ -5681,3 +5681,56 @@ guess-scoring narrative notes the fallback is now conditional.
 *Deps:* ADR-0018, ADR-0046 (both describe the fallback this flag gates,
 neither is superseded), REQ-509/510 (remediation path while testing with
 the flag off).
+
+**S-129 · `CommitPlayerDataResponse` reports what actually changed, not just what was requested (backend half)**
+The product owner wants to be certain, after approving a suggestion, that
+a row was actually added to the DB — not just shown their own confirmed
+values echoed back, which was indistinguishable from a no-op (e.g. every
+asserted club already an effective `PlayerAttribute`). On the frontend,
+`SuggestionsScreen.tsx`'s main approval flow (`PendingSuggestionRow`/
+`handleRowDone`) currently shows no confirmation at all on commit, making
+the gap worse than it sounds. `CommitPlayerDataResponse` redesigned to
+`(Guid PlayerId, bool PlayerCreated, string? Nationality, bool
+NationalityWritten, IReadOnlyList<string> ClubsAdded, IReadOnlyList<string>
+ClubsAlreadyEffective)` — `CommitPlayerDataAsync` (`AdminSuggestionEndpoints.cs`)
+already computed all of this internally and previously discarded it.
+**Quality-gate correction (same day):** `PlayerCreated` was first computed
+via a separate `GetPlayerByWikidataQidAsync` pre-read before
+`GetOrCreatePlayersByWikidataQidAsync`'s own upsert — a real race against
+concurrent callers of the same batched method (REQ-211's guess-time
+fallback, `PlayerCareerPrefetchService`'s sweep, a second admin commit),
+and `GetOrCreatePlayersByWikidataQidAsync` itself had no
+`DbUpdateException`/unique-violation handling at all, unlike this
+codebase's other get-or-create paths. Fixed by bringing
+`GetOrCreatePlayersByWikidataQidAsync` in line with
+`LeagueRepository.GetOrCreateGlobalLeagueAsync`/`PathInstanceRepository
+.GetOrCreateCycleStateAsync`'s existing catch-detach-refetch precedent, and
+changing its return type to `IReadOnlyDictionary<string,
+PlayerCreationResult>` (`PlayerCreationResult(Player Player, bool
+WasCreated)`) so `WasCreated` is computed atomically at the point of
+insert — `CommitPlayerDataAsync` now reads `PlayerCreated` off that signal
+directly, no separate pre-read. No `ValidateCommitRequest` behavior and no
+write-path routing (ADR-0060) changed — only what the response reports
+about writes that already happened.
+*Accept:* both `/admin/suggestions/{id}/commit` and
+`/admin/player-search/commit` return the new shape;
+`AdminSuggestionEndpointTests.cs` updated for the new field names plus new
+cases — brand-new player (`PlayerCreated=true`), a repeat commit with an
+already-effective club (`ClubsAlreadyEffective`, not `ClubsAdded`,
+`PlayerCreated=false`), a nationality-only commit against an existing
+override (`NationalityWritten=true` via the update branch), and a genuine
+full no-op (`PlayerCreated=false`, `NationalityWritten=false`,
+`ClubsAdded=[]` together, unambiguous); ADR-0060 gets a 2026-08-17 status
+note explaining the response-shape change without reopening the write-path
+decision; REQ-509/REQ-510 get a status note that their acceptance criteria
+were silent on response shape. `PlayerRepositoryTests.cs` updated for the
+new `PlayerCreationResult` shape plus `WasCreated` assertions on every
+existing case; the `DbUpdateException`/re-fetch-winner branch itself is
+documented as untestable against the InMemory provider (same precedent as
+`UserRepositoryTests.cs`'s identical note on `UserRepository.AddAsync`),
+not manually verified against real Postgres in this sandbox (no Docker
+daemon available) — flagged for verification before treated as fully
+confirmed. Frontend consumption (making `SuggestionsScreen.tsx` actually
+display the new fields) is an explicit follow-up story, not part of this
+one.
+*Deps:* ADR-0060, REQ-509/510 (S-090).

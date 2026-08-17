@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0060-suggestion-commit-write-path-split-by-cardinality.md`,
+  `docs/requirements-document.md` (v1.75) — S-129 (backend half):
+  `CommitPlayerDataResponse` (`AdminSuggestionEndpoints.cs`) redesigned to
+  report what actually changed rather than echoing back the admin's
+  confirmed input — `PlayerCreated`, `NationalityWritten`, and
+  `ClubsAdded`/`ClubsAlreadyEffective` replace the old `Nationality`/`Clubs`-only
+  shape, so a genuine no-op commit (e.g. every asserted club already
+  effective) is no longer indistinguishable from a real write. No
+  write-path/validation behavior changed (ADR-0060's decision stands, new
+  status note added). `AdminSuggestionEndpointTests.cs` updated for the new
+  shape plus new no-op/already-effective/update-branch cases. Frontend
+  consumption is an explicit follow-up story. REQ-509/REQ-510.
+  **Quality-gate correction, same day:** `PlayerCreated` was initially
+  computed via a separate, non-atomic pre-read
+  (`IPlayerRepository.GetPlayerByWikidataQidAsync`) before
+  `GetOrCreatePlayersByWikidataQidAsync`'s own upsert — racy against
+  concurrent callers of that shared batched method (REQ-211's guess-time
+  fallback, `PlayerCareerPrefetchService`), and that method itself had no
+  `DbUpdateException`/unique-violation handling at all, unlike this
+  codebase's other get-or-create paths. `PlayerRepository
+  .GetOrCreatePlayersByWikidataQidAsync` now catches the unique-violation
+  on `IX_Players_WikidataQid` and detaches/re-fetches the winner (same
+  precedent as `LeagueRepository.GetOrCreateGlobalLeagueAsync`/
+  `PathInstanceRepository.GetOrCreateCycleStateAsync`), and its return type
+  changed to `IReadOnlyDictionary<string, PlayerCreationResult>`
+  (`PlayerCreationResult(Player Player, bool WasCreated)`, new in
+  `IPlayerRepository.cs`) so `WasCreated` is computed atomically at the
+  insert point. `WikidataLookupService`/`PlayerCareerPrefetchService`
+  updated to unwrap `.Player`; `CommitPlayerDataAsync` reads
+  `PlayerCreated` off the new signal directly, pre-read removed.
+  `PlayerRepositoryTests.cs` updated accordingly.
 - 2026-08-17 — `docs/backlog.md`, `docs/decisions/0070-grid-live-lookup-flag.md`
   (new), `docs/requirements-document.md` (v1.74), `docs/architecture-document.md`
   (v1.01) — S-128: feature-flagged REQ-211's guess-time live-lookup fallback

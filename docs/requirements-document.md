@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.74"
+version: "1.75"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -4577,6 +4577,32 @@ reject path writes nothing; both actions are Admin-policy-gated and
 logged), Integration (Wikidata query mocked, matching the existing pattern
 in `WikidataClientTests.cs`; a query timeout is distinguished from a
 genuine no-match, not conflated), UI (admin)
+
+- **Status note (2026-08-17, S-129, backend half only):** neither this
+  REQ's acceptance criteria above nor REQ-510's said anything about what
+  the commit response itself communicates back to the admin — both were
+  silent on response shape, only specifying what gets written server-side.
+  In practice this let `CommitPlayerDataResponse` merely echo back the
+  admin's confirmed input regardless of whether a write actually happened
+  (e.g. every asserted club already effective for that player, so nothing
+  was written), which was indistinguishable from a genuine write in the
+  response shape — and `SuggestionsScreen.tsx`'s main approval flow
+  (`PendingSuggestionRow`) showed no confirmation at all on commit.
+  `CommitPlayerDataAsync`/`CommitPlayerDataResponse` (`AdminSuggestionEndpoints.cs`)
+  now report what was actually written: `PlayerCreated` (a new `Player` row
+  vs. an existing one reused for that `WikidataQid`), `NationalityWritten`
+  (a `PlayerOverride` insert/update actually happened), and `ClubsAdded`
+  vs. `ClubsAlreadyEffective` (a partition of the confirmed clubs by
+  whether each got a new `PlayerAttribute` row or was already effective
+  and skipped). No write-path behavior changed — see ADR-0060's 2026-08-17
+  status note for the full reasoning. This REQ's own acceptance criteria
+  above are left as written (they describe the write, which is unchanged);
+  a future REQ update should fold "the response confirms what was written"
+  into this REQ's Given/When/Then text if the frontend half (planned as a
+  follow-up story) makes it a first-class UI requirement rather than
+  purely a response-shape implementation detail. The identical note applies
+  to REQ-510, which shares the same `CommitPlayerDataAsync`/
+  `CommitPlayerDataResponse`, not duplicated in that REQ's own section.
 
 **REQ-510 – Admin manual Wikidata search-and-add (independent of a
 suggestion)**
