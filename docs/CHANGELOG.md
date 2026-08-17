@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0070-grid-live-lookup-flag.md`
+  (new), `docs/requirements-document.md` (v1.74), `docs/architecture-document.md`
+  (v1.01) — S-128: feature-flagged REQ-211's guess-time live-lookup fallback
+  (`GridGameModule.ScoreSubmissionAsync`) behind new `GridLiveLookupOptions
+  .Enabled` (default `true`, config key `GridLiveLookup:Enabled`/env var
+  `GridLiveLookup__Enabled`, same override convention as
+  `RoundScheduling:RoundDurationHours`) — an operational toggle, not a
+  removal, so the product owner can test whether S-127's proactively-built
+  cache is complete enough on its own, with an instant way back if correct
+  guesses start getting wrongly rejected again. Checked immediately before
+  the existing `PlayerNameIndex` gate; when disabled, neither
+  `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` nor
+  `IGridLiveLookupDispatcher.TryRefreshCellAsync` is ever called, and the
+  guess fails closed exactly as it would have before REQ-211 existed.
+  REQ-103's grid-generation-time live lookup is a separate call path through
+  the same shared dispatcher and is deliberately unaffected. ADR-0070
+  records the "flag, not outright removal" reasoning; REQ-211 and
+  ADR-0018/ADR-0046 got status notes, not supersessions — the fallback
+  still exists in full. `GridGameModuleTests` gained
+  `CallCountingPlayerNameIndexRepository`/`CallCountingGridLiveLookupDispatcher`
+  spies (same pattern as `GridNameMatcherTests`'s existing call-counting
+  repositories) to assert neither dependency is reached when the flag is
+  off.
 - 2026-08-17 — `docs/backlog.md`, `docs/decisions/0069-club-scoped-player-career-prefetch.md`
   (new), `docs/requirements-document.md` (v1.73), `docs/architecture-document.md`
   (v1.00) — S-127: widened `PlayerCareerPrefetchService` to also sweep

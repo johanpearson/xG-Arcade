@@ -69,9 +69,22 @@ public class GridGameModuleTests
     // BuildModule exposed now lives on GridGenerationServiceTests'/
     // GridNameMatcherTests'/GridLiveLookupDispatcherTests' own BuildXxx
     // helpers, since every test that needed it moved there.
-    private GridGameModule BuildModule(int minValidAnswers, int maxAttempts)
+    //
+    // liveLookupOptions/playerNameIndexRepositoryOverride/
+    // liveLookupDispatcherOverride (ADR-0070/S-128): optional so every
+    // existing call site above — which doesn't pass them — keeps exercising
+    // the real IPlayerNameIndexRepository/GridLiveLookupDispatcher wired to
+    // the enabled-by-default GridLiveLookupOptions, unchanged. Only the
+    // REQ211/S-128 "flag disabled" tests below need to substitute a
+    // call-counting spy for either dependency, or a non-default
+    // GridLiveLookupOptions.
+    private GridGameModule BuildModule(
+        int minValidAnswers, int maxAttempts,
+        GridLiveLookupOptions? liveLookupOptions = null,
+        IPlayerNameIndexRepository? playerNameIndexRepositoryOverride = null,
+        IGridLiveLookupDispatcher? liveLookupDispatcherOverride = null)
     {
-        var dispatcher = new GridLiveLookupDispatcher(
+        var dispatcher = liveLookupDispatcherOverride ?? new GridLiveLookupDispatcher(
             _categoryValueRepository, _wikidataLookupService, _playerDataQualityRepository, NullLogger<GridLiveLookupDispatcher>.Instance);
         var generationService = new GridGenerationService(
             _gridInstanceRepository, _categoryValueRepository, _playerAttributeRepository, dispatcher,
@@ -82,8 +95,57 @@ public class GridGameModuleTests
             NullLogger<GridNameMatcher>.Instance, new FakeWikidataClient());
 
         return new GridGameModule(
-            _gridInstanceRepository, _playerNameIndexRepository, generationService, nameMatcher, dispatcher,
-            NullLogger<GridGameModule>.Instance);
+            _gridInstanceRepository, playerNameIndexRepositoryOverride ?? _playerNameIndexRepository, generationService, nameMatcher, dispatcher,
+            liveLookupOptions ?? new GridLiveLookupOptions(), NullLogger<GridGameModule>.Instance);
+    }
+
+    // ADR-0070/S-128: wraps a real IPlayerNameIndexRepository, counting calls
+    // to ExistsByNormalizedNameAsync only — the one method REQ-211's
+    // guess-time gate calls, and the one a disabled GridLiveLookupOptions
+    // flag must never reach. Same "spy wraps the real thing" shape as
+    // GridNameMatcherTests.cs's CallCountingPlayerAliasRepository/
+    // CallCountingPlayerAttributeRepository.
+    private sealed class CallCountingPlayerNameIndexRepository(IPlayerNameIndexRepository inner) : IPlayerNameIndexRepository
+    {
+        public int ExistsByNormalizedNameAsyncCallCount { get; private set; }
+
+        public Task<IReadOnlyList<PlayerNameIndex>> SearchByPrefixAsync(
+            string normalizedQuery, int limit, CancellationToken cancellationToken = default) =>
+            inner.SearchByPrefixAsync(normalizedQuery, limit, cancellationToken);
+
+        public Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default)
+        {
+            ExistsByNormalizedNameAsyncCallCount++;
+            return inner.ExistsByNormalizedNameAsync(normalizedName, cancellationToken);
+        }
+
+        public Task<PlayerNameIndex?> FindByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
+            inner.FindByNormalizedNameAsync(normalizedName, cancellationToken);
+
+        public Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default) =>
+            inner.UpsertManyAsync(entries, cancellationToken);
+    }
+
+    // ADR-0070/S-128: wraps a real IGridLiveLookupDispatcher, counting calls
+    // to TryRefreshCellAsync only — REQ-211's guess-time fallback's own call,
+    // distinct from LookupMatchesAsync (REQ-103's grid-generation-time path,
+    // which S-128's flag must never affect and this spy never counts).
+    private sealed class CallCountingGridLiveLookupDispatcher(IGridLiveLookupDispatcher inner) : IGridLiveLookupDispatcher
+    {
+        public int TryRefreshCellAsyncCallCount { get; private set; }
+
+        public Task<IReadOnlyList<Player>?> LookupMatchesAsync(
+            string rowCategoryType, CategoryCandidate row,
+            string colCategoryType, CategoryCandidate col,
+            WikidataLookupOrigin origin,
+            CancellationToken cancellationToken) =>
+            inner.LookupMatchesAsync(rowCategoryType, row, colCategoryType, col, origin, cancellationToken);
+
+        public Task<bool> TryRefreshCellAsync(GridCell cell, CancellationToken cancellationToken)
+        {
+            TryRefreshCellAsyncCallCount++;
+            return inner.TryRefreshCellAsync(cell, cancellationToken);
+        }
     }
 
     // REQ-211 (2026-07-27 fix): seeds a PlayerNameIndex row so
@@ -563,6 +625,80 @@ public class GridGameModuleTests
         Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("England", "Tottenham Hotspur"), Is.True,
             "the guess-time fallback (IGridLiveLookupDispatcher.TryRefreshCellAsync -> ResolveCandidateAsync) must re-resolve the full " +
             "CountryDefinition row, including its UsesCountryForSportProperty flag, not just Name/WikidataQid");
+    }
+
+    // ---- S-128/ADR-0070: GridLiveLookupOptions.Enabled = false gates
+    // REQ-211's guess-time fallback only -------------------------------------
+    // The product owner wants an operational off switch to validate S-127's
+    // proactively-built cache on its own — these tests pin down that
+    // disabling it produces byte-for-byte the same outcome an unresolved
+    // guess had before REQ-211 existed at all (fail closed, no
+    // PlayerNameIndex query, no live-lookup dispatch), not a new error/UX.
+    // Every REQ211_* test above passes GridLiveLookupOptions unset
+    // (BuildModule's own default), proving Enabled=true — the default — is
+    // unaffected by this flag's existence.
+
+    [Test]
+    public async Task ADR0070_ScoreSubmissionAsync_LiveLookupDisabled_UnresolvedGuess_NeverCallsPlayerNameIndexOrLiveLookupDispatcher()
+    {
+        SeedCountry("Argentina");
+        SeedClub("Barcelona");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Argentina", "Barcelona");
+        // Some other player already satisfies this cell in the cache (what
+        // let grid generation accept the pairing in the first place) — but
+        // the guessed player himself was never synced, so nothing cached
+        // confirms or denies him. With the flag enabled this would be exactly
+        // REQ211_ScoreSubmissionAsync_NoCachedCandidateSatisfiesCell_
+        // FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess's setup.
+        await SeedPlayerAsync("Javier Mascherano", "Argentina", "Barcelona");
+        var messi = new Player { Id = Guid.NewGuid(), FullName = "Lionel Messi", WikidataQid = "Qmessi" };
+        // Configured on both the underlying Wikidata fake and the
+        // PlayerNameIndex — a genuinely correct, indexed guess that the
+        // enabled-flag path would confirm — but the flag being off must
+        // block the gate before either dependency is ever consulted.
+        _wikidataLookupService.SetMatches("Argentina", "Barcelona", [messi]);
+        SeedNameIndexEntry("Lionel Messi");
+        var nameIndexSpy = new CallCountingPlayerNameIndexRepository(_playerNameIndexRepository);
+        var dispatcherSpy = new CallCountingGridLiveLookupDispatcher(
+            new GridLiveLookupDispatcher(
+                _categoryValueRepository, _wikidataLookupService, _playerDataQualityRepository, NullLogger<GridLiveLookupDispatcher>.Instance));
+        var module = BuildModule(
+            minValidAnswers: 1, maxAttempts: 5,
+            liveLookupOptions: new GridLiveLookupOptions { Enabled = false },
+            playerNameIndexRepositoryOverride: nameIndexSpy,
+            liveLookupDispatcherOverride: dispatcherSpy);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Lionel Messi"));
+
+        Assert.That(result.IsCorrect, Is.False,
+            "with the flag off, a guess that only a live lookup could confirm must fail closed, exactly as it would have before REQ-211 existed");
+        Assert.That(nameIndexSpy.ExistsByNormalizedNameAsyncCallCount, Is.EqualTo(0),
+            "the flag must gate before the PlayerNameIndex existence check — no point spending that query when the fallback is off");
+        Assert.That(dispatcherSpy.TryRefreshCellAsyncCallCount, Is.EqualTo(0),
+            "the flag must gate before any live-lookup dispatch at all");
+        Assert.That(_wikidataLookupService.GetCallCount("Argentina", "Barcelona"), Is.EqualTo(0),
+            "no Wikidata call of any kind should result from a disabled guess-time fallback");
+    }
+
+    [Test]
+    public async Task ADR0070_ScoreSubmissionAsync_LiveLookupDisabled_CachedDataAlreadyAnswersTheGuess_StillResolvesCorrectFromCache()
+    {
+        // The flag only gates the fallback branch — a guess that already
+        // resolves from cached data must be completely unaffected, same as
+        // REQ211_ScoreSubmissionAsync_LiveLookupFallback_
+        // NeverTriggeredWhenCachedDataAlreadyAnswersTheGuess above.
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync("Thierry Henry", "France", "Arsenal");
+        var module = BuildModule(
+            minValidAnswers: 1, maxAttempts: 5,
+            liveLookupOptions: new GridLiveLookupOptions { Enabled = false });
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Thierry Henry"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
     }
 
     // ---- REQ-215/ADR-0052 (S-089, architecture-review fix):

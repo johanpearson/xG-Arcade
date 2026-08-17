@@ -5651,3 +5651,33 @@ to mention clubs, not just countries; ADR-0069 records the decision and
 the P54 full-statement-path constraint; REQ-110/architecture-document.md's
 COMP-07 row updated to describe the widened scope.
 *Deps:* ADR-0055 (extends, does not supersede).
+
+**S-128 · Feature-flag REQ-211's guess-time live-lookup fallback (ADR-0070)**
+The product owner wants to test whether S-127's proactively-built cache is
+complete enough on its own without removing REQ-211's guess-time live
+Wikidata fallback outright — ADR-0018's own history shows removing it blind
+is exactly how a real correctness bug got reported before. New
+`GridLiveLookupOptions` (`Enabled`, default `true`), config-bound via
+`GridLiveLookup:Enabled`/env var `GridLiveLookup__Enabled`, same pattern as
+`RoundScheduling:RoundDurationHours`. `GridGameModule.ScoreSubmissionAsync`
+checks the flag immediately before its existing `PlayerNameIndex` gate —
+when disabled, an unresolved guess returns immediately, skipping both
+`IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` and
+`IGridLiveLookupDispatcher.TryRefreshCellAsync`, and fails closed exactly
+as it would have before REQ-211 existed (no new `ScoreResult` shape, no new
+outcome). REQ-103's grid-generation-time live lookup
+(`GridGenerationService.GetMatchCountAsync`) is a separate call path
+through the same shared `IGridLiveLookupDispatcher` and is deliberately
+untouched.
+*Accept:* `GridGameModuleTests` covers `Enabled = false` (never calls
+`ExistsByNormalizedNameAsync`/`TryRefreshCellAsync`, verified via
+call-counting spies wrapping the real dependencies, matching this
+codebase's existing spy pattern) and `Enabled = false` with cached data
+already answering the guess (unaffected); every existing REQ-211 test keeps
+passing unchanged since the default is `true`; ADR-0070 records the "flag,
+not removal" reasoning; REQ-211 gets a status note (not a supersession —
+the fallback still exists in full); architecture-document.md's COMP-05
+guess-scoring narrative notes the fallback is now conditional.
+*Deps:* ADR-0018, ADR-0046 (both describe the fallback this flag gates,
+neither is superseded), REQ-509/510 (remediation path while testing with
+the flag off).

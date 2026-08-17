@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.73"
+version: "1.74"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -1788,6 +1788,26 @@ an extra attempt), API
   before. Only benefits Country×Club/Club×Club — `PlayerCacheWarmingService`
   doesn't track Trophy pairings, so this check is a guaranteed-false read
   for those. See ADR-0052's matching status note for the full detail.
+- **Status note (2026-08-17, S-128, ADR-0070) — this fallback is now
+  config-flagged, not unconditional:** new `GridLiveLookupOptions.Enabled`
+  (default `true`, config key `GridLiveLookup:Enabled`/env var
+  `GridLiveLookup__Enabled`) gates `GridGameModule.ScoreSubmissionAsync`'s
+  entire fallback — when `false`, an unresolved guess returns immediately,
+  never calling `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` or
+  `IGridLiveLookupDispatcher.TryRefreshCellAsync`, and fails closed exactly
+  as it would have before this requirement existed at all (same
+  `ScoreResult` shape, no new outcome/HTTP status). This is a deliberate,
+  reversible operational toggle, not a removal or a supersession of this
+  requirement — the fallback still exists in full and remains the default.
+  The product owner wants to empirically validate whether S-127's
+  proactively-built cache is complete enough on its own, with REQ-509/510's
+  admin player-suggestion approve/commit flow as the remediation path for
+  any genuine gap surfaced while testing with the flag off, and an instant
+  way back to `Enabled = true` if correct guesses start being wrongly
+  rejected again. REQ-103's grid-generation-time live lookup
+  (`GridGenerationService.GetMatchCountAsync`) is a separate call path and
+  deliberately untouched by this flag. See ADR-0070 for the full decision
+  and alternatives considered.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
@@ -1825,7 +1845,9 @@ no live call; match with existing attribute data → no live call needed;
 match with no attribute data and budget available → live call + persist;
 match with no attribute data and budget exhausted → fails closed; live
 lookup timeout → `LiveLookupUnavailable`, no attempt consumed, added
-2026-07-27), API
+2026-07-27; `GridLiveLookupOptions.Enabled = false` → neither
+`PlayerNameIndex` nor the live-lookup dispatcher is ever called, fails
+closed same as pre-REQ-211, added 2026-08-17 S-128/ADR-0070), API
 
 **REQ-212 – Click/tap reveals the guessed player name on a locked, correct cell**
 > As a player, I want to see which player I answered for a cell I've already

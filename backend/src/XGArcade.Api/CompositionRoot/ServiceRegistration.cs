@@ -89,6 +89,17 @@ public static class ServiceRegistration
         // (S-084/REQ-1202 follow-up), not on Core.Rounds' RoundSchedulingOptions —
         // see that type's own doc comment for why.
         builder.Services.AddSingleton(new GridGenerationOptions { GridSize = 3 });
+        // ADR-0070/S-128: an operational kill switch for REQ-211's guess-time
+        // live-lookup fallback only (GridGameModule.ScoreSubmissionAsync) —
+        // never for REQ-103's grid-generation-time live lookup, which reads
+        // no config from this class at all. Same appsettings-bound-with-
+        // fallback-default pattern as RoundScheduling:RoundDurationHours
+        // below: change GridLiveLookup:Enabled (or the deployed Container
+        // App's GridLiveLookup__Enabled env var) to false to disable it
+        // without a code change, defaulting to true (unchanged behavior) if
+        // unset.
+        var gridLiveLookupEnabled = builder.Configuration.GetValue<bool?>("GridLiveLookup:Enabled") ?? true;
+        builder.Services.AddSingleton(new GridLiveLookupOptions { Enabled = gridLiveLookupEnabled });
         builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
         // S-119 (pure refactor, docs/backlog.md Epic 9): GridGameModule split
         // into three narrower classes along its own responsibility lines —
