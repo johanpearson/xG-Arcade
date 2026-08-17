@@ -63,7 +63,7 @@ param minReplicas int = 0
 param roundDurationHours int = 48
 
 @description('GridLiveLookupOptions.Enabled — REQ-211\'s guess-time live-lookup fallback (ADR-0070). See modules/backend-container-app.bicep for guidance.')
-param gridLiveLookupEnabled bool = true
+param gridLiveLookupEnabled bool = false
 
 module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
   name: 'containerAppsEnvironment'

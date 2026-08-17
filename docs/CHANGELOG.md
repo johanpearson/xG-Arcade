@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/decisions/0070-grid-live-lookup-flag.md`,
+  `infra/bicep/main.bicep` — product owner's explicit direction: dev's
+  `gridLiveLookupEnabled` default flipped to `false` — REQ-211's guess-time
+  live-lookup fallback is off as of the next deploy, testing whether
+  S-127's proactively-built cache is complete enough on its own. Reverts
+  by flipping the default back to `true` if wrongly-rejected correct
+  guesses start appearing.
 - 2026-08-17 — `docs/backlog.md`, `docs/decisions/0070-grid-live-lookup-flag.md`,
   `infra/bicep/main.bicep`, `infra/bicep/modules/backend-container-app.bicep`
   — S-128 follow-up: `GridLiveLookup__Enabled` was never actually wired into

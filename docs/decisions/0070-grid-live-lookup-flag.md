@@ -101,6 +101,21 @@ default and pushing to main, or an equivalent `az deployment group create
 --parameters` override) — there is no live, in-place toggle independent of
 a deployment, same as every other option this repo wires through Bicep.
 
+## Status note (2026-08-17, second): flag turned off in dev
+
+Per the product owner's explicit direction, `main.bicep`'s
+`gridLiveLookupEnabled` default is now `false` — the guess-time live-lookup
+fallback is off in the dev environment as of the next deploy after this
+change lands. `backend-container-app.bicep`'s own module-level default
+stays `true` (a conservative default for the module in isolation); it's
+`main.bicep`'s top-level default that actually reaches the deployed
+Container App, since `main.bicep` always passes the param explicitly.
+This is the deliberate experiment this ADR's Decision/Consequences
+sections describe — REQ-509/510's suggestion-review flow is the intended
+remediation path while it's off. Revert by flipping `main.bicep`'s default
+back to `true` (or a per-deploy `--parameters` override) if wrongly-rejected
+correct guesses start appearing.
+
 ## For AI agents
 
 Do not extend this flag to gate `GridGenerationService.GetMatchCountAsync`
