@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `NOTES.md` — first real `purge-player-pool` run since
+  S-038/ADR-0025 timed out on Npgsql's 30s default command timeout against
+  a pool grown large enough (600k+ `PlayerCareerStint` rows) that the
+  cascading bulk delete couldn't finish in time. Fixed with a verb-scoped
+  10-minute `Database.SetCommandTimeout`, same class of fix as ADR-0055's
+  own timeout incident — no ADR needed, this is an operational fix, not a
+  new structural decision.
 - 2026-08-17 — `docs/decisions/0070-grid-live-lookup-flag.md`,
   `infra/bicep/main.bicep` — product owner's explicit direction: dev's
   `gridLiveLookupEnabled` default flipped to `false` — REQ-211's guess-time

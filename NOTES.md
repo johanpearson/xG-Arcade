@@ -1586,3 +1586,24 @@ This is real evidence the fix addresses the actual production bug (no
 more 502 for the one real case that triggered this investigation), gathered
 by a human against the live endpoint rather than assumed from documentation
 memory — merged on the strength of this, not on CI alone (see PR #157).
+
+## purge-player-pool timed out against a grown pool — needed a longer command timeout, not a code bug (2026-08-17)
+
+First real `purge-player-pool` run since S-038/ADR-0025 originally shipped it
+failed with `Npgsql.NpgsqlException: Exception while reading from stream` /
+`System.TimeoutException: Timeout during reading attempt`, ~53s into the
+"Purge player pool" step, exit code 134. Root cause: `BuildDbContext()`
+never sets a `CommandTimeout`, so every CLI verb runs on Npgsql's 30s
+default — fine for the small, incremental writes every other verb does,
+but `HandlePurgePlayerPoolAsync`'s single `purgeDbContext.Players
+.ExecuteDeleteAsync()` cascades through `PlayerData`/`PlayerOverride`/
+`PlayerAttribute`/`PlayerAlias`/`PlayerCareerStint` — the last of which
+alone had 600k+ rows as of the last real `prefetch-player-careers` run
+(this same run's own predecessor, before ADR-0069's club sweep grew the
+pool further) — well past what a 30s bulk cascade delete can reliably
+finish in. Same class of incident as ADR-0055's own 2026-08-02 entry
+(`WikidataClient`'s default query timeout needed bumping for
+`prefetch-player-careers` specifically) — a one-off, verb-scoped timeout
+override (`purgeDbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(10))`),
+not a change to `BuildDbContext`'s shared default every other (much
+smaller-scale) verb uses. Fixed same day; re-run confirmed the fix.

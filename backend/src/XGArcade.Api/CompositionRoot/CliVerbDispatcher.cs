@@ -614,6 +614,19 @@ public static class CliVerbDispatcher
                 $"purge-player-pool requires the exact confirmation phrase as its argument: `purge-player-pool \"{requiredConfirmationPhrase}\"`.");
 
         await using var purgeDbContext = BuildDbContext();
+        // 2026-08-17 incident: the first real run against a pool grown by
+        // ADR-0069's club-scoped sweep (S-127) timed out on Npgsql's default
+        // 30s command timeout — a single ExecuteDeleteAsync on Players
+        // cascades through PlayerData/PlayerOverride/PlayerAttribute/
+        // PlayerAlias/PlayerCareerStint (600k+ rows as of the last real
+        // prefetch-player-careers run, NOTES.md 2026-08-02), which a bulk
+        // cascade delete at that scale can legitimately exceed. Same class
+        // of fix as ADR-0055's own incident (WikidataClient's default
+        // 15s query timeout needed bumping to 60s for prefetch-player-
+        // careers specifically) — a generous, one-off verb-scoped timeout,
+        // not a change to BuildDbContext's shared default for every other
+        // (much smaller-scale) CLI verb.
+        purgeDbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
         var purgedPlayerCount = await purgeDbContext.Players.ExecuteDeleteAsync();
         // Same established exception as purge-player-pool's own Players
         // ExecuteDeleteAsync above (see this verb's own doc comment referencing
