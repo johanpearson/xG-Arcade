@@ -1636,3 +1636,30 @@ cheap no-ops for already-persisted data), so a retry costs roughly the
 same wall-clock time as the original run, not a fast delta the way a
 `warm-player-cache` re-run against an already-partially-warmed
 `ConfirmedLowMatchPair` table would.
+
+## S-131 closed: post-#203 re-run confirmed the timeout fix, not the flakiness, was the fix (2026-08-17)
+
+Verified against real run history rather than assumed. Run #6
+(`workflow_dispatch`, created `2026-08-17T08:09:25Z`, `head_sha` =
+`1e7cb99` itself — the exact commit from the entry above) is the
+manually-triggered post-#203 run S-131 asked for. It finished in 43
+minutes (08:09→08:52), comfortably inside the new 240-minute cap, so the
+timeout headroom fix genuinely worked — no timeout-related failure this
+time. It still exited nonzero, but on a different, already-understood
+cause: 8 countries (United Kingdom, Argentina, Germany, Ivory Coast,
+France, Brazil, Czech Republic, United States of America) and 1 club
+(Lille) failed their pool fetch, and 26 career-fetch batches failed, all
+transient Wikidata `502 Bad Gateway` responses plus one truncated-response
+JSON parse error — 132,226 players touched / 20,287 stints added from what
+succeeded. Same flakiness class as this job's own two prior documented
+incidents (run #5 above; the 2026-07-18/07-2x entries earlier in this
+file), not a regression and not a new bug — confirmed by reading the
+actual job logs rather than assuming timeout was still the cause, per
+S-131's own instruction.
+
+Closing S-131 on this evidence rather than reopening it indefinitely.
+Filed S-153 (`docs/backlog.md`) as the real follow-up: give
+`prefetch-player-careers` the same persisted failure-tracking
+(`PairLookupFailure`, ADR-0052) shortcut `warm-player-cache` already has,
+so a re-run only retries the ~35 units that actually failed instead of
+repeating the full sweep every time.
