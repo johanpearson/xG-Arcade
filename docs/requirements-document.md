@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.79"
+version: "1.80"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -3236,16 +3236,28 @@ a past/near-past `endTime`, and the accessible-name assertion)
   `"xg-path"` — and no raw GUID appears as visible text anywhere in this
   section
 
+  Note: as of this writing, `RoundControlSection.tsx` is hardcoded to
+  `"xg-grid"` and no equivalent admin round-control UI element exists for
+  `"xg-path"` (`XGPathCycleSection.tsx` shows cycle/pool metrics, not a
+  round GUID or number, so there is nothing to fix there today). The
+  `"Path Round #{sequenceNumber}"` phrasing above is the forward-looking
+  convention to apply whenever a `"xg-path"` round-control UI element is
+  added, not an unimplemented gap in this story — this half of the
+  criterion is currently vacuously satisfied.
+
 **Test level:** Unit (`SequenceNumber` assignment — `MAX + 1` scoped to
 `GameKey`, read immediately before the creation insert), API/Integration (a
 new REQ-304-named test proves two same-`GameKey` rounds are always
 distinct and gapless; two different-`GameKey` rounds can share a
-`SequenceNumber`; the migration backfills every historical row with a
-correct, gapless-per-`GameKey` sequence ordered by `StartTime`; every DTO
-listed above carries `sequenceNumber` alongside an unchanged `roundId`),
-Component (`AdminScreen.test.tsx` updated to assert the
-`"Grid Round #N"`/`"Path Round #N"` text and that no GUID substring is
-ever rendered)
+`SequenceNumber`; every DTO listed above carries `sequenceNumber` alongside
+an unchanged `roundId`), Component (`AdminScreen.test.tsx` updated to
+assert the `"Grid Round #N"`/`"Path Round #N"` text and that no GUID
+substring is ever rendered). The migration's backfill logic (raw SQL,
+`ROW_NUMBER() OVER (PARTITION BY "GameKey" ORDER BY "StartTime")`) is
+verified by manual/code review of the migration, not an automated test —
+this repo's test suite runs against the EF Core InMemory provider, which
+does not execute raw-SQL migrations, and no real-Postgres-backed test
+infrastructure exists here yet.
 
 ---
 

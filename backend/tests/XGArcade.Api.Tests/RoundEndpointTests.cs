@@ -473,6 +473,65 @@ public class RoundEndpointTests
         Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
     }
 
+    [Test]
+    public async Task REQ304_GenerateRound_Post_TwoDifferentGameKeys_EachIndependentlyAssignsSequenceNumberOne()
+    {
+        // Independence per GameKey (REQ-304's "Independence per GameKey"
+        // criterion), proven through the real HTTP endpoint rather than only
+        // at the Unit level (RoundGenerationServiceTests' own
+        // REQ304_GenerateNextRoundIfNeeded_TwoDifferentGameKeys_
+        // EachIndependentlyAssignsSequenceNumberOne): both calls share the
+        // same database (one factory, one in-memory DB), so if SequenceNumber
+        // were ever a single global counter instead of scoped per GameKey,
+        // the second call below would incorrectly come back as 2, not 1.
+        //
+        // xg-path needs its own RoundSchedulingOptions (added on top of
+        // SetUp's xg-grid-only registration, per that field's own doc
+        // comment) and a small PathGenerationOptions.PuzzleCount, mirroring
+        // REQ1202_GenerateRound_Post_WithGameKeyXgPath_GeneratesAnXgPathRound_
+        // UsingItsOwnConfiguredRoundDuration below — this is the "existing
+        // cross-GameKey test in this file" pattern referenced for how to
+        // seed xg-path-specific data.
+        var multiGameKeyFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<PathGenerationOptions>();
+                services.AddSingleton(new PathGenerationOptions { PuzzleCount = 3 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPathGameModule.XGPathGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        await SeedFullyMatchedReferenceDataAsync(size: 3, factory: multiGameKeyFactory);
+        await SeedEligiblePathPlayersAsync(count: 3, factory: multiGameKeyFactory);
+        var client = multiGameKeyFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        // No existing rounds for either GameKey yet — the first call for
+        // each GameKey.
+        var gridResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-grid", content: null);
+        var pathResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
+
+        Assert.That(gridResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(pathResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var gridBody = await gridResponse.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        var pathBody = await pathResponse.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(gridBody!.GameKey, Is.EqualTo(GridGameModule.XGGridGameKey));
+        Assert.That(pathBody!.GameKey, Is.EqualTo(XGPathGameModule.XGPathGameKey));
+        Assert.That(gridBody.RoundId, Is.Not.EqualTo(pathBody.RoundId));
+        Assert.That(gridBody.SequenceNumber, Is.EqualTo(1));
+        Assert.That(pathBody.SequenceNumber, Is.EqualTo(1),
+            "SequenceNumber is an independent counter per GameKey — a second GameKey's first round may share the same value as another GameKey's first round, not continue a shared global counter");
+
+        using var scope = multiGameKeyFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
+    }
+
     // ---- S-084/REQ-1202: generate-round is genuinely GameKey-parameterized --
     // for "xg-path" too, end-to-end through the real endpoint --------------
 
