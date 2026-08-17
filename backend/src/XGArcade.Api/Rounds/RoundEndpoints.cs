@@ -169,13 +169,17 @@ public static class RoundEndpoints
                     guessResponse));
             }
 
-            return Results.Ok(new CurrentRoundResponse(round.Id, round.StartTime, round.EndTime, round.AllowGuessChange, cells));
+            return Results.Ok(new CurrentRoundResponse(round.Id, round.SequenceNumber, round.StartTime, round.EndTime, round.AllowGuessChange, cells));
         }).RequireAuthorization();
     }
 }
 
+// REQ-304: SequenceNumber is a display-only label alongside RoundId — RoundId
+// remains the real identifier for every write path (guess submission, etc.);
+// SequenceNumber is never accepted as a route/body identifier anywhere.
 public record CurrentRoundResponse(
     Guid RoundId,
+    int SequenceNumber,
     DateTime StartTime,
     DateTime EndTime,
     bool AllowGuessChange,

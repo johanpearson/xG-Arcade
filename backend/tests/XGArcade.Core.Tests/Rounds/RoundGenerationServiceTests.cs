@@ -56,6 +56,7 @@ public class RoundGenerationServiceTests
             Id = Guid.NewGuid(),
             GameKey = GameKey,
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = startTime,
             EndTime = endTime,
             AllowGuessChange = true,
@@ -308,6 +309,97 @@ public class RoundGenerationServiceTests
 
         Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await service.GenerateNextRoundIfNeededAsync("some-other-game", new RoundConfig { TemplateId = Guid.NewGuid() }));
+    }
+
+    // ---- REQ-304: per-GameKey SequenceNumber assignment ---------------------
+    //
+    // The (GameKey, SequenceNumber) unique index added alongside this
+    // requirement is an EF Core relational-provider feature — the InMemory
+    // provider used throughout this file does not enforce unique indexes at
+    // all (same documented limitation UserRepositoryTests.cs relies on for
+    // IX_Users_NormalizedDisplayName), so these tests deliberately target
+    // only RoundGenerationService's own MAX+1-per-GameKey assignment logic,
+    // not database-level constraint enforcement, which is trusted to be
+    // provider-enforced in production per that index/migration.
+
+    [Test]
+    public async Task REQ304_GenerateNextRoundIfNeeded_FirstRoundForGameKey_AssignsSequenceNumberOne()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var service = BuildService(now, TimeSpan.FromDays(3));
+
+        var round = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(round.SequenceNumber, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ304_GenerateNextRoundIfNeeded_SecondRoundForSameGameKey_AssignsNextSequenceNumberWithoutCollision()
+    {
+        // Round A (SequenceNumber 1) is active with nothing scheduled after
+        // it, so generating again chains Round B off Round A's EndTime and
+        // must compute MAX(SequenceNumber)+1 = 2 for this GameKey.
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        var service = BuildService(now, TimeSpan.FromDays(3));
+        var roundA = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+        Assert.That(roundA.SequenceNumber, Is.EqualTo(1));
+
+        // Advance the clock so Round A now reads as active (its EndTime has
+        // passed StartTime relative to "now"), so generating again produces
+        // a genuine second round rather than the "already one round ahead"
+        // no-op path — same technique REQ301's override-mutation test above
+        // uses to force a second real generation.
+        var later = now.AddDays(3).AddHours(1);
+        var serviceAtLaterTime = BuildService(later, TimeSpan.FromDays(3));
+
+        var roundB = await serviceAtLaterTime.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(roundB.SequenceNumber, Is.EqualTo(2));
+        Assert.That(roundB.SequenceNumber, Is.Not.EqualTo(roundA.SequenceNumber),
+            "two rounds for the same GameKey must never collide on SequenceNumber");
+    }
+
+    [Test]
+    public async Task REQ304_GenerateNextRoundIfNeeded_TwoDifferentGameKeys_EachIndependentlyAssignsSequenceNumberOne()
+    {
+        // Independence per GameKey, matching IRoundSchedulingOptionsResolver's
+        // existing per-GameKey independence (REQ-301/REQ-1202): neither
+        // GameKey has any existing rounds yet, so both must start their own
+        // counter at 1 rather than sharing a single global counter.
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var (service, _) = BuildServiceWithTwoGameKeys(
+            now, gameKeyRoundDuration: TimeSpan.FromDays(3), otherGameKeyRoundDuration: TimeSpan.FromHours(30));
+
+        var gridRound = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+        var pathRound = await service.GenerateNextRoundIfNeededAsync(OtherGameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(gridRound.SequenceNumber, Is.EqualTo(1));
+        Assert.That(pathRound.SequenceNumber, Is.EqualTo(1),
+            "SequenceNumber is an independent counter per GameKey — a second GameKey's first round may share the same value as another GameKey's first round");
+    }
+
+    [Test]
+    public async Task REQ304_GenerateNextRoundIfNeeded_TwoDifferentGameKeysWithExistingRounds_SequenceNumbersDoNotCrossContaminate()
+    {
+        // xg-grid already has two rounds (SequenceNumber 1 and 2 via
+        // SeedRoundAsync's default) seeded directly; generating xg-path's
+        // very first round must compute MAX+1 scoped to xg-path alone (i.e.
+        // 1, since xg-path has no rows yet) rather than picking up xg-grid's
+        // higher counter.
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        var gridRoundOne = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-6), endTime: now.UtcDateTime.AddDays(-3));
+        gridRoundOne.SequenceNumber = 1;
+        var gridRoundTwo = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-3), endTime: now.UtcDateTime.AddDays(3));
+        gridRoundTwo.SequenceNumber = 2;
+        await _dbContext.SaveChangesAsync();
+
+        var (service, _) = BuildServiceWithTwoGameKeys(
+            now, gameKeyRoundDuration: TimeSpan.FromDays(3), otherGameKeyRoundDuration: TimeSpan.FromHours(30));
+
+        var pathRound = await service.GenerateNextRoundIfNeededAsync(OtherGameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(pathRound.SequenceNumber, Is.EqualTo(1),
+            "xg-path's first round must not inherit xg-grid's higher SequenceNumber counter");
     }
 
     // ---- ADR-0022: round closing runs inside this job ----------------------

@@ -156,6 +156,7 @@ public class LeaderboardEndpointTests
             Id = Guid.NewGuid(),
             GameKey = gameKey ?? GridGameModule.XGGridGameKey,
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = DateTime.UtcNow.AddDays(-2),
             EndTime = DateTime.UtcNow.AddDays(-1),
             AllowGuessChange = true,
@@ -238,6 +239,7 @@ public class LeaderboardEndpointTests
             Id = Guid.NewGuid(),
             GameKey = GridGameModule.XGGridGameKey,
             GameInstanceId = instanceId,
+            SequenceNumber = 1,
             StartTime = DateTime.UtcNow.AddHours(-1),
             EndTime = DateTime.UtcNow.AddHours(1),
             AllowGuessChange = true,
@@ -266,6 +268,7 @@ public class LeaderboardEndpointTests
             Id = Guid.NewGuid(),
             GameKey = gameKey ?? GridGameModule.XGGridGameKey,
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = closedAt.AddDays(-2),
             EndTime = closedAt,
             AllowGuessChange = true,
@@ -285,6 +288,7 @@ public class LeaderboardEndpointTests
             Id = Guid.NewGuid(),
             GameKey = GridGameModule.XGGridGameKey,
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = DateTime.UtcNow.AddHours(-1),
             EndTime = DateTime.UtcNow.AddHours(1),
             AllowGuessChange = true,
@@ -683,6 +687,11 @@ public class LeaderboardEndpointTests
         var body = await response.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
         Assert.That(body!.Rounds.Select(r => r.RoundId), Is.EqualTo(new[] { later, earlier }));
         Assert.That(body.Rounds.Any(r => r.RoundId == stillActive), Is.False);
+        // REQ-304: ClosedRoundSummaryResponse carries the round's
+        // SequenceNumber alongside its unchanged RoundId —
+        // SeedClosedRoundAsync always seeds SequenceNumber = 1, same fixture
+        // value every other test in this file already relies on.
+        Assert.That(body.Rounds.Select(r => r.SequenceNumber), Is.EqualTo(new[] { 1, 1 }));
     }
 
     [Test]

@@ -306,6 +306,16 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<Round>()
             .HasIndex(r => new { r.GameKey, r.EndTime });
 
+        // REQ-304: the actual race guard behind SequenceNumber's uniqueness
+        // — RoundGenerationService's MAX(SequenceNumber)+1 read and this
+        // row's insert are two separate round-trips, so this unique
+        // constraint (not application code) is what makes two concurrent
+        // generation attempts for the same GameKey unable to both succeed
+        // with the same SequenceNumber; the loser's AddAsync fails instead.
+        modelBuilder.Entity<Round>()
+            .HasIndex(r => new { r.GameKey, r.SequenceNumber })
+            .IsUnique();
+
         // REQ-208's guess-time name matching (S-009) queries this directly —
         // no PlayerNameIndex/COMP-10 in Tier 0 (MVP-SCOPE.md).
         modelBuilder.Entity<Player>()

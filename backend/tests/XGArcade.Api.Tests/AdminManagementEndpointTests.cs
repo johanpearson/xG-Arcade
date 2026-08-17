@@ -82,6 +82,7 @@ public class AdminManagementEndpointTests
             Id = Guid.NewGuid(),
             GameKey = GridGameModule.XGGridGameKey,
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = startTime ?? DateTime.UtcNow.AddDays(-1),
             EndTime = endTime ?? DateTime.UtcNow.AddDays(1),
             AllowGuessChange = false,
@@ -194,6 +195,10 @@ public class AdminManagementEndpointTests
         Assert.That(body.Round, Is.Not.Null);
         Assert.That(body.Round!.RoundId, Is.EqualTo(round.Id));
         Assert.That(body.Round.GameKey, Is.EqualTo(GridGameModule.XGGridGameKey));
+        // REQ-304: AdminRoundResponse carries the round's SequenceNumber
+        // alongside its unchanged RoundId — SeedActiveRoundAsync always
+        // seeds SequenceNumber = 1.
+        Assert.That(body.Round.SequenceNumber, Is.EqualTo(round.SequenceNumber));
     }
 
     [Test]

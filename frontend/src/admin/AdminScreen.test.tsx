@@ -63,6 +63,7 @@ const activeRound = {
   hasActiveRound: true,
   round: {
     roundId: 'round-1',
+    sequenceNumber: 12,
     gameKey: 'xg-grid',
     startTime: '2026-07-19T00:00:00Z',
     endTime: '2026-07-20T00:00:00Z',
@@ -433,7 +434,10 @@ describe('AdminScreen', () => {
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Round control — xg-grid')).toBeInTheDocument();
-    expect(screen.getByText('Round round-1 · ends 2026-07-20T00:00:00Z')).toBeInTheDocument();
+    // REQ-304: the round label uses the human-readable sequenceNumber, not
+    // the raw roundId GUID, which must never appear as visible text.
+    expect(screen.getByText('Grid Round #12 · ends 2026-07-20T00:00:00Z')).toBeInTheDocument();
+    expect(screen.queryByText(/round-1/)).not.toBeInTheDocument();
     expect(screen.getByText('Delete a user')).toBeInTheDocument();
   });
 

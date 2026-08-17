@@ -170,7 +170,7 @@ public static class LeaderboardEndpoints
                 resolvedGameKey, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             var rounds = page.Rounds
-                .Select(r => new ClosedRoundSummaryResponse(r.RoundId, r.StartTime, r.EndTime, r.ClosedAt))
+                .Select(r => new ClosedRoundSummaryResponse(r.RoundId, r.SequenceNumber, r.StartTime, r.EndTime, r.ClosedAt))
                 .ToList();
 
             return Results.Ok(new ClosedRoundListResponse(rounds, page.NextCursor, page.HasMore));
@@ -333,7 +333,8 @@ public record LeaderboardResponse(
 public record LeaderboardRowResponse(int Rank, Guid UserId, string DisplayName, int TotalPoints, bool IsRequestingUser);
 
 // REQ-408: one browsable closed round for the round-selection list.
-public record ClosedRoundSummaryResponse(Guid RoundId, DateTime StartTime, DateTime EndTime, DateTime ClosedAt);
+// REQ-304: SequenceNumber is a display-only label alongside RoundId.
+public record ClosedRoundSummaryResponse(Guid RoundId, int SequenceNumber, DateTime StartTime, DateTime EndTime, DateTime ClosedAt);
 
 public record ClosedRoundListResponse(
     IReadOnlyList<ClosedRoundSummaryResponse> Rounds,

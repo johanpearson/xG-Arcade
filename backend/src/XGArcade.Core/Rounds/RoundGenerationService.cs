@@ -62,11 +62,24 @@ public class RoundGenerationService(
         var instance = await gameModule.GenerateInstanceAsync(config, cancellationToken);
 
         var startTime = latest?.EndTime ?? now;
+
+        // REQ-304: MAX(SequenceNumber)+1 scoped to this GameKey, starting at
+        // 1 for a GameKey's first-ever round — read here, immediately before
+        // AddAsync's own SaveChangesAsync, the same "no scheduled work
+        // between the check and the write" reasoning the "one round ahead"
+        // check above already relies on. The (GameKey, SequenceNumber)
+        // unique index (XGArcadeDbContext) is the actual race guard: two
+        // concurrent calls racing this read would otherwise compute the same
+        // next value, and the loser's AddAsync fails on that constraint
+        // instead of silently persisting a duplicate.
+        var maxSequenceNumber = await roundRepository.GetMaxSequenceNumberByGameKeyAsync(options.GameKey, cancellationToken);
+
         var round = new Round
         {
             Id = Guid.NewGuid(),
             GameKey = options.GameKey,
             GameInstanceId = instance.Id,
+            SequenceNumber = (maxSequenceNumber ?? 0) + 1,
             StartTime = startTime,
             // roundDurationOverride, when supplied, wins for this call only —
             // it never mutates the shared RoundSchedulingOptions singleton

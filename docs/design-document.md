@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.71"
+version: "0.72"
 status: draft
-last_updated: 2026-08-10
+last_updated: 2026-08-17
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -465,11 +465,20 @@ string itself with an explicit `"Ends in "` prefix (e.g. `"Ends in 1d
 4h"`, or the fixed `"Ending soon"` fallback within 60 seconds of — or
 past — `endTime`) — not a bare clock-icon-plus-duration (`⏱ 1d 4h`) as the
 mock previously showed; there is no clock icon. The mock's earlier `Round
-#14` label has also been dropped: no field in `GET /rounds/current`'s
-response carries a human-friendly round number, only an opaque `roundId`,
-so showing one would imply a capability that doesn't exist. Reintroducing
-a round number is a separate, not-yet-scoped gap, not something to infer
-from this correction.
+#14` label has also been dropped: at the time of this correction, no field
+in `GET /rounds/current`'s response carried a human-friendly round number,
+only an opaque `roundId`, so showing one would have implied a capability
+that didn't exist.
+
+**Update (2026-08-17, REQ-304/S-135):** `GET /rounds/current`'s
+`CurrentRoundResponse` now does carry a human-friendly `sequenceNumber`
+field (added for the admin-only round-control label, see SCREEN-04's own
+status note) — so the field-doesn't-exist reasoning above no longer holds.
+This screen still does not render it: REQ-304's own acceptance criteria
+scope the visible "Grid Round #N"/"Path Round #N" label to the admin
+round-control section only, not this player-facing grid header. Whether to
+also surface it here remains a separate, not-yet-scoped product decision,
+not something to infer from either correction.
 
 - Row headers: flag + country name when the row category is a nationality;
   a club badge + club name when the row category is a club (REQ-107 means
@@ -1560,11 +1569,17 @@ again in either case: it's readable directly, no separate lookup needed.
 disabled, when `ASPNETCORE_ENVIRONMENT == Production` (the round-control
 probe endpoint itself 404s there — see REQ-505's fail-closed pattern):**
 
+**Status note (2026-08-17, REQ-304/S-135):** the round label below was
+previously the raw `roundId` GUID rendered as visible text
+(`RoundControlSection.tsx`'s only such spot in the product). It now reads
+`"Grid Round #{sequenceNumber}"`, using the `Round.SequenceNumber` field
+REQ-304 added — no raw GUID is rendered anywhere in this section any more.
+
 ```
 ┌─────────────────────────────────────────────┐
 │ Round control — xg-grid                       │
 ├─────────────────────────────────────────────┤
-│ Round R-14 · ends 2026-07-20T18:00:00Z        │
+│ Grid Round #14 · ends 2026-07-20T18:00:00Z    │
 │                                                 │
 │ [ End round now ]                              │
 │   (click reveals) → [Yes, end round now] [Cancel]│

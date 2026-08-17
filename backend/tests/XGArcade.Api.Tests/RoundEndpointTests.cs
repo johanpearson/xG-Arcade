@@ -192,6 +192,13 @@ public class RoundEndpointTests
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.GameKey, Is.EqualTo(GridGameModule.XGGridGameKey));
         Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromDays(3)));
+        // REQ-304: GenerateRoundResponse carries the round's SequenceNumber
+        // alongside its unchanged RoundId — this is this GameKey's
+        // first-ever round, so SequenceNumber must be 1 (the assignment
+        // rule itself — MAX+1 scoped to GameKey — is covered independently
+        // by RoundGenerationServiceTests; this only proves the DTO surfaces
+        // the field).
+        Assert.That(body.SequenceNumber, Is.EqualTo(1));
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -425,6 +432,113 @@ public class RoundEndpointTests
     {
         public Task<Round> GenerateNextRoundIfNeededAsync(string gameKey, RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("simulated DB failure");
+    }
+
+    // ---- REQ-304: SequenceNumber is distinct/incrementing per GameKey, ------
+    // proven through the real HTTP endpoint (not just RoundGenerationService
+    // directly, which RoundGenerationServiceTests already covers at the Unit
+    // level) ------------------------------------------------------------
+
+    [Test]
+    public async Task REQ304_GenerateRound_Post_CalledTwiceForSameGameKey_AssignsDistinctIncrementingSequenceNumbers()
+    {
+        await SeedFullyMatchedReferenceDataAsync(size: 3);
+        var client = CreateAuthorizedClient();
+
+        // Call 1: no round exists yet for this GameKey -> creates round 1,
+        // which starts immediately (StartTime ~= now), so it's already
+        // active by the time call 2 runs a moment later — same "call 2
+        // generates a real next round" mechanics as
+        // REQ301_GenerateRound_Post_IsIdempotent_WhenAnUpcomingRoundAlreadyExists
+        // above, reused here rather than inventing a new way to force a
+        // second real round.
+        var first = await client.PostAsync("/internal/generate-round", content: null);
+        var firstBody = await first.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+
+        // Call 2: round 1 is active with no round scheduled after it yet ->
+        // a genuine second round for the same GameKey, not the idempotent
+        // no-op case.
+        var second = await client.PostAsync("/internal/generate-round", content: null);
+        var secondBody = await second.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+
+        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(second.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(firstBody!.SequenceNumber, Is.EqualTo(1));
+        Assert.That(secondBody!.RoundId, Is.Not.EqualTo(firstBody.RoundId), "a genuine second round, not the idempotent no-op case");
+        Assert.That(secondBody.SequenceNumber, Is.EqualTo(2));
+        Assert.That(secondBody.SequenceNumber, Is.Not.EqualTo(firstBody.SequenceNumber));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task REQ304_GenerateRound_Post_TwoDifferentGameKeys_EachIndependentlyAssignsSequenceNumberOne()
+    {
+        // Independence per GameKey (REQ-304's "Independence per GameKey"
+        // criterion), proven through the real HTTP endpoint rather than only
+        // at the Unit level (RoundGenerationServiceTests' own
+        // REQ304_GenerateNextRoundIfNeeded_TwoDifferentGameKeys_
+        // EachIndependentlyAssignsSequenceNumberOne): both calls share the
+        // same database (one factory, one in-memory DB), so if SequenceNumber
+        // were ever a single global counter instead of scoped per GameKey,
+        // the second call below would incorrectly come back as 2, not 1.
+        //
+        // xg-path needs its own RoundSchedulingOptions (added on top of
+        // SetUp's xg-grid-only registration, per that field's own doc
+        // comment) and a small PathGenerationOptions.PuzzleCount, mirroring
+        // REQ1202_GenerateRound_Post_WithGameKeyXgPath_GeneratesAnXgPathRound_
+        // UsingItsOwnConfiguredRoundDuration below — this is the "existing
+        // cross-GameKey test in this file" pattern referenced for how to
+        // seed xg-path-specific data.
+        var multiGameKeyFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<PathGenerationOptions>();
+                services.AddSingleton(new PathGenerationOptions { PuzzleCount = 3 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPathGameModule.XGPathGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        var client = multiGameKeyFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        // Grid must be seeded and generated before xg-path's own reference
+        // data exists: GridGenerationService.GenerateInstanceAsync's club
+        // candidate pool comes from every ClubDefinition row in the shared
+        // database (categoryValueRepository.GetClubsAsync, not scoped to
+        // this test's grid fixture), so if SeedEligiblePathPlayersAsync's
+        // "Seeded FC" ClubDefinition already existed, it would join that
+        // pool with no matching PlayerAttribute data, forcing a live
+        // Wikidata lookup that then fails on this test's synthetic,
+        // non-real-format QIDs ("Qc0" etc. — fine for the cache-lookup path
+        // this test relies on, never meant to reach WikidataClient).
+        await SeedFullyMatchedReferenceDataAsync(size: 3, factory: multiGameKeyFactory);
+        var gridResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-grid", content: null);
+
+        await SeedEligiblePathPlayersAsync(count: 3, factory: multiGameKeyFactory);
+        var pathResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
+
+        Assert.That(gridResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(pathResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var gridBody = await gridResponse.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        var pathBody = await pathResponse.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(gridBody!.GameKey, Is.EqualTo(GridGameModule.XGGridGameKey));
+        Assert.That(pathBody!.GameKey, Is.EqualTo(XGPathGameModule.XGPathGameKey));
+        Assert.That(gridBody.RoundId, Is.Not.EqualTo(pathBody.RoundId));
+        Assert.That(gridBody.SequenceNumber, Is.EqualTo(1));
+        Assert.That(pathBody.SequenceNumber, Is.EqualTo(1),
+            "SequenceNumber is an independent counter per GameKey — a second GameKey's first round may share the same value as another GameKey's first round, not continue a shared global counter");
+
+        using var scope = multiGameKeyFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
     }
 
     // ---- S-084/REQ-1202: generate-round is genuinely GameKey-parameterized --

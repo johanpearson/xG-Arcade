@@ -120,7 +120,7 @@ public class LeaderboardService(
         var rounds = await roundRepository.GetClosedByGameKeyAsync(gameKey, cursor, pageSize + 1, cancellationToken);
         var hasMore = rounds.Count > pageSize;
         var page = (hasMore ? rounds.Take(pageSize) : rounds)
-            .Select(r => new ClosedRoundSummary(r.Id, r.StartTime, r.EndTime, r.ClosedAt!.Value))
+            .Select(r => new ClosedRoundSummary(r.Id, r.SequenceNumber, r.StartTime, r.EndTime, r.ClosedAt!.Value))
             .ToList();
         int? nextCursor = hasMore ? cursor + pageSize : null;
 
