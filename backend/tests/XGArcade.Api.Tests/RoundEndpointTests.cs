@@ -289,8 +289,10 @@ public class RoundEndpointTests
     {
         // ADR-0027's 24h floor: distinct from the already-covered <=0 cases
         // above — this is a *positive* value that's still unsafe, because it
-        // could let a round close before generate-round.yml's daily cron
-        // fires again and generates its successor.
+        // could let a round close before that GameKey's own round-generation
+        // workflow (generate-grid-round.yml/generate-path-round.yml as of
+        // S-136/ADR-0072; previously the shared generate-round.yml) daily
+        // cron fires again and generates its successor.
         var client = CreateAuthorizedClient();
 
         var response = await client.PostAsync("/internal/generate-round?roundDurationHours=23", content: null);
@@ -403,7 +405,9 @@ public class RoundEndpointTests
     public async Task GenerateRound_Post_ReturnsProblemDetails_WhenAnUnexpectedExceptionOccurs()
     {
         // Regression coverage for the 2026-07-12 dev incident: a manual
-        // workflow_dispatch of generate-round.yml got a bare, opaque 500
+        // workflow_dispatch of generate-round.yml (since split into
+        // generate-grid-round.yml/generate-path-round.yml, S-136/ADR-0072)
+        // got a bare, opaque 500
         // with no diagnosable body because the endpoint's try/catch only
         // ever handled GridGenerationException — anything else (a DB blip,
         // here simulated directly) fell through to ASP.NET's default empty

@@ -1255,14 +1255,17 @@ a photo shows neither at rest as of S-048, see that status note)
   leaderboard — nothing had ever called round-close automatically, so
   `Guess.FinalPoints` stayed null forever and every leaderboard total summed
   to 0. `RoundGenerationService.GenerateNextRoundIfNeededAsync` (the code
-  `generate-round.yml`'s cron actually invokes, Tier 0's only production-
-  scheduled trigger point) now also closes a round's predecessor before
+  each per-`GameKey` round-generation cron actually invokes — `generate-round.yml`
+  at the time this fix shipped, split as of S-136/ADR-0072 into
+  `generate-grid-round.yml`/`generate-path-round.yml` — Tier 0's only
+  production-scheduled trigger point) now also closes a round's predecessor before
   deciding whether to generate a successor — see ADR-0022 for why the round
   to close is never `latest` itself. REQ-806's non-Production-only
   `POST /internal/test-data/force-close-round/{roundId}` still exists too,
   unchanged, for manual/E2E use. Trade-off accepted, not fixed: any rounds
   that had already ended-but-never-closed *before* this fix shipped need one
-  additional `generate-round.yml` cron cycle each to catch up (or can be
+  additional cron cycle each of that round's own `GameKey`-specific workflow
+  (`generate-grid-round.yml`/`generate-path-round.yml` as of S-136) to catch up (or can be
   force-closed immediately by hand via the endpoint above) — see ADR-0022.
   The UI's "clearly different styling/icon" clause is built for `CellState`'s
   closed state (`cell-state--final`, "final" label, "X% unique · Y pts"),
@@ -2926,7 +2929,9 @@ reusing its fail-closed assertion).
   `IGameModule` (via the new `IGameModuleResolver`), generates its instance,
   and chains the new round's `StartTime` from the previous round's
   `EndTime` — exactly the acceptance criteria below. `generate-round.yml`'s
-  cron (now daily, `0 6 * * *`) triggers this via the bearer-token-protected
+  cron (now daily, `0 6 * * *`; split into `generate-grid-round.yml`/
+  `generate-path-round.yml` as of S-136/ADR-0072 — see that ADR for why the
+  split is now safe) triggers this via the bearer-token-protected
   `POST /internal/generate-round` (`XGArcade.Api.Rounds.InternalRoundEndpoints`),
   registered in every environment since this is a legitimate scheduled job
   (CONT-05), not a test-data endpoint. "configured...so play frequency can
@@ -2939,8 +2944,11 @@ reusing its fail-closed assertion).
   `POST /internal/generate-round` additionally accepts an optional
   `roundDurationHours` query parameter for a one-off override of a single
   generation call only (validated `>= 24`, never mutates the shared
-  `RoundSchedulingOptions` singleton), exposed via `generate-round.yml`'s
-  `workflow_dispatch` input. The old requirement that `RoundDuration` and
+  `RoundSchedulingOptions` singleton), exposed via each per-`GameKey`
+  workflow's own `workflow_dispatch` input (`generate-grid-round.yml`/
+  `generate-path-round.yml` as of S-136 — each input now affects only its
+  own `GameKey`, fixing a prior bug where the shared input applied to both).
+  The old requirement that `RoundDuration` and
   the cron cadence be hand-matched against each other is gone: the cron is
   now daily, giving a constant 24h max gap between firings, and
   `RoundGenerationService`'s existing idempotency check makes the daily
@@ -2963,7 +2971,8 @@ reusing its fail-closed assertion).
   cron expression configured in the system" still means editing
   `appsettings.json`/an env var (a config change, not a code change, but
   still not an in-app admin control) and, for the cron cadence itself,
-  editing `generate-round.yml`. That remains Tier 1/2 scope
+  editing `generate-grid-round.yml`/`generate-path-round.yml` (each
+  independently, per `GameKey`, as of S-136). That remains Tier 1/2 scope
   (`MVP-SCOPE.md`). `GridSize`'s find-or-create-a-`GridTemplate`-by-size
   shortcut is the same Tier 0 gap already noted on REQ-102, reused via the
   new shared `GridTemplateResolver` helper. The rest of this requirement's
@@ -6325,8 +6334,9 @@ purges any account satisfying either one.
   and 3 via two new `IUserRepository` queries
   (`GetUnclaimedGuestsOlderThanAsync`/`GetInactiveGuestsOlderThanAsync`),
   deduping a row matching both before deleting, run daily by a new
-  `purge-guest-accounts.yml` GitHub Actions workflow (07:00 UTC, offset
-  from `generate-round.yml`'s 06:00). The bearer-token constant-time-compare
+  `purge-guest-accounts.yml` GitHub Actions workflow (07:00 UTC, offset from
+  `generate-round.yml`'s 06:00 — now `generate-grid-round.yml`'s/
+  `generate-path-round.yml`'s shared 06:00, S-136). The bearer-token constant-time-compare
   check itself was extracted from `InternalRoundEndpoints` into a shared
   `XGArcade.Api.Internal.InternalJobAuthorization` helper so this second
   `/internal/*` endpoint doesn't hand-duplicate it. Frontend: `App.tsx`'s
@@ -7096,9 +7106,12 @@ covers the shared filter itself in isolation.)
   `IRoundSchedulingOptionsResolver`, and `POST /internal/generate-round`
   (with `gameKey=xg-path`) produces a real `PathTemplate` via the new
   `PathTemplateResolver`'s find-or-create-by-`PuzzleCount` (defaulting to 4,
-  `Games.XGPath.PathGenerationOptions`) — the same `generate-round.yml`
-  daily cron xG Grid uses, not a second scheduled job. See ADR-0051 for the
-  full decision. `PickDistinct` selects N
+  `Games.XGPath.PathGenerationOptions`) — at the time this shipped, the same
+  `generate-round.yml` daily cron xG Grid used, not a second scheduled job
+  (ADR-0051). **As of S-136 (ADR-0072):** xG Path now has its own
+  `generate-path-round.yml` daily cron, independent of xG Grid's
+  `generate-grid-round.yml` — see ADR-0072 for why splitting is now safe.
+  `PickDistinct` selects N
   eligible players uniformly at random, without replacement, persisting one
   `PathPuzzle` per selected target inside a new `PathInstance`; an eligible
   pool smaller than N throws `PathGenerationException` rather than

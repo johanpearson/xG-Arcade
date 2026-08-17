@@ -33,9 +33,10 @@ public static class InternalRoundEndpoints
             double? roundDurationHours,
             // S-084/REQ-1202: defaults to xG Grid's GameKey when omitted so
             // any existing caller that doesn't pass it keeps today's
-            // behavior unchanged — generate-round.yml (updated in this same
-            // story) always passes it explicitly for both GameKeys going
-            // forward, but a stray/older manual call (e.g. a bookmarked
+            // behavior unchanged — generate-grid-round.yml/
+            // generate-path-round.yml (split from a single generate-round.yml,
+            // S-136/ADR-0072) each always pass it explicitly for their own
+            // GameKey, but a stray/older manual call (e.g. a bookmarked
             // workflow_dispatch run) must not silently start generating an
             // unexpected game's rounds.
             string gameKey = GridGameModule.XGGridGameKey,
@@ -44,23 +45,25 @@ public static class InternalRoundEndpoints
             if (!InternalJobAuthorization.IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
 
-            // Optional per-call override (e.g. generate-round.yml's
-            // workflow_dispatch input) — takes precedence over
-            // RoundSchedulingOptions.RoundDuration for this one generation
-            // call only, never mutating the shared singleton. This is a
-            // system boundary (bearer-token-gated, but still an external
-            // caller), so it's validated here rather than trusted.
+            // Optional per-call override (e.g. generate-grid-round.yml's or
+            // generate-path-round.yml's own workflow_dispatch input, each
+            // scoped to its own GameKey as of S-136/ADR-0072) — takes
+            // precedence over RoundSchedulingOptions.RoundDuration for this
+            // one generation call only, never mutating the shared singleton.
+            // This is a system boundary (bearer-token-gated, but still an
+            // external caller), so it's validated here rather than trusted.
             //
             // Floor is 24, not 0: ADR-0027's safety invariant is
-            // `RoundDuration >= generate-round.yml`'s cron's max gap between
-            // firings, which is a constant 24h now that the cron is daily.
-            // A shorter override would let a round close before the next
-            // scheduled run generates its successor — REQ-301's "dead app"
-            // failure mode, reproduced via this override instead of the
-            // cron/duration coupling ADR-0027 fixed. If generate-round.yml's
-            // cron cadence ever changes, this floor must be re-derived by
-            // hand the same way (see ADR-0027's "For AI agents" section and
-            // NOTES.md's 2026-07-10 entry) — don't just bump the number.
+            // `RoundDuration >= that GameKey's own round-generation cron`'s
+            // max gap between firings, which is a constant 24h now that each
+            // cron is daily. A shorter override would let a round close
+            // before the next scheduled run generates its successor —
+            // REQ-301's "dead app" failure mode, reproduced via this override
+            // instead of the cron/duration coupling ADR-0027 fixed. If either
+            // workflow's cron cadence ever changes, this floor must be
+            // re-derived by hand the same way (see ADR-0027's "For AI agents"
+            // section, ADR-0072, and NOTES.md's 2026-07-10 entry) — don't
+            // just bump the number.
             if (roundDurationHours is < 24)
             {
                 return Results.Problem(
@@ -147,7 +150,9 @@ public static class InternalRoundEndpoints
                 // Anything else (a DB blip, a Supabase/Wikidata client
                 // failure that wasn't itself swallowed, ...) previously fell
                 // through as an opaque, empty 500 — indistinguishable in
-                // generate-round.yml's log from every other failure mode.
+                // that GameKey's round-generation workflow's log
+                // (generate-grid-round.yml/generate-path-round.yml as of
+                // S-136/ADR-0072) from every other failure mode.
                 // REQ-902's failure alerting is Tier 1 (not built yet), so
                 // REQ-301 already leans on someone noticing and checking a
                 // failed run manually (see REQ-301's own acceptance

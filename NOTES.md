@@ -1663,3 +1663,27 @@ Filed S-153 (`docs/backlog.md`) as the real follow-up: give
 (`PairLookupFailure`, ADR-0052) shortcut `warm-grid-cache` already has,
 so a re-run only retries the ~35 units that actually failed instead of
 repeating the full sweep every time.
+
+## S-136: `generate-round.yml` split into `generate-grid-round.yml` / `generate-path-round.yml` (2026-08-17)
+
+Split the single shared workflow (one job, one `0 6 * * *` cron, calling a
+bash retry function once per `GameKey`) into two fully independent
+workflow files, one per `GameKey`, each with its own `on.schedule`
+(`0 6 * * *`, unchanged) and its own `workflow_dispatch.round_duration_hours`
+input. Safe now for reasons that didn't hold at ADR-0051's time:
+`RoundSchedulingOptions` is already fully per-`GameKey`
+(`IRoundSchedulingOptionsResolver`) and `/internal/generate-round` already
+takes `gameKey` as a first-class parameter with no other game-specific
+branching — nothing server-side changed for this story. Each workflow's own
+`RoundDuration >= cron max gap` invariant (ADR-0027) was re-verified
+independently rather than assumed carried over: both games currently
+default to 48h `RoundDuration` against each workflow's own 24h daily max
+gap, comfortably safe. Side-effect bug fix: the old shared
+`workflow_dispatch` input silently applied to both `GameKey`s at once when
+supplied for a manual dispatch of one game's round — each new workflow's
+input now only affects its own `GameKey`. Full reasoning: ADR-0072 (extends
+ADR-0027/ADR-0051, supersedes neither). Repo-wide reference sweep updated
+every non-historical mention of `generate-round.yml` by name; ADR-0022,
+ADR-0023, ADR-0027, ADR-0051, and `docs/review-2026-07-07.md` were left
+untouched as accurate historical record of what was true when they were
+written.

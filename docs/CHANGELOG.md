@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/architecture-document.md`, `docs/requirements-document.md`,
+  `docs/implementation-document.md`, `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`,
+  `infra/README.md`, `NOTES.md`, `TODO.md` — implemented S-136 (Epic 11) per
+  REQ-301/REQ-1202: split the single `generate-round.yml` daily-cron workflow
+  (one job calling `/internal/generate-round` twice via a shared bash retry
+  function, once per `GameKey`) into two fully independent workflow files,
+  `generate-grid-round.yml` (`GameKey = "xg-grid"`) and
+  `generate-path-round.yml` (`GameKey = "xg-path"`), each with its own
+  `on.schedule` cron (unchanged `0 6 * * *` cadence, independently
+  re-verified against ADR-0027's `RoundDuration >= cron's max gap`
+  invariant) and its own `workflow_dispatch.round_duration_hours` input
+  scoped to only its own `GameKey` — fixing a latent bug where the old
+  shared input silently applied to both games on a manual dispatch. No
+  backend/C# behavior changed (`RoundSchedulingOptions`,
+  `IRoundSchedulingOptionsResolver`, `RoundGenerationService`,
+  `/internal/generate-round` are all untouched); only comments referencing
+  the old filename were updated across the backend and its tests. See
+  ADR-0072 (extends, does not supersede, ADR-0027/ADR-0051) for the full
+  reasoning on why the split is safe now.
 - 2026-08-17 — `docs/implementation-document.md`, `docs/architecture-document.md`,
   `docs/decisions/0071-round-sequence-number.md`, `docs/requirements-document.md`,
   `docs/design-document.md` — implemented S-135 (Epic 11) per REQ-304: added `Round.SequenceNumber` (`int`,

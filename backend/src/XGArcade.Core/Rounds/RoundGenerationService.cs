@@ -28,7 +28,9 @@ public class RoundGenerationService(
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         // REQ-205: this scheduler job is the only production-scheduled
-        // trigger point Tier 0 has (generate-round.yml's cron), so closing
+        // trigger point Tier 0 has (each GameKey's own round-generation
+        // cron — generate-round.yml until S-136/ADR-0072, now
+        // generate-grid-round.yml/generate-path-round.yml), so closing
         // (and thereby locking FinalPoints/the leaderboard total for) a round
         // happens here rather than needing a second scheduled job of its own.
         //

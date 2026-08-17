@@ -166,7 +166,9 @@ public static class ServiceRegistration
         // frequency can be adjusted without a code change": change
         // RoundScheduling:RoundDurationHours (or the deployed Container App's
         // RoundScheduling__RoundDurationHours env var) instead of editing this
-        // file. generate-round.yml's cron is daily and, thanks to
+        // file. generate-grid-round.yml's/generate-path-round.yml's cron
+        // (split from a single generate-round.yml, S-136/ADR-0072) is daily
+        // for each GameKey and, thanks to
         // RoundGenerationService's own idempotency check, only actually generates a
         // new round roughly every RoundDuration — it no longer needs hand-matching
         // against this value the way the old Tue/Fri cadence did. See
