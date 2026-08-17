@@ -476,7 +476,7 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    accept/reject behavior
 
 /infra
-  /github-workflows             -> ci.yml, sync-players.yml, generate-round.yml
+  /github-workflows             -> ci.yml, generate-round.yml, purge-guest-accounts.yml
 ```
 
 ## 5. Data model
