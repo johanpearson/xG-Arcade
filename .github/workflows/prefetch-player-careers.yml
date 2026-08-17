@@ -29,6 +29,24 @@ name: prefetch-player-careers
 # applies to a very large club's full historical squad). Confirm a real
 # run's cost/runtime/failure pattern manually first; put this on a
 # recurring schedule only once that's actually confirmed, not before.
+#
+# 2026-08-17 status: first real run against a fully-purged pool (S-038,
+# post ADR-0069's club sweep) completed its full country+club pass in ~88
+# of its then-90-minute cap, touching 193,382 players / 527,252 stints —
+# the per-country/per-club query shape itself is fine at this scale. It
+# still exited nonzero: 37 career-fetch batches hit transient WDQS 502s and
+# 2 countries (Sweden, Canada) failed their pool fetch — scattered across
+# the whole run, not a contiguous run against the same club/country
+# (ADR-0055's own "watch for a long contiguous stretch, not raw failure
+# count" monitoring guidance), so this reads as ordinary WDQS load
+# flakiness under a much heavier combined sweep, not a structural bug —
+# same class as this file's own earlier documented incident. Re-running is
+# idempotent and expected to converge, but note PlayerCareerPrefetchService
+# has NO skip-already-processed shortcut the way warm-player-cache's
+# ConfirmedLowMatchPair/PairLookupFailure gives it — every re-run repeats
+# the FULL country+club pool sweep, so a retry costs roughly the same
+# wall-clock time as the original run, not a fast delta. Timeout raised
+# below to give real headroom given 88/90 minutes was uncomfortably tight.
 
 on:
   workflow_dispatch: {}
@@ -36,7 +54,7 @@ on:
 jobs:
   prefetch-player-careers:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
