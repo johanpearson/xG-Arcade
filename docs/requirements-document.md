@@ -418,7 +418,7 @@ without erroring), API
   ahead of any real generation attempt) and *how* it's triggered.
 - Given the reference `CountryDefinition`/`ClubDefinition` tables
 - When the cache-warming job runs (`dotnet run -- warm-player-cache`,
-  triggered manually via `warm-player-cache.yml` — **not** an HTTP
+  triggered manually via `warm-grid-cache.yml` — **not** an HTTP
   endpoint against the deployed backend, and **not** on a recurring
   schedule; see ADR-0024 for why running inside a synchronous request or a
   fire-and-forget background task would both be unsafe for this specific
@@ -437,7 +437,7 @@ without erroring), API
   that criterion being implemented. Left here, marked superseded rather
   than deleted, so the run of REQ-110's history stays legible.
 - **Extended (2026-07-28) — technical-failure visibility in the run
-  summary.** Three consecutive `warm-player-cache.yml` runs
+  summary.** Three consecutive `warm-grid-cache.yml` runs
   (2026-07-26/27) produced byte-identical summaries ("2064 pairs checked,
   1214 queried live, 850 already valid") with zero net cache expansion.
   Most of that is the accepted "below-threshold, re-queried every run" gap
@@ -525,7 +525,7 @@ without erroring), API
   specified here — but this invariant is not.
 - **Extended (2026-08-01) — same-run retry removed; persistent
   cross-run technical-failure tracking added (ADR-0052).** Diagnosed from
-  CI logs (`warm-player-cache` run #15, 2026-07-28 through 08-01): every
+  CI logs (`warm-grid-cache` run #15, 2026-07-28 through 08-01): every
   attempt to run the job after the 2026-07-28 same-run-retry extension
   above got cancelled at the workflow's 90-minute ceiling, never once
   completing. Root cause was two-fold: (1) the same-run retry itself made
@@ -563,7 +563,7 @@ without erroring), API
   run failures before skipping) is an implementation detail for
   `backend-implementer` to pick and justify, not specified here.
 - **Status note (2026-08-01, live-incident follow-up to ADR-0052).** The
-  first real `warm-player-cache.yml` runs under the extension above
+  first real `warm-grid-cache.yml` runs under the extension above
   produced exactly the intended effect — 125 Club x Club pairs correctly
   identified as structural, persistent technical failures (a combinatorial
   WDQS row-explosion query shape) and stopped from being retried — but
@@ -603,7 +603,7 @@ without erroring), API
   country sweep the note above describes — both sweeps run in the same
   `prefetch-player-careers` invocation, not two separate verbs. This
   closes the gap where a player from an unseeded country who played for a
-  seeded club was invisible to both `warm-player-cache`'s pairwise sweep
+  seeded club was invisible to both `warm-grid-cache`'s pairwise sweep
   and this service's own prior nationality-only sweep. `PlayerCareerPrefetchResult`
   now reports `ClubsProcessed`/`ClubsFailed` alongside the existing
   `CountriesProcessed`/`CountriesFailed`; `PlayersTouched`/`StintsAdded`
@@ -741,7 +741,7 @@ manually until one exists
   `Player`/`PlayerAttribute` rows, this couldn't be applied retroactively
   to existing data — the entire player pool was purged
   (`purge-player-pool` CLI verb, ADR-0025) and rebuilt from scratch via a
-  fresh `warm-player-cache` run once this filter shipped.
+  fresh `warm-grid-cache` run once this filter shipped.
 
 **Test level:** Unit (`WikidataClientTests.cs` — sent SPARQL query contains
 the P21 male triple; sent query's date-of-birth cutoff is exactly
@@ -2381,7 +2381,7 @@ closed)
   at once — this was a single-player, per-match
   `WikidataLookupService.GetOrCreatePlayerAsync` at the time this addendum
   was written; the method was replaced, not just renamed, by that fix's
-  per-cell batching) — a row created by an earlier `warm-player-cache` run,
+  per-cell batching) — a row created by an earlier `warm-grid-cache` run,
   before this requirement's `P18` addition
   shipped, has `PhotoUrl` permanently `NULL` with no other code path that
   will ever revisit it, so this requirement's acceptance criteria ("a photo

@@ -142,7 +142,7 @@ public static class CliVerbDispatcher
 
     // REQ-110 (ADR-0023's follow-up): `dotnet run -- warm-player-cache` is a
     // second distinct CLI verb, same shape as migrate-and-seed above but run
-    // by its own workflow (warm-player-cache.yml), manually, after any
+    // by its own workflow (warm-grid-cache.yml), manually, after any
     // reference-data change — never inside a synchronous HTTP request (see
     // PlayerCacheWarmingService's own doc comment for why). Builds its
     // dependencies directly rather than spinning up the full WebApplication
@@ -585,7 +585,7 @@ public static class CliVerbDispatcher
     // confirmation-phrase argument, the same extra-friction-for-a-destructive-
     // write pattern infra/scripts/promote-dev-to-prod.sh already uses
     // ("promote to prod") for its own bulk write to real player-facing data.
-    // Run once, then trigger warm-player-cache.yml to repopulate the pool
+    // Run once, then trigger warm-grid-cache.yml to repopulate the pool
     // under the new filters. Reference tables (CountryDefinition/
     // ClubDefinition/TrophyDefinition) and account/game-history tables (User/
     // League/Round/GridInstance/GridCell/Guess) are deliberately untouched —

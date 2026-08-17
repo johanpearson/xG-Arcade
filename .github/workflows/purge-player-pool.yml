@@ -11,7 +11,7 @@ name: purge-player-pool
 # account/game-history tables (User/League/Round/GridInstance/GridCell/
 # Guess) are NOT touched by this workflow.
 #
-# Run this ONCE, then trigger warm-player-cache.yml to repopulate the pool.
+# Run this ONCE, then trigger warm-grid-cache.yml to repopulate the pool.
 
 on:
   workflow_dispatch:

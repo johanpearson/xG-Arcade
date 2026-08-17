@@ -136,3 +136,9 @@ about to add or modify any query touching P54, use the full statement path
 by default and only deviate with a comment explaining why that specific
 case is safe (same as `BuildTrophyCountryIntersectionQuery`'s P166 comment
 does for its own truthy-shortcut judgment call).
+
+**Follow-up (S-134, 2026-08-17):** the `warm-player-cache.yml` workflow
+referenced above was renamed to `warm-grid-cache.yml` in S-134
+(workflow-naming audit). This does not change the decision recorded
+above; only the Actions-tab filename differs. See `docs/backlog.md`
+S-134 and `docs/CHANGELOG.md`.

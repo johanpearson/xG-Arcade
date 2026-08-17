@@ -832,7 +832,7 @@ Confirms the prediction two entries above almost exactly. After S-035's
    failed attempts — a cache hit, not a fresh Wikidata timeout.
 
 Fixed by S-036: a proactive `PlayerCacheWarmingService` (`dotnet run --
-warm-player-cache`, run manually via `warm-player-cache.yml`, deliberately
+warm-player-cache`, run manually via `warm-grid-cache.yml`, deliberately
 a CLI verb and not an HTTP endpoint — see that story's own "Built as" note
 for why both an endpoint and a fire-and-forget background task are unsafe
 for this specific hosting setup) plus a widened reference pool (20→45
@@ -848,8 +848,8 @@ one alone doesn't fully fix future failures.
 fail fast or slow — fast means "ran out of candidates" (a data-sparsity
 problem, needs more/better reference data or a lower `MinValidAnswers`),
 slow-then-`MaxDuration` means something is still forcing a lot of live
-Wikidata calls (check whether `warm-player-cache` has actually been run
-since the last reference-data change); (2) run `warm-player-cache.yml`
+Wikidata calls (check whether `warm-grid-cache` has actually been run
+since the last reference-data change); (2) run `warm-grid-cache.yml`
 again — new reference-data entries or newly-synced Wikidata content since
 the last warming pass are the most likely explanation for a fresh
 data-sparsity failure.
@@ -899,10 +899,10 @@ remembering:
    the fact (no column records which QID a row was fetched under) — new
    `StaleClubAttributeCleaner` (`dotnet run -- clean-stale-club-attributes
    "Napoli,AS Roma,Sevilla,Porto"`, via `clean-stale-club-attributes.yml`)
-   purges it so the next `warm-player-cache` run gets a clean re-fetch.
+   purges it so the next `warm-grid-cache` run gets a clean re-fetch.
    **Run this manually, once, after `migrate-and-seed` has applied the QID
-   correction and *before* the next `warm-player-cache` run** — running it
-   after a fresh warm-player-cache pass would delete the new correct data
+   correction and *before* the next `warm-grid-cache` run** — running it
+   after a fresh warm-grid-cache pass would delete the new correct data
    too, since (again) nothing distinguishes old from new after the fact.
 
 Also added 11 further clubs (RB Leipzig, Bayer Leverkusen, Marseille,
@@ -943,7 +943,7 @@ rolling cutoff, without reading that first.
 nor date of birth was ever recorded on `Player`/`PlayerAttribute` rows, so
 there was no way to tell which already-cached players would pass the new
 filters without a live Wikidata re-check per player anyway — cheaper to
-just purge everything and let `warm-player-cache` re-fetch it all fresh
+just purge everything and let `warm-grid-cache` re-fetch it all fresh
 under the new query shape. New `purge-player-pool "delete all player
 data"` CLI verb does the purge (`Player` row delete, cascading through
 `PlayerData`/`PlayerOverride`/`PlayerAttribute`/`PlayerAlias`) — gated
@@ -969,7 +969,7 @@ back at that historical round.
 **Operational sequence, in order, once this ships:** (1) deploy the code
 change (new SPARQL filters), (2) trigger `purge-player-pool.yml` once with
 confirmation phrase `delete all player data`, (3) trigger
-`warm-player-cache.yml` to repopulate the pool under the new filters. Step
+`warm-grid-cache.yml` to repopulate the pool under the new filters. Step
 2 before step 3, same reasoning as S-037's clean-then-warm ordering — the
 purge has to happen before the pool is fresh, or it would just delete the
 freshly-correct data too.
@@ -1011,7 +1011,7 @@ masquerade as a club name that "removed 0 rows" successfully.
 
 **Operator recovery order, strictly:** (1) deploy the query fix, (2)
 `clean-stale-club-attributes.yml` once with input `--all-clubs`, (3)
-`warm-player-cache.yml`. Never clean after a fresh warm — same
+`warm-grid-cache.yml`. Never clean after a fresh warm — same
 can't-tell-old-from-new reasoning as S-037/S-038, nothing in the
 persisted rows records which query shape fetched them.
 
@@ -1162,7 +1162,7 @@ wrong. Fix needs Turnstile wired into Login and Signup too (not just
 Guest), or the captcha toggle turned back off until that's done — tracked
 as a separate session, not fixed in this note-taking pass.
 
-### 2026-08-01 — `warm-player-cache.yml` stopped completing entirely; the 2026-07-28 same-run-retry fix was itself the regression (REQ-110, ADR-0052)
+### 2026-08-01 — `warm-grid-cache.yml` stopped completing entirely; the 2026-07-28 same-run-retry fix was itself the regression (REQ-110, ADR-0052)
 
 Reported: run #15 was manually re-dispatched three times (2026-07-28
 through 2026-08-01) and every attempt got cancelled at the workflow's
@@ -1277,7 +1277,7 @@ through the actual data path, not guessed:
   club-club/trophy-country/trophy-club). There is no "fetch this player's
   full Wikidata career" call anywhere in this codebase — a player's
   `PlayerCareerStint` set is whatever the accumulated history of xG Grid
-  cell lookups (live guess-time misses + `warm-player-cache` runs) has
+  cell lookups (live guess-time misses + `warm-grid-cache` runs) has
   happened to query so far, never a complete career.
 - A stint can only ever be recorded for a club that is in the seeded
   `ClubDefinition` table (`ReferenceDataSeeder.Clubs`) — the intersection
@@ -1299,13 +1299,13 @@ through the actual data path, not guessed:
 **Not a code defect** — this is `ADR-0042`'s accepted scope (career stints
 are a byproduct of xG Grid's own cell lookups, not a first-class Wikidata
 fetch) intersecting with two separate, known gaps: Celtic's absence from
-`ClubDefinition`, and `warm-player-cache` not yet having covered every
+`ClubDefinition`, and `warm-grid-cache` not yet having covered every
 (nationality, seeded club) pair for every xG Path target player. Two
 distinct fixes exist if this is worth acting on, not attempted here since
 neither was asked for: (1) add Celtic to `ReferenceDataSeeder.Clubs` with a
 verified QID (same S-037-style live-Wikidata verification discipline every
 other club addition here has followed — this sandbox can't verify it), and
-(2) either run `warm-player-cache.yml` again to close remaining
+(2) either run `warm-grid-cache.yml` again to close remaining
 (nationality, club) gaps, or give xG Path its own direct per-player
 career-stint fetch instead of depending on xG Grid's lookup history as a
 byproduct — the latter is a real scope decision (a new Wikidata query
@@ -1610,14 +1610,14 @@ smaller-scale) verb uses. Fixed same day; re-run confirmed the fix.
 
 ## First real post-purge cold rebuild needed more headroom than 90 minutes (2026-08-17)
 
-Right after the purge fix above, both `warm-player-cache.yml` and
+Right after the purge fix above, both `warm-grid-cache.yml` and
 `prefetch-player-careers.yml` were triggered to rebuild the pool from
 scratch — the first real run of either against a fully-purged database
 (`ConfirmedLowMatchPair`/`PairLookupFailure` cleared too, so
-`warm-player-cache`'s usual "repeat runs are cheap" skip-shortcut had
+`warm-grid-cache`'s usual "repeat runs are cheap" skip-shortcut had
 nothing to skip) and the first run of `prefetch-player-careers` under
 ADR-0069's new combined country+club sweep (roughly double the prior
-scope). `warm-player-cache` got killed by its own 90-minute
+scope). `warm-grid-cache` got killed by its own 90-minute
 `timeout-minutes` cap mid-sweep. `prefetch-player-careers` actually
 completed its full pass in ~88 of 90 minutes — 193,382 players / 527,252
 stints touched — but exited nonzero per its own designed "keep going, fail
@@ -1630,11 +1630,11 @@ raised to 240 minutes to give a genuine cold run real headroom; re-run
 after the fix.
 
 Worth remembering: `PlayerCareerPrefetchService` has no skip-already-
-processed shortcut the way `warm-player-cache` does — every re-run repeats
+processed shortcut the way `warm-grid-cache` does — every re-run repeats
 the FULL country+club pool sweep from scratch (only the DB writes are
 cheap no-ops for already-persisted data), so a retry costs roughly the
 same wall-clock time as the original run, not a fast delta the way a
-`warm-player-cache` re-run against an already-partially-warmed
+`warm-grid-cache` re-run against an already-partially-warmed
 `ConfirmedLowMatchPair` table would.
 
 ## S-131 closed: post-#203 re-run confirmed the timeout fix, not the flakiness, was the fix (2026-08-17)
@@ -1660,6 +1660,6 @@ S-131's own instruction.
 Closing S-131 on this evidence rather than reopening it indefinitely.
 Filed S-153 (`docs/backlog.md`) as the real follow-up: give
 `prefetch-player-careers` the same persisted failure-tracking
-(`PairLookupFailure`, ADR-0052) shortcut `warm-player-cache` already has,
+(`PairLookupFailure`, ADR-0052) shortcut `warm-grid-cache` already has,
 so a re-run only retries the ~35 units that actually failed instead of
 repeating the full sweep every time.

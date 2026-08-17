@@ -18,7 +18,7 @@
          graph asking for a specific version, NuGet settles on that floor
          (10.0.4) even though Microsoft.EntityFrameworkCore above is pinned
          exactly at 10.0.10, producing MSB3277 "conflicts ... could not be
-         resolved" at build time (seen in warm-player-cache.yml/
+         resolved" at build time (seen in warm-grid-cache.yml/
          backfill-player-photos CI logs — the latter's one-off workflow
          wrapper, backfill-player-photos.yml, was deleted in S-132). EF Core's
          own relational

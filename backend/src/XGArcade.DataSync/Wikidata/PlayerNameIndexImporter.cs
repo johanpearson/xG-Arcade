@@ -14,7 +14,7 @@ namespace XGArcade.DataSync.Wikidata;
 // than that against the full player-pool query). Run manually/periodically
 // per ADR-0007's own follow-up note (start with a manual/periodic refresh,
 // tighten only if names are noticeably missing) — import-player-name-index.yml
-// is workflow_dispatch-only, same as warm-player-cache.yml, not on a cron.
+// is workflow_dispatch-only, same as warm-grid-cache.yml, not on a cron.
 //
 // Deliberately placed in XGArcade.DataSync (next to WikidataLookupService),
 // NOT in XGArcade.Data/Seeding alongside ReferenceDataSeeder/

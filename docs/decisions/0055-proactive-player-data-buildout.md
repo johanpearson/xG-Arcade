@@ -174,3 +174,10 @@ product decision; that was explicitly rejected above, not merely deferred.
 If a future task wants broader coverage, the right lever is adding more
 countries to `ReferenceDataSeeder.Countries` (move 1's own mechanism), not
 loosening this service's own scope.
+
+**Follow-up (S-134, 2026-08-17):** the `warm-player-cache.yml` workflow
+referenced above was renamed to `warm-grid-cache.yml` in S-134
+(workflow-naming audit). This does not change the decision recorded
+above — the same job, same weekly cron, sweeps the same cache; only the
+Actions-tab filename differs. See `docs/backlog.md` S-134 and
+`docs/CHANGELOG.md`.

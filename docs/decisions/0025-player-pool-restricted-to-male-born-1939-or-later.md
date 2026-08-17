@@ -111,3 +111,10 @@ bypasses these filters without discussing it first, and do not reintroduce
 a rolling/`TimeProvider`-computed cutoff without explicit direction: this
 ADR replaced an earlier rolling-window implementation specifically because
 it did not match the actual requirement.
+
+**Follow-up (S-134, 2026-08-17):** the `warm-player-cache.yml` run
+referenced above was renamed to `warm-grid-cache.yml` in S-134
+(workflow-naming audit). This does not change the decision recorded
+above — the same job, same CLI verb, repopulates the pool under this
+ADR's filters; only the Actions-tab filename differs. See
+`docs/backlog.md` S-134 and `docs/CHANGELOG.md`.
