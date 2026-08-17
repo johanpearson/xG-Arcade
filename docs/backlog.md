@@ -5951,6 +5951,44 @@ other jobs by name) — a grep for the literal string `warm-player-cache`
 across the repo returns zero hits once done; CHANGELOG entry.
 *Deps:* S-130, S-132 (audit the post-cleanup set, not the pre-cleanup one).
 
+**S-153 · `prefetch-player-careers.yml`: give re-runs a skip-shortcut for previously-failed country/club/batch fetches (mirror ADR-0052's `PairLookupFailure` pattern)**
+Closes S-131. Confirmed against real run history, not assumed: run #6
+(2026-08-17T08:09:25Z, `workflow_dispatch` on commit `1e7cb99` itself — the
+exact #203 headroom fix, verified via `head_sha`) is the manually-triggered
+post-#203 run S-131 asked for. It did **not** complete `success`, but it
+also did **not** time out — it finished in 43 minutes (08:09→08:52), well
+inside the new 240-minute cap, so #203's fix worked as intended. The
+residual failure is a different, already-understood class: 8 countries
+(United Kingdom, Argentina, Germany, Ivory Coast, France, Brazil, Czech
+Republic, United States of America) and 1 club (Lille) failed their
+player-pool fetch, and 26 career-fetch batches failed, all transient
+Wikidata `502 Bad Gateway` (plus one truncated-response JSON parse error)
+— 132,226 players touched / 20,287 stints added from what succeeded before
+the job's designed "keep going, fail loud at the end" contract exited it
+nonzero. Same flakiness class the workflow's own 2026-08-17 header comment
+already documents for run #5 (37 batches, 2 countries) — not a new bug.
+The real gap: unlike `warm-player-cache.yml` (`ConfirmedLowMatchPair`/
+`PairLookupFailure`, ADR-0050/ADR-0052), `PlayerCareerPrefetchService` has
+no persisted record of which country/club pool fetches or which
+career-fetch batches failed last run, so every re-run repeats the FULL
+country+club sweep from scratch to pick up the ~35 units that actually
+failed — a 43-90 minute retry to fix single-digit-percent flakiness, every
+time.
+*Accept:* a new table mirroring `PairLookupFailure`'s exact shape (composite
+key scoped to prefetch's own units — country/club identifier for pool-fetch
+failures, batch key for career-fetch batch failures — `ConsecutiveFailureCount`,
+`LastFailedAt`; same read/write-only-through-repository-method discipline,
+same "not self-expiring, cleared by `purge-player-pool`" invariant, same
+prod/dev sync exclusion per ADR-0009) lets `PlayerCareerPrefetchService`
+skip a country/club/batch that succeeded on the immediately-prior run and
+retry only what failed, so a re-run's cost scales with the flakiness delta,
+not the full pool; a REQ###-named test proves a unit that failed once then
+succeeded on retry is retried (not skipped), and `NOTES.md` gets an entry
+recording this story's own before/after re-run cost once it's verified for
+real. `docs/implementation-document.md` §5 gains the new table entry
+alongside `PairLookupFailure`'s existing one.
+*Deps:* none (S-131's diagnosis is this story's own investigation, above).
+
 ## Epic 11 — Round generation: per-game workflows, human-readable round IDs
 
 **S-135 · Add a human-readable per-`GameKey` round number, surfaced in place of the raw GUID**

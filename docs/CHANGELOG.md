@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md`, `NOTES.md` — closed S-131: verified
+  `prefetch-player-careers.yml`'s post-#203 re-run (run #6, triggered on
+  commit `1e7cb99` itself) against real GitHub Actions run history and job
+  logs. Confirmed #203's timeout headroom fix worked (the run finished in
+  43 of its 240-minute cap, no timeout failure) but the job still exited
+  nonzero on a different, already-documented cause — transient Wikidata
+  `502 Bad Gateway` responses across 8 countries, 1 club, and 26
+  career-fetch batches, the same flakiness class as this job's two prior
+  incidents, not a regression. Per S-131's own accept criteria, filed
+  S-153 as the real follow-up (give `prefetch-player-careers` a persisted
+  failure-tracking skip-shortcut mirroring `warm-player-cache`'s
+  `PairLookupFailure`/ADR-0052, so re-runs retry only what failed instead
+  of repeating the full sweep) instead of reopening S-131. No code
+  changed, no REQ/ADR affected — diagnostic/backlog-triage only.
 - 2026-08-17 — `docs/implementation-document.md`, `docs/architecture-document.md`,
   `infra/bicep/modules/backend-container-app.bicep`,
   `docs/decisions/0009-bidirectional-game-data-sync.md` — doc-sync follow-up
