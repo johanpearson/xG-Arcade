@@ -506,14 +506,23 @@ public class RoundEndpointTests
                 });
             });
         });
-        await SeedFullyMatchedReferenceDataAsync(size: 3, factory: multiGameKeyFactory);
-        await SeedEligiblePathPlayersAsync(count: 3, factory: multiGameKeyFactory);
         var client = multiGameKeyFactory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
 
-        // No existing rounds for either GameKey yet — the first call for
-        // each GameKey.
+        // Grid must be seeded and generated before xg-path's own reference
+        // data exists: GridGenerationService.GenerateInstanceAsync's club
+        // candidate pool comes from every ClubDefinition row in the shared
+        // database (categoryValueRepository.GetClubsAsync, not scoped to
+        // this test's grid fixture), so if SeedEligiblePathPlayersAsync's
+        // "Seeded FC" ClubDefinition already existed, it would join that
+        // pool with no matching PlayerAttribute data, forcing a live
+        // Wikidata lookup that then fails on this test's synthetic,
+        // non-real-format QIDs ("Qc0" etc. — fine for the cache-lookup path
+        // this test relies on, never meant to reach WikidataClient).
+        await SeedFullyMatchedReferenceDataAsync(size: 3, factory: multiGameKeyFactory);
         var gridResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-grid", content: null);
+
+        await SeedEligiblePathPlayersAsync(count: 3, factory: multiGameKeyFactory);
         var pathResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
 
         Assert.That(gridResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
