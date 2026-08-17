@@ -5734,3 +5734,30 @@ confirmed. Frontend consumption (making `SuggestionsScreen.tsx` actually
 display the new fields) is an explicit follow-up story, not part of this
 one.
 *Deps:* ADR-0060, REQ-509/510 (S-090).
+**Frontend half (2026-08-17, same story number):** `CommitPlayerDataResult`
+(`frontend/src/lib/types.ts`) updated to the new field names
+(`playerCreated`/`nationalityWritten`/`clubsAdded`/`clubsAlreadyEffective`).
+`PlayerReviewPanel`'s `handleCommit` (`SuggestionsScreen.tsx`) now captures
+the actual commit response instead of discarding it, and threads it through
+`onDone`'s new `result?: CommitPlayerDataResult` parameter to both callers.
+A shared `describeCommitResult` helper turns the response into a plain-
+language summary (new-player/nationality/clubs-added, with a genuine no-op
+called out plainly as "No changes — this data was already up to date."),
+used by both flows — `PendingSuggestionRow`'s approval flow, which
+previously showed no confirmation at all (now lifted into
+`SuggestionsScreen`'s own `confirmation` state, rendered above the pending
+list since the row itself unmounts on every commit), and
+`ManualSearchSection`'s flow, which previously showed only the generic
+"Player data committed." string. No new CSS — reuses the existing
+`.suggestions-screen__confirmation` class already defined for
+`ManualSearchSection`. `SuggestionsScreen.tsx` is an admin-only utility
+screen (REQ-509/510/ADR-0053) with no `SCREEN-xxx` entry in
+`docs/design-document.md`, so nothing there needed updating.
+*Accept:* `SuggestionsScreen.test.tsx` updated for the new response shape
+in every existing commit-mock, plus new cases: a suggestion-approval commit
+that adds a new club renders the specific summary (not just row removal), a
+genuine no-op commit renders "No changes — this data was already up to
+date.", and the manual-search flow's commit no longer renders the generic
+string. `npm run test` (582/582 passed), `npx tsc -b` (clean), and
+`npx oxlint` (clean) all run for real in this sandbox.
+*Deps:* backend half above, ADR-0060, REQ-509/510 (S-090).

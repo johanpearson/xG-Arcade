@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md` — S-129 (frontend half): `SuggestionsScreen.tsx`
+  now shows a real confirmation summary on commit instead of nothing
+  (`PendingSuggestionRow`'s approval flow) or a generic "Player data
+  committed." string (`ManualSearchSection`'s flow) — both now build their
+  message from the actual `CommitPlayerDataResult` response
+  (`playerCreated`/`nationalityWritten`/`clubsAdded`/`clubsAlreadyEffective`),
+  with a genuine no-op called out plainly. `frontend/src/lib/types.ts`'s
+  `CommitPlayerDataResult` updated to match the backend's redesigned
+  response shape. No `docs/design-document.md` change — `SuggestionsScreen`
+  is an admin-only utility screen with no `SCREEN-xxx` entry. REQ-509/510.
 - 2026-08-17 — `docs/backlog.md`, `docs/decisions/0060-suggestion-commit-write-path-split-by-cardinality.md`,
   `docs/requirements-document.md` (v1.75) — S-129 (backend half):
   `CommitPlayerDataResponse` (`AdminSuggestionEndpoints.cs`) redesigned to
