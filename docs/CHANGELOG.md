@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md` — added Epics 10-15 (S-130 through S-150)
+  scoping the repo-wide overhaul: CI/CD workflow cleanup (grounded in a
+  live GitHub Actions run-history audit — found `backup-database.yml`
+  failing 40/40 recent scheduled runs and `prefetch-player-careers.yml`
+  failing 4/6, plus 3 never-triggered and 7 one-off-incident-served
+  workflows), a per-`GameKey` human-readable round number to replace the
+  raw GUID `RoundControlSection.tsx` currently renders, splitting
+  `generate-round.yml` into per-game workflows, xG Path eligibility
+  changes (born-1975-or-later floor, ≥2 eligible-club requirement, B-team/
+  broadened regional-team exclusion), confirmation that REQ-207's
+  2-character autocomplete threshold already ships in both games (doc-only
+  gap, no code change needed), generalizing `PlayerSuggestion` submission
+  off of xG Grid's `CellId`/category-type coupling so xG Path can report
+  corrections too, and a new per-user suggestion-history view with a
+  clear/dismiss action in `SettingsScreen.tsx` (the codebase's first
+  soft-delete/dismiss pattern). No code changed yet — this is the scoping
+  pass; several stories flag an explicit product decision needed before
+  implementation (S-133's keep/remove call on the three never-triggered
+  Tier-1-pending workflows; S-138's appearance-threshold-on-both-clubs
+  design) rather than presuming an answer.
 - 2026-08-17 — `NOTES.md`, `.github/workflows/warm-player-cache.yml`,
   `.github/workflows/prefetch-player-careers.yml` — the first real
   post-purge cold rebuild needed more than 90 minutes: `warm-player-cache`
