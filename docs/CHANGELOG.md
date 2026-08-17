@@ -38,7 +38,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   change, not a rename, and would have contradicted the story's own
   "content unchanged" clause for the `.yml` file. Every reference to the
   *workflow* (`warm-player-cache.yml`, and bare `warm-player-cache` prose
-  that names the job/workflow rather than the CLI verb string) was swept:
+  that names the job/workflow rather than the CLI verb string) was swept.
+  Where a sentence used the bare name loosely to describe the job as a
+  whole (e.g. "the way `warm-player-cache`'s skip-shortcut works"), it was
+  normalized to `warm-grid-cache` too, as shorthand for "the job" — this
+  is a documentation-precision choice, not a claim that anything besides
+  the `.yml` filename actually changed; the CLI verb string, job id, and
+  log/echo text remain `warm-player-cache` everywhere they execute. Swept:
   `PlayerCacheWarmingService.cs`'s and `CliVerbDispatcher.cs`'s doc
   comments, `XGArcade.Data.csproj`'s CI-hygiene comment,
   `PlayerNameIndexImporter.cs`'s doc comment, sibling workflows'
