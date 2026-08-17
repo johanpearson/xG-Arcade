@@ -106,6 +106,14 @@ should be triggered by an actual observed problem, not by this list existing:
   (once backups are built — REQ-901)
 - [ ] Confirm GitHub Actions failure-notification emails actually arrive
   (once alerting is built — REQ-902)
+- [ ] **Run the `purge-game-history` clean slate** (`docs/backlog.md` S-152,
+  Epic 16) once — and only once — Epics 10-15 of the repo-wide overhaul are
+  all merged. Wipes every `Round`/`Guess`/`GridInstance`/`GridCell`/
+  `PathInstance`/`PathPuzzle`/`PathTargetCycle`/`PathCycleTargetUsage` row
+  (including cascaded `PlayerSuggestion` rows — see S-152's own explicit
+  callout on that) so real users start against zero test-era game history.
+  Never touches `Player`/reference-table data — that's `purge-player-pool.yml`,
+  a separate, deliberate decision if ever wanted.
 
 ## Known open design questions (not blocking, revisit when relevant)
 

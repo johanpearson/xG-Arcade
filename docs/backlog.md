@@ -6399,3 +6399,78 @@ handling COMP row gets a status note for the new read/clear paths;
 one — `ui-implementer`/design review to decide during implementation, not
 prescribed here). CHANGELOG entry naming all docs touched.
 *Deps:* S-147, S-148, S-149.
+
+## Epic 16 — Pre-launch clean slate
+
+**S-152 · `purge-game-history` CLI verb + confirmation-gated workflow: wipe all rounds, guesses, grids, and paths**
+Deletes every historical `Round`, `GridInstance`(+`GridCell`), `PathInstance`
+(+`PathPuzzle`), `PathTargetCycle`, and `PathCycleTargetUsage` row so the
+platform starts with zero game history once this whole overhaul (Epics
+10-15) is done. Follows `purge-player-pool.yml`'s exact precedent: a plain
+CLI verb (`dotnet run -- purge-game-history`), never an HTTP endpoint (same
+ADR-0024 long-running-bulk-delete-is-a-CLI-verb reasoning), a
+`workflow_dispatch`-only workflow requiring the same typed exact-phrase
+confirmation input `purge-player-pool.yml` already uses, and — learn from
+`purge-player-pool.yml`'s own very recent incident (2026-08-17,
+`18640c9`) — a verb-scoped extended `Database.SetCommandTimeout` from the
+start, not discovered the hard way after this table has grown.
+**Two things confirmed against `XGArcadeDbContext.cs`'s actual FK
+configuration, not assumed:**
+1. Deleting `Round` **cascades to `Guess`** (`Guess.RoundId`,
+   `DeleteBehavior.Cascade`) **and also to `PlayerSuggestion`**
+   (`PlayerSuggestion.RoundId`, same cascade) — the second cascade isn't
+   something the "rounds, guesses, grids, paths" request named explicitly.
+   **Decision, made here rather than left as a silent side effect:**
+   include it — a pre-launch clean slate should also clear suggestion-review
+   history accumulated during this overhaul's own testing, not just
+   gameplay data, and there's no product reason to keep pre-launch test
+   suggestions once the game itself resets. If that's wrong, this story's
+   own explicit callout is exactly what makes it easy to catch and change
+   before running it for real, rather than discovering it after the fact.
+2. `Round.GameInstanceId` is deliberately unconstrained (ADR-0003) and
+   `PathTargetCycle`/`PathCycleTargetUsage` have no FK to `Round`/
+   `PathInstance` at all (`PlayerId`+`CycleNumber`-keyed only) — none of
+   this is reachable via cascade from `Round`/`GridInstance`/`PathInstance`
+   deletes, so the verb must delete these two tables explicitly in the same
+   transaction, not assume a cascade covers them. Skipping this would leave
+   xG Path's ADR-0058 cycle state referencing a cycle whose actual rounds
+   no longer exist — a real, silent correctness gap for the *next* round
+   generated post-wipe, not just leftover clutter.
+**Explicitly out of scope — never touched by this verb:** `User`,
+`League`/`LeagueMembership` (a fresh global league already exists per
+REQ-401's invariant; wiping it would break that), and every player-data
+table (`Player`, `PlayerData`, `PlayerAttribute`, `PlayerOverride`,
+`PlayerAlias`, `PlayerCareerStint`, `PlayerNameIndex`) plus every reference
+table (`ClubDefinition`, `CountryDefinition`, `TrophyDefinition`,
+`GridTemplate`, `PathTemplate`) — this whole overhaul exists to build that
+data *up*, and this story is explicitly about resetting *game history*,
+never the player database underneath it. If a genuinely full reset is ever
+wanted later, that's `purge-player-pool.yml`'s job, run separately and
+deliberately, not folded into this one.
+**Sequencing: land and run this LAST**, after Epics 10-15 are all merged,
+not before and not mid-overhaul. Reasons, not just preference: Epic 11
+(S-135) adds `Round.SequenceNumber` with a backfill for existing rows —
+running the wipe first makes that backfill work pointless (every row it'd
+backfill gets deleted anyway) and running it last means the fresh
+post-launch rounds start a clean `SequenceNumber` sequence from 1 with no
+backfill math involved at all. Epic 14/15 (S-143-150) change
+`PlayerSuggestion`'s `RoundId`/`CellId` coupling — building this verb
+against the *final* post-overhaul schema avoids writing it twice.
+*Accept:* new `IRoundRepository`/equivalent method(s) performing the
+delete in one transaction (mirroring `PlayerRepository`'s existing
+cascade-delete pattern for `purge-player-pool`); the workflow's
+`confirmation` input must exactly match a fixed phrase (e.g. `"reset all
+game history"`, distinct from `purge-player-pool.yml`'s own phrase so the
+two can never be confused/fat-fingered) or the job fails before touching
+the DB; a REQ###-named test (repository-level, against the InMemory
+provider per this codebase's existing precedent for bulk-delete verbs)
+proves `League`/`LeagueMembership`/`Player`/every reference table are
+provably untouched — row counts before/after, not just "no exception
+thrown"; `NOTES.md` gets an entry recording the actual row counts wiped the
+first time this runs for real, same as `purge-player-pool.yml`'s own
+incident-log discipline. No ADR needed — this is a self-contained
+operational tool with no REQ/ADR-level decision behind it, matching
+`purge-player-pool.yml`'s and the other maintenance verbs' own precedent.
+*Deps:* none to build; **do not run for real before Epics 10-15 are merged**
+(see Sequencing above) — `TODO.md`'s pre-launch checklist gets the actual
+"run it" step so this isn't only a capability sitting unused.
