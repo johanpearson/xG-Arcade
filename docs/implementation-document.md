@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.98"
+version: "0.99"
 status: draft
-last_updated: 2026-08-16
+last_updated: 2026-08-17
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -476,7 +476,7 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    accept/reject behavior
 
 /infra
-  /github-workflows             -> ci.yml, sync-players.yml, generate-round.yml
+  /github-workflows             -> ci.yml, generate-round.yml, purge-guest-accounts.yml
 ```
 
 ## 5. Data model
@@ -2416,10 +2416,13 @@ split and sync approach.
   curate game data in dev, ship it to prod
 - **`sync-prod-to-dev.sh`** is the fallback direction, for when prod's
   game data changed directly and dev needs to catch up
-- Both triggered manually via `workflow_dispatch`
-  (`promote-dev-to-prod.yml` / `sync-prod-to-dev.yml`), never on a
-  schedule — deliberate actions, not routine ones. The prod-writing
-  direction requires a longer confirmation phrase as extra friction
+- Both scripts are runnable by hand/CLI today; the `workflow_dispatch`
+  wrappers that used to trigger them from the Actions tab
+  (`promote-dev-to-prod.yml` / `sync-prod-to-dev.yml`) were deleted in
+  S-130 (2026-08-17) — see the CI/CD subsection below and
+  `infra/README.md` for current state. Whichever direction, it's a
+  deliberate action, not a routine one; the prod-writing direction
+  requires a longer confirmation phrase as extra friction
 
 **CI/CD** (`/.github/workflows`):
 
@@ -2429,8 +2432,6 @@ split and sync approach.
   Tier 1 shape: adds a `deploy-dev` job (dev-tagged image + Bicep deploy)
   that E2E depends on, with the test-data reset call (REQ-802) — restored
   when the dev environment exists (ADR-0006)
-- **`sync-players.yml`**: scheduled (e.g. daily), runs `XGArcade.DataSync`
-  against production, respects overrides (REQ-501)
 - **`generate-round.yml`**: scheduled per the configured frequency
   (REQ-301), calls a backend endpoint to create a new Round
 - **`purge-guest-accounts.yml`** (REQ-718/ADR-0038): scheduled daily
@@ -2446,27 +2447,23 @@ split and sync approach.
   step (the commit already passed CI and deployed cleanly to dev); it
   builds its own image tag separately from `ci.yml`'s dev build, an
   accepted duplication for now given project scale
-- **`promote-dev-to-prod.yml`**: manual-only, the recommended game-data
-  promotion direction
-- **`sync-prod-to-dev.yml`**: manual-only, the fallback game-data sync direction
-- **`promote-dev-to-prod-dry-run.yml`** (2026-08-08, ADR-0009's addendum):
-  weekly-scheduled (plus `workflow_dispatch`), runs
-  `promote-dev-to-prod.sh --dry-run` and writes the per-table dev/prod
-  row-count diff to the job summary. Read-only — never writes to prod and
-  adds no non-interactive flag to the real (writing) promote path, which
-  still requires a human to run the script directly and type the
-  confirmation phrase. Exits cleanly (not a failing run) when
-  `PROD_DATABASE_CONNECTION_STRING` isn't set, since prod doesn't exist
-  yet (Tier 1, `MVP-SCOPE.md`)
-- **`backup-database.yml`**: scheduled daily — Supabase's free tier includes
-  no automated backups at all (confirmed directly against their docs,
-  2026-07-05), so this is not optional. Runs `pg_dump` against production
-  and uploads the result as a workflow artifact with a bounded retention
-  window (14 days is a reasonable starting point — balances real recovery
-  usefulness against GitHub's own artifact storage quota, which is a
-  separate free allowance worth watching). A restore procedure using
-  `pg_restore` must be documented in `infra/README.md` and tested manually
-  at least once — an untested backup is not a backup (REQ-901).
+- **Deleted (S-130, 2026-08-17)**: `promote-dev-to-prod.yml`,
+  `sync-prod-to-dev.yml`, `promote-dev-to-prod-dry-run.yml` (2026-08-08,
+  ADR-0009's addendum — weekly-scheduled dry-run diff), `sync-players.yml`,
+  and `backup-database.yml`. None had ever succeeded or, in most cases,
+  ever run — `backup-database.yml` failed all 40/40 of its scheduled
+  `pg_dump`-against-production runs because `PROD_DATABASE_CONNECTION_STRING`
+  has never been set (no prod environment exists yet); the other four had
+  zero runs, or (the dry-run job) no remaining purpose once its target
+  workflow was gone. The underlying scripts (`infra/scripts/promote-dev-to-prod.sh`,
+  `infra/scripts/sync-prod-to-dev.sh`) and the `/internal/sync-players`
+  endpoint are unchanged and still runnable by hand — only the Actions-tab
+  wrappers/cron automation were removed. There is currently no scheduled
+  backup automation of any kind (see REQ-901's status note in
+  `docs/requirements-document.md`); the plan to rebuild these as
+  `workflow_dispatch`/scheduled wrappers is Tier 1, once a real prod
+  environment exists — see `infra/README.md` for current state and the
+  rebuild plan.
 
 **Failure alerting (REQ-902):** GitHub's own email notifications for failed
 workflow runs cover this at zero additional cost and zero additional
@@ -2507,8 +2504,9 @@ document's §1 table, not a routine merge.
 ## 10. Open technical questions
 
 - Container Apps Consumption plan scale-to-zero cold-start impact on
-  scheduled jobs (`sync-players.yml`, `generate-round.yml`) — may need a
-  minimum-replica setting if cold starts cause missed schedules
+  scheduled jobs (`generate-round.yml`, and any future re-added
+  `sync-players.yml`-equivalent) — may need a minimum-replica setting if
+  cold starts cause missed schedules
 - Whether Testcontainers is practical in the CI environment, or whether
   SQLite in-memory is sufficient for API tests early on
 - Rate-limiting strategy against external data sources during live lookups (REQ-103)
