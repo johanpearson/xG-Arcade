@@ -41,19 +41,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   stale in the same way ADR-0009's `promote-dev-to-prod-dry-run.yml`
   reference was after S-130, so it gets the same small, non-rewriting
   follow-up addendum recording the wrapper's deletion; the decision itself
-  is untouched. **Correction (same day, caught by `architecture-reviewer`
-  during the S-132 quality gate):** this entry originally claimed ADR-0029
-  was also grep-confirmed clean, but it still named
-  `verify-wikidata-player-data.yml` in present tense in its "Existing
-  backlog" section — ADR-0029 gets the same small, non-rewriting
-  follow-up addendum as ADR-0059 above. Confirmed via grep that
-  `infra/README.md`, `MVP-SCOPE.md`, `docs/architecture-document.md`, and
-  ADRs 0025/0032/0052 have no stale references to any of the 7 removed
-  workflow filenames (they reference the CLI verbs/services, which are
-  unchanged, not the deleted wrapper files) — no changes needed there.
-  `docs/backlog.md` is unchanged per this repo's convention of recording
-  story closure only in this CHANGELOG, not inline in the backlog text.
-  S-132; ADR-0059 addendum; ADR-0029 addendum.
+  is untouched. **Correction (same day, caught independently by both
+  `architecture-reviewer` and `quality-architect` during the S-132 quality
+  gate):** this entry originally claimed ADR-0029 was also grep-confirmed
+  clean, but it still names `verify-wikidata-player-data.yml` in present
+  tense in its "Existing backlog" section. Unlike ADR-0059/ADR-0009,
+  ADR-0029 is **Status: Superseded by ADR-0032, kept for history, not
+  deleted** — per this repo's "ADRs are not rewritten" rule, a superseded
+  ADR's already-frozen historical text is left as-is rather than getting a
+  follow-up addendum; the addendum treatment is only for still-Accepted
+  ADRs (ADR-0059, and ADR-0009's S-130 precedent). So ADR-0029 is
+  deliberately left unedited — its `verify-wikidata-player-data.yml`
+  mention describes a one-time bulk-verify action from a now-superseded
+  decision, not a claim about current system behavior. Confirmed via grep
+  that `infra/README.md`, `MVP-SCOPE.md`, `docs/architecture-document.md`,
+  and ADRs 0025/0032/0052 have no stale references to any of the 7 removed
+  workflow filenames — no changes needed there. `docs/backlog.md` is
+  unchanged per this repo's convention of recording story closure only in
+  this CHANGELOG, not inline in the backlog text. S-132; ADR-0059
+  addendum.
 - 2026-08-17 — `docs/backlog.md`, `NOTES.md` — closed S-131: verified
   `prefetch-player-careers.yml`'s post-#203 re-run (run #6, triggered on
   commit `1e7cb99` itself) against real GitHub Actions run history and job
