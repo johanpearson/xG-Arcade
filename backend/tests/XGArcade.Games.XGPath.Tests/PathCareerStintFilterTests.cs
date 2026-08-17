@@ -10,6 +10,15 @@ namespace XGArcade.Games.XGPath.Tests;
 // its 2026-08-10 scope-correction comment for why this now covers senior
 // national teams too, not just youth/age-grade). Deliberately pure/DB-free,
 // same precedent as PathClueSequenceBuilderTests.
+//
+// S-137/ADR-0073 note: the new BirthYear >= 1975 eligibility floor has no
+// case here. Despite docs/backlog.md's S-137 entry naming this file, the
+// actual implementation lives in XGPathGameModule.GetEligiblePlayerIdsAsync
+// as a Player-level check (Player.BirthYear is a fact about the PLAYER, not
+// about any individual PlayerCareerStint row), not inside
+// PathCareerStintFilter — there is no stint-level concept for this rule to
+// test here. See XGPathGameModuleTests' REQ1201_GenerateInstanceAsync_
+// CandidateWithBirthYearAtFloor_IsEligible and its siblings.
 public class PathCareerStintFilterTests
 {
     private static PlayerCareerStint Stint(string clubName) =>

@@ -464,6 +464,95 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
+    // ---- REQ-1201/ADR-0073/S-137: Player.BirthYear >= 1975 floor -----------
+    // Additive to (not a re-check of) REQ-112's own shared 1939 pool floor —
+    // see GetEligiblePlayerIdsAsync's own doc comment. Same "baseline +
+    // one violating candidate, PuzzleCount = baseline+1" rejection-test
+    // technique as every other REQ-1201 structural check above.
+
+    // Boundary-inclusive positive control: BirthYear == MinBirthYear (1975)
+    // itself must be eligible, not excluded — the check is ">=", not ">".
+    [Test]
+    public async Task REQ1201_GenerateInstanceAsync_CandidateWithBirthYearAtFloor_IsEligible()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var atFloor = SeedEligiblePlayer("BornExactly1975", "Seeded FC", birthYear: 1975);
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(atFloor.Id));
+    }
+
+    // One year below the boundary: BirthYear == 1974 must be excluded.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithBirthYearOneYearBelowFloor_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        SeedEligiblePlayer("BornExactly1974", "Seeded FC", birthYear: 1974);
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Fail-closed (ADR-0073): a candidate with no recorded BirthYear at all
+    // must be excluded, not silently admitted — the codebase's established
+    // "can't verify it, so don't admit it" convention (ADR-0070), the
+    // opposite treatment from the seeded-club-stint "unknown appearance
+    // count passes" rule elsewhere in this same eligibility check.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithNullBirthYear_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        SeedEligiblePlayer("UnknownBirthYear", "Seeded FC", birthYear: null);
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Ordering regression, mirroring ADR0056_GenerateInstanceAsync_
+    // FamiliarityFilterOnlySeesStructurallyEligibleCandidates below: the
+    // BirthYear floor is applied to the structurally-eligible set BEFORE
+    // the familiarity filter runs (GetEligiblePlayerIdsAsync's own doc
+    // comment on why — no point spending a familiarity-check call on a
+    // candidate this check would already exclude) — a candidate excluded by
+    // the BirthYear floor must never even be offered to
+    // IPlayerFamiliarityService, let alone counted against it.
+    [Test]
+    public async Task REQ1201_GenerateInstanceAsync_BirthYearFilterOnlySeesStructurallyEligibleCandidates()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+        SeedEligiblePlayer("Eligible3", "Seeded FC");
+
+        // Structurally eligible (3 well-ordered stints, one at the seeded
+        // club) but excluded solely by the BirthYear floor.
+        var tooOld = SeedEligiblePlayer("BornExactly1974", "Seeded FC", birthYear: 1974);
+
+        var template = SeedTemplate(3);
+        await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_playerFamiliarityService.Calls, Has.Count.EqualTo(1));
+        Assert.That(_playerFamiliarityService.Calls[0], Does.Not.Contain(tooOld.Id));
+    }
+
     // ADR-0056: a candidate that passes every REQ-1201 structural check is
     // still never selected if IPlayerFamiliarityService judges it
     // unfamiliar — same rejection-test technique as the structural checks
