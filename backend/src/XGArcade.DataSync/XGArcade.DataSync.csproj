@@ -1,13 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
     <!-- CI hygiene fix (2026-07-27) — see XGArcade.Data.csproj's matching
          comment: Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 only floors
          Microsoft.EntityFrameworkCore.Relational at 10.0.4, so it must be
          pinned explicitly here too or NuGet settles on that floor instead of
          the 10.0.10 this project actually builds against (MSB3277). -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
     <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
