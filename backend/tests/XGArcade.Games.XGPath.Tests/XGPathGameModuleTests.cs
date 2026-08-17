@@ -114,9 +114,18 @@ public class XGPathGameModuleTests
         _dbContext.SaveChanges();
     }
 
-    private Player SeedPlayer(string name)
+    // REQ-1201/ADR-0073/S-137: birthYear defaults to 1990 (safely >=
+    // XGPathGameModule.MinBirthYear's 1975 floor), not left at Player.
+    // BirthYear's own null default — every pre-existing "this candidate
+    // should be eligible" fixture in this file was written before the
+    // BirthYear>=1975 filter existed and relies on SeedPlayer/
+    // SeedEligiblePlayer producing an eligible player by default; leaving
+    // BirthYear null here would fail-closed-exclude every one of them.
+    // Overridable per test for the BirthYear-specific cases (1975 boundary,
+    // 1974, null) this default is designed to keep untouched.
+    private Player SeedPlayer(string name, int? birthYear = 1990)
     {
-        var player = new Player { Id = Guid.NewGuid(), FullName = name, WikidataQid = $"Qplayer-{name}" };
+        var player = new Player { Id = Guid.NewGuid(), FullName = name, WikidataQid = $"Qplayer-{name}", BirthYear = birthYear };
         _dbContext.Players.Add(player);
         _dbContext.SaveChanges();
         return player;
@@ -153,10 +162,11 @@ public class XGPathGameModuleTests
     }
 
     // Baseline "definitely eligible" fixture: 3 well-ordered stints, one at
-    // a seeded club.
-    private Player SeedEligiblePlayer(string name, string seededClubName)
+    // a seeded club. birthYear forwards to SeedPlayer's own default/override
+    // (REQ-1201/ADR-0073/S-137) — same overridable-per-case shape.
+    private Player SeedEligiblePlayer(string name, string seededClubName, int? birthYear = 1990)
     {
-        var player = SeedPlayer(name);
+        var player = SeedPlayer(name, birthYear);
         SeedStints(player.Id,
             (2010, 2013, seededClubName),
             (2013, 2016, "Some Unseeded Club"),

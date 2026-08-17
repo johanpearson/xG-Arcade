@@ -1,9 +1,18 @@
 # ADR-0045: xG Path puzzle generation — entity shape, Player FK, and REQ-1201's textual ambiguities
 
-- **Status:** Accepted
+- **Status:** Accepted (superseded in part by ADR-0073 — see note below)
 - **Date:** 2026-07-27
 - **Related requirements:** REQ-1201, REQ-1202
 - **Related components:** COMP-11 (Games.XGPath), COMP-06 (Data.PlayerStore)
+
+> **Superseded in part by ADR-0073 (2026-08-17):** ADR-0073 adds a
+> `Player.BirthYear >= 1975` eligibility floor to `XGPathGameModule`'s
+> target-player selection, additive to the three structural checks this
+> ADR's Decision §§3-4 already establish. This ADR remains the
+> authoritative record for everything else it covers (entity shape, the
+> `Player` FK decision, the "3 stint rows not 3 clubs" reading, the
+> "undeterminable order" reading) — see ADR-0073 for the birth-year point
+> specifically.
 
 ## Context
 
