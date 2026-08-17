@@ -52,7 +52,11 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   original S-138 implementation to
   `...CandidateWithTwoQualifyingSeededClubStints_StillEligible...`) were
   fixed in the same pass. Full backend suite re-run after this fix — see
-  below for the original S-138 entry this corrects.
+  below for the original S-138 entry this corrects. **Closes the "open
+  item" the original entry below flagged**: REQ-1203's "`N >= 3`,
+  guaranteed by REQ-1201's eligibility check" and REQ-1208's "REQ-1201's
+  three structural checks" are both accurate again now that the floor is
+  restored — no further action needed on that point.
 - 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
   `backend/src/XGArcade.Data/Repositories/PlayerCareerStintRepository.cs`,
   `backend/src/XGArcade.Data/Repositories/IPlayerCareerStintRepository.cs`,
