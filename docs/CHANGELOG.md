@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `NOTES.md`, `.github/workflows/warm-player-cache.yml`,
+  `.github/workflows/prefetch-player-careers.yml` — the first real
+  post-purge cold rebuild needed more than 90 minutes: `warm-player-cache`
+  got killed by its own job timeout (no `ConfirmedLowMatchPair`/
+  `PairLookupFailure` rows left to skip after a purge), and
+  `prefetch-player-careers` completed a full pass (193,382 players/527,252
+  stints) but exited nonzero on 37 scattered transient WDQS 502s + 2 failed
+  country pool fetches — ordinary load flakiness under ADR-0069's now-doubled
+  sweep, not a bug. Both workflows' `timeout-minutes` raised 90 → 240.
 - 2026-08-17 — `NOTES.md` — first real `purge-player-pool` run since
   S-038/ADR-0025 timed out on Npgsql's 30s default command timeout against
   a pool grown large enough (600k+ `PlayerCareerStint` rows) that the

@@ -1607,3 +1607,32 @@ finish in. Same class of incident as ADR-0055's own 2026-08-02 entry
 override (`purgeDbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(10))`),
 not a change to `BuildDbContext`'s shared default every other (much
 smaller-scale) verb uses. Fixed same day; re-run confirmed the fix.
+
+## First real post-purge cold rebuild needed more headroom than 90 minutes (2026-08-17)
+
+Right after the purge fix above, both `warm-player-cache.yml` and
+`prefetch-player-careers.yml` were triggered to rebuild the pool from
+scratch — the first real run of either against a fully-purged database
+(`ConfirmedLowMatchPair`/`PairLookupFailure` cleared too, so
+`warm-player-cache`'s usual "repeat runs are cheap" skip-shortcut had
+nothing to skip) and the first run of `prefetch-player-careers` under
+ADR-0069's new combined country+club sweep (roughly double the prior
+scope). `warm-player-cache` got killed by its own 90-minute
+`timeout-minutes` cap mid-sweep. `prefetch-player-careers` actually
+completed its full pass in ~88 of 90 minutes — 193,382 players / 527,252
+stints touched — but exited nonzero per its own designed "keep going, fail
+loud at the end" contract: 37 career-fetch batches hit transient WDQS 502s
+and 2 countries (Sweden, Canada) failed their pool fetch, scattered across
+the run, not a contiguous run against the same club/country — read as
+ordinary WDQS load flakiness under the heavier sweep, not a code bug, same
+class as this job's earlier documented incident. Both workflows' timeouts
+raised to 240 minutes to give a genuine cold run real headroom; re-run
+after the fix.
+
+Worth remembering: `PlayerCareerPrefetchService` has no skip-already-
+processed shortcut the way `warm-player-cache` does — every re-run repeats
+the FULL country+club pool sweep from scratch (only the DB writes are
+cheap no-ops for already-persisted data), so a retry costs roughly the
+same wall-clock time as the original run, not a fast delta the way a
+`warm-player-cache` re-run against an already-partially-warmed
+`ConfirmedLowMatchPair` table would.

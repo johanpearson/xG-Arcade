@@ -33,7 +33,15 @@ on:
 jobs:
   warm-player-cache:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 2026-08-17 incident: the first run against a fully-purged pool (no
+    # ConfirmedLowMatchPair/PairLookupFailure rows left to skip anything —
+    # purge-player-pool clears both, S-038/ADR-0025) got killed by this
+    # job's own 90-minute cap mid-sweep — the "repeat run is cheap" claim
+    # above depends entirely on those skip-tables being populated, which a
+    # cold run after a purge starts without. Raised to give a genuine cold
+    # sweep room to finish and start populating those tables; a routine
+    # weekly run against an already-warm cache stays far under this.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
