@@ -432,6 +432,38 @@ public interface IWikidataClient
         bool useCountryForSportProperty,
         CancellationToken cancellationToken = default);
 
+    // ADR-0069: PlayerCareerPrefetchService's per-club pool query — the
+    // club-scoped sibling of QueryPlayerPoolByNationalityAsync above, added
+    // to widen the prefetch candidate pool beyond seeded countries (ADR-0055
+    // deliberately scoped move (3) to nationality only; this extends it, per
+    // a fresh product decision — see ADR-0055's own "For AI agents" section
+    // for why that widening needed one). Same return type and
+    // ParseNameIndexBindings parser as QueryPlayerPoolByNationalityAsync —
+    // this is still "a broad player-pool scan," just sliced by club
+    // membership (P54) instead of nationality (P27/P1532).
+    //
+    // Correctness-critical: P54 MUST use the full statement path
+    // (p:P54/ps:P54, excluding deprecated rank), never the truthy wdt:P54
+    // shortcut — see IntersectionQuerySpecs.BuildCountryClubIntersectionQuery's
+    // own comment for the full "current club marked preferred rank hides
+    // historical clubs" reasoning. This query's whole point is "everyone who
+    // EVER played for this club," so getting this wrong would silently
+    // narrow the pool to the club's current squad — see ADR-0069 for the
+    // full "why this matters here too" writeup.
+    //
+    // Error contract — same throw-on-failure shape as
+    // QueryPlayerPoolByNationalityAsync: this is a batch job whose success
+    // metric is a fetched-pool count, so a swallowed failure would be
+    // indistinguishable from "this club genuinely has zero eligible
+    // players" (never actually true for a seeded club, but the client has no
+    // way to know that). The caller (PlayerCareerPrefetchService) treats a
+    // single club's failure as recoverable (log, continue with the
+    // remaining clubs, fail the run loudly at the end), same as its existing
+    // per-country handling.
+    Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByClubAsync(
+        string clubWikidataQid,
+        CancellationToken cancellationToken = default);
+
     // ADR-0056: xG Path's familiarity signal — Wikipedia sitelink count per
     // QID, the same VALUES-clause-over-a-bounded-QID-batch shape as
     // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync.

@@ -726,6 +726,48 @@ public class WikidataClient(
             """;
     }
 
+    // ADR-0069: PlayerCareerPrefetchService's per-club pool query — see
+    // IWikidataClient's own doc comment for why this is a club-scoped
+    // sibling to QueryPlayerPoolByNationalityAsync, not a replacement.
+    // Thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPoolByNationalityAsync, see
+    // that method's own doc comment for why. No QID validation here, same
+    // precedent as QueryPlayerPoolByNationalityAsync's own "nationalityWikidataQid
+    // was never guarded by WikidataQid.IsValid" note.
+    public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByClubAsync(
+        string clubWikidataQid, CancellationToken cancellationToken = default)
+    {
+        var query = BuildPlayerPoolByClubQuery(clubWikidataQid);
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player-pool query for club {clubWikidataQid}",
+            ParseNameIndexBindings, cancellationToken);
+    }
+
+    // ADR-0069: the club-scoped sibling of BuildPlayerPoolByNationalityQuery
+    // above — same bounded shape (no ORDER BY/LIMIT/OFFSET), same male/
+    // born-1939-or-later filter (ADR-0025/REQ-112, via the shared
+    // DateOfBirthCutoff constant), filtered by club membership instead of
+    // nationality. P54 ("member of sports team") MUST use the full statement
+    // path (p:P54/ps:P54, excluding deprecated rank) — NEVER the truthy
+    // wdt:P54 shortcut — same non-negotiable "ever played for," not
+    // "currently plays for," reasoning as every other P54 use in this
+    // codebase; see IntersectionQuerySpecs.BuildCountryClubIntersectionQuery's
+    // own comment for the full incident (Sandro Tonali x AC Milan) that
+    // established this rule. Do not "simplify" this to wdt:P54.
+    private static string BuildPlayerPoolByClubQuery(string clubQid) => $$"""
+        SELECT ?player ?playerLabel ?birthYear WHERE {
+          ?player wdt:P106 wd:Q937857.
+          ?player wdt:P21 wd:{{MaleWikidataQid}}.
+          ?player wdt:P569 ?dateOfBirth.
+          FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
+          BIND(YEAR(?dateOfBirth) AS ?birthYear)
+          ?player p:P54 ?clubStatement.
+          ?clubStatement ps:P54 wd:{{clubQid}}.
+          MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """;
+
     // Bug fix (2026-08-03, user-tester report): a real report showed the
     // autocomplete suggestion for Michael Owen (the footballer, actually
     // born 1979) carrying BirthYear 1976. wdt:P569 is a truthy predicate —

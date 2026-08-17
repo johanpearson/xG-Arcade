@@ -8,6 +8,11 @@ name: prefetch-player-careers
 # already-selected target the way PlayerCareerStintRefreshService (ADR-0054)
 # does.
 #
+# ADR-0069 (2026-08-17): also sweeps every seeded club's full eligible
+# player pool, in addition to the countries sweep above — so a player from
+# an unseeded country who played for a seeded club is no longer invisible
+# to this job. Same job, same verb, widened; not a second workflow.
+#
 # A plain CLI job (`dotnet run -- prefetch-player-careers`,
 # PlayerCareerPrefetchService's own doc comment has the full reasoning), not
 # an HTTP endpoint against the deployed backend — same ADR-0024 "long-running
@@ -16,13 +21,14 @@ name: prefetch-player-careers
 #
 # Manual trigger only, deliberately NOT on the same weekly cron
 # warm-player-cache/import-player-name-index just moved to (ADR-0055) — this
-# is a brand-new, unproven query shape (a single seeded country's full
-# unsliced player pool; ADR-0055's own "Open questions" flags that a large
-# country like Brazil/England could plausibly be large enough to strain
-# WDQS's ~60s server-side cap the way import-player-name-index's original
-# unsliced design once did). Confirm a real run's cost/runtime/failure
-# pattern manually first; put this on a recurring schedule only once that's
-# actually confirmed, not before.
+# is a brand-new, unproven query shape (a single seeded country's or seeded
+# club's full unsliced player pool; ADR-0055's own "Open questions" flags
+# that a large country like Brazil/England could plausibly be large enough
+# to strain WDQS's ~60s server-side cap the way import-player-name-index's
+# original unsliced design once did — the same open question now also
+# applies to a very large club's full historical squad). Confirm a real
+# run's cost/runtime/failure pattern manually first; put this on a
+# recurring schedule only once that's actually confirmed, not before.
 
 on:
   workflow_dispatch: {}

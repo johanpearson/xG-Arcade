@@ -213,4 +213,98 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(result.CareerBatchesFailed, Is.EqualTo(0));
         Assert.That(result.CountriesProcessed, Is.EqualTo(1));
     }
+
+    // ---- Club sweep (ADR-0069) — mirrors the country-loop tests above ----
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_SeededClubWithPool_CreatesPlayersAndPersistsCareers()
+    {
+        await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Monaco", 1994, 1999, 105),
+            new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.PlayersTouched, Is.EqualTo(1));
+        Assert.That(result.StintsAdded, Is.EqualTo(2));
+        Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+
+        var player = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        Assert.That(player, Is.Not.Null,
+            "a player from an unseeded country who played for a seeded club must still get a Player row — this is the whole point of ADR-0069");
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player!.Id);
+        Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Monaco", "Arsenal" }));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_ClubWithNoQid_IsSkipped_NeverQueried()
+    {
+        await _categoryValueRepository.AddClubAsync(new ClubDefinition { Id = Guid.NewGuid(), Name = "No QID Club", WikidataQid = null });
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(_wikidataClient.QueriedClubQids, Is.Empty);
+        Assert.That(result.ClubsFailed, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_EmptyPoolForAClub_IsNotAFailure()
+    {
+        await SeedClubAsync("Some Small Club", "Q999999"); // No SetPoolForClub call — genuinely zero eligible players configured.
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.ClubsFailed, Is.EqualTo(0));
+        Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_OneClubPoolQueryFails_StillProcessesTheRest_ThenThrows()
+    {
+        await SeedClubAsync("Celtic", "Q19593");
+        await SeedClubAsync("Rangers", "Q734589");
+        _wikidataClient.FailNextClubPoolCalls(1); // Fails whichever club is queried first.
+        _wikidataClient.SetPoolForClub("Q734589", [new WikidataNameIndexEntry("Q9617", "Someone", 1990, "Scotland")]);
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () => await BuildService().PrefetchAsync());
+
+        Assert.That(ex!.Message, Does.Contain("1 club"));
+        // The club queried second (not failed) must still have been processed.
+        Assert.That(_wikidataClient.QueriedClubQids, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_CountryAndClubSweepsBothRun_InTheSamePass()
+    {
+        await SeedCountryAsync("France", "Q142");
+        await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q9617", "Someone Else", 1990, "Scotland")]);
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+        _wikidataClient.SetCareerStints("Q9617", new WikidataCareerStintEntry("Celtic", 2010, 2015, 90));
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.CountriesProcessed, Is.EqualTo(1));
+        Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+        Assert.That(result.PlayersTouched, Is.EqualTo(2), "both sweeps' players must be touched in the same run");
+        Assert.That(result.StintsAdded, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_EveryClubSucceeds_ReturnsResultWithoutThrowing()
+    {
+        await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q9617", "Someone", 1990, "Scotland")]);
+        _wikidataClient.SetCareerStints("Q9617", new WikidataCareerStintEntry("Celtic", 2010, 2015, 90));
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.ClubsFailed, Is.EqualTo(0));
+        Assert.That(result.CareerBatchesFailed, Is.EqualTo(0));
+        Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+    }
 }

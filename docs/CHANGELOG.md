@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0069-club-scoped-player-career-prefetch.md`
+  (new), `docs/requirements-document.md` (v1.73), `docs/architecture-document.md`
+  (v1.00) — S-127: widened `PlayerCareerPrefetchService` to also sweep
+  every seeded `ClubDefinition` row's full eligible player pool (new
+  `IWikidataClient.QueryPlayerPoolByClubAsync`, P54's full statement path —
+  never the truthy `wdt:P54` shortcut), in addition to its existing
+  countries-only sweep — ADR-0069, extending (not superseding) ADR-0055,
+  which had deliberately deferred this widening pending a fresh product
+  decision. `PlayerCareerPrefetchResult` gained `ClubsProcessed`/`ClubsFailed`;
+  `CliVerbDispatcher.cs`'s console summary and `prefetch-player-careers.yml`'s
+  header comment updated to mention clubs. Added a REQ-110 status note (no
+  prior status note had documented `PlayerCareerPrefetchService` itself, so
+  this one covers both ADR-0055's original nationality sweep and ADR-0069's
+  club-sweep addition) and updated architecture-document.md's COMP-07 row/
+  ADR cross-reference table.
 - 2026-08-16 — `docs/architecture-document.md` (v0.99), `docs/requirements-document.md`
   (v1.72) — S-123 (`docs/backlog.md` Epic 9): applied S-116's same
   current-state-only treatment to the remaining "COMP-XX status (DATE,

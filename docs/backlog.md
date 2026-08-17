@@ -5627,3 +5627,27 @@ diff so was left alone per its own scope limit.
 with §5 and §6.1; no other content change; frontmatter bumped; CHANGELOG
 entry added.
 *Deps:* none.
+
+**S-127 · Widen `PlayerCareerPrefetchService` to also sweep seeded clubs (ADR-0069)**
+ADR-0055 deliberately scoped `PlayerCareerPrefetchService`'s candidate pool
+to already-seeded countries only, flagging widening it as needing "a fresh
+product decision." That decision has now been made: a player from an
+unseeded country who played for a seeded club is invisible to both
+`warm-player-cache`'s pairwise sweep and `prefetch-player-careers`'s
+nationality-only sweep — a structural gap, not fixable by seeding one more
+club. New `IWikidataClient.QueryPlayerPoolByClubAsync` (P54's full
+statement path, `p:P54`/`ps:P54`, excluding deprecated rank — never the
+truthy `wdt:P54` shortcut, same non-negotiable rule as every other
+P54-involving query in this codebase), a symmetric club sweep added to
+`PlayerCareerPrefetchService.PrefetchAsync` alongside the existing country
+sweep (same invocation, same CLI verb, no new workflow), and
+`PlayerCareerPrefetchResult` extended with `ClubsProcessed`/`ClubsFailed`.
+*Accept:* new query's SPARQL shape asserted byte-for-byte (same precedent
+as `WikidataClientTests.cs`'s existing per-method exact-query tests);
+`PrefetchAsync`'s club loop covered success/per-club-failure-isolated/null-QID-skipped,
+mirroring the existing country-loop test cases; `CliVerbDispatcher.cs`'s
+console summary and `prefetch-player-careers.yml`'s header comment updated
+to mention clubs, not just countries; ADR-0069 records the decision and
+the P54 full-statement-path constraint; REQ-110/architecture-document.md's
+COMP-07 row updated to describe the widened scope.
+*Deps:* ADR-0055 (extends, does not supersede).

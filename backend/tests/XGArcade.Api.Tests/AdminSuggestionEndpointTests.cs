@@ -827,6 +827,13 @@ public class AdminSuggestionEndpointTests
             string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
 
+        // ADR-0069: never touched by AdminSuggestionEndpoints (it's
+        // PlayerCareerPrefetchService's own prefetch-time method) — a
+        // trivial stub, same as QueryPlayerPoolByNationalityAsync above.
+        public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByClubAsync(
+            string clubWikidataQid, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
+
         public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
             IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());

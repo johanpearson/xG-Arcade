@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.72"
+version: "1.73"
 status: draft
-last_updated: 2026-08-16
+last_updated: 2026-08-17
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -583,6 +583,32 @@ without erroring), API
   re-check" invariant those two already satisfy for a QID/query-shape
   correction is unaffected; this tool instead exists for the case where
   the failure marker itself is the only thing that needs clearing.
+- **Status note (2026-08-02, ADR-0055): a second, independent proactive
+  mechanism, `PlayerCareerPrefetchService` (`dotnet run --
+  prefetch-player-careers`), also serves this REQ's intent.** Unlike
+  `PlayerCacheWarmingService` above (which fills `PlayerAttribute`/
+  `PlayerData` for existing Country×Club/Club×Club pairs), this sweeps
+  every seeded `CountryDefinition` row's full eligible player pool
+  directly (`IWikidataClient.QueryPlayerPoolByNationalityAsync`) and
+  writes `PlayerCareerStint` rows for players xG Grid's own query history
+  has never touched — the real fix for xG Path's target-pool bottleneck
+  (REQ-1201). Its own workflow, `prefetch-player-careers.yml`, is
+  `workflow_dispatch`-only (not on the weekly cron the rest of this REQ's
+  jobs moved to) — see ADR-0055's Consequences section for why.
+- **Status note (2026-08-17, ADR-0069): `PlayerCareerPrefetchService`
+  widened to also sweep every seeded `ClubDefinition` row's full eligible
+  player pool** (`IWikidataClient.QueryPlayerPoolByClubAsync`, P54's full
+  statement path, not the truthy `wdt:P54` shortcut — see ADR-0069 for
+  why that distinction is load-bearing here), in addition to the
+  country sweep the note above describes — both sweeps run in the same
+  `prefetch-player-careers` invocation, not two separate verbs. This
+  closes the gap where a player from an unseeded country who played for a
+  seeded club was invisible to both `warm-player-cache`'s pairwise sweep
+  and this service's own prior nationality-only sweep. `PlayerCareerPrefetchResult`
+  now reports `ClubsProcessed`/`ClubsFailed` alongside the existing
+  `CountriesProcessed`/`CountriesFailed`; `PlayersTouched`/`StintsAdded`
+  remain combined totals across both sweeps (a player found via either
+  sweep is written through the same batch-persist path).
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -611,7 +637,16 @@ than trusting the stale marker. `PairLookupFailureCleanerTests.cs`
 above it is removed; a pair below it is left alone; a mix of both only
 removes the ones at/above threshold, leaving the rest untouched; an empty
 table is a no-op that doesn't throw; running it twice in a row is safe
-(the second run removes nothing).
+(the second run removes nothing). `PlayerCareerPrefetchServiceTests.cs`
+(ADR-0055/ADR-0069): a seeded country's or seeded club's pool creates
+players and persists careers; a country/club with no `WikidataQid` yet is
+skipped and never queried; an empty pool for a country/club is not a
+failure; one country's (or one club's) pool-query failure still lets the
+rest of the sweep — country or club — proceed, then throws at the end;
+both sweeps run in the same `PrefetchAsync` call and their player/stint
+totals combine. `WikidataClientTests.cs` covers `QueryPlayerPoolByClubAsync`'s
+own query shape (byte-for-byte, including the full `p:P54`/`ps:P54`
+statement path, never the truthy `wdt:P54` shortcut) and error contract.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched
