@@ -127,7 +127,11 @@ public class RoundEndpointTests
     // XGPathGameModuleTests.SeedEligiblePlayer's exact fixture shape (3
     // well-ordered stints, one at a seeded club) rather than reinventing it,
     // since that's the file that already established what "eligible" means
-    // for this game at a fixture level.
+    // for this game at a fixture level. BirthYear = 1990 for the same reason
+    // XGPathGameModuleTests.SeedPlayer/SeedEligiblePlayer default to it
+    // (REQ-1201/ADR-0073/S-137): comfortably above the new BirthYear >= 1975
+    // floor, so this fixture stays eligible without needing to know about
+    // the new rule.
     private async Task SeedEligiblePathPlayersAsync(int count, WebApplicationFactory<Program>? factory = null)
     {
         using var scope = (factory ?? _factory).Services.CreateScope();
@@ -138,7 +142,7 @@ public class RoundEndpointTests
 
         for (var i = 0; i < count; i++)
         {
-            var player = new Player { Id = Guid.NewGuid(), FullName = $"Eligible Path Player {i}", WikidataQid = $"Qpathplayer-{i}-{Guid.NewGuid()}" };
+            var player = new Player { Id = Guid.NewGuid(), FullName = $"Eligible Path Player {i}", WikidataQid = $"Qpathplayer-{i}-{Guid.NewGuid()}", BirthYear = 1990 };
             dbContext.Players.Add(player);
             dbContext.PlayerCareerStints.AddRange(
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = seededClubName, StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },

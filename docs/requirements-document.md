@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.80"
+version: "1.81"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -7045,6 +7045,28 @@ not a claim about current behavior.
   national team, senior or youth, not just youth/age-grade rows — see
   REQ-1203's own 2026-08-10 status note for the full reasoning; this
   eligibility-check call site is otherwise unchanged.
+- **Status note (2026-08-17, S-137, Epic 12 — ADR-0073, superseding ADR-0045
+  on this one point): xG Path now additionally requires
+  `Player.BirthYear >= 1975`, a second, xG-Path-only eligibility floor
+  layered on top of (not replacing) REQ-112's own 1939 floor.**
+  `XGPathGameModule.GetEligiblePlayerIdsAsync` checks `Player.BirthYear`
+  directly, once per candidate — a player-level fact, evaluated alongside
+  `IsEligible`, not inside `PathCareerStintFilter`, since it is not a
+  stint-level fact. This is deliberately independent of REQ-112's 1939
+  floor, which remains enforced entirely upstream at Wikidata SPARQL query
+  time and shared with xG Grid's own pool (see the original bullet above);
+  raising that shared floor to 1975 was out of scope, since it would also
+  narrow xG Grid's pool — hence a second, additive, xG-Path-only check
+  instead of a change to the shared one. **Fail-closed on
+  `BirthYear == null`:** a candidate with no recorded birth year is
+  excluded, not included — matching this codebase's established
+  fail-closed convention (ADR-0070; REQ-211's own budget-exhausted and
+  `Enabled = false` fail-closed branches) over silently admitting a player
+  xG Path cannot actually verify meets the new bar. The boundary is
+  inclusive: `BirthYear == 1975` is eligible, `BirthYear == 1974` is not.
+  See S-141 for the planned follow-up to re-verify the eligible-pool size
+  once this and Epic 12's other narrowing changes (S-138–S-140) have
+  landed together.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -7059,7 +7081,19 @@ not a claim about current behavior.
   appearance count is treated as passing this check, not failing it
 - And the player must already be a member of the existing player pool as
   restricted by REQ-112 (male, born 1939 or later) — xG Path reuses that
-  population and defines no separate one of its own
+  population and defines no separate one of its own; this criterion is
+  REQ-112's own population, unchanged by this REQ — the `BirthYear >= 1975`
+  floor below is a separate, additional, xG-Path-only restriction layered
+  on top of it, not a replacement for or a change to REQ-112 itself or to
+  xG Grid's shared pool
+- And (2026-08-17, S-137) the candidate's `Player.BirthYear` must also be
+  1975 or later — a second, xG-Path-only floor, additive to and evaluated
+  independently of the REQ-112 pool-membership check above; `BirthYear ==
+  1975` is eligible (boundary, inclusive), `BirthYear == 1974` is not; a
+  candidate whose `BirthYear` is `null` fails this check (fail-closed,
+  excluded) rather than being treated as passing it — this is the opposite
+  of the "unknown appearance count passes" treatment used for the
+  seeded-club-stint check above, which does not apply here
 - And (ADR-0056, added 2026-08-02) the player must be judged "familiar
   enough" by the familiarity filter — a Wikipedia sitelink count that
   resolves to at least the configured threshold — UNLESS the filter itself
@@ -7076,7 +7110,17 @@ order, no stint at a seeded club, a seeded-club stint below/at/unknown
 appearance count, a player outside REQ-112's pool — the last of these
 confirmed by inspection/schema absence rather than a runtime fixture,
 since `Player` has no field that could represent "outside the pool"; see
-`XGPathGameModuleTests`'s own class doc comment. ADR-0056's familiarity
+`XGPathGameModuleTests`'s own class doc comment. `BirthYear >= 1975` floor
+(2026-08-17, S-137): unlike the REQ-112 pool-membership case above,
+`Player.BirthYear` is a real field this eligibility check reads directly,
+so its boundary is covered by runtime fixtures, not inspection —
+`BirthYear == 1975` (included, boundary), `BirthYear == 1974` (excluded),
+and `BirthYear == null` (excluded, fail-closed) in `XGPathGameModuleTests.cs`
+only, per the backlog story's own acceptance criteria — this check lives in
+`XGPathGameModule.GetEligiblePlayerIdsAsync`, not `PathCareerStintFilter`,
+so `PathCareerStintFilterTests.cs` carries only an explanatory comment
+noting why this rule has no stint-level surface to test, not a fixture
+case. ADR-0056's familiarity
 filter: `XGPathGameModuleTests` covers the game-module-level wiring — below
 threshold, at/above threshold, structural-ineligibility candidates never
 even reaching the filter — via `FakePlayerFamiliarityService`;

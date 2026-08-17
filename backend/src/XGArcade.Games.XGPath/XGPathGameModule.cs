@@ -49,6 +49,20 @@ public class XGPathGameModule(
     // apart.
     private const int MinStintCount = 3;
 
+    // REQ-1201/ADR-0073/S-137: xG Path's own, additive floor — deliberately
+    // separate from, and narrower than, REQ-112's shared 1939 pool floor
+    // (enforced far upstream at Wikidata SPARQL query time, WikidataClient's
+    // BuildPlayerPoolBirthYearQuery/ADR-0025, shared with xG Grid). Living
+    // here as a Player-level check rather than inside PathCareerStintFilter
+    // is deliberate: BirthYear is a fact about the PLAYER (Player.BirthYear,
+    // REQ-1207), not about any individual PlayerCareerStint row, so it has
+    // no natural home in a stint-level filter. See ADR-0073 for why this
+    // isn't instead a shared SPARQL-level change (would also narrow xG
+    // Grid's pool, out of scope — same reasoning Epic 12's intro in
+    // docs/backlog.md already gives for why the 1939 floor couldn't simply
+    // be raised in place).
+    private const int MinBirthYear = 1975;
+
     // REQ-1205/ADR-0041: xG Path's fixed per-puzzle attempt cap — matches
     // REQ-1203's fixed 7-turn clue sequence 1:1, regardless of the target
     // player's own stint count N. Mirrors GridGameModule.MaxAttemptsPerCell's
@@ -306,6 +320,13 @@ public class XGPathGameModule(
     // Player/PlayerCareerStint row already satisfies REQ-112 by
     // construction, the same reasoning GridGameModule itself relies on for
     // not re-checking this at runtime either.
+    //
+    // REQ-1201/ADR-0073/S-137: BirthYear >= MinBirthYear (1975) IS checked
+    // here, below — this is NOT a re-check of REQ-112. It's a separate,
+    // narrower, xG-Path-only floor with no upstream enforcement anywhere
+    // (unlike REQ-112, nothing filters this at Wikidata-query time), so
+    // unlike REQ-112 above it cannot be treated as "already guaranteed by
+    // construction." See MinBirthYear's own comment and ADR-0073.
     private async Task<IReadOnlyList<Guid>> GetEligiblePlayerIdsAsync(CancellationToken cancellationToken)
     {
         var seededClubNames = (await categoryValueRepository.GetClubsAsync(cancellationToken))
@@ -349,6 +370,35 @@ public class XGPathGameModule(
             .Select(kvp => kvp.Key)
             .ToList();
 
+        // REQ-1201/ADR-0073/S-137: BirthYear >= MinBirthYear (1975),
+        // applied here rather than inside IsEligible/PathCareerStintFilter
+        // because it's a fact about the PLAYER (Player.BirthYear), not
+        // about any individual PlayerCareerStint row — stints have no
+        // BirthYear of their own. Runs against exactly the structurally-
+        // eligible set computed above, before familiarity filtering below,
+        // mirroring ADR-0056's own "familiarity filter only sees
+        // structurally-eligible candidates" ordering — no point spending a
+        // familiarity-check call on a candidate this check would already
+        // exclude.
+        //
+        // Fail-closed (ADR-0073, matching ADR-0070's precedent): a
+        // candidate whose Player.BirthYear is null is EXCLUDED, not
+        // included — xG Path cannot verify a null-BirthYear candidate
+        // meets the new floor, and silently admitting it would be exactly
+        // the "admit what can't be verified" failure mode ADR-0070/REQ-211's
+        // fallback deliberately avoid elsewhere in this codebase. HasValue
+        // check is required (not just `BirthYear >= MinBirthYear`, which
+        // would evaluate false for null and coincidentally produce the
+        // same excluded outcome) purely so this reads as an explicit
+        // decision rather than an accident of nullable-int comparison
+        // semantics.
+        var playersById = await playerRepository.GetPlayersByIdsAsync(structurallyEligibleIds, cancellationToken);
+        var birthYearEligibleIds = structurallyEligibleIds
+            .Where(id => playersById.TryGetValue(id, out var player) &&
+                         player.BirthYear.HasValue &&
+                         player.BirthYear.Value >= MinBirthYear)
+            .ToList();
+
         // ADR-0056: a real player-facing complaint ("I got this Austrian guy
         // I had no idea who he is") — the three structural checks above say
         // nothing about whether a candidate is actually recognizable, so a
@@ -358,8 +408,8 @@ public class XGPathGameModule(
         // total data gap — see its own doc comment) — GenerateInstanceAsync's
         // existing "not enough eligible players" abort still covers the case
         // where familiarity filtering leaves too few candidates.
-        var familiarIds = await playerFamiliarityService.FilterFamiliarAsync(structurallyEligibleIds, cancellationToken);
-        return structurallyEligibleIds.Where(familiarIds.Contains).ToList();
+        var familiarIds = await playerFamiliarityService.FilterFamiliarAsync(birthYearEligibleIds, cancellationToken);
+        return birthYearEligibleIds.Where(familiarIds.Contains).ToList();
     }
 
     // REQ-1201's three independent checks:
