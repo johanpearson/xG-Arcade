@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md`, `TODO.md` — added Epic 16/S-152, a
+  `purge-game-history` CLI verb + confirmation-gated workflow to wipe all
+  historical rounds/guesses/grids/paths for a pre-launch clean slate.
+  Confirmed against `XGArcadeDbContext.cs`'s actual FK configuration (not
+  assumed) that deleting `Round` cascades to `PlayerSuggestion` as well as
+  `Guess` — recorded as a deliberate inclusion, not a silent side effect —
+  and that `PathTargetCycle`/`PathCycleTargetUsage` have no cascade path at
+  all and must be deleted explicitly, or xG Path's cycle state would
+  reference rounds that no longer exist. Explicitly excludes `Player`/all
+  reference-table data (that's `purge-player-pool.yml`'s separate concern).
+  Scoped to run last, after Epics 10-15 land, since Epic 11's
+  `SequenceNumber` backfill and Epic 14/15's `PlayerSuggestion` schema
+  changes would otherwise need re-deriving against a moving target.
+  `TODO.md`'s pre-launch checklist gets the actual "run it once" step. No
+  code changed yet.
 - 2026-08-17 — `docs/backlog.md` — folded a rename into S-134:
   `warm-player-cache.yml` → `warm-grid-cache.yml`, since it only ever
   fills xG Grid's `PlayerAttribute` cache (not `PlayerCareerStint`, which
