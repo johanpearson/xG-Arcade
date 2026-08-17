@@ -75,6 +75,16 @@ scope for this decision; when it exists, it becomes the primary source of `Confi
   source), it should feed the same `Confidence = "unverified"` review queue — revisit this ADR's
   scope note above once that channel is designed.
 
+**Follow-up (S-132, 2026-08-17):** the "Existing backlog" section above
+refers to `verify-wikidata-player-data.yml`, which was deleted in S-132
+along with six other one-off incident-recovery workflow wrappers that had
+no runs in weeks. This does not change the decision recorded above — the
+`verify-wikidata-player-data` CLI verb is unchanged and still runnable by
+hand via `dotnet run -- verify-wikidata-player-data`, or a throwaway
+manual `workflow_dispatch` re-add if ever needed; only the standing
+Actions-tab wrapper is gone. See `docs/backlog.md` S-132 and
+`docs/CHANGELOG.md`.
+
 ## For AI agents
 
 If code you are about to write would contradict this decision, stop and
