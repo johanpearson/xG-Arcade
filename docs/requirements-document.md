@@ -3246,10 +3246,11 @@ a past/near-past `endTime`, and the accessible-name assertion)
   criterion is currently vacuously satisfied.
 
 **Test level:** Unit (`SequenceNumber` assignment — `MAX + 1` scoped to
-`GameKey`, read immediately before the creation insert), API/Integration (a
-new REQ-304-named test proves two same-`GameKey` rounds are always
-distinct and gapless; two different-`GameKey` rounds can share a
-`SequenceNumber`; every DTO listed above carries `sequenceNumber` alongside
+`GameKey`, read immediately before the creation insert), API/Integration
+(new REQ-304-named tests prove two same-`GameKey` rounds are always
+distinct and gapless, and that two different-`GameKey` rounds each
+independently land on `SequenceNumber == 1` rather than sharing a single
+global counter; every DTO listed above carries `sequenceNumber` alongside
 an unchanged `roundId`), Component (`AdminScreen.test.tsx` updated to
 assert the `"Grid Round #N"`/`"Path Round #N"` text and that no GUID
 substring is ever rendered). The migration's backfill logic (raw SQL,

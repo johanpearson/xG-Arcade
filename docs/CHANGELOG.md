@@ -59,20 +59,50 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `RoundEndpointTests.cs`/`CurrentRoundEndpointTests.cs`/
   `PathEndpointTests.cs`/`LeaderboardEndpointTests.cs`/
   `AdminManagementEndpointTests.cs` to confirm each round-shaped DTO
-  surfaces `sequenceNumber` alongside `roundId`. A further
-  `RoundEndpointTests.cs` case
-  (`REQ304_GenerateRound_Post_CalledTwiceForSameGameKey_AssignsDistinctIncrementingSequenceNumbers`)
-  proves the same distinctness/incrementing behavior through the real
+  surfaces `sequenceNumber` alongside `roundId`. Two further
+  `RoundEndpointTests.cs` cases prove that same coverage through the real
   `/internal/generate-round` HTTP endpoint, not just `RoundGenerationService`
-  directly; a migration-backfill correctness test is still undone and left
-  for a separate test-writer pass. `docs/design-document.md`'s SCREEN-04 mock
+  directly:
+  `REQ304_GenerateRound_Post_CalledTwiceForSameGameKey_AssignsDistinctIncrementingSequenceNumbers`
+  (same-`GameKey` distinctness/incrementing) and
+  `REQ304_GenerateRound_Post_TwoDifferentGameKeys_EachIndependentlyAssignsSequenceNumberOne`
+  (two different `GameKey`s each independently land on `SequenceNumber == 1`
+  against the same shared database, proving the counter is scoped per
+  `GameKey` rather than global). The migration's backfill logic (raw SQL,
+  `ROW_NUMBER() OVER (PARTITION BY "GameKey" ORDER BY "StartTime")`) is
+  **not** covered by an automated test and is not expected to be: this
+  repo's test suite runs against the EF Core InMemory provider, which
+  cannot execute raw-SQL migrations, and there is no real-Postgres-backed
+  test infrastructure here yet, so `requirements-document.md`'s REQ-304
+  Test-level line now states plainly that this logic is verified by manual/
+  code review only, rather than describing it as outstanding work for a
+  future test-writer pass. `docs/design-document.md`'s SCREEN-04 mock
   (which showed the pre-REQ-304 raw-GUID-style round label) and its
   SCREEN-01 status note (which stated no field on `GET /rounds/current`
   carried a round number, no longer true now that `sequenceNumber` exists)
   are both corrected in place with dated status notes, without removing the
   original notes' history — SCREEN-01's player-facing grid header still
   does not render `sequenceNumber`; only the admin round-control section
-  does, per REQ-304's own scope.
+  does, per REQ-304's own scope. REQ-304's "Path Round #{sequenceNumber}"
+  acceptance criterion also gets a clarifying note: `RoundControlSection.tsx`
+  is `"xg-grid"`-only today and no equivalent `"xg-path"` admin
+  round-control element exists yet (`XGPathCycleSection.tsx` shows
+  cycle/pool metrics, not a round GUID or number), so that half of the
+  criterion is a forward-looking naming convention for whenever such a UI
+  element is added, not an unimplemented gap in this story.
+
+  Test coverage now backing REQ-304 in full: Unit
+  (`RoundGenerationServiceTests.cs` — `MAX + 1` starts at 1, doesn't
+  collide across two rounds of the same `GameKey`, stays independent
+  across two different `GameKey`s), API/Integration
+  (`RoundEndpointTests.cs`'s same-`GameKey` distinctness test and
+  cross-`GameKey` independence test above, plus DTO-field-presence
+  assertions across `RoundEndpointTests.cs`/`CurrentRoundEndpointTests.cs`/
+  `PathEndpointTests.cs`/`LeaderboardEndpointTests.cs`/
+  `AdminManagementEndpointTests.cs`), Component (`AdminScreen.test.tsx`
+  asserting the `"Grid Round #N"` label and that no GUID substring is
+  rendered), and manual/code review only (the migration's raw-SQL backfill,
+  per the InMemory-provider limitation above).
 - 2026-08-17 — `.github/workflows/`, `docs/implementation-document.md`,
   `docs/requirements-document.md`, `NOTES.md`,
   `docs/decisions/0024-cache-warming-runs-as-a-cli-verb.md`,
