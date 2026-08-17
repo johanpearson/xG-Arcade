@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.78"
+version: "1.79"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -3170,11 +3170,12 @@ a past/near-past `endTime`, and the accessible-name assertion)
 - When the round is persisted
 - Then it is assigned a `SequenceNumber` equal to the current maximum
   `SequenceNumber` already assigned to that `GameKey`, plus one (starting
-  at 1 for a `GameKey`'s first-ever round), computed inside the same
-  database transaction that creates the Round row — so two concurrent
-  creation attempts for the same `GameKey` can never be assigned the same
-  `SequenceNumber`, the same race-freedom REQ-301's existing idempotency
-  check already relies on
+  at 1 for a `GameKey`'s first-ever round), guarded by a unique index on
+  `(GameKey, SequenceNumber)` — the read of the current maximum and the
+  insert of the new Round row are two separate operations, not one
+  transaction, so if two creation attempts for the same `GameKey` were
+  ever to race, the losing attempt's insert fails on that constraint
+  rather than persisting a duplicate `SequenceNumber`
 - Given two rounds created for the same `GameKey`
 - When both are queried
 - Then their `SequenceNumber` values are always distinct, and consecutive
@@ -3236,13 +3237,13 @@ a past/near-past `endTime`, and the accessible-name assertion)
   section
 
 **Test level:** Unit (`SequenceNumber` assignment — `MAX + 1` scoped to
-`GameKey`, computed inside the creation transaction), API/Integration (a
+`GameKey`, read immediately before the creation insert), API/Integration (a
 new REQ-304-named test proves two same-`GameKey` rounds are always
 distinct and gapless; two different-`GameKey` rounds can share a
 `SequenceNumber`; the migration backfills every historical row with a
 correct, gapless-per-`GameKey` sequence ordered by `StartTime`; every DTO
 listed above carries `sequenceNumber` alongside an unchanged `roundId`),
-Component (`RoundControlSection.test.tsx` updated to assert the
+Component (`AdminScreen.test.tsx` updated to assert the
 `"Grid Round #N"`/`"Path Round #N"` text and that no GUID substring is
 ever rendered)
 

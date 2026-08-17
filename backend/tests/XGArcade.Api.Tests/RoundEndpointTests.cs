@@ -434,6 +434,45 @@ public class RoundEndpointTests
             => throw new InvalidOperationException("simulated DB failure");
     }
 
+    // ---- REQ-304: SequenceNumber is distinct/incrementing per GameKey, ------
+    // proven through the real HTTP endpoint (not just RoundGenerationService
+    // directly, which RoundGenerationServiceTests already covers at the Unit
+    // level) ------------------------------------------------------------
+
+    [Test]
+    public async Task REQ304_GenerateRound_Post_CalledTwiceForSameGameKey_AssignsDistinctIncrementingSequenceNumbers()
+    {
+        await SeedFullyMatchedReferenceDataAsync(size: 3);
+        var client = CreateAuthorizedClient();
+
+        // Call 1: no round exists yet for this GameKey -> creates round 1,
+        // which starts immediately (StartTime ~= now), so it's already
+        // active by the time call 2 runs a moment later — same "call 2
+        // generates a real next round" mechanics as
+        // REQ301_GenerateRound_Post_IsIdempotent_WhenAnUpcomingRoundAlreadyExists
+        // above, reused here rather than inventing a new way to force a
+        // second real round.
+        var first = await client.PostAsync("/internal/generate-round", content: null);
+        var firstBody = await first.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+
+        // Call 2: round 1 is active with no round scheduled after it yet ->
+        // a genuine second round for the same GameKey, not the idempotent
+        // no-op case.
+        var second = await client.PostAsync("/internal/generate-round", content: null);
+        var secondBody = await second.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+
+        Assert.That(first.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(second.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(firstBody!.SequenceNumber, Is.EqualTo(1));
+        Assert.That(secondBody!.RoundId, Is.Not.EqualTo(firstBody.RoundId), "a genuine second round, not the idempotent no-op case");
+        Assert.That(secondBody.SequenceNumber, Is.EqualTo(2));
+        Assert.That(secondBody.SequenceNumber, Is.Not.EqualTo(firstBody.SequenceNumber));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
+    }
+
     // ---- S-084/REQ-1202: generate-round is genuinely GameKey-parameterized --
     // for "xg-path" too, end-to-end through the real endpoint --------------
 
