@@ -19,7 +19,9 @@
          (10.0.4) even though Microsoft.EntityFrameworkCore above is pinned
          exactly at 10.0.10, producing MSB3277 "conflicts ... could not be
          resolved" at build time (seen in warm-player-cache.yml/
-         backfill-player-photos.yml CI logs). EF Core's own relational
+         backfill-player-photos CI logs — the latter's one-off workflow
+         wrapper, backfill-player-photos.yml, was deleted in S-132). EF Core's
+         own relational
          packages are always released in lockstep at the same version, so
          pinning this one explicitly to match is correct, not a workaround —
          Npgsql's declared range comfortably allows it (10.0.10 < 11.0.0). -->
