@@ -1,6 +1,6 @@
 # ADR-0045: xG Path puzzle generation — entity shape, Player FK, and REQ-1201's textual ambiguities
 
-- **Status:** Accepted (superseded in part by ADR-0073 — see note below)
+- **Status:** Accepted (superseded in part by ADR-0073 and ADR-0074 — see notes below)
 - **Date:** 2026-07-27
 - **Related requirements:** REQ-1201, REQ-1202
 - **Related components:** COMP-11 (Games.XGPath), COMP-06 (Data.PlayerStore)
@@ -13,6 +13,19 @@
 > `Player` FK decision, the "3 stint rows not 3 clubs" reading, the
 > "undeterminable order" reading) — see ADR-0073 for the birth-year point
 > specifically.
+
+> **Superseded in part by ADR-0074 (2026-08-17):** ADR-0074 supersedes this
+> ADR's Decision §3 on its TEXTUAL reasoning only ("3 distinct documented
+> career club stints" read as ≥3 stint rows, not 3 distinct clubs, because
+> of REQ-1201's original wording) — that reading is now moot, since
+> REQ-1201's rule no longer hinges on a literal "3" from REQ-1201's own
+> text. **The underlying ≥3-total-row floor itself is NOT dropped** —
+> ADR-0074 retains it (renamed `MinDocumentedStintCount`), re-justified as
+> a REQ-1203 structural requirement (its `PathClueSequenceBuilder` needs
+> ≥3 documented stints to split into 3 club-reveal turns), independent of
+> REQ-1201's own club-quality signal. Decision §4 (chronological order
+> determinable) is untouched and remains governed by this ADR. See
+> ADR-0074 for the current eligibility rule.
 
 ## Context
 

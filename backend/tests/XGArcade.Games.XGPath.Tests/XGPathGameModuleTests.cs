@@ -108,8 +108,17 @@ public class XGPathGameModuleTests
         return template;
     }
 
+    // Idempotent (S-138): a no-op if `name` is already registered, rather
+    // than throwing on ClubDefinition.Name's unique index — SeedEligiblePlayer
+    // below now registers its own second seeded club on every call, and
+    // many tests call it several times against the same base club name
+    // (e.g. Enumerable.Range(0, 5).Select(i => SeedEligiblePlayer(...))), so
+    // this must tolerate being asked to (re-)register the same name.
     private void SeedClub(string name)
     {
+        if (_dbContext.ClubDefinitions.Any(c => c.Name == name))
+            return;
+
         _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = $"Qclub-{name}" });
         _dbContext.SaveChanges();
     }
@@ -161,15 +170,27 @@ public class XGPathGameModuleTests
         _dbContext.SaveChanges();
     }
 
-    // Baseline "definitely eligible" fixture: 3 well-ordered stints, one at
-    // a seeded club. birthYear forwards to SeedPlayer's own default/override
+    // Baseline "definitely eligible" fixture (REQ-1201/ADR-0074/S-138): 3
+    // well-ordered stints, at 2 DISTINCT seeded clubs (seededClubName and a
+    // second club derived from it, "{seededClubName} 2") plus 1 unseeded
+    // club — satisfies the new "≥2 distinct qualifying seeded clubs" rule.
+    // The second club is registered here, not by the caller, via the now-
+    // idempotent SeedClub above — every existing call site in this file
+    // only ever registers `seededClubName` itself (usually once, via a
+    // single top-of-test SeedClub("Seeded FC") call reused across several
+    // SeedEligiblePlayer calls), so deriving and self-registering the
+    // second club here keeps every one of those call sites unchanged.
+    // birthYear forwards to SeedPlayer's own default/override
     // (REQ-1201/ADR-0073/S-137) — same overridable-per-case shape.
     private Player SeedEligiblePlayer(string name, string seededClubName, int? birthYear = 1990)
     {
+        var secondSeededClubName = $"{seededClubName} 2";
+        SeedClub(secondSeededClubName);
+
         var player = SeedPlayer(name, birthYear);
         SeedStints(player.Id,
             (2010, 2013, seededClubName),
-            (2013, 2016, "Some Unseeded Club"),
+            (2013, 2016, secondSeededClubName),
             (2016, null, "Another Unseeded Club"));
         return player;
     }
@@ -191,15 +212,19 @@ public class XGPathGameModuleTests
     // includes the violator, the pool exactly matches PuzzleCount and every
     // candidate (violator included) would have to be selected, so a bug
     // can't "get lucky" and pass by chance.
+    // REQ-1201/ADR-0074/S-138: the old "≥3 documented stint rows" rule is
+    // gone, replaced by "≥2 DISTINCT qualifying seeded clubs" — this fixture
+    // (1 seeded-club stint, 1 non-seeded) now isolates that new rule
+    // instead: exactly 1 qualifying seeded club is not enough.
     [Test]
-    public void REQ1201_GenerateInstanceAsync_CandidateWithFewerThanThreeStints_NeverSelected()
+    public void REQ1201_GenerateInstanceAsync_CandidateWithOnlyOneQualifyingSeededClub_NeverSelected()
     {
         SeedClub("Seeded FC");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
-        var tooFewStints = SeedPlayer("TwoStints");
-        SeedStints(tooFewStints.Id, (2010, 2013, "Seeded FC"), (2013, null, "Other FC")); // only 2 rows
+        var oneSeededClub = SeedPlayer("OneSeededClub");
+        SeedStints(oneSeededClub.Id, (2010, 2013, "Seeded FC"), (2013, null, "Other FC")); // only 1 qualifying seeded club
 
         var template = SeedTemplate(3);
 
@@ -207,14 +232,44 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
-    // Bug fix (2026-08-08, REQ-1203): a player with fewer than 3 REAL
-    // documented club stints must never become eligible purely because
-    // leftover pre-2026-08-02 youth-national-team junk rows pad the row
-    // count past MinStintCount — see PathCareerStintFilter's own doc
-    // comment. Same "baseline + 1" rejection-test technique as the
-    // CandidateWithFewerThanThreeStints test above: 2 real stints (one at
-    // the seeded club) + 2 youth-national junk rows = 4 raw rows (would
-    // wrongly pass MinStintCount unfiltered), but only 2 real ones.
+    // REQ-1203/ADR-0074/S-138 (architecture-review finding, not the
+    // original backlog text): 2 distinct qualifying seeded clubs alone is
+    // NOT enough — a candidate whose ONLY documented stints are exactly
+    // those 2 qualifying clubs (2 total rows, no third stint of any kind)
+    // must still be rejected. Dropping the old total-stint-row floor
+    // entirely (as the original S-138 backlog text assumed was safe once
+    // the 2-club rule existed) would let this candidate through, and
+    // PathClueSequenceBuilder.SplitIntoTurns(2) produces club-reveal turn
+    // sizes [0, 1, 1] — an empty first clue turn, a real player-facing bug.
+    // MinDocumentedStintCount (3) exists specifically to keep this
+    // candidate excluded.
+    [Test]
+    public void REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubsButOnlyTwoTotalStints_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var onlyTwoStints = SeedPlayer("OnlyTwoStints");
+        SeedStints(onlyTwoStints.Id, (2010, 2013, "Seeded FC"), (2013, null, "Seeded FC 2")); // 2 qualifying seeded clubs, but only 2 total rows
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Bug fix (2026-08-08, REQ-1203; rule updated REQ-1201/ADR-0074/S-138):
+    // a player whose only REAL documented club stint is at one seeded club
+    // must never become eligible purely because leftover pre-2026-08-02
+    // youth-national-team junk rows are also present — see
+    // PathCareerStintFilter's own doc comment. Same "baseline + 1"
+    // rejection-test technique as the CandidateWithOnlyOneQualifyingSeededClub
+    // test above: 2 real stints (only 1 at the seeded club) + 2
+    // youth-national junk rows, none of which are seeded clubs either, so
+    // the qualifying-seeded-club count is 1 regardless of whether the junk
+    // rows are filtered.
     [Test]
     public void REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected()
     {
@@ -235,22 +290,25 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
-    // Positive control for the fix above: a candidate with a genuinely
-    // eligible 3-real-stint career must still be selected even when
-    // leftover youth-national-team junk rows are ALSO present — the filter
-    // must not accidentally reject a real candidate just because junk rows
-    // exist alongside their real career data.
+    // Positive control for the fix above (fixture updated REQ-1201/
+    // ADR-0074/S-138 to carry 2 distinct qualifying seeded clubs, the
+    // current eligibility rule): a candidate with a genuinely eligible
+    // career must still be selected even when leftover youth-national-team
+    // junk rows are ALSO present — the filter must not accidentally reject
+    // a real candidate just because junk rows exist alongside their real
+    // career data.
     [Test]
-    public async Task REQ1203_GenerateInstanceAsync_CandidateWithThreeRealStints_StillEligible_DespiteYouthNationalTeamJunkRows()
+    public async Task REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteYouthNationalTeamJunkRows()
     {
         SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
         var withJunk = SeedPlayer("RealCareerPlusJunk");
         SeedStints(withJunk.Id,
             (2010, 2013, "Seeded FC"),
-            (2013, 2016, "Unseeded Club A"),
+            (2013, 2016, "Seeded FC 2"),
             (2016, null, "Unseeded Club B"),
             (2005, 2007, "Spain national under-17 association football team"));
 
@@ -267,16 +325,21 @@ public class XGPathGameModuleTests
     public void REQ1201_GenerateInstanceAsync_CandidateWithUndeterminableStintOrder_NeverSelected()
     {
         SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
-        // Two stints share the identical (StartYear=2010, EndYear=2013)
-        // pair — their relative chronological order can't be derived from
-        // the dates themselves, only from write-order SequenceOrder.
+        // 2 distinct qualifying seeded clubs (REQ-1201/ADR-0074/S-138) so
+        // this fixture isolates the order-check failure specifically —
+        // without the duplicate dates below, this candidate would otherwise
+        // be eligible on club count alone. Two stints share the identical
+        // (StartYear=2010, EndYear=2013) pair — their relative chronological
+        // order can't be derived from the dates themselves, only from
+        // write-order SequenceOrder.
         var undeterminable = SeedPlayer("DuplicateDates");
         SeedStints(undeterminable.Id,
             (2010, 2013, "Seeded FC"),
-            (2010, 2013, "Some Other Club"),
+            (2010, 2013, "Seeded FC 2"),
             (2016, null, "Yet Another Club"));
 
         var template = SeedTemplate(3);
@@ -289,17 +352,22 @@ public class XGPathGameModuleTests
     public void REQ1201_GenerateInstanceAsync_CandidateWithTwoSimultaneouslyOngoingStints_NeverSelected()
     {
         SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
-        // Both stints start in 2010 and are still "ongoing" (EndYear null)
-        // — an identical (StartYear, EndYear) pair even though EndYear is
-        // null on both sides (design decision: null must compare equal to
-        // null here, not be treated as "never a duplicate").
+        // 2 distinct qualifying seeded clubs (REQ-1201/ADR-0074/S-138) so
+        // this fixture isolates the order-check failure specifically — see
+        // the comment above on the sibling "undeterminable stint order"
+        // test. Both stints start in 2010 and are still "ongoing"
+        // (EndYear null) — an identical (StartYear, EndYear) pair even
+        // though EndYear is null on both sides (design decision: null must
+        // compare equal to null here, not be treated as "never a
+        // duplicate").
         var twoOngoing = SeedPlayer("TwoOngoingStints");
         SeedStints(twoOngoing.Id,
             (2010, null, "Seeded FC"),
-            (2010, null, "Some Other Club"),
+            (2010, null, "Seeded FC 2"),
             (2016, 2018, "Yet Another Club"));
 
         var template = SeedTemplate(3);
@@ -327,21 +395,25 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
-    // ADR-0047: a seeded-club stint with a known, sub-threshold appearance
-    // count doesn't count toward eligibility — a one-off loan/fringe
-    // appearance shouldn't be enough to make an otherwise-obscure player a
-    // valid target.
+    // ADR-0047/S-138: a seeded-club stint with a known, sub-threshold
+    // appearance count doesn't count as a QUALIFYING seeded club — a
+    // one-off loan/fringe appearance shouldn't be enough to make an
+    // otherwise-obscure player a valid target. This candidate has 2 seeded
+    // clubs, but only ONE of them (the 25-appearance one) individually
+    // qualifies, so the qualifying count is 1 — still below
+    // MinQualifyingSeededClubs (2).
     [Test]
     public void REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintBelowAppearanceThreshold_NeverSelected()
     {
         SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
         var fringeAppearance = SeedPlayer("FringeAppearance");
         SeedStints(fringeAppearance.Id,
-            (2010, 2011, "Seeded FC", 19), // one below the 20-appearance threshold
-            (2011, 2014, "Unseeded Club A", (int?)null),
+            (2010, 2011, "Seeded FC", 19), // one below the 20-appearance threshold — doesn't qualify
+            (2011, 2014, "Seeded FC 2", 25), // qualifies — only 1 of the 2 seeded clubs does
             (2014, null, "Unseeded Club B", (int?)null));
 
         var template = SeedTemplate(3);
@@ -351,18 +423,22 @@ public class XGPathGameModuleTests
     }
 
     // ADR-0047: a known appearance count meeting the threshold exactly is
-    // still eligible — the check is ">=", not ">".
+    // still eligible — the check is ">=", not ">". Fixture updated
+    // (REQ-1201/ADR-0074/S-138) to carry a SECOND qualifying seeded club
+    // (unknown appearance count) alongside the at-threshold one, since a
+    // single qualifying club is no longer enough on its own.
     [Test]
     public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintAtAppearanceThreshold_IsEligible()
     {
         SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
         var atThreshold = SeedPlayer("AtThreshold");
         SeedStints(atThreshold.Id,
-            (2010, 2011, "Seeded FC", 20), // exactly the threshold
-            (2011, 2014, "Unseeded Club A", (int?)null),
+            (2010, 2011, "Seeded FC", 20), // exactly the threshold — qualifies
+            (2011, 2014, "Seeded FC 2", (int?)null), // unknown count — also qualifies
             (2014, null, "Unseeded Club B", (int?)null));
 
         var template = SeedTemplate(3);
@@ -376,19 +452,24 @@ public class XGPathGameModuleTests
 
     // ADR-0047: an unknown appearance count (Wikidata's P1350 qualifier
     // absent) is not evidence of a fringe appearance, so it still passes —
-    // only a known, sub-threshold count disqualifies a stint.
+    // only a known, sub-threshold count disqualifies a stint. Fixture
+    // updated (REQ-1201/ADR-0074/S-138) to carry a SECOND qualifying
+    // seeded club alongside the unknown-count one, plus an extra unseeded
+    // stint — also doubles as the "2 qualifying seeded clubs plus an extra
+    // non-seeded stint is still eligible, extra stints ignored" case.
     [Test]
     public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintUnknownAppearanceCount_IsEligible()
     {
         SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
         SeedEligiblePlayer("Eligible2", "Seeded FC");
 
         var unknownCount = SeedPlayer("UnknownAppearanceCount");
         SeedStints(unknownCount.Id,
-            (2010, 2011, "Seeded FC", (int?)null),
-            (2011, 2014, "Unseeded Club A", (int?)null),
-            (2014, null, "Unseeded Club B", (int?)null));
+            (2010, 2011, "Seeded FC", (int?)null), // unknown count — qualifies
+            (2011, 2014, "Seeded FC 2", 25), // qualifies
+            (2014, null, "Unseeded Club B", (int?)null)); // extra, ignored
 
         var template = SeedTemplate(3);
 
@@ -399,24 +480,27 @@ public class XGPathGameModuleTests
         Assert.That(targets, Does.Contain(unknownCount.Id));
     }
 
-    // Positive control for the "3 rows, not 3 distinct clubs" reading of
-    // REQ-1201: PlayerCareerStint's own doc comment explicitly allows two
-    // rows at the same club (e.g. a loan then a later return), and
-    // REQ-1201's text never requires 3 *different* clubs — only 3 stint
-    // rows, with at least one at a seeded club. A candidate whose 3 stints
-    // are all at the SAME seeded club must still be eligible.
+    // REQ-1201/ADR-0074/S-138: repeat stints at the SAME seeded club (e.g.
+    // a loan, then a later permanent return — PlayerCareerStint's own doc
+    // comment explicitly allows this as multiple distinct, valid stint
+    // ROWS) still only count as ONE qualifying club, not two — the current
+    // rule counts distinct qualifying club NAMES, not stint rows. A
+    // candidate whose 3 stints are all at the SAME seeded club therefore
+    // has only 1 distinct qualifying club and must be rejected, even though
+    // it would have passed the old "≥3 stint rows, ≥1 at a seeded club"
+    // rule this replaces.
     //
-    // Perf fix (2026-08-03): this also doubles as the "wrong minStintCount"
-    // narrowing-superset regression test — GetEligiblePlayerIdsAsync now
-    // narrows via GetCareerStintCandidatePlayerIdsAsync (grouped by
-    // PlayerId, row count >= MinStintCount) BEFORE loading full stint data
-    // and running IsEligible. A narrowing bug that counted DISTINCT clubs
-    // instead of stint ROWS would drop this candidate (1 distinct club)
-    // before IsEligible ever saw it, so this test would start failing
-    // (pool one short of PuzzleCount, generation throws) if that bug were
-    // introduced.
+    // Perf fix (2026-08-03) regression coverage: this also doubles as the
+    // narrowing-superset regression test for GetCareerStintCandidatePlayerIdsAsync,
+    // which now narrows on ">= minSeededClubCount DISTINCT seeded club
+    // names" (not stint rows) — a narrowing bug that counted raw stint ROWS
+    // instead of distinct club names would wrongly let this candidate (1
+    // distinct seeded club, 3 rows) through to IsEligible, which would then
+    // itself correctly reject it — so this test only pins IsEligible's own
+    // behavior; PlayerCareerStintRepositoryTests carries the narrowing
+    // pass's own dedicated regression coverage for this same distinction.
     [Test]
-    public async Task REQ1201_GenerateInstanceAsync_CandidateWithThreeStintsAtSameSeededClub_IsEligible()
+    public void REQ1201_GenerateInstanceAsync_CandidateWithThreeStintsAtSameSeededClub_NeverSelected()
     {
         SeedClub("Seeded FC");
         SeedEligiblePlayer("Eligible1", "Seeded FC");
@@ -430,11 +514,8 @@ public class XGPathGameModuleTests
 
         var template = SeedTemplate(3);
 
-        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
-        var targets = await GetTargetPlayerIdsAsync(instance.Id);
-
-        Assert.That(targets, Has.Count.EqualTo(3));
-        Assert.That(targets, Does.Contain(sameClubThreeTimes.Id));
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
     // Perf fix (2026-08-03): the narrowing pass
@@ -444,7 +525,10 @@ public class XGPathGameModuleTests
     // precedent, which is a different, diagnostic-only choice for a
     // different method. A candidate whose only near-seeded-club stint
     // differs from the seeded name purely by case must still be rejected,
-    // exactly as it always was before this perf fix.
+    // exactly as it always was before this perf fix — 0 genuinely
+    // qualifying seeded clubs, still below MinQualifyingSeededClubs (2)
+    // post-S-138, same as it was always below the old MinStintCount-era
+    // "at least 1" bar.
     [Test]
     public void REQ1201_GenerateInstanceAsync_CandidateWithOnlyCaseDifferingSeededClubStint_NeverSelected()
     {

@@ -30,6 +30,96 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   fields that are unambiguously "the workflow's name" in the GitHub
   Actions UI were corrected. S-134.
 - 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
+  `backend/src/XGArcade.Data/Repositories/PlayerCareerStintRepository.cs`,
+  `backend/src/XGArcade.Data/Repositories/IPlayerCareerStintRepository.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
+  `backend/tests/XGArcade.Data.Tests/PlayerCareerStintRepositoryTests.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/PlayerCareerStintRefreshServiceTests.cs`,
+  `docs/decisions/0074-xg-path-two-seeded-club-eligibility.md`,
+  `docs/decisions/0045-xg-path-puzzle-generation-model-and-eligibility.md`,
+  `docs/requirements-document.md` — S-138 quality-gate follow-up:
+  architecture and quality review of the S-138 diff below found that
+  dropping `MinStintCount` (the ≥3-total-documented-stint-row floor)
+  entirely, as the original backlog story proposed, was incorrect — ≥2
+  distinct qualifying seeded clubs only implies ≥2 total rows, not ≥3, so a
+  candidate with exactly 2 documented stints (both qualifying seeded clubs)
+  could pass eligibility and break REQ-1203's `PathClueSequenceBuilder`,
+  which divides a target's stint count across exactly 3 fixed club-reveal
+  turns and assumes ≥3 (`SplitIntoTurns(2)` → turn sizes `[0, 1, 1]`, an
+  empty first clue turn — production-reachable via `PathEndpoints.cs`, not
+  theoretical). Fixed by RETAINING the row-count floor, renamed
+  `MinDocumentedStintCount` (value unchanged, 3) and re-justified as a
+  REQ-1203 structural requirement, independent of and in addition to
+  `MinQualifyingSeededClubs` (2) below — `IsEligible` and the narrowing
+  pre-filter (`GetCareerStintCandidatePlayerIdsAsync`, which gained a
+  `minTotalStintCount` parameter alongside `minSeededClubCount`) both check
+  both conditions. New test coverage:
+  `REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubsButOnlyTwoTotalStints_NeverSelected`
+  (`XGPathGameModuleTests.cs`) and
+  `GetCareerStintCandidatePlayerIdsAsync_ExcludesPlayersWithFewerThanMinTotalStintCount`
+  (`PlayerCareerStintRepositoryTests.cs`) pin down the exact scenario the
+  review found. ADR-0074 was rewritten (not just amended) to reflect the
+  corrected decision — the total-row floor is retained, not dropped, with
+  its justification changed from ADR-0045's original textual reading of
+  REQ-1201 (now moot) to a REQ-1203-specific need; ADR-0045's own pointer
+  note was corrected to match. `docs/requirements-document.md`'s REQ-1201
+  status note was corrected accordingly, and two stale test-name references
+  (`...CandidateWithThreeRealStints_StillEligible...`, renamed by the
+  original S-138 implementation to
+  `...CandidateWithTwoQualifyingSeededClubStints_StillEligible...`) were
+  fixed in the same pass. Full backend suite re-run after this fix — see
+  below for the original S-138 entry this corrects. **Closes the "open
+  item" the original entry below flagged**: REQ-1203's "`N >= 3`,
+  guaranteed by REQ-1201's eligibility check" and REQ-1208's "REQ-1201's
+  three structural checks" are both accurate again now that the floor is
+  restored — no further action needed on that point.
+- 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
+  `backend/src/XGArcade.Data/Repositories/PlayerCareerStintRepository.cs`,
+  `backend/src/XGArcade.Data/Repositories/IPlayerCareerStintRepository.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
+  `backend/tests/XGArcade.Data.Tests/PlayerCareerStintRepositoryTests.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/PlayerCareerStintRefreshServiceTests.cs`,
+  `backend/tests/XGArcade.Api.Tests/RoundEndpointTests.cs`,
+  `docs/requirements-document.md`,
+  `docs/decisions/0074-xg-path-two-seeded-club-eligibility.md`,
+  `docs/decisions/0045-xg-path-puzzle-generation-model-and-eligibility.md`,
+  `docs/decisions/0047-xg-path-seeded-club-appearance-threshold.md` —
+  implemented S-138 (Epic 12) per REQ-1201: `XGPathGameModule.IsEligible`'s
+  old "≥3 documented `PlayerCareerStint` rows, any clubs" floor
+  (`MinStintCount`) is removed entirely as redundant, replaced by "≥2
+  DISTINCT clubs from the seeded `ClubDefinition` list, each individually
+  meeting the existing ≥20-appearance-or-unknown bar" (`MinQualifyingSeededClubs`,
+  ADR-0047's per-club bar carried forward unchanged, now applied to 2 clubs
+  instead of 1); the count is over distinct qualifying club NAMES, not stint
+  rows, so two stints at the same seeded club (a loan, then a later return)
+  count once. `IPlayerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync`'s
+  narrowing pre-filter parameter was renamed `minStintCount` →
+  `minSeededClubCount` and its over-inclusive superset condition updated to
+  match ("≥N distinct seeded club names," not "≥N rows AND ≥1 seeded"),
+  remaining a true superset of `IsEligible`'s real candidates. The
+  chronological-order-determinable check and the `BirthYear >= 1975` floor
+  (S-137/ADR-0073) are both unchanged and orthogonal. New ADR-0074 records
+  the decision, supersedes ADR-0045's Decision §3 (the dropped ≥3-stint-row
+  point only) and ADR-0047 in full (1-club threshold raised to 2, its
+  appearance bar carried forward), with pointer notes added to both ADRs'
+  status lines. `docs/requirements-document.md`: REQ-1201 gained a new
+  2026-08-17/S-138 dated status note describing the current rule and
+  pointing readers away from the now-superseded "≥3 stints"/"≥1 seeded-club
+  stint" language in the original 2026-07-27 bullet and the acceptance
+  criteria below (neither rewritten in place, per this REQ's append-only
+  convention); the original bullet also got two short inline pointers so it
+  isn't mistaken for still-current on its own. `docs/architecture-document.md`
+  and `docs/implementation-document.md` were checked (same terms S-137's own
+  entry below checked: `MinStintCount`, `IsEligible`,
+  `GetCareerStintCandidatePlayerIdsAsync`, "seeded club") and left
+  unchanged — neither doc names REQ-1201's structural checks by name,
+  matching S-137's own precedent immediately below. **Open item flagged, not
+  fixed in this pass:** REQ-1203's own text ("`N >= 3`, guaranteed by
+  REQ-1201's eligibility check") and REQ-1208's design note ("REQ-1201's
+  three structural checks") both describe the now-superseded rule and were
+  left untouched — out of this story's scope; needs a human call on whether
+  REQ-1203's turn-split acceptance criteria still hold for `N` as low as 2.
+- 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
   `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
   `backend/tests/XGArcade.Games.XGPath.Tests/PathCareerStintFilterTests.cs`,
   `docs/requirements-document.md`, `docs/decisions/0073-xg-path-birth-year-floor.md`,
