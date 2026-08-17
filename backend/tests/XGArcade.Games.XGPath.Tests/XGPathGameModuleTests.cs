@@ -232,6 +232,34 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
+    // REQ-1203/ADR-0074/S-138 (architecture-review finding, not the
+    // original backlog text): 2 distinct qualifying seeded clubs alone is
+    // NOT enough — a candidate whose ONLY documented stints are exactly
+    // those 2 qualifying clubs (2 total rows, no third stint of any kind)
+    // must still be rejected. Dropping the old total-stint-row floor
+    // entirely (as the original S-138 backlog text assumed was safe once
+    // the 2-club rule existed) would let this candidate through, and
+    // PathClueSequenceBuilder.SplitIntoTurns(2) produces club-reveal turn
+    // sizes [0, 1, 1] — an empty first clue turn, a real player-facing bug.
+    // MinDocumentedStintCount (3) exists specifically to keep this
+    // candidate excluded.
+    [Test]
+    public void REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubsButOnlyTwoTotalStints_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var onlyTwoStints = SeedPlayer("OnlyTwoStints");
+        SeedStints(onlyTwoStints.Id, (2010, 2013, "Seeded FC"), (2013, null, "Seeded FC 2")); // 2 qualifying seeded clubs, but only 2 total rows
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
     // Bug fix (2026-08-08, REQ-1203; rule updated REQ-1201/ADR-0074/S-138):
     // a player whose only REAL documented club stint is at one seeded club
     // must never become eligible purely because leftover pre-2026-08-02

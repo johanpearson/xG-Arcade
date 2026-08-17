@@ -19,6 +19,46 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
   `backend/tests/XGArcade.Data.Tests/PlayerCareerStintRepositoryTests.cs`,
   `backend/tests/XGArcade.DataSync.Tests/Wikidata/PlayerCareerStintRefreshServiceTests.cs`,
+  `docs/decisions/0074-xg-path-two-seeded-club-eligibility.md`,
+  `docs/decisions/0045-xg-path-puzzle-generation-model-and-eligibility.md`,
+  `docs/requirements-document.md` — S-138 quality-gate follow-up:
+  architecture and quality review of the S-138 diff below found that
+  dropping `MinStintCount` (the ≥3-total-documented-stint-row floor)
+  entirely, as the original backlog story proposed, was incorrect — ≥2
+  distinct qualifying seeded clubs only implies ≥2 total rows, not ≥3, so a
+  candidate with exactly 2 documented stints (both qualifying seeded clubs)
+  could pass eligibility and break REQ-1203's `PathClueSequenceBuilder`,
+  which divides a target's stint count across exactly 3 fixed club-reveal
+  turns and assumes ≥3 (`SplitIntoTurns(2)` → turn sizes `[0, 1, 1]`, an
+  empty first clue turn — production-reachable via `PathEndpoints.cs`, not
+  theoretical). Fixed by RETAINING the row-count floor, renamed
+  `MinDocumentedStintCount` (value unchanged, 3) and re-justified as a
+  REQ-1203 structural requirement, independent of and in addition to
+  `MinQualifyingSeededClubs` (2) below — `IsEligible` and the narrowing
+  pre-filter (`GetCareerStintCandidatePlayerIdsAsync`, which gained a
+  `minTotalStintCount` parameter alongside `minSeededClubCount`) both check
+  both conditions. New test coverage:
+  `REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubsButOnlyTwoTotalStints_NeverSelected`
+  (`XGPathGameModuleTests.cs`) and
+  `GetCareerStintCandidatePlayerIdsAsync_ExcludesPlayersWithFewerThanMinTotalStintCount`
+  (`PlayerCareerStintRepositoryTests.cs`) pin down the exact scenario the
+  review found. ADR-0074 was rewritten (not just amended) to reflect the
+  corrected decision — the total-row floor is retained, not dropped, with
+  its justification changed from ADR-0045's original textual reading of
+  REQ-1201 (now moot) to a REQ-1203-specific need; ADR-0045's own pointer
+  note was corrected to match. `docs/requirements-document.md`'s REQ-1201
+  status note was corrected accordingly, and two stale test-name references
+  (`...CandidateWithThreeRealStints_StillEligible...`, renamed by the
+  original S-138 implementation to
+  `...CandidateWithTwoQualifyingSeededClubStints_StillEligible...`) were
+  fixed in the same pass. Full backend suite re-run after this fix — see
+  below for the original S-138 entry this corrects.
+- 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
+  `backend/src/XGArcade.Data/Repositories/PlayerCareerStintRepository.cs`,
+  `backend/src/XGArcade.Data/Repositories/IPlayerCareerStintRepository.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
+  `backend/tests/XGArcade.Data.Tests/PlayerCareerStintRepositoryTests.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/PlayerCareerStintRefreshServiceTests.cs`,
   `backend/tests/XGArcade.Api.Tests/RoundEndpointTests.cs`,
   `docs/requirements-document.md`,
   `docs/decisions/0074-xg-path-two-seeded-club-eligibility.md`,

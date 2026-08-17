@@ -14,12 +14,18 @@
 > "undeterminable order" reading) — see ADR-0073 for the birth-year point
 > specifically.
 
-> **Superseded in part by ADR-0074 (2026-08-17):** ADR-0074 drops this
-> ADR's Decision §3 ("≥3 documented stint rows, not 3 distinct clubs")
-> entirely — it's redundant once eligibility requires ≥2 distinct
-> qualifying seeded clubs (ADR-0074), which is strictly more specific.
-> Decision §4 (chronological order determinable) is untouched and remains
-> governed by this ADR. See ADR-0074 for the current eligibility rule.
+> **Superseded in part by ADR-0074 (2026-08-17):** ADR-0074 supersedes this
+> ADR's Decision §3 on its TEXTUAL reasoning only ("3 distinct documented
+> career club stints" read as ≥3 stint rows, not 3 distinct clubs, because
+> of REQ-1201's original wording) — that reading is now moot, since
+> REQ-1201's rule no longer hinges on a literal "3" from REQ-1201's own
+> text. **The underlying ≥3-total-row floor itself is NOT dropped** —
+> ADR-0074 retains it (renamed `MinDocumentedStintCount`), re-justified as
+> a REQ-1203 structural requirement (its `PathClueSequenceBuilder` needs
+> ≥3 documented stints to split into 3 club-reveal turns), independent of
+> REQ-1201's own club-quality signal. Decision §4 (chronological order
+> determinable) is untouched and remains governed by this ADR. See
+> ADR-0074 for the current eligibility rule.
 
 ## Context
 

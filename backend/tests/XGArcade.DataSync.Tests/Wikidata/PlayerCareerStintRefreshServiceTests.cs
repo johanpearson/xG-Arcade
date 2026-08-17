@@ -255,8 +255,10 @@ public class PlayerCareerStintRefreshServiceTests
         // minSeededClubCount: 1 — this test is only proving the exact-match/
         // canonicalization behavior, not REQ-1201/ADR-0074/S-138's own
         // "≥2 distinct seeded clubs" threshold, and only one seeded club is
-        // registered here.
-        var candidateIds = await _playerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minSeededClubCount: 1);
+        // registered here. minTotalStintCount: 3 — satisfied by this
+        // fixture's 3 real stints (Lyon/Juventus/Arsenal), REQ-1203's own
+        // unrelated floor.
+        var candidateIds = await _playerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minTotalStintCount: 3, minSeededClubCount: 1);
 
         Assert.That(candidateIds, Does.Contain(player.Id),
             "a stint originally labeled 'Olympique Lyonnais' must canonicalize to the seeded 'Lyon' and satisfy exact-match eligibility");

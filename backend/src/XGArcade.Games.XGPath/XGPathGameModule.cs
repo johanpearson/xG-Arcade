@@ -44,19 +44,36 @@ public class XGPathGameModule(
     // still passes rather than being rejected.
     private const int MinAppearancesAtSeededClub = 20;
 
-    // REQ-1201/ADR-0074/S-138: the old "≥3 documented stint rows" floor
-    // (any clubs, not necessarily seeded ones) is gone — it became
-    // redundant once eligibility requires ≥2 distinct QUALIFYING seeded
-    // clubs, which is strictly more specific (2 qualifying seeded-club
-    // stints alone already implies ≥2 rows). Two rows at the SAME seeded
-    // club (a loan, then a later permanent return) count as one qualifying
-    // club, not two — see IsEligible's own comment for the exact
-    // "distinct club NAMES, not stint rows" semantics this constant
-    // enforces. Named here, not a bare literal, because the narrowing pass
-    // below (GetEligiblePlayerIdsAsync's GetCareerStintCandidatePlayerIdsAsync
-    // call) needs the exact same threshold IsEligible itself uses — one
-    // named constant, not two independent magic 2s that could drift apart.
+    // REQ-1201/ADR-0074/S-138: eligibility now requires ≥2 distinct
+    // QUALIFYING seeded clubs, not just 1 (ADR-0047's old threshold). Two
+    // rows at the SAME seeded club (a loan, then a later permanent return)
+    // count as one qualifying club, not two — see IsEligible's own comment
+    // for the exact "distinct club NAMES, not stint rows" semantics this
+    // constant enforces. Named here, not a bare literal, because the
+    // narrowing pass below (GetEligiblePlayerIdsAsync's
+    // GetCareerStintCandidatePlayerIdsAsync call) needs the exact same
+    // threshold IsEligible itself uses — one named constant, not two
+    // independent magic 2s that could drift apart.
     private const int MinQualifyingSeededClubs = 2;
+
+    // REQ-1203/ADR-0074/S-138 (architecture-review finding, not the
+    // original backlog text): a total-stint-row floor is STILL required
+    // here, independent of MinQualifyingSeededClubs above — it is NOT the
+    // same check ADR-0045's original "≥3 distinct documented career club
+    // stints" reasoning established, and is deliberately NOT dropped as
+    // "redundant" the way the backlog story assumed. Reason:
+    // PathClueSequenceBuilder.SplitIntoTurns divides a target's full stint
+    // count N across exactly 3 fixed club-reveal turns and assumes N >= 3
+    // (REQ-1203) — for N=2 it produces turn sizes [0, 1, 1], silently
+    // showing the player ZERO clubs on the first club-reveal turn. Since
+    // MinQualifyingSeededClubs (2) only bounds the number of QUALIFYING
+    // SEEDED stints, not a candidate's TOTAL documented stint count, a
+    // real player with exactly 2 total stints (both at qualifying seeded
+    // clubs, no third unseeded stint) would otherwise pass eligibility and
+    // break REQ-1203's turn split. This floor and MinQualifyingSeededClubs
+    // are two independent, both-required conditions — see IsEligible's own
+    // comment.
+    private const int MinDocumentedStintCount = 3;
 
     // REQ-1201/ADR-0073/S-137: xG Path's own, additive floor — deliberately
     // separate from, and narrower than, REQ-112's shared 1939 pool floor
@@ -348,6 +365,7 @@ public class XGPathGameModule(
         // GetAllCareerStintsByPlayerAsync-style read on every round
         // generation no longer scales. Narrow to real candidates first with
         // a cheap (PlayerId, ClubName)-only read — "at least
+        // MinDocumentedStintCount (3) total rows AND at least
         // MinQualifyingSeededClubs (2) distinct seeded club names among a
         // player's stints" (ignoring the appearance-count sub-condition,
         // which only narrows further, since that projection doesn't carry
@@ -355,11 +373,11 @@ public class XGPathGameModule(
         // a true superset of IsEligible's actual candidates — it never
         // excludes one IsEligible would have accepted (see
         // GetCareerStintCandidatePlayerIdsAsync's own doc comment, REQ-1201/
-        // ADR-0074/S-138) — then load full stint data (all columns, needed
-        // for the date-order and per-club appearance-count checks) only for
-        // that narrowed set.
+        // REQ-1203/ADR-0074/S-138) — then load full stint data (all
+        // columns, needed for the date-order and per-club appearance-count
+        // checks) only for that narrowed set.
         var candidateIds = await playerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync(
-            seededClubNames, MinQualifyingSeededClubs, cancellationToken);
+            seededClubNames, MinDocumentedStintCount, MinQualifyingSeededClubs, cancellationToken);
         var stintsByPlayer = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(candidateIds, cancellationToken);
 
         // Bug fix (2026-08-08, REQ-1203): leftover pre-2026-08-02
@@ -425,9 +443,23 @@ public class XGPathGameModule(
         return birthYearEligibleIds.Where(familiarIds.Contains).ToList();
     }
 
-    // REQ-1201/ADR-0074/S-138's two independent structural checks (the old
-    // "≥3 documented stint rows, any clubs" floor is gone — see
-    // MinQualifyingSeededClubs's own comment for why it's redundant now):
+    // REQ-1201/ADR-0074/S-138's three independent structural checks (down
+    // from the pre-S-138 shape, but NOT down to two — see
+    // MinDocumentedStintCount's own comment: dropping the total-row floor
+    // entirely, as the original backlog story assumed was safe, was found
+    // during architecture/quality review to break REQ-1203's clue-turn
+    // split for a 2-stint candidate, so it is RETAINED here, just
+    // re-justified):
+    //   - at least MinDocumentedStintCount (3) total documented stint rows,
+    //     any clubs — required for REQ-1203's PathClueSequenceBuilder,
+    //     which divides a target's full stint count across exactly 3 fixed
+    //     club-reveal turns and assumes at least 3. NOT a re-statement of
+    //     ADR-0045's original "3 distinct documented career club stints"
+    //     reasoning (that textual question is now moot — REQ-1201's own
+    //     rule no longer hinges on a literal "3" from REQ-1201's text) —
+    //     this floor exists purely so every eligible target has enough
+    //     documented career data for REQ-1203 to build a real 3-turn club
+    //     reveal, independent of REQ-1201's own club-quality signal below.
     //   - "chronological order determinable from start/end dates": rejects
     //     a candidate if any two of their stints share an identical
     //     (StartYear, EndYear) pair (including two simultaneously "ongoing"
@@ -451,14 +483,17 @@ public class XGPathGameModule(
     //     at non-seeded clubs, or at seeded clubs that individually fail
     //     the appearance bar, don't block eligibility as long as
     //     MinQualifyingSeededClubs distinct seeded clubs DO qualify.
-    //   - ADR-0056: and, on top of the two structural checks above, the
+    //   - ADR-0056: and, on top of the three structural checks above, the
     //     candidate is judged "familiar enough" via
     //     IPlayerFamiliarityService.FilterFamiliarAsync (see
-    //     GetEligiblePlayerIdsAsync below) — neither of the two checks here
+    //     GetEligiblePlayerIdsAsync below) — none of the three checks here
     //     says anything about whether a player is one a casual player would
     //     recognize.
     private static bool IsEligible(IReadOnlyList<PlayerCareerStint> stints, IReadOnlySet<string> seededClubNames)
     {
+        if (stints.Count < MinDocumentedStintCount)
+            return false;
+
         var datePairs = stints.Select(s => (s.StartYear, s.EndYear)).ToList();
         if (datePairs.Count != datePairs.Distinct().Count())
             return false;

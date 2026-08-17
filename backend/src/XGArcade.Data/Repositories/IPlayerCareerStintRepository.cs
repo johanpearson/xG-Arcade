@@ -39,37 +39,47 @@ public interface IPlayerCareerStintRepository
     Task AddCareerStintsAsync(
         Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default);
 
-    // REQ-1201 perf fix (2026-08-03, NOTES.md "PlayerCareerStint's 'few
-    // thousand rows' full-table-read assumption is now stale"), narrowing
-    // rule updated for REQ-1201/ADR-0074/S-138: the cheap first pass of
-    // xG Path's puzzle-generation eligibility check — narrows the full
-    // player pool down to real candidates using only a (PlayerId, ClubName)
-    // projection (skips StartYear/EndYear/SequenceOrder/AppearanceCount
-    // entirely), never the full 5-column PlayerCareerStint entity. Returns
-    // the PlayerIds whose stints include at least minSeededClubCount
-    // DISTINCT ClubName values that are in seededClubNames (exact ordinal/
-    // case-sensitive match — matches XGPathGameModule.IsEligible's own
-    // seededClubNames.Contains(s.ClubName) check exactly; deliberately NOT
-    // the case-insensitive comparison IPlayerDataQualityRepository.GetUnseededClubCandidatesAsync
-    // uses, since that was a diagnostic-only choice for a different method
-    // and copying it here would silently change REQ-1201's real eligibility
+    // REQ-1201/REQ-1203 perf fix (2026-08-03, NOTES.md "PlayerCareerStint's
+    // 'few thousand rows' full-table-read assumption is now stale"),
+    // narrowing rule updated for REQ-1201/ADR-0074/S-138: the cheap first
+    // pass of xG Path's puzzle-generation eligibility check — narrows the
+    // full player pool down to real candidates using only a
+    // (PlayerId, ClubName) projection (skips StartYear/EndYear/
+    // SequenceOrder/AppearanceCount entirely), never the full 5-column
+    // PlayerCareerStint entity. Returns the PlayerIds whose stints (a) total
+    // at least minTotalStintCount rows, AND (b) include at least
+    // minSeededClubCount DISTINCT ClubName values that are in
+    // seededClubNames (exact ordinal/case-sensitive match — matches
+    // XGPathGameModule.IsEligible's own seededClubNames.Contains(s.ClubName)
+    // check exactly; deliberately NOT the case-insensitive comparison
+    // IPlayerDataQualityRepository.GetUnseededClubCandidatesAsync uses,
+    // since that was a diagnostic-only choice for a different method and
+    // copying it here would silently change REQ-1201's real eligibility
     // semantics). Two stint rows at the SAME seeded club (e.g. a loan, then
     // a later permanent return) count once toward minSeededClubCount, not
-    // twice — this method groups by distinct ClubName, not by row.
+    // twice — condition (b) groups by distinct ClubName, not by row.
+    // minTotalStintCount exists purely for REQ-1203's sake (its
+    // PathClueSequenceBuilder needs at least 3 documented stints to split
+    // into 3 club-reveal turns) — architecture/quality review during S-138
+    // found that dropping it (as the original backlog story assumed was
+    // safe once minSeededClubCount existed) let a 2-total-stint candidate
+    // through eligibility and broke that split; see
+    // XGPathGameModule.MinDocumentedStintCount's own comment.
     //
-    // This is a true SUPERSET of "possibly eligible" — the condition
-    // checked here (>= minSeededClubCount distinct seeded club names,
-    // ignoring the per-club appearance-count sub-condition, since that
-    // sub-condition can only narrow further, never widen) is
-    // necessary-but-not-sufficient for IsEligible's own two checks. It
-    // never excludes a player IsEligible would have accepted; it can only
-    // include some players IsEligible later rejects on order-determinable
-    // stint dates or a seeded club's own appearance-count threshold —
-    // both of which need full stint rows to check and are handled by
-    // loading full data (via GetCareerStintsByPlayerIdsAsync) only for the
-    // narrowed set this method returns.
+    // This is a true SUPERSET of "possibly eligible" — both conditions
+    // checked here (>= minTotalStintCount total rows, and >=
+    // minSeededClubCount distinct seeded club names, ignoring the per-club
+    // appearance-count sub-condition, since that sub-condition can only
+    // narrow further, never widen) are necessary-but-not-sufficient for
+    // IsEligible's own three checks. It never excludes a player IsEligible
+    // would have accepted; it can only include some players IsEligible
+    // later rejects on order-determinable stint dates or a seeded club's
+    // own appearance-count threshold — both of which need full stint rows
+    // to check and are handled by loading full data (via
+    // GetCareerStintsByPlayerIdsAsync) only for the narrowed set this
+    // method returns.
     Task<IReadOnlyList<Guid>> GetCareerStintCandidatePlayerIdsAsync(
-        IReadOnlySet<string> seededClubNames, int minSeededClubCount, CancellationToken cancellationToken = default);
+        IReadOnlySet<string> seededClubNames, int minTotalStintCount, int minSeededClubCount, CancellationToken cancellationToken = default);
 
     // Bug-bundle fix (2026-07-27): bulk counterpart to GetCareerStintsAsync
     // — every existing stint for a batch of players in one query, used by
