@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md` — added S-151 (Epic 13) scoping a fix for
+  autocomplete's reported first-keystroke slowness: confirmed the backend
+  Container App scales to zero (`minReplicas: 0`) and the existing
+  `/health` warm-up ping on app load never touches the database, so the
+  cold Postgres connection/EF Core query-compile cost still lands on the
+  player's first autocomplete keystroke. Story adds a real DB-touching
+  warm-up call on game-screen mount. No code changed yet.
 - 2026-08-17 — `docs/backlog.md` — added Epics 10-15 (S-130 through S-150)
   scoping the repo-wide overhaul: CI/CD workflow cleanup (grounded in a
   live GitHub Actions run-history audit — found `backup-database.yml`

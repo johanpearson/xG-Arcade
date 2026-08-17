@@ -6121,7 +6121,7 @@ acceptance.
 *Deps:* S-137, S-138, S-139, S-140 (all must land first — this verifies
 their combined effect, not each one's in isolation).
 
-## Epic 13 — Autocomplete threshold (verification, no code change)
+## Epic 13 — Autocomplete: threshold verification + cold-start latency
 
 **S-142 · Document REQ-207's already-implemented 2-character autocomplete threshold**
 Investigation confirmed both games and the backend already agree on a
@@ -6143,6 +6143,41 @@ future change to any one of them is a REQ violation, not just an
 inconsistency between files. CHANGELOG entry noting this was verified
 already-correct, not newly built — avoids a future session re-doing this
 investigation from scratch.
+*Deps:* none.
+
+**S-151 · Warm the database connection/query path on game-screen load, not just the container process**
+Reported as "autocomplete feels slow to trigger the first time." Root
+cause confirmed, not assumed: the backend Container App is provisioned
+with `minReplicas: 0` (`infra/bicep/modules/backend-container-app.bicep:60`)
+— it scales to zero on idle and cold-starts on the next request.
+`App.tsx:167` already fetches `/health` on app load specifically to wake
+the container before the player reaches any game screen, but
+`/health` (`EndpointMapping.cs:39`) is `Results.Ok(new { status = "healthy" })`
+— a static response with **no DB access**. So the existing warm-up wakes
+the ASP.NET Core process but never opens a Postgres connection or compiles
+the EF Core query shape `PlayerAutocompleteEndpoints`/
+`IPlayerNameIndexRepository` actually use — that cost still lands entirely
+on the player's first keystroke. Fix: fire a real DB-touching warm-up call
+(a cheap, throwaway `PlayerNameIndex` lookup — e.g. a 1-character query
+run server-side only, never exposed to the `MinQueryLength = 2` client
+contract, or a dedicated `/players/autocomplete/warmup` endpoint that runs
+the same repository call with an empty/trivial filter) alongside the
+existing `/health` ping when `GridScreen.tsx`/`PathScreen.tsx` mount —
+game-screen load, not app load, so it only fires for players who actually
+reach a game, not every app visit (e.g. someone who only opens Settings).
+*Accept:* a REQ###-named test (new or extending REQ-207) proves the
+warm-up call exercises the real `IPlayerNameIndexRepository` path (not a
+mock) so a genuine cold Postgres connection gets opened by it, not by the
+player's first real query; the warm-up request is fire-and-forget from the
+frontend (never blocks game-screen render, never surfaces an error to the
+player if it fails — same "best-effort, no UI impact" shape as the
+existing `/health` check's own failure handling); manual verification
+against the deployed dev environment (Container Apps' actual scale-to-zero
+behavior can't be reproduced in the local/CI stack, which never scales to
+zero) confirms perceived first-keystroke latency drops, recorded in
+`NOTES.md` with a before/after feel since this can't be asserted by an
+automated test. No ADR needed — this is a performance fix within an
+already-documented boundary (COMP-10), not a structural change.
 *Deps:* none.
 
 ## Epic 14 — xG Path: suggestion/correction reporting
