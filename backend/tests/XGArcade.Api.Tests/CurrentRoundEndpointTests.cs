@@ -291,6 +291,11 @@ public class CurrentRoundEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
         Assert.That(body!.RoundId, Is.EqualTo(roundId));
+        // REQ-304: CurrentRoundResponse carries the round's SequenceNumber
+        // alongside its unchanged RoundId — SeedRoundWithCellsAsync always
+        // seeds SequenceNumber = 1, same fixture value every other test in
+        // this file already relies on.
+        Assert.That(body.SequenceNumber, Is.EqualTo(1));
         Assert.That(body.Cells, Has.Count.EqualTo(2));
         var first = body.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(first.RowCategoryType, Is.EqualTo(CategoryPairingRules.Country));

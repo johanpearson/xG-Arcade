@@ -192,6 +192,13 @@ public class RoundEndpointTests
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.GameKey, Is.EqualTo(GridGameModule.XGGridGameKey));
         Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromDays(3)));
+        // REQ-304: GenerateRoundResponse carries the round's SequenceNumber
+        // alongside its unchanged RoundId — this is this GameKey's
+        // first-ever round, so SequenceNumber must be 1 (the assignment
+        // rule itself — MAX+1 scoped to GameKey — is covered independently
+        // by RoundGenerationServiceTests; this only proves the DTO surfaces
+        // the field).
+        Assert.That(body.SequenceNumber, Is.EqualTo(1));
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();

@@ -687,6 +687,11 @@ public class LeaderboardEndpointTests
         var body = await response.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
         Assert.That(body!.Rounds.Select(r => r.RoundId), Is.EqualTo(new[] { later, earlier }));
         Assert.That(body.Rounds.Any(r => r.RoundId == stillActive), Is.False);
+        // REQ-304: ClosedRoundSummaryResponse carries the round's
+        // SequenceNumber alongside its unchanged RoundId —
+        // SeedClosedRoundAsync always seeds SequenceNumber = 1, same fixture
+        // value every other test in this file already relies on.
+        Assert.That(body.Rounds.Select(r => r.SequenceNumber), Is.EqualTo(new[] { 1, 1 }));
     }
 
     [Test]

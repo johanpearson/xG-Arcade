@@ -230,6 +230,11 @@ public class PathEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
         Assert.That(body!.RoundId, Is.EqualTo(roundId));
+        // REQ-304: CurrentPathResponse carries the round's SequenceNumber
+        // alongside its unchanged RoundId — SeedPathRoundAsync always seeds
+        // SequenceNumber = 1, same fixture value every other test in this
+        // file already relies on.
+        Assert.That(body.SequenceNumber, Is.EqualTo(1));
         var puzzle = body.Puzzles.Single(p => p.PuzzleId == puzzleId);
         Assert.That(puzzle.Clues, Has.Count.EqualTo(1), "turn 1 is visible before any guess — REQ-1203's GetRevealedTurnCount(0, false)");
         Assert.That(puzzle.Clues[0].TurnNumber, Is.EqualTo(1));
