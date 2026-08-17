@@ -13,6 +13,55 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md` — folded a rename into S-134:
+  `warm-player-cache.yml` → `warm-grid-cache.yml`, since it only ever
+  fills xG Grid's `PlayerAttribute` cache (not `PlayerCareerStint`, which
+  is xG Path's `prefetch-player-careers.yml`) and the un-scoped name broke
+  parity with the Epic 11 `generate-grid-round.yml`/`generate-path-round.yml`
+  split. Also added a standing "token efficiency" directive to the
+  backlog's "For AI agents" preamble — governs how every story (not just
+  today's) should be turned into a session prompt: hand the implementing
+  agent the story's already-recorded file/line specifics directly instead
+  of re-deriving them via broad exploration, and keep session scope to
+  exactly what the story names. No code changed yet.
+- 2026-08-17 — `docs/backlog.md` — product decision: rewrote S-130 from
+  "patch `backup-database.yml` with an early-exit guard" to "delete every
+  Tier 1 dev/prod-split workflow that has never succeeded" (clean slate,
+  re-add when Tier 1 actually needs it) — now covers `backup-database.yml`
+  (40/40 failed), `promote-dev-to-prod.yml` (0 runs), `sync-players.yml`
+  (0 runs), `sync-prod-to-dev.yml` (0 runs), and `promote-dev-to-prod-dry-run.yml`
+  (orphaned once its target is gone). S-133, which had left keep-vs-remove
+  as an open product decision, is marked superseded rather than deleted
+  (kept numbered, per the S-092 precedent). S-134's naming-audit list and
+  deps updated to match the smaller post-cleanup workflow set. No code
+  changed yet.
+- 2026-08-17 — `docs/backlog.md` — added S-151 (Epic 13) scoping a fix for
+  autocomplete's reported first-keystroke slowness: confirmed the backend
+  Container App scales to zero (`minReplicas: 0`) and the existing
+  `/health` warm-up ping on app load never touches the database, so the
+  cold Postgres connection/EF Core query-compile cost still lands on the
+  player's first autocomplete keystroke. Story adds a real DB-touching
+  warm-up call on game-screen mount. No code changed yet.
+- 2026-08-17 — `docs/backlog.md` — added Epics 10-15 (S-130 through S-150)
+  scoping the repo-wide overhaul: CI/CD workflow cleanup (grounded in a
+  live GitHub Actions run-history audit — found `backup-database.yml`
+  failing 40/40 recent scheduled runs and `prefetch-player-careers.yml`
+  failing 4/6, plus 3 never-triggered and 7 one-off-incident-served
+  workflows), a per-`GameKey` human-readable round number to replace the
+  raw GUID `RoundControlSection.tsx` currently renders, splitting
+  `generate-round.yml` into per-game workflows, xG Path eligibility
+  changes (born-1975-or-later floor, ≥2 eligible-club requirement, B-team/
+  broadened regional-team exclusion), confirmation that REQ-207's
+  2-character autocomplete threshold already ships in both games (doc-only
+  gap, no code change needed), generalizing `PlayerSuggestion` submission
+  off of xG Grid's `CellId`/category-type coupling so xG Path can report
+  corrections too, and a new per-user suggestion-history view with a
+  clear/dismiss action in `SettingsScreen.tsx` (the codebase's first
+  soft-delete/dismiss pattern). No code changed yet — this is the scoping
+  pass; several stories flag an explicit product decision needed before
+  implementation (S-133's keep/remove call on the three never-triggered
+  Tier-1-pending workflows; S-138's appearance-threshold-on-both-clubs
+  design) rather than presuming an answer.
 - 2026-08-17 — `NOTES.md`, `.github/workflows/warm-player-cache.yml`,
   `.github/workflows/prefetch-player-careers.yml` — the first real
   post-purge cold rebuild needed more than 90 minutes: `warm-player-cache`

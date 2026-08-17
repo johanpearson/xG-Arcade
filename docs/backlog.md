@@ -10,6 +10,22 @@ its tests must be named after (`REQ###_...`, see `docs/coding-guidelines.md`).
 > REQ IDs pass, `ci.yml` green, docs updated if reality diverged
 > (`/update-docs`), CHANGELOG entry if docs changed. Do not start a story
 > before its dependencies are merged. Do not pull Tier 1 items forward.
+>
+> **Token efficiency (2026-08-17):** high priority alongside correctness —
+> spend tokens on the work, not on re-deriving context a story already
+> paid for. A well-scoped story already names its exact files, line
+> numbers, and root causes from the investigation that produced it; when
+> turning a story into a session prompt (`/orchestrate` or a direct
+> session), hand the implementing agent those specifics directly instead
+> of re-opening a broad codebase exploration the story text already
+> closed. Keep a session's scope to exactly what its own story names —
+> don't fold in adjacent "while we're in there" cleanup that pulls in
+> files or context outside it (file a follow-up story instead). Prefer a
+> targeted `Edit` over reading and rewriting a whole file. When a story's
+> own investigation is incomplete or a root cause is still unconfirmed,
+> say so in the story rather than sending an agent to re-discover it from
+> scratch. This applies to every story above and below, not just the ones
+> written on this date.
 
 ## Epic 0 — Foundations (no game logic yet)
 
@@ -5776,3 +5792,610 @@ date.", and the manual-search flow's commit no longer renders the generic
 string. `npm run test` (582/582 passed), `npx tsc -b` (clean), and
 `npx oxlint` (clean) all run for real in this sandbox.
 *Deps:* backend half above, ADR-0060, REQ-509/510 (S-090).
+
+## Epic 10 — CI/CD workflow cleanup
+
+Scoped from a live audit of all 20 `.github/workflows/*.yml` files against
+their actual GitHub Actions run history (`actions_list`/`list_workflow_runs`,
+2026-08-17), not just their file contents. Two genuinely broken workflows
+were found — `backup-database.yml` has failed **40/40** of its last 40
+scheduled runs, and `prefetch-player-careers.yml` has failed 4 of its last
+6 — which is the concrete substance behind "always failing." Everything
+else below is scoped from the same audit, not guessed.
+
+**S-130 · Delete every Tier 1 dev/prod-split workflow that has never succeeded — clean slate, re-add when Tier 1 actually needs it**
+Product decision (2026-08-17, explicit): no patch-and-keep for these — if
+a Tier 1 workflow has zero runs or has never once gone green, delete it
+outright rather than fixing/guarding it, since none of Tier 1's real prod
+environment exists yet for it to act on anyway. Re-adding a thin
+`workflow_dispatch` wrapper later, once Tier 1 actually starts, is cheap;
+carrying dead/red entries in the Actions tab in the meantime is not.
+Supersedes this epic's original S-130 (which proposed patching
+`backup-database.yml` with an early-exit guard) and resolves S-133's
+"decide" framing outright — delete, don't debate. Five workflows meet the
+bar, confirmed against `list_workflow_runs`, not assumed:
+- `backup-database.yml` — **40/40 scheduled runs failed** (targets
+  `PROD_*` secrets that don't exist yet).
+- `promote-dev-to-prod.yml` — **0 runs ever**.
+- `sync-players.yml` — **0 runs ever** (own header comment already says it
+  needs rewriting, not just re-enabling, once Tier 1's API-Football
+  integration lands — "T-101" — so today's file gives no head start).
+- `sync-prod-to-dev.yml` — **0 runs ever**.
+- `promote-dev-to-prod-dry-run.yml` — technically ran twice and succeeded
+  both times, so it doesn't meet the "never succeeded" bar on its own, but
+  its entire purpose (an early-warning drift check before someone runs the
+  real promote) is moot once `promote-dev-to-prod.yml` is gone — delete it
+  alongside its target rather than leave an orphaned dry-run for a
+  workflow that no longer exists.
+Keep the underlying scripts (`infra/scripts/sync-prod-to-dev.sh`,
+`infra/scripts/promote-dev-to-prod.sh`, and whatever `sync-players.yml`
+currently wraps) runnable by hand/CLI — same "delete the workflow wrapper,
+keep the capability" pattern S-132 already applies to the one-off
+maintenance tools — so nothing is actually lost, only the always-red or
+never-triggered Actions-tab entries.
+*Accept:* all 5 `.yml` files deleted; `infra/README.md` updated to drop
+references to the deleted workflows and gains a short note (near the Tier 1
+section) that dev/prod-split automation was deliberately removed until
+Tier 1 creates a real prod environment, with a pointer to the kept
+scripts for manual use in the meantime; `MVP-SCOPE.md`'s Tier 1 section
+gets the same pointer so a future Tier-1 session isn't surprised these
+are gone; REQ-901 (backup) gets a status note that its automation was
+removed pending Tier 1, not that the requirement itself changed.
+CHANGELOG entry naming all 5 removed workflows and why.
+*Deps:* none.
+
+**S-131 · Diagnose `prefetch-player-careers.yml`'s 4/6 recent failures**
+Runs 1, 3, 4, and 6 (of 6 total) failed; only run 2 (2026-08-02) and the
+job that's currently `in_progress` as of this audit succeeded outright. The
+two most recent failures (2026-08-17, both same day as `1e7cb99` "Give
+warm-player-cache/prefetch-player-careers headroom for a cold rebuild
+(#203)") suggest this may already be addressed by that just-merged fix, but
+that's unverified — the fix landed same-day as the last observed failure,
+not confirmably after it. Re-run the workflow post-merge and confirm green
+before treating this as resolved; if it still fails, get the actual job
+logs (`get_workflow_run_logs_url`) rather than assuming timeout is still
+the cause.
+*Accept:* a manually-triggered post-#203 run completes `success`; if not,
+a new story is filed with the actual failure captured from logs rather
+than reopening this one indefinitely. `NOTES.md` gets an entry either way
+(closes the incident) since this pattern (long-running Wikidata sweep jobs
+timing out as the pool grows) has recurred at least twice now (`purge-player-pool`'s
+own 2026-08-17 timeout fix, `1e7cb99`) and is worth a standing note for
+future sweep jobs added the same way.
+*Deps:* none (informational/verification only — #203 already merged).
+
+**S-132 · Remove one-off maintenance workflows that already served their purpose**
+Seven workflows are `workflow_dispatch`-only, never scheduled, and their
+own header comments describe them as one-time recovery/backfill/cleanup
+tools for an incident that's already resolved — confirmed against run
+history, each has run only 2-6 times total, always in a tight cluster
+around the incident that motivated it, with no runs since:
+`audit-club-gaps.yml` (2 runs, last 2026-08-10), `backfill-player-photos.yml`
+(3 runs, last 2026-07-18), `backfill-player-position-birthyear.yml` (6 runs,
+last 2026-08-10), `clean-duplicate-career-stints.yml` (3 runs, last
+2026-08-10), `clean-stale-club-attributes.yml` (2 runs, last 2026-07-17),
+`clear-pair-lookup-failures.yml` (5 runs, last 2026-08-02), and
+`verify-wikidata-player-data.yml` (3 runs, last 2026-07-20). Remove the
+`.yml` workflow files (they clutter the Actions tab and each one's
+"is this still needed" question has to be re-asked by every future agent
+that reads this repo) but **keep the underlying CLI verbs and services**
+(`PlayerPhotoBackfillService`, `PlayerPositionBirthYearBackfillService`,
+`DuplicateCareerStintCleaner`, `StaleClubAttributeCleaner`,
+`PairLookupFailureCleaner`, the `verify-wikidata-player-data`/`audit-club-gaps`
+verbs) runnable via `dotnet run -- <verb>` — every one of these tools is
+idempotent and may legitimately be needed again for a future, different
+incident of the same shape, per each tool's own doc comment. Removing only
+the workflow wrapper (not the capability) matches this codebase's existing
+convention of CLI-verb-first, workflow-as-thin-wrapper (see
+`implementation-document.md` §6's CLI-verb pattern section). `purge-player-pool.yml`
+is explicitly **not** in this list — it ran again today (2026-08-17, a real
+pool rebuild), it's an actively-reused recovery tool with a required
+confirmation phrase, not a one-time-incident artifact.
+*Accept:* the 7 `.yml` files are deleted; each verb still runs via
+`dotnet run -- <verb-name>` locally/in a throwaway manual `workflow_dispatch`
+re-add if ever needed (documented as such in each service's own doc
+comment, which already exists); `infra/README.md`'s any references to
+these workflows by name are updated or removed; CHANGELOG entry naming
+which workflows were removed and why (matches the "removing something
+non-obvious" documentation bar this repo already holds itself to).
+*Deps:* none.
+
+**S-133 · Superseded by S-130 — decision made, not left open**
+Originally framed this as an open product decision (keep-dormant vs.
+remove the three never-triggered Tier-1-pending workflows). Resolved
+2026-08-17: product owner chose "clean slate" outright — delete every
+Tier 1 workflow that's unused or has failed, no debate, re-add later if
+Tier 1 needs it. Folded into S-130 (which now covers all 5 affected
+workflows, not just these 3, since the same reasoning extends to
+`backup-database.yml` and `promote-dev-to-prod-dry-run.yml` too). Kept as
+a numbered entry rather than deleted outright, matching this backlog's own
+S-092 precedent (a dropped/superseded story keeps its number and a short
+explanation rather than being silently removed or having its number
+reused).
+*Deps:* superseded by S-130.
+
+**S-134 · Workflow naming audit — rename `warm-player-cache.yml` → `warm-grid-cache.yml`, no other renames needed**
+Explicit audit of every workflow name that survives S-130/S-132's
+deletions against a verb-object, kebab-case, unambiguous-scope bar. Most
+already read clearly on their own — `ci`, `deploy`,
+`import-player-name-index`, `purge-guest-accounts`, `purge-player-pool` —
+and renaming any of them for its own sake would just create diff noise and
+break muscle-memory/external references (`infra/README.md`, dashboards)
+for no reader benefit. Two real gaps found, both the same shape as the
+`generate-round.yml` split (Epic 11): a name that doesn't say which game it
+serves. `generate-round.yml`'s fix is the split itself (S-136), not a
+separate rename. `warm-player-cache.yml` needs an actual rename: it fills
+`PlayerAttribute` (xG Grid's category-pairing answer cache) only — it does
+not touch `PlayerCareerStint`, which is xG Path's `prefetch-player-careers.yml`.
+"Warm cache" is the right verb (this genuinely is a correctness-cache
+warming operation, confirmed against `PlayerCacheWarmingService`'s own
+behavior — not a raw player-roster import), but "player cache" doesn't say
+*which* cache or *which* game, unlike its Path counterpart. Rename to
+**`warm-grid-cache.yml`**, giving the two per-game data-prep jobs matching,
+scoped names (`warm-grid-cache.yml` / `prefetch-player-careers.yml`) the
+same way `generate-grid-round.yml`/`generate-path-round.yml` will. Do
+**not** invent one shared name for both jobs — they build genuinely
+different tables for genuinely different correctness models (ADR-0042
+deliberately keeps `PlayerAttribute`/xG Grid and `PlayerCareerStint`/xG
+Path unreadable from each other's side), so a shared name would misrepresent
+that boundary, not just relabel it. With S-130 removing the entire Tier 1
+dev/prod-split/backup family outright, there's nothing left in that group
+to weigh a name against.
+*Accept:* `.github/workflows/warm-player-cache.yml` renamed to
+`warm-grid-cache.yml`, content unchanged; a full-repo sweep (not just the
+file itself) updates every reference to the old filename by name —
+`PlayerCacheWarmingService`'s own doc comment, `NOTES.md`, `infra/README.md`,
+`architecture-document.md`, and any other workflow's own comments that
+name it (e.g. `purge-guest-accounts.yml`'s cron-offset note references
+other jobs by name) — a grep for the literal string `warm-player-cache`
+across the repo returns zero hits once done; CHANGELOG entry.
+*Deps:* S-130, S-132 (audit the post-cleanup set, not the pre-cleanup one).
+
+## Epic 11 — Round generation: per-game workflows, human-readable round IDs
+
+**S-135 · Add a human-readable per-`GameKey` round number, surfaced in place of the raw GUID**
+`Round.Id` is a `Guid` and is exposed as such end-to-end (API DTOs, URLs,
+and — confirmed live — `RoundControlSection.tsx:70`'s admin panel, which
+renders literally `Round {activeRound.round.roundId} · ends {endTime}`,
+the one place today where a raw GUID appears as visible text to a human).
+There is no existing round-number concept to build on — `frontend/src/lib/types.ts`
+has a comment stating exactly this ("no round-number field anywhere in
+this data... never a fabricated 'round #N'"), written when that was still
+true. Add `Round.SequenceNumber` (int, unique per `GameKey`, assigned at
+creation time — e.g. `MAX(SequenceNumber) + 1` scoped to the new round's
+`GameKey`, computed inside `RoundGenerationService`'s existing
+create-transaction so it can't race against itself the same way its
+idempotency check already can't). Backfill existing rows by `StartTime`
+order per `GameKey` in the same migration. Add `sequenceNumber` to every
+round-shaped DTO (`CurrentRoundResponse`, `CurrentPathResponse`,
+`ClosedRoundSummary`, `GenerateRoundResponse`, `AdminRound`) alongside the
+existing `roundId`, which **stays as the real PK/FK for every internal
+wiring path** (URLs, guess/suggestion submission, leaderboard lookups) —
+this is a display label only, never a replacement identifier, so no
+routing/foreign-key code changes. `RoundControlSection.tsx` and any other
+GUID-rendering spot switch to `"Grid Round #{sequenceNumber}"` /
+`"Path Round #{sequenceNumber}"` phrasing.
+*Accept:* migration backfills every historical row with a correct,
+gapless-per-`GameKey` sequence; a new REQ###-named test proves two rounds
+of different `GameKey`s can share the same `SequenceNumber` (they're
+independent counters, matching `IRoundSchedulingOptionsResolver`'s existing
+per-`GameKey` independence) while two same-`GameKey` rounds never collide;
+`RoundControlSection.tsx` no longer renders a raw GUID anywhere (its own
+existing test updated); design-document.md/requirements-document.md gain
+this as a new REQ under §the round-scheduling section since it's new
+user-facing behavior, not a REQ-301/303 amendment; ADR added (new
+persisted concept + migration + backfill — "could reasonably have gone
+another way" per `CLAUDE.md`'s own bar, e.g. a formatted code like
+`GRID-2026-08-17-01` was considered and rejected in favor of a plain
+integer for simplicity, record that in the ADR).
+*Deps:* none.
+
+**S-136 · Split `generate-round.yml` into `generate-grid-round.yml` and `generate-path-round.yml`**
+Today one job/one cron (`0 6 * * *`) calls a shared bash function twice,
+once per `GameKey`, deliberately chosen over a matrix or a second cron
+entry specifically to avoid re-deriving ADR-0027's `RoundDuration >=
+cron's max gap` safety invariant a second time (ADR-0051's own reasoning).
+The user-facing ask is explicit: separate workflows per game. Splitting is
+safe now for a different reason than it would have been at ADR-0051's
+time — `RoundSchedulingOptions` is already fully per-`GameKey` and
+independent (`IRoundSchedulingOptionsResolver`), and the shared
+`/internal/generate-round` endpoint already takes `gameKey` as a first-class
+parameter with no other game-specific branching outside the
+`templateId` switch — so nothing server-side needs to change. Each new
+workflow gets its own `on.schedule` cron and must independently satisfy
+ADR-0027's invariant against **its own** `GameKey`'s configured
+`RoundDurationHours` (currently both default to a value ADR-0027 already
+validated for the shared 24h-gap cron; re-verify each independently rather
+than assuming the old shared proof still holds once they can diverge).
+Each workflow's own `workflow_dispatch.round_duration_hours` input now
+only affects its own `GameKey`, fixing today's coupled behavior where
+supplying it during a manual dispatch silently applied to both games.
+*Accept:* `generate-grid-round.yml`/`generate-path-round.yml` each retry
+3x/backoff independently (same shape as today, just not sharing a job);
+a REQ###-named test or documented manual verification confirms a manual
+dispatch of one never affects the other's round; new ADR (extending, not
+superseding, ADR-0027/ADR-0051 — records why the shared-cron reasoning no
+longer applies once schedules can diverge safely) with the "For AI agents"
+guardrail carried forward: any future divergence in `RoundDurationHours`
+between the two games must re-check each workflow's own cron against
+ADR-0027's invariant independently. `infra/README.md` and any dashboard/
+alert referencing `generate-round.yml` by name updated.
+*Deps:* none (independent of S-135 — the GUID/sequence-number work and the
+workflow split touch different layers).
+
+## Epic 12 — xG Path player-pool eligibility overhaul
+
+Current xG Path eligibility (`XGPathGameModule.GetEligiblePlayerIdsAsync`/
+`IsEligible`, ADR-0045/ADR-0047) requires **≥3 total career-stint rows**
+(not 3 *eligible* clubs) plus **≥1 stint at a `ClubDefinition`-seeded club**
+with ≥20 recorded appearances (or unknown). The birth-year floor (1939) is
+enforced far upstream, at Wikidata SPARQL query time in `WikidataClient`,
+shared with xG Grid's own player pool — it cannot be changed there without
+also narrowing xG Grid's pool, which is out of scope. B-team/reserve clubs
+are not filtered anywhere today; national-team filtering exists
+(`PathCareerStintFilter`, regex on `"national"` + `"team"`) but is
+proven inconsistent (catches "Catalonia national football team," misses
+"Basque Country regional football team" purely because it doesn't say
+"national").
+
+**S-137 · xG Path: add a `BirthYear >= 1975` eligibility filter, additive to (not replacing) xG Grid's shared 1939 pool floor**
+`Player.BirthYear` already exists and is populated by the REQ-1207 backfill
+(`backfill-player-position-birthyear.yml`, S-132 removes the *workflow* but
+the backfill service and its data stay), so this needs no new data
+pipeline — just a new check in `XGPathGameModule`'s eligibility pipeline
+(alongside `IsEligible`, not inside `PathCareerStintFilter`, since this is
+a player-level fact, not a stint-level one). **Decision, made here rather
+than left open:** a candidate with `BirthYear == null` is excluded (not
+included), fail-closed — matching this codebase's established fail-closed
+convention (ADR-0070, REQ-211's fallback) over silently admitting a player
+xG Path can't actually verify meets the new bar. File S-141 as the explicit
+follow-up to sweep any remaining null-`BirthYear` rows so this exclusion
+shrinks the pool as little as possible over time, rather than trying to
+solve both in one story.
+*Accept:* `PathCareerStintFilterTests.cs`/`XGPathGameModuleTests.cs` gain
+cases for `BirthYear == 1975` (included, boundary), `1974` (excluded),
+`null` (excluded); new ADR superseding ADR-0045 on this one point (records
+why 1975 lives as an xG-Path-only additive filter rather than a shared
+SPARQL-level change, and the fail-closed null decision); REQ update noting
+the new floor and that it is intentionally independent of xG Grid's 1939
+floor.
+*Deps:* none.
+
+**S-138 · xG Path: require ≥2 distinct `ClubDefinition`-seeded clubs, replacing ADR-0047's single-club threshold**
+Current rule (ADR-0047): ≥1 stint at a seeded club with ≥20 appearances (or
+unknown), plus a separate, club-blind ≥3-total-stints structural check
+(ADR-0045). The new rule is explicitly about *eligible* clubs specifically:
+≥2 distinct clubs from the same `ClubDefinition`/`GetClubsAsync()` list xG
+Grid already uses. **Decision, made here:** keep ADR-0047's ≥20-appearance
+(or-unknown) quality bar, but apply it to **both** required seeded clubs,
+not just one — dropping it entirely would let a genuine one-cameo-appearance
+stint count as one of the two required clubs, undermining exactly the
+answer-quality concern ADR-0047 was written to address. The pre-existing
+≥3-total-stints check (ADR-0045) can be dropped once this lands, since
+≥2 *seeded* stints is a strictly more specific requirement that makes the
+old, weaker, club-blind count check redundant.
+*Accept:* `PathCareerStintFilterTests.cs` cases: exactly 2 qualifying
+seeded clubs (included), 1 seeded + 1 non-seeded (excluded), 2 seeded but
+one below the appearance threshold (excluded), 2 seeded both above
+threshold with extra non-seeded stints mixed in (included, extra stints
+ignored). New ADR superseding ADR-0045 (drops the ≥3-stint rule) and
+ADR-0047 (raises 1-club to 2-club, keeps the appearance bar) — explicitly
+call out this is a deliberate narrowing of the eligible pool and needs the
+same "does the pool stay big enough" verification S-141 performs before
+this is trusted in production.
+*Deps:* S-141 should run immediately after this merges, not independently
+scheduled — sequence them in the same session/PR if practical.
+
+**S-139 · xG Path: add a B-team/reserve-team exclusion to `PathCareerStintFilter`**
+No B-team concept exists anywhere in the schema — `ClubDefinition` has no
+type/tier field, and no B-team clubs are seeded there, so a stint at e.g.
+"Real Madrid Castilla," "Barcelona Atlètic," or "Manchester United U21"
+passes every existing check unfiltered (it just never counts toward
+S-138's seeded-club requirement, but it can still surface as a raw clue-
+reveal club name, which is the actual bug this closes). Follow the same
+pattern already proven (twice, with two follow-up bug fixes) for national
+teams in `PathCareerStintFilter`: a conservative label-matching regex
+(candidates: `\b(reserve|reserves|B|II|U1[7-9]|U2[0-3]|castilla|atl[eè]tic)\b`-shaped,
+final pattern to be verified against real seeded-club-derived stint data,
+not guessed from this list alone) plus explicit test cases for every known
+false-positive risk (e.g. a real club whose *proper name* happens to
+contain "II," "reserve," or similar — check the current 30-club
+`ReferenceDataSeeder.cs` list for any such collision before finalizing the
+pattern). **Explicitly document, in the ADR, that this will not be
+perfect on day one** — the national-team filter's own history
+(ADR-0059→ADR-0063, and the Catalonia/Basque inconsistency found by this
+epic's own investigation) shows label-pattern filters for free-text
+Wikidata club names get refined iteratively as real false positives/
+negatives surface, not solved once.
+*Accept:* filter excludes stint rows whose `ClubName` matches the pattern
+from both clue-reveal (`PathClueSequenceBuilder`) and S-138's eligibility
+check; new ADR (same shape as ADR-0059/0063) records the pattern, its
+known limitations, and the false-positive check against the current seeded
+club list; test file gets a case per seeded club confirming none of them
+are accidentally caught by the new pattern.
+*Deps:* S-138 (the B-team exclusion changes which clubs count as
+"seeded-club stints" for eligibility, so land it after S-138's redefinition
+lands, not before, to avoid re-deriving the eligibility tests twice).
+
+**S-140 · Fix `PathCareerStintFilter`'s inconsistent regional/national-team matching**
+Found during this epic's investigation, independent of the 1975/2-club
+work above: the current `\bnational\b.*\bteam\b` regex excludes "Catalonia
+national football team" but not "Basque Country regional football team" —
+a real inconsistency (both are non-club representative sides that should
+be excluded on the same principle) that exists purely because of which
+word the two labels happen to use, not a deliberate distinction. Broaden
+the pattern to also catch `"regional"` + `"team"`/`"representative"`
+phrasing. Keep the existing doc-comment discipline of stating plainly what
+the filter does and does not prove (no real FIFA-affiliation signal, purely
+label-wording) — don't repeat the ADR-0059-era overclaim that got
+corrected once already.
+*Accept:* new test case locks in "Basque Country regional football team"
+as excluded; existing "Catalonia national football team" case still
+passes; doc comment reviewed against ADR-0063's correction and not
+re-overclaiming. No ADR needed — this is a bug fix to an already-ADR'd
+filter's implementation, not a new eligibility-model decision (same bar
+S-140's sibling stories in Epic 9 already used for filter bug fixes).
+*Deps:* none — can land independently and immediately, before or after
+S-137–139.
+
+**S-141 · Re-verify xG Path's eligible-pool size after S-137–140 land, reset target-cycle tracking**
+Four eligibility-narrowing changes landing together (1975 floor, 2-seeded-
+club requirement, B-team exclusion, broadened regional exclusion) could
+plausibly shrink the eligible pool enough to matter for ADR-0058's
+target-cycle no-repeat tracking (`PathTargetCycle`) — a smaller pool cycles
+back to repeat targets sooner. This is a manual verification + operational
+step, not new product code: run `prefetch-player-careers`/`warm-player-cache`
+against the post-change filters, query the actual resulting eligible-pool
+count (mirroring `audit-club-gaps`'s empirically-grounded approach rather
+than guessing), and record the before/after count in `NOTES.md`. If the
+pool shrinks below a size where `PathTargetCycle`'s cycle length starts
+producing noticeably-repetitive rounds, that's a signal to bring in more
+seeded clubs (same `audit-club-gaps` tool, still kept per S-132) rather
+than relaxing S-137–140's rules — flag to the product owner rather than
+deciding unilaterally which direction to correct in.
+*Accept:* `NOTES.md` entry with the actual before/after eligible-player
+count against real (dev) data; if the pool drops by more than roughly
+half, an explicit escalation note to the product owner rather than silent
+acceptance.
+*Deps:* S-137, S-138, S-139, S-140 (all must land first — this verifies
+their combined effect, not each one's in isolation).
+
+## Epic 13 — Autocomplete: threshold verification + cold-start latency
+
+**S-142 · Document REQ-207's already-implemented 2-character autocomplete threshold**
+Investigation confirmed both games and the backend already agree on a
+2-character minimum before autocomplete suggestions are fetched/shown:
+`frontend/src/grid/GuessInput.tsx` (`MIN_QUERY_LENGTH = 2`),
+`frontend/src/path/PathGuessInput.tsx` (same constant, same 150ms debounce,
+explicitly mirrors `GuessInput.tsx` per its own comment), and
+`backend/src/XGArcade.Api/Players/PlayerAutocompleteEndpoints.cs`
+(`MinQueryLength = 2`, enforced server-side independent of the frontend).
+**No code change is needed for the "autocomplete after two letters"
+request — it already ships everywhere.** The only real gap: REQ-207 in
+`requirements-document.md` never states the specific threshold value, so
+this fact currently lives only in scattered code comments, not the
+requirement itself, which is a real doc-vs-code traceability gap worth
+closing on its own.
+*Accept:* REQ-207 gains an explicit acceptance-criterion line stating the
+2-character minimum, citing all three enforcement points found above so a
+future change to any one of them is a REQ violation, not just an
+inconsistency between files. CHANGELOG entry noting this was verified
+already-correct, not newly built — avoids a future session re-doing this
+investigation from scratch.
+*Deps:* none.
+
+**S-151 · Warm the database connection/query path on game-screen load, not just the container process**
+Reported as "autocomplete feels slow to trigger the first time." Root
+cause confirmed, not assumed: the backend Container App is provisioned
+with `minReplicas: 0` (`infra/bicep/modules/backend-container-app.bicep:60`)
+— it scales to zero on idle and cold-starts on the next request.
+`App.tsx:167` already fetches `/health` on app load specifically to wake
+the container before the player reaches any game screen, but
+`/health` (`EndpointMapping.cs:39`) is `Results.Ok(new { status = "healthy" })`
+— a static response with **no DB access**. So the existing warm-up wakes
+the ASP.NET Core process but never opens a Postgres connection or compiles
+the EF Core query shape `PlayerAutocompleteEndpoints`/
+`IPlayerNameIndexRepository` actually use — that cost still lands entirely
+on the player's first keystroke. Fix: fire a real DB-touching warm-up call
+(a cheap, throwaway `PlayerNameIndex` lookup — e.g. a 1-character query
+run server-side only, never exposed to the `MinQueryLength = 2` client
+contract, or a dedicated `/players/autocomplete/warmup` endpoint that runs
+the same repository call with an empty/trivial filter) alongside the
+existing `/health` ping when `GridScreen.tsx`/`PathScreen.tsx` mount —
+game-screen load, not app load, so it only fires for players who actually
+reach a game, not every app visit (e.g. someone who only opens Settings).
+*Accept:* a REQ###-named test (new or extending REQ-207) proves the
+warm-up call exercises the real `IPlayerNameIndexRepository` path (not a
+mock) so a genuine cold Postgres connection gets opened by it, not by the
+player's first real query; the warm-up request is fire-and-forget from the
+frontend (never blocks game-screen render, never surfaces an error to the
+player if it fails — same "best-effort, no UI impact" shape as the
+existing `/health` check's own failure handling); manual verification
+against the deployed dev environment (Container Apps' actual scale-to-zero
+behavior can't be reproduced in the local/CI stack, which never scales to
+zero) confirms perceived first-keystroke latency drops, recorded in
+`NOTES.md` with a before/after feel since this can't be asserted by an
+automated test. No ADR needed — this is a performance fix within an
+already-documented boundary (COMP-10), not a structural change.
+*Deps:* none.
+
+## Epic 14 — xG Path: suggestion/correction reporting
+
+`PlayerSuggestion`/`SuggestionEndpoints.cs` today are structurally coupled
+to xG Grid: `PlayerSuggestion.CellId` (no FK, explicitly flagged in its own
+doc comment as a v1 simplification coupling this table to `GridCell`),
+`RowCategoryType`/`ColCategoryType` denormalized onto the entity, and the
+submission route (`POST /rounds/{roundId}/cells/{cellId}/suggestions`)
+resolves category types via `IGameModule.GetCellCategoryTypesAsync`, which
+`XGPathGameModule` deliberately implements as a hard
+`NotSupportedException` today, with its own comment stating plainly
+`SuggestionEndpoints` has no real caller for xG Path in production. This
+is a documented, deliberate gap (`requirements-document.md` REQ-215 already
+notes "xG Path ever does grow a suggestion entry point, not fixed now"),
+not an oversight — closing it is a real boundary decision, not a small
+patch.
+
+**S-143 · ADR: generalize `PlayerSuggestion`'s submission context off of `CellId`/row-col category types**
+xG Path has no cell/category-pairing concept to plug into the existing
+shape — it has a single target player revealed via progressive clue turns
+(`PathClueTurn`), so "report a correction" there means "this target
+player's asserted nationality/club is wrong," not "this cell's category
+pairing is wrong." Recommend mirroring this exact codebase's own
+established precedent for cross-game context (ADR-0003: `Round` references
+games only via opaque `GameKey`/`GameInstanceId`, never a game-specific FK)
+rather than inventing a new pattern: add `GameKey` + a nullable, per-game
+opaque context (keep `CellId`/`RowCategoryType`/`ColCategoryType` as
+xG-Grid-only-when-populated fields, add `PathInstanceId` as the xG-Path-only
+equivalent) rather than a single polymorphic blob column, matching how
+`Guess.CellId`'s own "accepted v1 simplification, revisit for a second
+game" note from ADR-0003's original entry anticipated exactly this moment.
+Write the ADR before any code lands — this is squarely the kind of boundary
+change `CLAUDE.md`'s "xG Arcade/game boundary" convention requires stopping
+and flagging for, not a routine feature addition.
+*Accept:* ADR records the chosen shape, the rejected alternatives (a single
+JSON context blob; a fully separate `PathSuggestion` table — rejected
+because it'd duplicate `SubmittingUserId`/`Status`/`ResolvedAt`/admin-review
+plumbing Epic 15 also depends on being unified across both games), and an
+explicit note that `AssertedClubs`/`AssertedNationality`'s existing shape
+already generalizes fine (a suggestion is always "this player's true
+data is X," regardless of which game surfaced the report).
+*Deps:* none (design-only story).
+
+**S-144 · Backend: xG Path suggestion submission + admin review**
+Implements S-143's chosen shape: migration adding the new nullable
+context field(s) to `PlayerSuggestion`, a new submission route scoped to
+xG Path (either a new `POST /path/rounds/{roundId}/suggestions` mirroring
+the existing route's shape, or widening the existing route to branch on
+`GameKey` — S-143 should settle which), and replacing
+`XGPathGameModule.GetCellCategoryTypesAsync`'s current
+`NotSupportedException` with real behavior only if S-143's shape still
+calls that method for xG Path at all (it may not, if the new route bypasses
+it entirely — confirm against S-143's ADR before assuming this method
+needs touching). `AdminSuggestionEndpoints.cs`'s existing review/commit/
+reject flow needs no game-specific change if S-143's shape keeps
+`PlayerName`/`AssertedNationality`/`AssertedClubs` as the single
+game-agnostic payload admins review — verify this holds before adding any
+xG-Path-specific admin UI branching.
+*Accept:* `SuggestionEndpointTests.cs` gains xG-Path submission coverage
+(equivalent structure to existing xG-Grid tests); `AdminSuggestionEndpointTests.cs`
+confirms a xG-Path-originated suggestion reviews/commits/rejects through
+the exact same admin flow with no special-casing; REQ-215 updated from
+"xG Grid only" to cover both games, with a status note explaining the
+context-field generalization.
+*Deps:* S-143.
+
+**S-145 · Frontend: xG Path "report a correction" entry point**
+Add the equivalent of xG Grid's existing suggestion-report UI trigger
+(locate and mirror whichever component currently opens the report flow
+from a grid cell/guess result) to `PathScreen.tsx`/`PathGuessInput.tsx` or
+the clue-reveal UI, wired to S-144's new endpoint. Same review-before-submit
+discipline the existing Grid flow already has (REQ-215's existing
+acceptance criteria — editable fields, not auto-submitted).
+*Accept:* `PathScreen.test.tsx` gains coverage for opening/submitting/
+canceling the report flow, mirroring the existing Grid suggestion
+component's test shape; no new design tokens introduced (reuse existing
+suggestion-flow styling per `design-document.md` §2's token-reuse rule).
+*Deps:* S-144.
+
+**S-146 · Doc sync: REQ-215/architecture-document.md reflect xG Path suggestion support**
+`requirements-document.md` REQ-215's existing "not fixed now" status note
+about xG Path is now stale once S-144/145 land; `architecture-document.md`'s
+relevant COMP row (suggestion handling) gets a status note describing the
+generalized context shape from S-143. Routine `/update-docs`-shaped
+follow-up, not scoped as its own design work.
+*Deps:* S-143, S-144, S-145.
+
+## Epic 15 — Settings: a user's own suggestion history
+
+No REQ, repository method, or UI pattern for this exists today — confirmed
+by investigation, not assumed. `PlayerSuggestion.SubmittingUserId` is
+already captured on every suggestion (submitted, no FK, matching
+`Guess.UserId`'s deletion-safe precedent), so the data needed already
+exists; only the query/mutation/UI surface is missing.
+`IPlayerSuggestionRepository` today exposes exactly `AddAsync`/
+`GetPendingAsync` (Pending-only, admin-wide)/`GetByIdAsync`/`ResolveAsync` —
+no per-user filter, no query for `Committed`/`Rejected` rows, no
+delete/dismiss mutation anywhere in the codebase to copy from (checked
+`IncidentReport` — no local persistence at all, not a usable precedent).
+
+**S-147 · Backend: `GET /me/suggestions` — a user's own suggestion history, all statuses**
+New repository method (`GetBySubmittingUserIdAsync(userId)`, no status
+filter — unlike admin's `GetPendingAsync`, a user should see their
+`Pending`/`Committed`/`Rejected` suggestions all at once) and a new
+authenticated (non-admin — any logged-in, non-guest user viewing their own
+data) endpoint. Response shape: player name, asserted data, status,
+submitted/resolved timestamps — deliberately **no denial-reason field**,
+since none exists on the entity today and REQ-215's original submission
+flow never collected one either (matches the codebase's existing "reject
+has no reason" precedent on the admin side — don't invent asymmetry
+between what an admin sees and what the submitter sees).
+*Accept:* new REQ (REQ-511, next free ID in that block) with Given/When/Then
+covering all three statuses appearing, a guest user rejected 403 (matches
+REQ-215's own guest-rejection precedent), and a user never seeing another
+user's suggestions (authorization test, same bar as every other
+`/me/*`-shaped endpoint in this codebase); repository test coverage
+mirroring `PlayerSuggestionRepository`'s existing test shape.
+*Deps:* none (pure additive read, no schema change).
+
+**S-148 · Backend: let a user clear their own resolved (confirmed/denied) suggestions**
+No soft-delete/dismiss/clear concept exists anywhere in this codebase
+today — this establishes the first one, so keep it narrow and reversible-
+in-spirit: add a nullable `ClearedByUserAt` timestamp column (not a hard
+delete) so a cleared row disappears from the user's own `/me/suggestions`
+view but the admin audit trail (`ResolvedByAdminId`/`ResolvedAt`,
+`GetPendingAsync`'s own scope) is completely untouched — `GetPendingAsync`
+already only ever selects `Status == Pending`, so this new column can never
+affect it regardless. **Only `Committed`/`Rejected` (i.e., already-resolved)
+rows may be cleared** — a `Pending` suggestion has nothing to "clear," it's
+still awaiting review, so reject with 409 (same conflict-shape precedent as
+the admin endpoints' existing 409-on-already-resolved) if a user tries to
+clear a still-pending one. New endpoint, same auth model as S-147
+(submitter-only — 403 if the authenticated user doesn't own the row, 404
+if it doesn't exist, matching the existing admin-endpoint error-shape
+conventions).
+*Accept:* new REQ (REQ-512) covering: clearing a `Committed` row hides it
+from `/me/suggestions` but not from any admin view; clearing a `Pending`
+row 409s; clearing another user's row 403s; a cleared row's underlying
+`PlayerSuggestion`/`PlayerSuggestionClub` rows are never deleted (data
+integrity/audit-trail test). New ADR — first soft-delete/dismiss pattern
+in the codebase, "could reasonably have gone another way" (hard delete of
+resolved rows was considered and rejected specifically because it would
+destroy the admin's `ResolvedByAdminId` audit trail for no benefit — record
+that reasoning).
+*Deps:* S-147 (same entity/endpoint family, land together or immediately
+after).
+
+**S-149 · Frontend: "My suggestions" section in `SettingsScreen.tsx`**
+`SettingsScreen.tsx` currently has no list/history UI at all — every
+existing section is a single form or link. Add a new section (after the
+existing admin-link/appearance sections, before account deletion, matching
+the screen's existing top-to-bottom ordering convention of least-to-most
+destructive) listing the user's suggestions from S-147, reusing
+`SuggestionsScreen.tsx`'s `PendingSuggestionRow` visual pattern as the
+closest existing precedent rather than inventing new list styling.
+**User-facing status wording is "Confirmed"/"Denied"** (matching the
+product ask's own words) even though the backend enum stays
+`Committed`/`Rejected` — this is a presentation-layer mapping only, not a
+backend rename, avoiding unnecessary churn to an already-shipped enum
+(`PlayerSuggestionStatus`) with no functional reason to change. Each
+`Committed`/`Rejected` row gets a "Clear" button wired to S-148; `Pending`
+rows show no clear action (nothing to clear yet, per S-148's own rule).
+*Accept:* `SettingsScreen.test.tsx` gains coverage for all three statuses
+rendering with correct user-facing labels, the clear action removing a
+row from the list (optimistic or refetch, matching this codebase's
+existing `SuggestionsScreen.tsx` commit-confirmation pattern rather than
+inventing a new state-management shape), and a `Pending` row rendering
+with no clear button. No new design tokens (reuse existing list/row
+styling per `design-document.md` §2).
+*Deps:* S-147, S-148.
+
+**S-150 · Doc sync: REQ-511/512, architecture-document.md, design-document.md for the Settings suggestion-history feature**
+`requirements-document.md` gains REQ-511/512 formally (drafted inline in
+S-147/S-148 above — this story is the `/update-docs` pass confirming they
+match what actually shipped); `architecture-document.md`'s suggestion-
+handling COMP row gets a status note for the new read/clear paths;
+`design-document.md` gains a SCREEN-level note for Settings' new section
+(or a new SCREEN-xx entry if the section is substantial enough to warrant
+one — `ui-implementer`/design review to decide during implementation, not
+prescribed here). CHANGELOG entry naming all docs touched.
+*Deps:* S-147, S-148, S-149.
