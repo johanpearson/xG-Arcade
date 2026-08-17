@@ -718,7 +718,7 @@ public class ConfirmedLowMatchPair
 // outage recovering, a query-shape fix) in a way a genuine confirmed-low
 // answer never will — see ADR-0052's incident: a same-run retry plus
 // "nothing persists a technical failure" combination meant
-// warm-player-cache.yml re-fought the same structurally-doomed club-club
+// warm-grid-cache.yml re-fought the same structurally-doomed club-club
 // pairs, at doubled cost, on every single run, and never completed.
 //
 // Read/written only through IPlayerStoreRepository.IsPersistentTechnicalFailureAsync
@@ -1282,7 +1282,7 @@ invoked via a second `dotnet run --` CLI verb in
 `CompositionRoot/CliVerbDispatcher.cs` (`warm-player-cache`, same shape as
 the existing `migrate-and-seed` verb; S-102 moved every CLI verb here out
 of `Program.cs`),
-run by its own `warm-player-cache.yml` workflow — deliberately not an HTTP
+run by its own `warm-grid-cache.yml` workflow — deliberately not an HTTP
 endpoint, and deliberately not a fire-and-forget background task inside
 the deployed app: this job can take a long time (every reference pair, up
 to a real ~15-45s live Wikidata call each — see §6a's 2026-07-28 addition
@@ -1308,7 +1308,7 @@ confirmed genuinely below `MinValidAnswers`, per the new
 **2026-08-01 extension (REQ-110, ADR-0052) — supersedes the same-run retry
 mentioned above:** the same-run retry is removed (`LookupWithSameRunRetryAsync`
 deleted) — it only ever helps a transient failure, and doubled the cost of
-a structural one, which is what pushed `warm-player-cache.yml` past its
+a structural one, which is what pushed `warm-grid-cache.yml` past its
 90-minute CI budget on every run once a structural query-shape issue
 started dominating the failure count (NOTES.md, 2026-08-01). Each pair is
 now attempted exactly once per run. `CacheWarmingResult` gains
@@ -1371,7 +1371,7 @@ deliberately **not** wired into `migrate-and-seed`'s automatic,
 safe-to-run-forever chain: it has no way to tell an old wrong-QID row from
 a freshly correct one, so it must be triggered manually, once, for the
 specific club name(s) just corrected — and strictly *before* the next
-`warm-player-cache` run, since running it after a fresh warm would delete
+`warm-grid-cache` run, since running it after a fresh warm would delete
 the new, correct data too.
 
 **All-clubs mode (2026-07-17, REQ-111):** the verb also accepts the exact
@@ -1416,7 +1416,7 @@ a meaningfully larger blast radius than a per-club-name-scoped one (same
 `"promote to prod"`-style extra-friction pattern
 `infra/scripts/promote-dev-to-prod.sh` already uses for its own
 destructive write). Run once via `purge-player-pool.yml`, then a normal
-`warm-player-cache.yml` run repopulates the pool entirely under the new
+`warm-grid-cache.yml` run repopulates the pool entirely under the new
 filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
 `TrophyDefinition`) and account/game-history tables (`User`/`League`/
 `Round`/`GridInstance`/`GridCell`/`Guess`) are untouched —
@@ -1440,7 +1440,7 @@ moment a `Player` row is first created (`IPlayerStoreRepository
 single-player `WikidataLookupService.GetOrCreatePlayerAsync` this note
 referred to, batching the whole match set into a fixed number of round
 trips instead of one per player; see §6/REQ-214's own note above) — a row
-created by an earlier `warm-player-cache` run, before the
+created by an earlier `warm-grid-cache` run, before the
 `P18` addition shipped, has `PhotoUrl` permanently `NULL` with no other
 code path that will ever revisit it. `PlayerPhotoBackfillService`
 (`XGArcade.DataSync.Wikidata`, same project as `WikidataLookupService`/
@@ -1448,7 +1448,7 @@ code path that will ever revisit it. `PlayerPhotoBackfillService`
 `IPlayerStoreRepository`, and `XGArcade.Data` has no reference back to
 `XGArcade.DataSync`, so it can't live in `XGArcade.Data`) closes that gap
 without a destructive wipe-and-rerun — a full `purge-player-pool` +
-`warm-player-cache` cycle would cascade into `PlayerAttribute`/`Guess`/
+`warm-grid-cache` cycle would cascade into `PlayerAttribute`/`Guess`/
 `GridCell` history this codebase explicitly protects (REQ-710's
 anonymize-never-hard-delete precedent is the same instinct applied to a
 different table). It's a sixth `dotnet run --` CLI verb,
@@ -1628,7 +1628,7 @@ reactively" decisions.
 **Proactive player-data buildout (2026-08-02, ADR-0055):** three follow-up
 moves, all shipped the same session as the fix above. (1) `ReferenceDataSeeder.Clubs`
 gained Celtic (`Q19593`, flagged unverified from this sandbox — the
-established S-036-style pattern). (2) `warm-player-cache.yml`/
+established S-036-style pattern). (2) `warm-grid-cache.yml`/
 `import-player-name-index.yml` moved from `workflow_dispatch`-only to a
 weekly cron (Sunday 03:00/04:30 UTC respectively), alongside their existing
 manual trigger. (3) A new bulk job, `prefetch-player-careers`
@@ -2111,7 +2111,7 @@ Four rules that make this query correct, not just functional:
   (e.g. Sandro Tonali × AC Milan scored incorrect) and left the persisted
   answer key incomplete for every seeded club at once; recovery required
   `clean-stale-club-attributes --all-clubs` plus a fresh
-  `warm-player-cache` pass (see §6's CLI-verb notes and REQ-111). The
+  `warm-grid-cache` pass (see §6's CLI-verb notes and REQ-111). The
   other properties (`P106`/`P27`/`P21`/`P569`) stay truthy on purpose —
   for those, best-rank semantics match product intent. Deprecated rank is
   still excluded: it's Wikidata's "recorded but wrong" marker, not a
@@ -2203,7 +2203,7 @@ deliberate and load-bearing:
   are removed from `PlayerCacheWarmingService`. Diagnosed cause: the retry
   doubled every technical failure's cost, and nothing persisted a failure
   across runs, so the same doomed pairs got retried, at that doubled cost,
-  on every run forever — `warm-player-cache.yml` stopped completing within
+  on every run forever — `warm-grid-cache.yml` stopped completing within
   its 90-minute CI budget (NOTES.md, 2026-08-01). A real, confirmed
   contributor: `BuildClubClubIntersectionQuery`'s plain join on two
   independent P54 statement-path patterns could produce a combinatorial

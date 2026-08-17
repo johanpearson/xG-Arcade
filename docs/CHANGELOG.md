@@ -13,6 +13,61 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `.github/workflows/`, `docs/implementation-document.md`,
+  `docs/requirements-document.md`, `NOTES.md`,
+  `docs/decisions/0024-cache-warming-runs-as-a-cli-verb.md`,
+  `docs/decisions/0025-player-pool-restricted-to-male-born-1939-or-later.md`,
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`,
+  `docs/decisions/0055-proactive-player-data-buildout.md`,
+  `docs/decisions/0069-club-scoped-player-career-prefetch.md` — implemented
+  S-134 (Epic 10, deps S-130/S-132 confirmed merged first): renamed
+  `.github/workflows/warm-player-cache.yml` → `warm-grid-cache.yml`, since
+  the old name didn't say which cache/game it fills (it only ever warms
+  `PlayerAttribute`, xG Grid's category-pairing answer cache — never
+  `PlayerCareerStint`, xG Path's `prefetch-player-careers.yml`), unlike
+  its Path counterpart. Content unchanged — pure `git mv` plus a
+  repo-wide sweep of every reference to the old filename. Scoping
+  decision, stated explicitly since the story's own accept criteria reads
+  more broadly at first glance: this is a **workflow-filename** rename
+  only, not a CLI-verb rename. `PlayerCacheWarmingService`'s underlying
+  `dotnet run -- warm-player-cache` CLI verb (`CliVerbDispatcher.cs`'s
+  dictionary key, its log/echo strings, and the renamed workflow's own
+  internal `name:`/job-id/invocation lines) is deliberately left as
+  `warm-player-cache` throughout — renaming a still-working CLI verb that
+  external scripts/muscle memory may call by name is a behavior-relevant
+  change, not a rename, and would have contradicted the story's own
+  "content unchanged" clause for the `.yml` file. Every reference to the
+  *workflow* (`warm-player-cache.yml`, and bare `warm-player-cache` prose
+  that names the job/workflow rather than the CLI verb string) was swept:
+  `PlayerCacheWarmingService.cs`'s and `CliVerbDispatcher.cs`'s doc
+  comments, `XGArcade.Data.csproj`'s CI-hygiene comment,
+  `PlayerNameIndexImporter.cs`'s doc comment, sibling workflows'
+  own comments that name it (`import-player-name-index.yml`,
+  `purge-player-pool.yml`, `prefetch-player-careers.yml`), all of
+  `NOTES.md` (its own preamble says it doesn't preserve history, unlike
+  this log, so its 2026-08-01 incident entry's header was updated too),
+  and `docs/requirements-document.md`/`docs/implementation-document.md`.
+  Five still-**Accepted** ADRs that named the old filename as a current
+  operational detail (0024, 0025, 0052, 0055, 0069) each got a short
+  non-rewriting follow-up addendum recording the rename, matching
+  ADR-0059's S-132 precedent, rather than editing their original
+  Decision/Context/Consequences prose. ADR-0029 is **Superseded** — left
+  untouched, same precedent as S-132's own ADR-0029 treatment (frozen
+  historical text, not a claim about current system state). `NOTES.md`'s
+  one literal CLI-invocation line (`` `dotnet run -- warm-player-cache` ``)
+  was deliberately left as-is for the same CLI-verb-not-renamed reason.
+  `infra/README.md`, `docs/architecture-document.md`, and `MVP-SCOPE.md`
+  confirmed via grep to have zero references — no changes needed there.
+  `docs/backlog.md` deliberately left unedited, per this repo's own
+  established convention (see the S-132 entry below) of not sweeping
+  backlog prose during these rename/cleanup passes — any backlog entry
+  written from here on that names this job should use `warm-grid-cache`.
+  No dotnet toolchain in this sandbox to verify a build; all backend
+  changes are comment-only (no executable code touched), so risk is
+  minimal, but this should still be confirmed once CI runs. No ADR of its
+  own — this is a rename, not a new structural decision (the five
+  addenda above record the rename's effect on existing decisions, not a
+  new one). S-134.
 - 2026-08-17 — `docs/implementation-document.md`, `docs/requirements-document.md`,
   `docs/decisions/0059-career-stint-club-name-canonicalization.md` — doc-sync
   for S-132: deleted `.yml` workflow wrappers for 7 one-off

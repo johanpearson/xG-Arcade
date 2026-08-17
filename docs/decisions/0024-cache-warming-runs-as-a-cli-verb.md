@@ -85,3 +85,13 @@ long, unbounded-duration operation (multiple live external API calls,
 no per-call deadline) against this deployed backend — check whether the
 work can accept CLI-verb execution the way this one does before assuming
 an endpoint is the default shape.
+
+**Follow-up (S-134, 2026-08-17):** the workflow this ADR names as
+`warm-player-cache.yml` was renamed to `warm-grid-cache.yml` in S-134 (a
+workflow-naming audit — the old name didn't say which game's cache it
+fills, unlike its xG Path counterpart `prefetch-player-careers.yml`). This
+does not change the decision recorded above — the CLI verb
+(`dotnet run -- warm-player-cache`), `PlayerCacheWarmingService`, and the
+`workflow_dispatch`-only CLI-verb execution model are all unchanged; only
+the Actions-tab filename differs. See `docs/backlog.md` S-134 and
+`docs/CHANGELOG.md`.

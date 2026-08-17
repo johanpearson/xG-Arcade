@@ -285,3 +285,11 @@ maintenance tools (`StaleClubAttributeCleaner`, `PairLookupFailureCleaner`)
 are the established exception to that same rule, per ADR-0052/ADR-0050
 precedent — they live in the same project as the entity and read/write the
 `DbContext` directly.
+
+**Follow-up (S-134, 2026-08-17):** every `warm-player-cache.yml`/
+`warm-player-cache` workflow reference above was renamed to
+`warm-grid-cache.yml`/`warm-grid-cache` in S-134 (workflow-naming audit).
+This does not change the decision recorded above — the incident, the
+fix, and the CLI verb it describes are all unchanged; only the
+Actions-tab filename differs. See `docs/backlog.md` S-134 and
+`docs/CHANGELOG.md`.

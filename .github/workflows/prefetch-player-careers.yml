@@ -17,10 +17,10 @@ name: prefetch-player-careers
 # PlayerCareerPrefetchService's own doc comment has the full reasoning), not
 # an HTTP endpoint against the deployed backend — same ADR-0024 "long-running
 # bulk job is a CLI verb, never a fire-and-forget background task or a long
-# HTTP endpoint" reasoning as warm-player-cache.yml/import-player-name-index.yml.
+# HTTP endpoint" reasoning as warm-grid-cache.yml/import-player-name-index.yml.
 #
 # Manual trigger only, deliberately NOT on the same weekly cron
-# warm-player-cache/import-player-name-index just moved to (ADR-0055) — this
+# warm-grid-cache/import-player-name-index just moved to (ADR-0055) — this
 # is a brand-new, unproven query shape (a single seeded country's or seeded
 # club's full unsliced player pool; ADR-0055's own "Open questions" flags
 # that a large country like Brazil/England could plausibly be large enough
@@ -42,7 +42,7 @@ name: prefetch-player-careers
 # flakiness under a much heavier combined sweep, not a structural bug —
 # same class as this file's own earlier documented incident. Re-running is
 # idempotent and expected to converge, but note PlayerCareerPrefetchService
-# has NO skip-already-processed shortcut the way warm-player-cache's
+# has NO skip-already-processed shortcut the way warm-grid-cache's
 # ConfirmedLowMatchPair/PairLookupFailure gives it — every re-run repeats
 # the FULL country+club pool sweep, so a retry costs roughly the same
 # wall-clock time as the original run, not a fast delta. Timeout raised

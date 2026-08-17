@@ -80,7 +80,7 @@ namespace XGArcade.Games.XGGrid;
 // RecordTechnicalFailureAsync/ClearTechnicalFailureAsync below), not a
 // same-run retry that can only ever pay the timeout cost again on the exact
 // same process, moments later, against the exact same doomed query.
-// warm-player-cache.yml's own external, orchestration-level retry (a
+// warm-grid-cache.yml's own external, orchestration-level retry (a
 // process-crash-survival retry around the whole job) is unaffected — a
 // different, complementary layer from this now-removed single-pair,
 // same-process retry.
