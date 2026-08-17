@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `.github/workflows/`, `infra/README.md`, `MVP-SCOPE.md`,
+  `docs/requirements-document.md` — implemented S-130: deleted all 5 Tier 1
+  dev/prod-split/backup workflows that had never once succeeded —
+  `backup-database.yml` (40/40 scheduled runs failed), `promote-dev-to-prod.yml`
+  (0 runs ever), `sync-players.yml` (0 runs ever), `sync-prod-to-dev.yml`
+  (0 runs ever), and `promote-dev-to-prod-dry-run.yml` (orphaned once its
+  target, `promote-dev-to-prod.yml`, was gone). Clean-slate deletion, not a
+  patch-and-keep — none of Tier 1's real prod environment exists yet for
+  any of these to act on. The underlying scripts
+  (`infra/scripts/promote-dev-to-prod.sh`, `infra/scripts/sync-prod-to-dev.sh`)
+  and the `/internal/sync-players` endpoint are unchanged and still fully
+  runnable by hand — no capability was lost, only the always-red/never-run
+  Actions-tab entries. `infra/README.md` updated throughout (Environments,
+  Backups, secrets table, Supabase-pause keep-alive note) to drop
+  descriptions of the deleted workflows as active and point to the kept
+  scripts for manual use instead. `MVP-SCOPE.md`'s Tier 1 section gains the
+  same pointer on its "Creating a real prod environment" and "Backups +
+  alerting" bullets, so a future Tier-1 session isn't surprised these are
+  gone. `docs/requirements-document.md`'s REQ-901 gains a status note that
+  its automation was removed pending Tier 1 (the requirement itself is
+  unchanged). No ADR — this is a deletion of dead automation, not a
+  structural decision that could reasonably have gone another way.
 - 2026-08-17 — `docs/backlog.md`, `TODO.md` — added Epic 16/S-152, a
   `purge-game-history` CLI verb + confirmation-gated workflow to wipe all
   historical rounds/guesses/grids/paths for a pre-launch clean slate.

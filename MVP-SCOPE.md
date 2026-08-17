@@ -376,10 +376,23 @@ is written as something you can actually observe, not a vague feeling:
   against your only (dev) environment. This is also the trigger for
   backups and alerting below — they don't make sense before prod exists.
   The sync/promote scripts already exist (ADR-0009); this step is
-  "provision the second environment," not "build the tooling"
+  "provision the second environment," not "build the tooling." **Their
+  GitHub Actions workflow wrappers (`promote-dev-to-prod.yml`,
+  `sync-prod-to-dev.yml`, `promote-dev-to-prod-dry-run.yml`) were deleted
+  2026-08-17 (`docs/backlog.md` S-130) since none had ever succeeded or
+  run at all — re-add thin `workflow_dispatch` wrappers around
+  `infra/scripts/promote-dev-to-prod.sh`/`infra/scripts/sync-prod-to-dev.sh`
+  (unchanged, still fully runnable by hand) once this trigger actually
+  fires; see `infra/README.md`.**
 - **Backups + alerting** (REQ-901/902) — trigger: before inviting anyone
   beyond yourself to play — this is a bright line, not a judgment call,
-  once real people's accounts/scores exist
+  once real people's accounts/scores exist. **`backup-database.yml` was
+  deleted 2026-08-17 (`docs/backlog.md` S-130) — it had failed all 40/40
+  of its scheduled runs, since it targets `PROD_*` secrets that don't
+  exist until this trigger fires. Backup automation must be rebuilt (not
+  just re-enabled — the deleted workflow was never functional) when prod
+  is created; see `infra/README.md` and REQ-901's status note in
+  `requirements-document.md`.**
 - **Email confirmation + Resend** (REQ-701-705, ADR-0005) — trigger:
   opening the game to anyone you don't personally know/trust
 - ~~**Custom leagues** (REQ-402-404)~~ — **create/join (REQ-402/403)

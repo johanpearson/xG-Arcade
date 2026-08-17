@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.75"
+version: "1.76"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -6610,6 +6610,14 @@ requirements document specifies WHAT and HOW TO VERIFY, not HOW TO BUILD.
   from the primary database
 - And a documented restore procedure exists and has been tested at least
   once manually before being relied upon
+
+**Status note (2026-08-17, `docs/backlog.md` S-130):** the requirement
+itself is unchanged — this is still what's needed once prod exists. Its
+automation (`backup-database.yml`) was deleted, not fixed: it had failed
+all 40/40 scheduled runs because it targets `PROD_*` secrets that don't
+exist yet (no real prod environment has been created — see
+`MVP-SCOPE.md`'s Tier 1 section). Automation must be rebuilt when Tier 1
+creates prod; see `infra/README.md`.
 
 **Test level:** Manual (restore drill), Integration (backup job itself
 runs and produces a non-empty, valid export)

@@ -80,11 +80,9 @@ data (players, clubs, trophies, grid templates), never results (`Guess`,
 `NotificationPreference`, `League`, `LeagueMembership`), regardless of direction.
 
 - **Recommended workflow**: build/curate game data in dev, then run
-  `infra/scripts/promote-dev-to-prod.sh` (or the `promote-dev-to-prod`
-  GitHub Actions workflow) to ship it to prod.
+  `infra/scripts/promote-dev-to-prod.sh` to ship it to prod.
 - **Fallback workflow**: if prod's game data changed directly and dev
-  needs to catch up, run `infra/scripts/sync-prod-to-dev.sh` (or the
-  `sync-prod-to-dev` workflow) instead.
+  needs to catch up, run `infra/scripts/sync-prod-to-dev.sh` instead.
 
 Both are manual-only by design and both support `--dry-run`, which now
 shows row counts on **both** sides (source and target) per table, not just
@@ -101,24 +99,37 @@ runs a bare `TRUNCATE ... CASCADE`, which used to silently wipe xG Path's
 of truncating `Player`. See ADR-0009's 2026-08-08 addendum for the full
 bug/fix writeup.
 
-**`promote-dev-to-prod-dry-run.yml`** runs `promote-dev-to-prod.sh
---dry-run` on a weekly schedule and writes the row-count diff to the
-workflow run's job summary, so drift is visible without a human
-remembering to check. It never writes to prod and never bypasses the
-manual confirmation on the real promote path — it exits cleanly (not a
-failing run) when `PROD_DATABASE_CONNECTION_STRING` isn't set, since prod
-doesn't exist yet.
+**Dev/prod-split automation was deliberately removed (S-130, 2026-08-17):**
+the `promote-dev-to-prod`, `sync-prod-to-dev`, and `promote-dev-to-prod-dry-run`
+GitHub Actions workflows were deleted outright — all three had either zero
+runs ever or (the dry-run check) no remaining purpose once its target
+workflow was gone, and none of them have anything to act on until Tier 1
+actually creates a real prod environment. `infra/scripts/promote-dev-to-prod.sh`
+and `infra/scripts/sync-prod-to-dev.sh` themselves are unchanged and still
+fully runnable by hand/CLI — nothing about the sync capability was lost,
+only the always-empty Actions-tab entries. Re-add thin `workflow_dispatch`
+wrappers around these scripts once Tier 1 provisions prod; see
+`MVP-SCOPE.md`'s Tier 1 section.
 
 ## Backups (REQ-901 — Supabase free tier has none)
 
 Confirmed directly against Supabase's docs (2026-07-05): free-tier projects
-get zero automated backups, not limited ones. `backup-database.yml` runs
-daily and uploads a `pg_dump` as a GitHub Actions artifact, retained 14 days.
+get zero automated backups, not limited ones. **The `backup-database.yml`
+workflow that ran a daily `pg_dump` was deleted (S-130, 2026-08-17)** — it
+had failed all 40/40 of its scheduled runs, because it targets
+`PROD_DATABASE_CONNECTION_STRING`, and no prod environment exists yet for
+that secret to point at. There is currently no automated backup of
+anything, but there is also nothing at stake yet: Tier 0's one environment
+(dev) has no real user data. Automation must be rebuilt (not just
+re-enabled — the old workflow was never functional in the first place)
+once Tier 1 creates a real prod environment; see `MVP-SCOPE.md`'s Tier 1
+section and REQ-901's status note in `requirements-document.md`.
 
-**Restore procedure** (test this manually at least once before relying on it):
+**Restore procedure** (for when backup automation exists again — test this
+manually at least once before relying on it):
 
 ```bash
-# Download the artifact from the GitHub Actions run, then:
+# Download the pg_dump artifact, then:
 pg_restore --clean --if-exists --dbname="$TARGET_DATABASE_URL" backup-TIMESTAMP.dump
 ```
 
@@ -152,7 +163,7 @@ Contributor on both resource groups):
 |---|---|
 | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | OIDC federated login via `azure/login@v2` — no client secret needed |
 | `RESEND_API_KEY` | Used by `XGArcade.Email` for direct API calls (product notifications). Also used as the SMTP password when configuring Supabase Auth's custom SMTP — not stored in this repo either way |
-| `INTERNAL_JOB_TOKEN` | Shared bearer token authorizing calls to internal endpoints (`ci.yml`'s test-data reset, `sync-players.yml`, `generate-round.yml`) — generate any long random string and use the same value everywhere |
+| `INTERNAL_JOB_TOKEN` | Shared bearer token authorizing calls to internal endpoints (`ci.yml`'s test-data reset, `generate-round.yml`, and the `/internal/sync-players` endpoint — its own `sync-players.yml` wrapper was deleted, S-130, since it never ran on a schedule and has nothing to sync against until Tier 1's API-Football integration lands; the endpoint itself is still callable directly) — generate any long random string and use the same value everywhere |
 | `GHCR_TOKEN` | GitHub PAT (classic or fine-grained, `read:packages` scope) used as `deploy.yml`'s `registryPassword` for the Container App — **not** `GITHUB_TOKEN`. `GITHUB_TOKEN` expires shortly after the workflow run ends, but a scale-to-zero Container App (`minReplicas: 0`) needs to re-authenticate to GHCR on every cold start, which can happen long after that. Deploying with `GITHUB_TOKEN` succeeds but the app then fails with `ImagePullBackOff` on its first cold start after the token expires — found the hard way on S-002's first real deploy, see `NOTES.md`. Username stays `github.actor`, only the password needs to be this PAT |
 | `INCIDENT_REPORT_PAT` (REQ-903, ADR-0064, COMP-12) | A **separate**, unrelated GitHub PAT from `GHCR_TOKEN` above — do not reuse it. A **fine-grained** PAT, scoped to **only this one repository**, with Repository permissions `Issues: Read and write` and `Metadata: Read` (added automatically) — no other repository or account permissions. Fed to `deploy.yml`'s `githubIncidentReportToken` Bicep parameter, which threads through as the Container App's `GitHub__IncidentReportToken` env var (`backend-container-app.bicep`) — `Core.IncidentReporting`'s only credential for creating GitHub issues from in-app bug reports (`POST /incidents`). Shared across environments (one GitHub Issues tracker regardless of which backend created the report), not `DEV_`/`PROD_`-prefixed like the Supabase secrets below. Optional/defaults to empty — this is a Tier 1 pull-forward (`MVP-SCOPE.md`) with no secret provisioned automatically; until it's set, `POST /incidents` fails closed per-request rather than the app failing to start or deploy. Recommended expiration: 90 days (GitHub emails a reminder before it expires) — regenerate and update this secret's value only, no code change needed |
 
@@ -161,12 +172,12 @@ Prod-specific:
 | Secret | Used for |
 |---|---|
 | `PROD_AZURE_RESOURCE_GROUP` | Target resource group for `deploy.yml` |
-| `PROD_DATABASE_CONNECTION_STRING` | Production Supabase Postgres connection string — also used by `backup-database.yml` and as the "prod" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml`. Must be the **.NET/ADO.NET keyword=value format** (`Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true`), not the **URI** form (`postgresql://...`) Supabase's dashboard shows by default — Npgsql can't parse the URI form (see `NOTES.md`) |
+| `PROD_DATABASE_CONNECTION_STRING` | Production Supabase Postgres connection string — used as the "prod" side of `infra/scripts/sync-prod-to-dev.sh`/`infra/scripts/promote-dev-to-prod.sh` (run by hand; their GitHub Actions workflow wrappers were deleted, S-130). Also needed by whatever backup automation is rebuilt once Tier 1 creates prod (see "Backups" above). Must be the **.NET/ADO.NET keyword=value format** (`Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true`), not the **URI** form (`postgresql://...`) Supabase's dashboard shows by default — Npgsql can't parse the URI form (see `NOTES.md`) |
 | `PROD_SUPABASE_URL` | The production Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013), and validates incoming JWTs against this project's JWKS endpoint (ADR-0017); no separate secret needed for that |
 | `PROD_SUPABASE_ANON_KEY` | The production Supabase project's anon/publishable key (Settings → API) — publishable by Supabase's own design, not a true secret, but still **required**: `Program.cs` throws at startup if `Supabase:AnonKey` is unconfigured, and an empty value also fails Azure's Container App secret validation at deploy time |
 | `PROD_SUPABASE_SERVICE_ROLE_KEY` (REQ-710, ADR-0026) | The production Supabase project's `service_role` key (Settings → API) — a genuinely privileged credential (bypasses Row Level Security), used only by the backend's account-deletion call to Supabase's Admin API (`DELETE /auth/v1/admin/users/{id}`). Unlike the anon key above, this **is** a true secret: never expose it to the frontend. `Program.cs` throws at startup if `Supabase:ServiceRoleKey` is unconfigured |
 | `PROD_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the prod Static Web App resource |
-| `PROD_BACKEND_HOSTNAME` | Used by `sync-players.yml`/`generate-round.yml` to call scheduled internal endpoints on production |
+| `PROD_BACKEND_HOSTNAME` | Used by `generate-round.yml` to call scheduled internal endpoints on production, and to call `/internal/sync-players` by hand (its `sync-players.yml` wrapper was deleted, S-130 — see `INTERNAL_JOB_TOKEN` row above) |
 | `PROD_TURNSTILE_SITE_KEY` (REQ-717, ADR-0037) | The production Cloudflare Turnstile site's site key (dash.cloudflare.com → Turnstile) — public/non-secret by design (same as the Supabase anon key above), fed to `deploy.yml`'s `deploy-frontend` job as `VITE_TURNSTILE_SITE_KEY`, baked into the built frontend bundle by Vite the same way `VITE_API_BASE_URL` is. Stored as a secret purely for convenience, not because the value itself needs to stay confidential — see `SETUP.md` step 6 for where it comes from and why the *secret* key never appears here at all (it's configured directly in Supabase's Auth dashboard, never in this application's own config) |
 
 Dev-specific:
@@ -308,12 +319,15 @@ knowing about rather than discovering by accident.
 
 **The Supabase pause is the one real trap.** It's an availability issue, not
 a cost issue — a live app can silently go dark for any user hitting it
-after 7 quiet days. The scheduled `sync-players.yml` job (runs daily) has
-the side effect of keeping the project active, which currently prevents
-this — but that's an accidental dependency, not a designed safeguard. If
-`sync-players.yml` is ever disabled, paused, or its schedule widened beyond
-7 days, add an explicit keep-alive ping (a trivial scheduled query) rather
-than relying on the sync job to do it implicitly.
+after 7 quiet days. There is currently **no** scheduled job that touches
+the database on a cadence tight enough to prevent this — `sync-players.yml`
+was deleted (S-130, 2026-08-17) and, contrary to what an earlier revision
+of this doc claimed, its schedule had already been disabled (`workflow_dispatch`-only)
+before that, so it was never actually providing this keep-alive in
+practice. In practice, regular playtesting keeps the dev project active;
+if it goes quiet for a week and pauses, resume it manually from the
+Supabase dashboard. Add an explicit scheduled keep-alive ping (a trivial
+query) if this becomes a real problem rather than a theoretical one.
 
 Numbers above will drift over time — re-verify against each provider's
 pricing page before relying on them for a real cost decision.
