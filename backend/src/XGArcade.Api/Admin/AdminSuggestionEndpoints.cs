@@ -371,11 +371,24 @@ public static class AdminSuggestionEndpoints
         IPlayerAttributeRepository playerAttributeRepository,
         CancellationToken cancellationToken)
     {
+        // S-129: PlayerCreated is read off GetOrCreatePlayersByWikidataQidAsync's
+        // own WasCreated signal, computed atomically at the point of insert
+        // (including that method's own concurrent-insert recovery) — a
+        // separate pre-read (an earlier version of this code used
+        // GetPlayerByWikidataQidAsync before the upsert) would race a
+        // concurrent caller for the same brand-new WikidataQid (REQ-211's
+        // guess-time fallback, PlayerCareerPrefetchService's own sweep, or a
+        // second admin commit) and could report PlayerCreated=true for a
+        // request that actually lost the race and wrote nothing — silently
+        // wrong, exactly what this response shape exists to prevent. See
+        // IPlayerRepository.GetOrCreatePlayersByWikidataQidAsync's own doc
+        // comment for the atomic-signal mechanism.
         var playersByQid = await playerRepository.GetOrCreatePlayersByWikidataQidAsync(
             [new PlayerCreationRequest(request.WikidataQid, request.FullName, PhotoUrl: null)], cancellationToken);
-        var player = playersByQid[request.WikidataQid];
+        var (player, playerCreated) = playersByQid[request.WikidataQid];
 
         string? nationality = null;
+        var nationalityWritten = false;
         if (!string.IsNullOrWhiteSpace(request.Nationality))
         {
             var existingOverride = await playerOverrideRepository.GetOverrideAsync(player.Id, "nationality", cancellationToken);
@@ -402,6 +415,7 @@ public static class AdminSuggestionEndpoints
             }
 
             nationality = request.Nationality;
+            nationalityWritten = true;
         }
 
         var confirmedClubs = (request.Clubs ?? [])
@@ -411,16 +425,25 @@ public static class AdminSuggestionEndpoints
             .ToList();
 
         var newAttributes = new List<PlayerAttribute>();
+        var clubsAdded = new List<string>();
+        var clubsAlreadyEffective = new List<string>();
         foreach (var club in confirmedClubs)
         {
             var alreadyEffective = await playerOverrideRepository.HasEffectiveAttributeAsync(player.Id, "club", club, cancellationToken);
-            if (!alreadyEffective)
+            if (alreadyEffective)
+            {
+                clubsAlreadyEffective.Add(club);
+            }
+            else
+            {
                 newAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = club });
+                clubsAdded.Add(club);
+            }
         }
 
         await playerAttributeRepository.AddPlayerAttributesBatchAsync(newAttributes, cancellationToken);
 
-        return new CommitPlayerDataResponse(player.Id, nationality, confirmedClubs);
+        return new CommitPlayerDataResponse(player.Id, playerCreated, nationality, nationalityWritten, clubsAdded, clubsAlreadyEffective);
     }
 
     // Shared validation for both /commit endpoints above.
@@ -499,11 +522,41 @@ public record CommitPlayerDataRequest(
     IReadOnlyList<string> Clubs,
     string Reason);
 
-// Clubs here is exactly the confirmedClubs list CommitPlayerDataAsync
-// computed (trimmed/deduped/non-blank) — not necessarily identical to
-// CommitPlayerDataRequest.Clubs, and says nothing about which of them were
-// already-effective (skipped) vs. newly written; the caller only needs "what
-// ended up confirmed," not a per-club new/skipped breakdown.
-public record CommitPlayerDataResponse(Guid PlayerId, string? Nationality, IReadOnlyList<string> Clubs);
+// S-129: reports what ACTUALLY CHANGED as a result of this commit, not just
+// what was requested/confirmed — before this story, the response echoed back
+// the admin's confirmed values regardless of whether anything was actually
+// written, which was indistinguishable from a genuine no-op (e.g. every
+// asserted club already an effective PlayerAttribute) in the UI. See
+// docs/decisions/0060-suggestion-commit-write-path-split-by-cardinality.md's
+// 2026-08-17 status note.
+//
+// PlayerCreated: true only when this WikidataQid had no existing Player row
+// before this commit (a brand-new local Player, not just "found a QID").
+//
+// Nationality/NationalityWritten: Nationality is request.Nationality echoed
+// back (or null if none was supplied); NationalityWritten is true only when
+// a PlayerOverride row was actually inserted or updated as a result (i.e.
+// request.Nationality was non-blank — ValidateCommitRequest's Reason
+// requirement already guarantees a reason accompanies every write here).
+//
+// ClubsAdded/ClubsAlreadyEffective: a partition of confirmedClubs (trimmed/
+// deduped/non-blank, same normalization CommitPlayerDataAsync always
+// applied) — ClubsAdded is exactly the clubs that got a brand-new
+// PlayerAttribute row this call; ClubsAlreadyEffective is exactly the clubs
+// that were already an effective attribute for this player and were
+// deliberately skipped (HasEffectiveAttributeAsync's dedup guard), not an
+// error or a partial failure.
+//
+// A genuine no-op commit — nothing written to the DB at all — is
+// unambiguous under this shape: PlayerCreated=false, NationalityWritten=false,
+// ClubsAdded=[] all together (ClubsAlreadyEffective may be non-empty; that's
+// exactly what makes it a no-op rather than an unconfirmed request).
+public record CommitPlayerDataResponse(
+    Guid PlayerId,
+    bool PlayerCreated,
+    string? Nationality,
+    bool NationalityWritten,
+    IReadOnlyList<string> ClubsAdded,
+    IReadOnlyList<string> ClubsAlreadyEffective);
 
 public record PlayerSearchLookupRequest(string PlayerName);

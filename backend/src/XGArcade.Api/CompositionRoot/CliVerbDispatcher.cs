@@ -321,6 +321,11 @@ public static class CliVerbDispatcher
     // PlayerCareerPrefetchService's own doc comment for the full "why" —
     // squarely inside ADR-0024's existing "bulk job is a CLI verb" decision, not
     // a new one.
+    //
+    // ADR-0069: this verb now also sweeps already-seeded clubs, in addition
+    // to the original countries sweep — no new CLI verb, this is the same
+    // `prefetch-player-careers` verb widened. See PlayerCareerPrefetchService's
+    // own doc comment for the club-loop's own "why."
     private static async Task<bool> HandlePrefetchPlayerCareersAsync(string[] args)
     {
         if (args.Length != 1)
@@ -367,9 +372,13 @@ public static class CliVerbDispatcher
         // import-player-name-index.
         var prefetchResult = await prefetchService.PrefetchAsync();
 
+        // ADR-0069: reports both sweeps' processed counts — the club sweep
+        // is additional to, not a replacement for, the original
+        // nationality sweep's own reporting.
         Console.WriteLine(
             $"prefetch-player-careers: complete — {prefetchResult.CountriesProcessed} countr" +
             $"{(prefetchResult.CountriesProcessed == 1 ? "y" : "ies")} processed, " +
+            $"{prefetchResult.ClubsProcessed} club(s) processed, " +
             $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added.");
         return true;
     }

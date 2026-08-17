@@ -12,6 +12,24 @@ namespace XGArcade.Data.Tests;
 // applies unchanged here, hence no REQ-prefixed names). Test bodies/
 // assertions are unchanged from their original PlayerStoreRepositoryTests.cs
 // form — this is a structural move only.
+//
+// S-129: GetOrCreatePlayersByWikidataQidAsync's DbUpdateException/unique-
+// violation catch (the concurrent-insert recovery, matched on
+// IX_Players_WikidataQid and Npgsql's PostgresException) is deliberately
+// NOT covered here, same reason and same precedent as UserRepositoryTests
+// .cs's own comment on UserRepository.AddAsync's identical catch shape: the
+// InMemory provider used by every test in this project does not enforce
+// unique indexes at all, so seeding two Players with the same WikidataQid
+// simply succeeds (SaveChangesAsync never throws), making the catch branch
+// impossible to exercise here in a way that could actually fail against
+// wrong code. Unlike UserRepository.AddAsync's precedent (manually verified
+// against a real local Postgres 16 instance when its migration was
+// authored, S-017), this branch has NOT been manually verified against a
+// real Postgres instance — no Docker daemon/local Postgres was available in
+// the sandbox this fix was built in (see NOTES.md). Flagged for manual
+// verification against real Postgres before this is treated as fully
+// confirmed; would also need a real-Postgres-backed integration test tier
+// to cover automatically, which does not exist yet in this project.
 public class PlayerRepositoryTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -92,10 +110,12 @@ public class PlayerRepositoryTests
         var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(requests);
 
         Assert.That(result, Has.Count.EqualTo(2));
-        Assert.That(result["Q1519"].FullName, Is.EqualTo("Thierry Henry"));
-        Assert.That(result["Q1519"].PhotoUrl, Is.Null);
-        Assert.That(result["Q182804"].FullName, Is.EqualTo("Nicolas Anelka"));
-        Assert.That(result["Q182804"].PhotoUrl, Is.EqualTo("https://example.com/anelka.jpg"));
+        Assert.That(result["Q1519"].Player.FullName, Is.EqualTo("Thierry Henry"));
+        Assert.That(result["Q1519"].Player.PhotoUrl, Is.Null);
+        Assert.That(result["Q1519"].WasCreated, Is.True, "S-129: no Player row existed for this WikidataQid before this call");
+        Assert.That(result["Q182804"].Player.FullName, Is.EqualTo("Nicolas Anelka"));
+        Assert.That(result["Q182804"].Player.PhotoUrl, Is.EqualTo("https://example.com/anelka.jpg"));
+        Assert.That(result["Q182804"].WasCreated, Is.True);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
     }
 
@@ -107,7 +127,8 @@ public class PlayerRepositoryTests
 
         var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([new PlayerCreationRequest("Q1519", "Thierry Henry", null)]);
 
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].Player.Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].WasCreated, Is.False, "S-129: this WikidataQid already had a Player row");
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(1));
     }
 
@@ -123,7 +144,9 @@ public class PlayerRepositoryTests
         ]);
 
         Assert.That(result, Has.Count.EqualTo(2));
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].Player.Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].WasCreated, Is.False, "S-129: the existing QID must be reported as reused, not created");
+        Assert.That(result["Q182804"].WasCreated, Is.True, "S-129: the genuinely new QID must be reported as created");
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
     }
 
@@ -143,8 +166,8 @@ public class PlayerRepositoryTests
         var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
             [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "forward", 1977)]);
 
-        Assert.That(result["Q1519"].Position, Is.EqualTo("forward"));
-        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977));
+        Assert.That(result["Q1519"].Player.Position, Is.EqualTo("forward"));
+        Assert.That(result["Q1519"].Player.BirthYear, Is.EqualTo(1977));
     }
 
     [Test]
@@ -153,8 +176,8 @@ public class PlayerRepositoryTests
         var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
             [new PlayerCreationRequest("Q1519", "Thierry Henry", null)]);
 
-        Assert.That(result["Q1519"].Position, Is.Null);
-        Assert.That(result["Q1519"].BirthYear, Is.Null);
+        Assert.That(result["Q1519"].Player.Position, Is.Null);
+        Assert.That(result["Q1519"].Player.BirthYear, Is.Null);
     }
 
     [Test]
@@ -171,9 +194,10 @@ public class PlayerRepositoryTests
         var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
             [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "midfielder", 1980)]);
 
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
-        Assert.That(result["Q1519"].Position, Is.EqualTo("forward"), "the new request's 'midfielder' must never overwrite the existing row");
-        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977), "the new request's 1980 must never overwrite the existing row");
+        Assert.That(result["Q1519"].Player.Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].WasCreated, Is.False);
+        Assert.That(result["Q1519"].Player.Position, Is.EqualTo("forward"), "the new request's 'midfielder' must never overwrite the existing row");
+        Assert.That(result["Q1519"].Player.BirthYear, Is.EqualTo(1977), "the new request's 1980 must never overwrite the existing row");
     }
 
     [Test]
@@ -188,8 +212,9 @@ public class PlayerRepositoryTests
         var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
             [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "forward", 1977)]);
 
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
-        Assert.That(result["Q1519"].Position, Is.Null, "a null already on the existing row is never backfilled by a later request");
-        Assert.That(result["Q1519"].BirthYear, Is.Null, "a null already on the existing row is never backfilled by a later request");
+        Assert.That(result["Q1519"].Player.Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].WasCreated, Is.False);
+        Assert.That(result["Q1519"].Player.Position, Is.Null, "a null already on the existing row is never backfilled by a later request");
+        Assert.That(result["Q1519"].Player.BirthYear, Is.Null, "a null already on the existing row is never backfilled by a later request");
     }
 }

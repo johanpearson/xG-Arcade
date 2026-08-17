@@ -22,6 +22,7 @@ public class GridGameModule(
     IGridGenerationService generationService,
     IGridNameMatcher nameMatcher,
     IGridLiveLookupDispatcher liveLookupDispatcher,
+    GridLiveLookupOptions liveLookupOptions,
     ILogger<GridGameModule> logger) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
@@ -94,6 +95,16 @@ public class GridGameModule(
         // Every other trigger condition is unchanged: bounded by REQ-210's
         // 2-attempt cap, same as every other guess-time cost, and still a
         // single retry, never a loop.
+        // ADR-0070/S-128: an operational kill switch for this fallback only —
+        // grid generation's own live lookup (REQ-103, GetMatchCountAsync) is
+        // a separate call path through the same IGridLiveLookupDispatcher and
+        // is deliberately untouched by this flag. When disabled, this must
+        // produce exactly the outcome an unresolved guess had before REQ-211
+        // existed at all: fail closed, `result` unchanged, no PlayerNameIndex
+        // query or live-lookup dispatch spent on it either.
+        if (!liveLookupOptions.Enabled)
+            return result;
+
         if (!await playerNameIndexRepository.ExistsByNormalizedNameAsync(normalized, cancellationToken))
             return result;
 

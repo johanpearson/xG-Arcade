@@ -111,6 +111,13 @@ internal sealed class FakeWikidataClient : IWikidataClient
         string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
 
+    // ADR-0069: GridGameModule never calls this (it's PlayerCareerPrefetchService's
+    // own prefetch-time method, not part of grid generation or guess-scoring)
+    // — a trivial stub, same as QueryPlayerPoolByNationalityAsync above.
+    public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByClubAsync(
+        string clubWikidataQid, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
+
     public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());

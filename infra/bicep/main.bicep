@@ -62,6 +62,9 @@ param minReplicas int = 0
 @description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027). See modules/backend-container-app.bicep for guidance.')
 param roundDurationHours int = 48
 
+@description('GridLiveLookupOptions.Enabled — REQ-211\'s guess-time live-lookup fallback (ADR-0070). See modules/backend-container-app.bicep for guidance.')
+param gridLiveLookupEnabled bool = false
+
 module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
   name: 'containerAppsEnvironment'
   params: {
@@ -92,6 +95,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     adminUserIds: adminUserIds
     minReplicas: minReplicas
     roundDurationHours: roundDurationHours
+    gridLiveLookupEnabled: gridLiveLookupEnabled
   }
 }
 

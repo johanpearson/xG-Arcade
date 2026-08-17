@@ -5627,3 +5627,152 @@ diff so was left alone per its own scope limit.
 with §5 and §6.1; no other content change; frontmatter bumped; CHANGELOG
 entry added.
 *Deps:* none.
+
+**S-127 · Widen `PlayerCareerPrefetchService` to also sweep seeded clubs (ADR-0069)**
+ADR-0055 deliberately scoped `PlayerCareerPrefetchService`'s candidate pool
+to already-seeded countries only, flagging widening it as needing "a fresh
+product decision." That decision has now been made: a player from an
+unseeded country who played for a seeded club is invisible to both
+`warm-player-cache`'s pairwise sweep and `prefetch-player-careers`'s
+nationality-only sweep — a structural gap, not fixable by seeding one more
+club. New `IWikidataClient.QueryPlayerPoolByClubAsync` (P54's full
+statement path, `p:P54`/`ps:P54`, excluding deprecated rank — never the
+truthy `wdt:P54` shortcut, same non-negotiable rule as every other
+P54-involving query in this codebase), a symmetric club sweep added to
+`PlayerCareerPrefetchService.PrefetchAsync` alongside the existing country
+sweep (same invocation, same CLI verb, no new workflow), and
+`PlayerCareerPrefetchResult` extended with `ClubsProcessed`/`ClubsFailed`.
+*Accept:* new query's SPARQL shape asserted byte-for-byte (same precedent
+as `WikidataClientTests.cs`'s existing per-method exact-query tests);
+`PrefetchAsync`'s club loop covered success/per-club-failure-isolated/null-QID-skipped,
+mirroring the existing country-loop test cases; `CliVerbDispatcher.cs`'s
+console summary and `prefetch-player-careers.yml`'s header comment updated
+to mention clubs, not just countries; ADR-0069 records the decision and
+the P54 full-statement-path constraint; REQ-110/architecture-document.md's
+COMP-07 row updated to describe the widened scope.
+*Deps:* ADR-0055 (extends, does not supersede).
+
+**S-128 · Feature-flag REQ-211's guess-time live-lookup fallback (ADR-0070)**
+The product owner wants to test whether S-127's proactively-built cache is
+complete enough on its own without removing REQ-211's guess-time live
+Wikidata fallback outright — ADR-0018's own history shows removing it blind
+is exactly how a real correctness bug got reported before. New
+`GridLiveLookupOptions` (`Enabled`, default `true`), config-bound via
+`GridLiveLookup:Enabled`/env var `GridLiveLookup__Enabled`, same pattern as
+`RoundScheduling:RoundDurationHours`. `GridGameModule.ScoreSubmissionAsync`
+checks the flag immediately before its existing `PlayerNameIndex` gate —
+when disabled, an unresolved guess returns immediately, skipping both
+`IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` and
+`IGridLiveLookupDispatcher.TryRefreshCellAsync`, and fails closed exactly
+as it would have before REQ-211 existed (no new `ScoreResult` shape, no new
+outcome). REQ-103's grid-generation-time live lookup
+(`GridGenerationService.GetMatchCountAsync`) is a separate call path
+through the same shared `IGridLiveLookupDispatcher` and is deliberately
+untouched.
+*Accept:* `GridGameModuleTests` covers `Enabled = false` (never calls
+`ExistsByNormalizedNameAsync`/`TryRefreshCellAsync`, verified via
+call-counting spies wrapping the real dependencies, matching this
+codebase's existing spy pattern) and `Enabled = false` with cached data
+already answering the guess (unaffected); every existing REQ-211 test keeps
+passing unchanged since the default is `true`; ADR-0070 records the "flag,
+not removal" reasoning; REQ-211 gets a status note (not a supersession —
+the fallback still exists in full); architecture-document.md's COMP-05
+guess-scoring narrative notes the fallback is now conditional.
+*Deps:* ADR-0018, ADR-0046 (both describe the fallback this flag gates,
+neither is superseded), REQ-509/510 (remediation path while testing with
+the flag off).
+**Follow-up (2026-08-17):** ADR-0070's own Consequences section claimed
+flipping `GridLiveLookup:Enabled` needs "no redeploy of code" — true at the
+app-config level, but the flag was never actually wired into the deployed
+dev Container App at all: `infra/bicep/modules/backend-container-app.bicep`
+only forwards explicitly-declared params into the container's `env` block
+(same pattern `RoundScheduling__RoundDurationHours` already uses), and
+`gridLiveLookupEnabled` was missing from that list — so the deployed
+backend always ran with the flag's `true` default regardless of intent.
+Fixed by adding `gridLiveLookupEnabled` (default `true`, no behavior
+change) through `main.bicep` → `backend-container-app.bicep`'s
+`GridLiveLookup__Enabled` env entry, mirroring `roundDurationHours` exactly
+— the same "edit the bicep default, push to main, deploy.yml redeploys
+with no image change" pattern that param already establishes. `infra/README.md`
+checked, not updated — it doesn't document `roundDurationHours` at this
+level of detail either, so no drift introduced.
+
+**S-129 · `CommitPlayerDataResponse` reports what actually changed, not just what was requested (backend half)**
+The product owner wants to be certain, after approving a suggestion, that
+a row was actually added to the DB — not just shown their own confirmed
+values echoed back, which was indistinguishable from a no-op (e.g. every
+asserted club already an effective `PlayerAttribute`). On the frontend,
+`SuggestionsScreen.tsx`'s main approval flow (`PendingSuggestionRow`/
+`handleRowDone`) currently shows no confirmation at all on commit, making
+the gap worse than it sounds. `CommitPlayerDataResponse` redesigned to
+`(Guid PlayerId, bool PlayerCreated, string? Nationality, bool
+NationalityWritten, IReadOnlyList<string> ClubsAdded, IReadOnlyList<string>
+ClubsAlreadyEffective)` — `CommitPlayerDataAsync` (`AdminSuggestionEndpoints.cs`)
+already computed all of this internally and previously discarded it.
+**Quality-gate correction (same day):** `PlayerCreated` was first computed
+via a separate `GetPlayerByWikidataQidAsync` pre-read before
+`GetOrCreatePlayersByWikidataQidAsync`'s own upsert — a real race against
+concurrent callers of the same batched method (REQ-211's guess-time
+fallback, `PlayerCareerPrefetchService`'s sweep, a second admin commit),
+and `GetOrCreatePlayersByWikidataQidAsync` itself had no
+`DbUpdateException`/unique-violation handling at all, unlike this
+codebase's other get-or-create paths. Fixed by bringing
+`GetOrCreatePlayersByWikidataQidAsync` in line with
+`LeagueRepository.GetOrCreateGlobalLeagueAsync`/`PathInstanceRepository
+.GetOrCreateCycleStateAsync`'s existing catch-detach-refetch precedent, and
+changing its return type to `IReadOnlyDictionary<string,
+PlayerCreationResult>` (`PlayerCreationResult(Player Player, bool
+WasCreated)`) so `WasCreated` is computed atomically at the point of
+insert — `CommitPlayerDataAsync` now reads `PlayerCreated` off that signal
+directly, no separate pre-read. No `ValidateCommitRequest` behavior and no
+write-path routing (ADR-0060) changed — only what the response reports
+about writes that already happened.
+*Accept:* both `/admin/suggestions/{id}/commit` and
+`/admin/player-search/commit` return the new shape;
+`AdminSuggestionEndpointTests.cs` updated for the new field names plus new
+cases — brand-new player (`PlayerCreated=true`), a repeat commit with an
+already-effective club (`ClubsAlreadyEffective`, not `ClubsAdded`,
+`PlayerCreated=false`), a nationality-only commit against an existing
+override (`NationalityWritten=true` via the update branch), and a genuine
+full no-op (`PlayerCreated=false`, `NationalityWritten=false`,
+`ClubsAdded=[]` together, unambiguous); ADR-0060 gets a 2026-08-17 status
+note explaining the response-shape change without reopening the write-path
+decision; REQ-509/REQ-510 get a status note that their acceptance criteria
+were silent on response shape. `PlayerRepositoryTests.cs` updated for the
+new `PlayerCreationResult` shape plus `WasCreated` assertions on every
+existing case; the `DbUpdateException`/re-fetch-winner branch itself is
+documented as untestable against the InMemory provider (same precedent as
+`UserRepositoryTests.cs`'s identical note on `UserRepository.AddAsync`),
+not manually verified against real Postgres in this sandbox (no Docker
+daemon available) — flagged for verification before treated as fully
+confirmed. Frontend consumption (making `SuggestionsScreen.tsx` actually
+display the new fields) is an explicit follow-up story, not part of this
+one.
+*Deps:* ADR-0060, REQ-509/510 (S-090).
+**Frontend half (2026-08-17, same story number):** `CommitPlayerDataResult`
+(`frontend/src/lib/types.ts`) updated to the new field names
+(`playerCreated`/`nationalityWritten`/`clubsAdded`/`clubsAlreadyEffective`).
+`PlayerReviewPanel`'s `handleCommit` (`SuggestionsScreen.tsx`) now captures
+the actual commit response instead of discarding it, and threads it through
+`onDone`'s new `result?: CommitPlayerDataResult` parameter to both callers.
+A shared `describeCommitResult` helper turns the response into a plain-
+language summary (new-player/nationality/clubs-added, with a genuine no-op
+called out plainly as "No changes — this data was already up to date."),
+used by both flows — `PendingSuggestionRow`'s approval flow, which
+previously showed no confirmation at all (now lifted into
+`SuggestionsScreen`'s own `confirmation` state, rendered above the pending
+list since the row itself unmounts on every commit), and
+`ManualSearchSection`'s flow, which previously showed only the generic
+"Player data committed." string. No new CSS — reuses the existing
+`.suggestions-screen__confirmation` class already defined for
+`ManualSearchSection`. `SuggestionsScreen.tsx` is an admin-only utility
+screen (REQ-509/510/ADR-0053) with no `SCREEN-xxx` entry in
+`docs/design-document.md`, so nothing there needed updating.
+*Accept:* `SuggestionsScreen.test.tsx` updated for the new response shape
+in every existing commit-mock, plus new cases: a suggestion-approval commit
+that adds a new club renders the specific summary (not just row removal), a
+genuine no-op commit renders "No changes — this data was already up to
+date.", and the manual-search flow's commit no longer renders the generic
+string. `npm run test` (582/582 passed), `npx tsc -b` (clean), and
+`npx oxlint` (clean) all run for real in this sandbox.
+*Deps:* backend half above, ADR-0060, REQ-509/510 (S-090).

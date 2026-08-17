@@ -62,6 +62,9 @@ param minReplicas int = 0
 @description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027) — change this (no code/image change needed) for a lasting adjustment; generate-round.yml\'s workflow_dispatch round_duration_hours input overrides it for a single one-off generation call instead.')
 param roundDurationHours int = 48
 
+@description('GridLiveLookupOptions.Enabled (REQ-211, ADR-0070) — REQ-211\'s guess-time live-lookup fallback. true (default) preserves existing behavior. Same "edit this default, push to main, deploy.yml redeploys with no code/image change" pattern as roundDurationHours above — the sanctioned way to toggle this operationally.')
+param gridLiveLookupEnabled bool = true
+
 var containerAppName = '${appName}-api-${environmentTag}'
 
 resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
@@ -154,6 +157,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'RoundScheduling__RoundDurationHours'
               value: string(roundDurationHours)
+            }
+            {
+              name: 'GridLiveLookup__Enabled'
+              value: string(gridLiveLookupEnabled)
             }
             {
               // Neither this module nor deploy.yml ever set this before

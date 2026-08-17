@@ -565,14 +565,21 @@ export interface CommitPlayerDataPayload {
   reason: string;
 }
 
-// REQ-509/510: both commit endpoints' shared response shape
-// (CommitPlayerDataResponse) — exactly what ended up confirmed after the
-// write (deduped/trimmed), not a per-club new-vs-already-effective
-// breakdown.
+// REQ-509/510/S-129: both commit endpoints' shared response shape
+// (CommitPlayerDataResponse) — reports what the commit ACTUALLY wrote, not
+// just an echo of the admin's confirmed input. `playerCreated`/
+// `nationalityWritten`/`clubsAdded` distinguish a real write from a no-op
+// (e.g. every asserted club already an effective `PlayerAttribute`, surfaced
+// via `clubsAlreadyEffective` instead of `clubsAdded`) — the old shape
+// (`nationality`/`clubs` only) was indistinguishable from a no-op, which is
+// the exact ambiguity this story removes. See docs/backlog.md S-129.
 export interface CommitPlayerDataResult {
   playerId: string;
+  playerCreated: boolean;
   nationality: string | null;
-  clubs: string[];
+  nationalityWritten: boolean;
+  clubsAdded: string[];
+  clubsAlreadyEffective: string[];
 }
 
 // REQ-511: the public GET /announcement-banner response shape

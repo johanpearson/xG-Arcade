@@ -8,8 +8,45 @@ import {
   lookupSuggestionPlayer,
   rejectSuggestion,
 } from '../lib/admin';
-import type { CommitPlayerDataPayload, PendingSuggestion, WikidataPlayerLookupResult } from '../lib/types';
+import type {
+  CommitPlayerDataPayload,
+  CommitPlayerDataResult,
+  PendingSuggestion,
+  WikidataPlayerLookupResult,
+} from '../lib/types';
 import './SuggestionsScreen.css';
+
+// REQ-509/510/S-129: turns a commit response's actually-written facts into a
+// single plain-language sentence, shared by both PendingSuggestionRow's
+// approval flow and ManualSearchSection's standalone flow so the two entry
+// points never diverge in what they tell the admin about the same
+// underlying write (see PlayerReviewPanel's own header comment on being the
+// one shared component both entry points render). A genuine no-op
+// (nothing created, no nationality write, no new clubs) is called out
+// explicitly rather than folded into a generic "success" message — that
+// ambiguity is exactly what S-129 exists to remove.
+function describeCommitResult(result: CommitPlayerDataResult): string {
+  const isNoOp = !result.playerCreated && !result.nationalityWritten && result.clubsAdded.length === 0;
+  if (isNoOp) {
+    return 'No changes — this data was already up to date.';
+  }
+
+  const parts: string[] = [];
+  if (result.playerCreated) {
+    parts.push('New player added.');
+  }
+  if (result.nationalityWritten) {
+    parts.push(`Nationality set to ${result.nationality ?? '—'}.`);
+  }
+  if (result.clubsAdded.length > 0) {
+    const label = result.clubsAdded.length === 1 ? 'club' : 'clubs';
+    parts.push(`${result.clubsAdded.length} new ${label} added: ${result.clubsAdded.join(', ')}.`);
+  }
+  if (result.clubsAlreadyEffective.length > 0) {
+    parts.push(`${result.clubsAlreadyEffective.join(', ')} already up to date.`);
+  }
+  return parts.join(' ');
+}
 
 export interface SuggestionsScreenProps {
   accessToken: string;
@@ -33,6 +70,13 @@ export function SuggestionsScreen({ accessToken, onAuthError, onBackToAdmin }: S
   const [pageState, setPageState] = useState<PageState>({ phase: 'loading' });
   const [suggestions, setSuggestions] = useState<PendingSuggestion[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
+  // S-129: the confirmation message for the most recent commit, lifted up
+  // here (rather than kept inside PendingSuggestionRow/PlayerReviewPanel)
+  // because the row itself unmounts on every onDone — this is the only
+  // place left standing to show it once the panel closes and the list
+  // refetches. Mirrors ManualSearchSection's own `confirmation` state/
+  // rendering pattern below rather than inventing a new one.
+  const [confirmation, setConfirmation] = useState<string | null>(null);
 
   const refreshSuggestions = useCallback(async () => {
     const rows = await fetchPendingSuggestions(accessToken);
@@ -79,8 +123,14 @@ export function SuggestionsScreen({ accessToken, onAuthError, onBackToAdmin }: S
   // misdescribe what went wrong — the stale row simply stays visible until
   // the admin's next successful refresh, and re-acting on it just re-runs
   // the same server-side checks.
-  async function handleRowDone() {
+  //
+  // S-129: a successful commit also carries the actually-written response,
+  // turned into a plain-language summary and shown above the list — the
+  // row itself is gone by the time this renders, so this is the only place
+  // an admin can see what a commit actually did.
+  async function handleRowDone(reason: 'committed' | 'rejected' | 'refresh', result?: CommitPlayerDataResult) {
     setOpenId(null);
+    setConfirmation(reason === 'committed' && result ? describeCommitResult(result) : null);
     try {
       await refreshSuggestions();
     } catch {
@@ -111,6 +161,7 @@ export function SuggestionsScreen({ accessToken, onAuthError, onBackToAdmin }: S
 
       <section className="suggestions-screen__section">
         <h3 className="suggestions-screen__section-title">Pending suggestions ({suggestions.length})</h3>
+        {confirmation && <p className="suggestions-screen__confirmation">{confirmation}</p>}
         {suggestions.length === 0 ? (
           <p className="suggestions-screen__empty">No pending suggestions to review.</p>
         ) : (
@@ -121,9 +172,10 @@ export function SuggestionsScreen({ accessToken, onAuthError, onBackToAdmin }: S
                 accessToken={accessToken}
                 suggestion={suggestion}
                 isOpen={openId === suggestion.id}
-                onToggle={() =>
-                  setOpenId((current) => (current === suggestion.id ? null : suggestion.id))
-                }
+                onToggle={() => {
+                  setConfirmation(null);
+                  setOpenId((current) => (current === suggestion.id ? null : suggestion.id));
+                }}
                 onAuthError={onAuthError}
                 onDone={handleRowDone}
               />
@@ -143,7 +195,7 @@ interface PendingSuggestionRowProps {
   isOpen: boolean;
   onToggle: () => void;
   onAuthError: () => void;
-  onDone: () => void;
+  onDone: (reason: 'committed' | 'rejected' | 'refresh', result?: CommitPlayerDataResult) => void;
 }
 
 // REQ-509: "every pending suggestion is listed with the player name, the
@@ -245,8 +297,8 @@ function ManualSearchSection({ accessToken, onAuthError }: ManualSearchSectionPr
     [accessToken],
   );
 
-  function handleDone(reason: 'committed' | 'rejected' | 'refresh') {
-    setConfirmation(reason === 'committed' ? 'Player data committed.' : null);
+  function handleDone(reason: 'committed' | 'rejected' | 'refresh', result?: CommitPlayerDataResult) {
+    setConfirmation(reason === 'committed' && result ? describeCommitResult(result) : null);
     setSearchTarget(null);
   }
 
@@ -303,7 +355,7 @@ type LookupPhase =
 
 interface PlayerReviewPanelProps {
   onLookup: () => Promise<WikidataPlayerLookupResult>;
-  onCommit: (payload: CommitPlayerDataPayload) => Promise<unknown>;
+  onCommit: (payload: CommitPlayerDataPayload) => Promise<CommitPlayerDataResult>;
   onReject: (() => Promise<void>) | null;
   claim: { clubs: string[]; nationality: string } | null;
   onAuthError: () => void;
@@ -311,9 +363,10 @@ interface PlayerReviewPanelProps {
   // admin explicitly asks to refresh after a 409/stale-row error — every
   // case means "this item is no longer actionable here," so the caller
   // treats them the same way (close + refetch) unless it cares about the
-  // distinction (ManualSearchSection uses it only to pick the confirmation
-  // copy).
-  onDone: (reason: 'committed' | 'rejected' | 'refresh') => void;
+  // distinction. 'committed' always carries the commit response's `result`
+  // (S-129) so both callers can build a real confirmation message via
+  // `describeCommitResult` instead of a generic success string.
+  onDone: (reason: 'committed' | 'rejected' | 'refresh', result?: CommitPlayerDataResult) => void;
   onCancel: () => void;
 }
 
@@ -414,8 +467,8 @@ function PlayerReviewPanel({
         clubs,
         reason: reason.trim(),
       };
-      await onCommit(payload);
-      onDone('committed');
+      const result = await onCommit(payload);
+      onDone('committed', result);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         onAuthError();

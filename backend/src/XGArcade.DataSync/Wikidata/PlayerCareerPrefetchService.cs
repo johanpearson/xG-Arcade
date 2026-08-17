@@ -19,6 +19,16 @@ namespace XGArcade.DataSync.Wikidata;
 // own explicit choice when this was proposed (ADR-0055's Open questions),
 // not a default picked silently. A country with no eligible players simply
 // contributes an empty pool, not a failure.
+//
+// ADR-0069: also sweeps already-SEEDED clubs (CategoryValueRepository
+// .GetClubsAsync), via IWikidataClient.QueryPlayerPoolByClubAsync — a
+// fresh product decision that extends (not supersedes) ADR-0055's original
+// nationality-only scope, so a player from an unseeded country who played
+// for a seeded club is no longer invisible to this sweep. Symmetric to the
+// country loop in every way: its own counters (clubsProcessed/clubsFailed),
+// its own "no QID yet is a skip, not a failure" precedent, its own
+// per-club try/catch isolating one club's failure from the rest — see the
+// club loop below for the concrete mirror.
 // S-106/S-107 (pure refactor): playerRepository carries
 // GetOrCreatePlayersByWikidataQidAsync (split out of the original, now-
 // deleted IPlayerStoreRepository); playerCareerStintRepository carries
@@ -40,6 +50,7 @@ public class PlayerCareerPrefetchService(
     public async Task<PlayerCareerPrefetchResult> PrefetchAsync(CancellationToken cancellationToken = default)
     {
         var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
+        var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
         // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203
         // follow-up, ADR-0059): built once for the whole run, not once per
         // batch — ClubDefinition is small (~15 rows, hand-seeded,
@@ -51,10 +62,13 @@ public class PlayerCareerPrefetchService(
 
         var countriesProcessed = 0;
         var countriesFailed = 0;
+        var clubsProcessed = 0;
+        var clubsFailed = 0;
         var careerBatchesFailed = 0;
         var playersTouched = 0;
         var stintsAdded = 0;
         var failedCountryNames = new List<string>();
+        var failedClubNames = new List<string>();
 
         foreach (var country in countries)
         {
@@ -102,17 +116,67 @@ public class PlayerCareerPrefetchService(
                 country.Name, pool.Count, playersTouched, stintsAdded);
         }
 
-        if (countriesFailed > 0 || careerBatchesFailed > 0)
+        // ADR-0069: symmetric to the country loop above — same
+        // skip-if-no-QID, try/catch-isolate-one-failure, and running-totals
+        // logging shape, just sourced from GetClubsAsync/QueryPlayerPoolByClubAsync
+        // instead of GetCountriesAsync/QueryPlayerPoolByNationalityAsync.
+        foreach (var club in clubs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Same REQ-109 "an unresolved QID isn't an error" precedent as
+            // the country loop's own null-QID skip above.
+            if (club.WikidataQid is null)
+                continue;
+
+            IReadOnlyList<WikidataNameIndexEntry> pool;
+            try
+            {
+                pool = await wikidataClient.QueryPlayerPoolByClubAsync(club.WikidataQid, cancellationToken);
+            }
+            catch (WikidataQueryException ex)
+            {
+                clubsFailed++;
+                failedClubNames.Add(club.Name);
+                logger.LogWarning(ex,
+                    "prefetch-player-careers: {Club} failed; continuing with the remaining clubs. " +
+                    "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed clubs.",
+                    club.Name);
+                continue;
+            }
+
+            clubsProcessed++;
+            if (pool.Count == 0)
+                continue;
+
+            foreach (var batch in pool.Chunk(CareerBatchSize))
+            {
+                var (touched, added, batchFailed) = await FetchAndPersistBatchAsync(batch, clubNameByClubQid, cancellationToken);
+                playersTouched += touched;
+                stintsAdded += added;
+                if (batchFailed)
+                    careerBatchesFailed++;
+            }
+
+            logger.LogInformation(
+                "prefetch-player-careers: {Club} done — pool of {PoolSize} player(s) processed " +
+                "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added).",
+                club.Name, pool.Count, playersTouched, stintsAdded);
+        }
+
+        if (countriesFailed > 0 || clubsFailed > 0 || careerBatchesFailed > 0)
         {
             throw new InvalidOperationException(
                 $"prefetch-player-careers: {countriesFailed} countr{(countriesFailed == 1 ? "y" : "ies")} " +
-                $"failed to fetch their player pool ({string.Join(", ", failedCountryNames)}), and " +
+                $"failed to fetch their player pool ({string.Join(", ", failedCountryNames)}), " +
+                $"{clubsFailed} club(s) failed to fetch their player pool ({string.Join(", ", failedClubNames)}), and " +
                 $"{careerBatchesFailed} career-fetch batch(es) failed. {playersTouched} player(s) were still " +
                 "touched and " + $"{stintsAdded} stint(s) added from what succeeded; the job is idempotent — " +
                 "re-run it to retry what failed.");
         }
 
-        return new PlayerCareerPrefetchResult(countriesProcessed, playersTouched, stintsAdded, countriesFailed, careerBatchesFailed);
+        return new PlayerCareerPrefetchResult(
+            countriesProcessed, playersTouched, stintsAdded, countriesFailed, careerBatchesFailed, clubsProcessed, clubsFailed);
     }
 
     // Returns whether the career-fetch step itself failed (distinct from
@@ -152,7 +216,7 @@ public class PlayerCareerPrefetchService(
         if (stintsByQid.Count == 0)
             return (playersByQid.Count, 0, false);
 
-        var qidToPlayerId = playersByQid.ToDictionary(kv => kv.Key, kv => kv.Value.Id);
+        var qidToPlayerId = playersByQid.ToDictionary(kv => kv.Key, kv => kv.Value.Player.Id);
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 

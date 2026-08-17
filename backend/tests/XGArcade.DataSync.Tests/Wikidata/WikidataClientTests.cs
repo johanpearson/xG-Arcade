@@ -3222,6 +3222,129 @@ public class WikidataClientTests
             "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 
+    // ---- QueryPlayerPoolByClubAsync (ADR-0069, prefetch pool widening) ----
+    // The club-scoped sibling of QueryPlayerPoolByNationalityAsync — same
+    // throw-on-failure contract, same bounded-query discipline, filtered by
+    // P54's full statement path instead of P27/P1532.
+
+    [Test]
+    public async Task ADR0069_QueryPlayerPoolByClubAsync_SentQuery_UsesFullStatementPathForP54_NotTruthyShortcut()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByClubAsync("Q9617");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain("?clubStatement ps:P54 wd:Q9617."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P54"),
+            "P54 must never use the truthy shortcut — see IntersectionQuerySpecs.BuildCountryClubIntersectionQuery's own comment for why (current-club preferred rank silently hides historical clubs)");
+    }
+
+    [Test]
+    public async Task ADR0069_QueryPlayerPoolByClubAsync_SentQuery_NeverContainsOrderByLimitOrOffset()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByClubAsync("Q9617");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("ORDER BY"));
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+        Assert.That(sentQuery, Does.Not.Contain("OFFSET"));
+    }
+
+    [Test]
+    public async Task ADR0069_QueryPlayerPoolByClubAsync_ParsesEveryDistinctPlayer()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "birthYear": { "type": "literal", "value": "1977" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q9617" }, "playerLabel": { "type": "literal", "value": "Someone Else" }, "birthYear": { "type": "literal", "value": "1990" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolByClubAsync("Q9617");
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result.Select(r => r.WikidataQid), Is.EquivalentTo(new[] { "Q1519", "Q9617" }));
+    }
+
+    [Test]
+    public void ADR0069_QueryPlayerPoolByClubAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByClubAsync("Q9617"));
+    }
+
+    [Test]
+    public void ADR0069_QueryPlayerPoolByClubAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByClubAsync("Q9617"));
+    }
+
+    [Test]
+    public void ADR0069_QueryPlayerPoolByClubAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByClubAsync("Q9617"));
+    }
+
+    [Test]
+    public async Task ADR0069_QueryPlayerPoolByClubAsync_SentQuery_MatchesExpectedShapeByteForByte()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByClubAsync("Q9617");
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?birthYear WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              BIND(YEAR(?dateOfBirth) AS ?birthYear)
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:Q9617.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    [Test]
+    public void ADR0069_QueryPlayerPoolByClubAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromSeconds(45),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryPlayerPoolByClubAsync("Q9617"));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata player-pool query for club Q9617 timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
+    }
+
     // ---- QueryPlayerPositionsAndBirthYearsByQidsAsync (REQ-1207 backfill) --
     // positionLabel-specific coverage: the query-shape/error-contract tests
     // for this method never existed before this bug-bundle fix (the batch

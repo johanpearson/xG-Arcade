@@ -13,6 +13,99 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/decisions/0070-grid-live-lookup-flag.md`,
+  `infra/bicep/main.bicep` — product owner's explicit direction: dev's
+  `gridLiveLookupEnabled` default flipped to `false` — REQ-211's guess-time
+  live-lookup fallback is off as of the next deploy, testing whether
+  S-127's proactively-built cache is complete enough on its own. Reverts
+  by flipping the default back to `true` if wrongly-rejected correct
+  guesses start appearing.
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0070-grid-live-lookup-flag.md`,
+  `infra/bicep/main.bicep`, `infra/bicep/modules/backend-container-app.bicep`
+  — S-128 follow-up: `GridLiveLookup__Enabled` was never actually wired into
+  the deployed dev Container App's environment variables, so the flag's
+  `true` default always applied regardless of intent — closed by adding a
+  `gridLiveLookupEnabled` bicep param (default `true`, no behavior change),
+  mirroring `roundDurationHours`'s existing wiring exactly — ADR-0070.
+- 2026-08-17 — `docs/backlog.md` — S-129 (frontend half): `SuggestionsScreen.tsx`
+  now shows a real confirmation summary on commit instead of nothing
+  (`PendingSuggestionRow`'s approval flow) or a generic "Player data
+  committed." string (`ManualSearchSection`'s flow) — both now build their
+  message from the actual `CommitPlayerDataResult` response
+  (`playerCreated`/`nationalityWritten`/`clubsAdded`/`clubsAlreadyEffective`),
+  with a genuine no-op called out plainly. `frontend/src/lib/types.ts`'s
+  `CommitPlayerDataResult` updated to match the backend's redesigned
+  response shape. No `docs/design-document.md` change — `SuggestionsScreen`
+  is an admin-only utility screen with no `SCREEN-xxx` entry. REQ-509/510.
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0060-suggestion-commit-write-path-split-by-cardinality.md`,
+  `docs/requirements-document.md` (v1.75) — S-129 (backend half):
+  `CommitPlayerDataResponse` (`AdminSuggestionEndpoints.cs`) redesigned to
+  report what actually changed rather than echoing back the admin's
+  confirmed input — `PlayerCreated`, `NationalityWritten`, and
+  `ClubsAdded`/`ClubsAlreadyEffective` replace the old `Nationality`/`Clubs`-only
+  shape, so a genuine no-op commit (e.g. every asserted club already
+  effective) is no longer indistinguishable from a real write. No
+  write-path/validation behavior changed (ADR-0060's decision stands, new
+  status note added). `AdminSuggestionEndpointTests.cs` updated for the new
+  shape plus new no-op/already-effective/update-branch cases. Frontend
+  consumption is an explicit follow-up story. REQ-509/REQ-510.
+  **Quality-gate correction, same day:** `PlayerCreated` was initially
+  computed via a separate, non-atomic pre-read
+  (`IPlayerRepository.GetPlayerByWikidataQidAsync`) before
+  `GetOrCreatePlayersByWikidataQidAsync`'s own upsert — racy against
+  concurrent callers of that shared batched method (REQ-211's guess-time
+  fallback, `PlayerCareerPrefetchService`), and that method itself had no
+  `DbUpdateException`/unique-violation handling at all, unlike this
+  codebase's other get-or-create paths. `PlayerRepository
+  .GetOrCreatePlayersByWikidataQidAsync` now catches the unique-violation
+  on `IX_Players_WikidataQid` and detaches/re-fetches the winner (same
+  precedent as `LeagueRepository.GetOrCreateGlobalLeagueAsync`/
+  `PathInstanceRepository.GetOrCreateCycleStateAsync`), and its return type
+  changed to `IReadOnlyDictionary<string, PlayerCreationResult>`
+  (`PlayerCreationResult(Player Player, bool WasCreated)`, new in
+  `IPlayerRepository.cs`) so `WasCreated` is computed atomically at the
+  insert point. `WikidataLookupService`/`PlayerCareerPrefetchService`
+  updated to unwrap `.Player`; `CommitPlayerDataAsync` reads
+  `PlayerCreated` off the new signal directly, pre-read removed.
+  `PlayerRepositoryTests.cs` updated accordingly.
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0070-grid-live-lookup-flag.md`
+  (new), `docs/requirements-document.md` (v1.74), `docs/architecture-document.md`
+  (v1.01) — S-128: feature-flagged REQ-211's guess-time live-lookup fallback
+  (`GridGameModule.ScoreSubmissionAsync`) behind new `GridLiveLookupOptions
+  .Enabled` (default `true`, config key `GridLiveLookup:Enabled`/env var
+  `GridLiveLookup__Enabled`, same override convention as
+  `RoundScheduling:RoundDurationHours`) — an operational toggle, not a
+  removal, so the product owner can test whether S-127's proactively-built
+  cache is complete enough on its own, with an instant way back if correct
+  guesses start getting wrongly rejected again. Checked immediately before
+  the existing `PlayerNameIndex` gate; when disabled, neither
+  `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` nor
+  `IGridLiveLookupDispatcher.TryRefreshCellAsync` is ever called, and the
+  guess fails closed exactly as it would have before REQ-211 existed.
+  REQ-103's grid-generation-time live lookup is a separate call path through
+  the same shared dispatcher and is deliberately unaffected. ADR-0070
+  records the "flag, not outright removal" reasoning; REQ-211 and
+  ADR-0018/ADR-0046 got status notes, not supersessions — the fallback
+  still exists in full. `GridGameModuleTests` gained
+  `CallCountingPlayerNameIndexRepository`/`CallCountingGridLiveLookupDispatcher`
+  spies (same pattern as `GridNameMatcherTests`'s existing call-counting
+  repositories) to assert neither dependency is reached when the flag is
+  off.
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0069-club-scoped-player-career-prefetch.md`
+  (new), `docs/requirements-document.md` (v1.73), `docs/architecture-document.md`
+  (v1.00) — S-127: widened `PlayerCareerPrefetchService` to also sweep
+  every seeded `ClubDefinition` row's full eligible player pool (new
+  `IWikidataClient.QueryPlayerPoolByClubAsync`, P54's full statement path —
+  never the truthy `wdt:P54` shortcut), in addition to its existing
+  countries-only sweep — ADR-0069, extending (not superseding) ADR-0055,
+  which had deliberately deferred this widening pending a fresh product
+  decision. `PlayerCareerPrefetchResult` gained `ClubsProcessed`/`ClubsFailed`;
+  `CliVerbDispatcher.cs`'s console summary and `prefetch-player-careers.yml`'s
+  header comment updated to mention clubs. Added a REQ-110 status note (no
+  prior status note had documented `PlayerCareerPrefetchService` itself, so
+  this one covers both ADR-0055's original nationality sweep and ADR-0069's
+  club-sweep addition) and updated architecture-document.md's COMP-07 row/
+  ADR cross-reference table.
 - 2026-08-16 — `docs/architecture-document.md` (v0.99), `docs/requirements-document.md`
   (v1.72) — S-123 (`docs/backlog.md` Epic 9): applied S-116's same
   current-state-only treatment to the remaining "COMP-XX status (DATE,

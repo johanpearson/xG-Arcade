@@ -40,7 +40,21 @@ public interface IPlayerRepository
     // natural join key every caller already has on hand
     // (WikidataPlayerMatch.WikidataQid). One SaveChangesAsync call for the
     // whole batch (load-then-SaveChangesAsync, coding-guidelines.md).
-    Task<IReadOnlyDictionary<string, Player>> GetOrCreatePlayersByWikidataQidAsync(
+    //
+    // S-129 concurrency fix: a concurrent caller (REQ-211's guess-time
+    // fallback, PlayerCareerPrefetchService's own batch sweep, or a second
+    // admin commit) can race this method for the same brand-new
+    // WikidataQid — Player.WikidataQid's filtered unique index
+    // (XGArcadeDbContext.cs) lets only one INSERT win. This method now
+    // handles that the same way LeagueRepository.GetOrCreateGlobalLeagueAsync
+    // / PathInstanceRepository.GetOrCreateCycleStateAsync already do for
+    // their own singleton rows: catch the DbUpdateException, detach the
+    // loser(s), and re-fetch the winner instead of letting a raw
+    // DbUpdateException/500 escape. PlayerCreationResult.WasCreated is
+    // computed atomically at the point of insert (true only for a QID whose
+    // row this call itself actually persisted) — never derived from a
+    // separate, racy pre-read.
+    Task<IReadOnlyDictionary<string, PlayerCreationResult>> GetOrCreatePlayersByWikidataQidAsync(
         IReadOnlyList<PlayerCreationRequest> requests, CancellationToken cancellationToken = default);
 
     // REQ-208: guess-time name matching's primary-name path — queries
@@ -63,3 +77,11 @@ public interface IPlayerRepository
 // never writes these on a Player row that already exists).
 public record PlayerCreationRequest(
     string WikidataQid, string FullName, string? PhotoUrl, string? Position = null, int? BirthYear = null);
+
+// S-129: GetOrCreatePlayersByWikidataQidAsync's per-QID result — WasCreated
+// is true only for a QID whose Player row THIS call actually inserted
+// (computed atomically inside the method, including its own concurrent-
+// insert recovery, never via a separate pre-read by the caller). Most
+// existing callers (WikidataLookupService, PlayerCareerPrefetchService)
+// only ever need Player and can ignore WasCreated entirely.
+public record PlayerCreationResult(Player Player, bool WasCreated);

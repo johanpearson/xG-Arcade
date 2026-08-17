@@ -151,6 +151,34 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(pool);
     }
 
+    // ADR-0069: QueryPlayerPoolByClubAsync support — same "configured
+    // per-QID, plus one shared fail-next-N-calls counter" shape as
+    // QueryPlayerPoolByNationalityAsync above.
+    private readonly Dictionary<string, IReadOnlyList<WikidataNameIndexEntry>> _poolByClubQid = new();
+    private int _remainingClubPoolFailures;
+
+    public List<string> QueriedClubQids { get; } = [];
+
+    public void SetPoolForClub(string clubQid, IReadOnlyList<WikidataNameIndexEntry> pool) =>
+        _poolByClubQid[clubQid] = pool;
+
+    public void FailNextClubPoolCalls(int calls) => _remainingClubPoolFailures = calls;
+
+    public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByClubAsync(
+        string clubWikidataQid, CancellationToken cancellationToken = default)
+    {
+        QueriedClubQids.Add(clubWikidataQid);
+
+        if (_remainingClubPoolFailures > 0)
+        {
+            _remainingClubPoolFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for club {clubWikidataQid}");
+        }
+
+        var pool = _poolByClubQid.TryGetValue(clubWikidataQid, out var configured) ? configured : [];
+        return Task.FromResult(pool);
+    }
+
     // ADR-0056: QuerySitelinkCountsByQidsAsync support — same "configured
     // per-QID, plus one shared fail-next-N-calls counter" shape as every
     // other batch-style method above. Never actually exercised by

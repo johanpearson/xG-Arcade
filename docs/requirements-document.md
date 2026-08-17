@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.72"
+version: "1.75"
 status: draft
-last_updated: 2026-08-16
+last_updated: 2026-08-17
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -583,6 +583,32 @@ without erroring), API
   re-check" invariant those two already satisfy for a QID/query-shape
   correction is unaffected; this tool instead exists for the case where
   the failure marker itself is the only thing that needs clearing.
+- **Status note (2026-08-02, ADR-0055): a second, independent proactive
+  mechanism, `PlayerCareerPrefetchService` (`dotnet run --
+  prefetch-player-careers`), also serves this REQ's intent.** Unlike
+  `PlayerCacheWarmingService` above (which fills `PlayerAttribute`/
+  `PlayerData` for existing Country×Club/Club×Club pairs), this sweeps
+  every seeded `CountryDefinition` row's full eligible player pool
+  directly (`IWikidataClient.QueryPlayerPoolByNationalityAsync`) and
+  writes `PlayerCareerStint` rows for players xG Grid's own query history
+  has never touched — the real fix for xG Path's target-pool bottleneck
+  (REQ-1201). Its own workflow, `prefetch-player-careers.yml`, is
+  `workflow_dispatch`-only (not on the weekly cron the rest of this REQ's
+  jobs moved to) — see ADR-0055's Consequences section for why.
+- **Status note (2026-08-17, ADR-0069): `PlayerCareerPrefetchService`
+  widened to also sweep every seeded `ClubDefinition` row's full eligible
+  player pool** (`IWikidataClient.QueryPlayerPoolByClubAsync`, P54's full
+  statement path, not the truthy `wdt:P54` shortcut — see ADR-0069 for
+  why that distinction is load-bearing here), in addition to the
+  country sweep the note above describes — both sweeps run in the same
+  `prefetch-player-careers` invocation, not two separate verbs. This
+  closes the gap where a player from an unseeded country who played for a
+  seeded club was invisible to both `warm-player-cache`'s pairwise sweep
+  and this service's own prior nationality-only sweep. `PlayerCareerPrefetchResult`
+  now reports `ClubsProcessed`/`ClubsFailed` alongside the existing
+  `CountriesProcessed`/`CountriesFailed`; `PlayersTouched`/`StintsAdded`
+  remain combined totals across both sweeps (a player found via either
+  sweep is written through the same batch-persist path).
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -611,7 +637,16 @@ than trusting the stale marker. `PairLookupFailureCleanerTests.cs`
 above it is removed; a pair below it is left alone; a mix of both only
 removes the ones at/above threshold, leaving the rest untouched; an empty
 table is a no-op that doesn't throw; running it twice in a row is safe
-(the second run removes nothing).
+(the second run removes nothing). `PlayerCareerPrefetchServiceTests.cs`
+(ADR-0055/ADR-0069): a seeded country's or seeded club's pool creates
+players and persists careers; a country/club with no `WikidataQid` yet is
+skipped and never queried; an empty pool for a country/club is not a
+failure; one country's (or one club's) pool-query failure still lets the
+rest of the sweep — country or club — proceed, then throws at the end;
+both sweeps run in the same `PrefetchAsync` call and their player/stint
+totals combine. `WikidataClientTests.cs` covers `QueryPlayerPoolByClubAsync`'s
+own query shape (byte-for-byte, including the full `p:P54`/`ps:P54`
+statement path, never the truthy `wdt:P54` shortcut) and error contract.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched
@@ -1753,6 +1788,26 @@ an extra attempt), API
   before. Only benefits Country×Club/Club×Club — `PlayerCacheWarmingService`
   doesn't track Trophy pairings, so this check is a guaranteed-false read
   for those. See ADR-0052's matching status note for the full detail.
+- **Status note (2026-08-17, S-128, ADR-0070) — this fallback is now
+  config-flagged, not unconditional:** new `GridLiveLookupOptions.Enabled`
+  (default `true`, config key `GridLiveLookup:Enabled`/env var
+  `GridLiveLookup__Enabled`) gates `GridGameModule.ScoreSubmissionAsync`'s
+  entire fallback — when `false`, an unresolved guess returns immediately,
+  never calling `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` or
+  `IGridLiveLookupDispatcher.TryRefreshCellAsync`, and fails closed exactly
+  as it would have before this requirement existed at all (same
+  `ScoreResult` shape, no new outcome/HTTP status). This is a deliberate,
+  reversible operational toggle, not a removal or a supersession of this
+  requirement — the fallback still exists in full and remains the default.
+  The product owner wants to empirically validate whether S-127's
+  proactively-built cache is complete enough on its own, with REQ-509/510's
+  admin player-suggestion approve/commit flow as the remediation path for
+  any genuine gap surfaced while testing with the flag off, and an instant
+  way back to `Enabled = true` if correct guesses start being wrongly
+  rejected again. REQ-103's grid-generation-time live lookup
+  (`GridGenerationService.GetMatchCountAsync`) is a separate call path and
+  deliberately untouched by this flag. See ADR-0070 for the full decision
+  and alternatives considered.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
@@ -1790,7 +1845,9 @@ no live call; match with existing attribute data → no live call needed;
 match with no attribute data and budget available → live call + persist;
 match with no attribute data and budget exhausted → fails closed; live
 lookup timeout → `LiveLookupUnavailable`, no attempt consumed, added
-2026-07-27), API
+2026-07-27; `GridLiveLookupOptions.Enabled = false` → neither
+`PlayerNameIndex` nor the live-lookup dispatcher is ever called, fails
+closed same as pre-REQ-211, added 2026-08-17 S-128/ADR-0070), API
 
 **REQ-212 – Click/tap reveals the guessed player name on a locked, correct cell**
 > As a player, I want to see which player I answered for a cell I've already
@@ -4520,6 +4577,32 @@ reject path writes nothing; both actions are Admin-policy-gated and
 logged), Integration (Wikidata query mocked, matching the existing pattern
 in `WikidataClientTests.cs`; a query timeout is distinguished from a
 genuine no-match, not conflated), UI (admin)
+
+- **Status note (2026-08-17, S-129, backend half only):** neither this
+  REQ's acceptance criteria above nor REQ-510's said anything about what
+  the commit response itself communicates back to the admin — both were
+  silent on response shape, only specifying what gets written server-side.
+  In practice this let `CommitPlayerDataResponse` merely echo back the
+  admin's confirmed input regardless of whether a write actually happened
+  (e.g. every asserted club already effective for that player, so nothing
+  was written), which was indistinguishable from a genuine write in the
+  response shape — and `SuggestionsScreen.tsx`'s main approval flow
+  (`PendingSuggestionRow`) showed no confirmation at all on commit.
+  `CommitPlayerDataAsync`/`CommitPlayerDataResponse` (`AdminSuggestionEndpoints.cs`)
+  now report what was actually written: `PlayerCreated` (a new `Player` row
+  vs. an existing one reused for that `WikidataQid`), `NationalityWritten`
+  (a `PlayerOverride` insert/update actually happened), and `ClubsAdded`
+  vs. `ClubsAlreadyEffective` (a partition of the confirmed clubs by
+  whether each got a new `PlayerAttribute` row or was already effective
+  and skipped). No write-path behavior changed — see ADR-0060's 2026-08-17
+  status note for the full reasoning. This REQ's own acceptance criteria
+  above are left as written (they describe the write, which is unchanged);
+  a future REQ update should fold "the response confirms what was written"
+  into this REQ's Given/When/Then text if the frontend half (planned as a
+  follow-up story) makes it a first-class UI requirement rather than
+  purely a response-shape implementation detail. The identical note applies
+  to REQ-510, which shares the same `CommitPlayerDataAsync`/
+  `CommitPlayerDataResponse`, not duplicated in that REQ's own section.
 
 **REQ-510 – Admin manual Wikidata search-and-add (independent of a
 suggestion)**

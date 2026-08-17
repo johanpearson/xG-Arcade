@@ -102,7 +102,14 @@ describe('SuggestionsScreen', () => {
         return lookupPromise.then(() => jsonResponse(foundLookupResult)).then((v) => v);
       }
       if (path.includes('/admin/suggestions/sugg-1/commit')) {
-        return jsonResponse({ playerId: 'player-1', nationality: 'Netherlands', clubs: ['AC Milan', 'Real Madrid'] });
+        return jsonResponse({
+          playerId: 'player-1',
+          playerCreated: false,
+          nationality: 'Netherlands',
+          nationalityWritten: true,
+          clubsAdded: ['Real Madrid'],
+          clubsAlreadyEffective: ['AC Milan'],
+        });
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`);
     });
@@ -139,6 +146,57 @@ describe('SuggestionsScreen', () => {
     });
     expect(await screen.findByText('No pending suggestions to review.')).toBeInTheDocument();
     expect(screen.queryByText('Clarence Seedorf')).not.toBeInTheDocument();
+    // REQ-509/S-129: the row is gone, but the panel's own commit response is
+    // still surfaced — specific about what was actually written, not a
+    // generic success string.
+    expect(
+      await screen.findByText(
+        'Nationality set to Netherlands. 1 new club added: Real Madrid. AC Milan already up to date.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  // ---- S-129: commit confirmation reflects what was actually written -----
+
+  it('REQ509/S129: a genuine no-op commit (everything already effective) says so plainly, not a generic success message', async () => {
+    let listCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') {
+        listCallCount += 1;
+        return jsonResponse(listCallCount === 1 ? [suggestion1] : []);
+      }
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) {
+        return jsonResponse(foundLookupResult);
+      }
+      if (path.includes('/admin/suggestions/sugg-1/commit')) {
+        return jsonResponse({
+          playerId: 'player-1',
+          playerCreated: false,
+          nationality: null,
+          nationalityWritten: false,
+          clubsAdded: [],
+          clubsAlreadyEffective: ['AC Milan', 'Real Madrid'],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+    await screen.findByText('Suggested by player');
+
+    // This commit only confirms clubs that are already effective.
+    await user.clear(screen.getByLabelText('Nationality'));
+    await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+    expect(
+      await screen.findByText('No changes — this data was already up to date.'),
+    ).toBeInTheDocument();
   });
 
   it('REQ509/ADR-0060: a clubs-only commit (no nationality) succeeds without a reason, since PlayerAttribute has nowhere to store one', async () => {
@@ -154,7 +212,14 @@ describe('SuggestionsScreen', () => {
         return jsonResponse(foundLookupResult);
       }
       if (path.includes('/admin/suggestions/sugg-1/commit')) {
-        return jsonResponse({ playerId: 'player-1', nationality: null, clubs: ['AC Milan', 'Real Madrid'] });
+        return jsonResponse({
+          playerId: 'player-1',
+          playerCreated: false,
+          nationality: null,
+          nationalityWritten: false,
+          clubsAdded: ['AC Milan', 'Real Madrid'],
+          clubsAlreadyEffective: [],
+        });
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`);
     });
@@ -323,7 +388,14 @@ describe('SuggestionsScreen', () => {
         return jsonResponse({ found: true, wikidataQid: 'Qpires', fullName: 'Robert Pires', nationality: 'France', clubs: ['Arsenal'] });
       }
       if (path.includes('/admin/player-search/commit')) {
-        return jsonResponse({ playerId: 'player-2', nationality: 'France', clubs: ['Arsenal'] });
+        return jsonResponse({
+          playerId: 'player-2',
+          playerCreated: true,
+          nationality: 'France',
+          nationalityWritten: true,
+          clubsAdded: ['Arsenal'],
+          clubsAlreadyEffective: [],
+        });
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`);
     });
@@ -344,8 +416,13 @@ describe('SuggestionsScreen', () => {
     await user.type(screen.getByLabelText('Reason'), 'Manually added via admin search');
     await user.click(screen.getByRole('button', { name: 'Commit' }));
 
+    // S-129: no longer the generic, content-free "Player data committed." —
+    // the real commit response is reflected instead.
     await waitFor(() => {
-      expect(screen.getByText('Player data committed.')).toBeInTheDocument();
+      expect(screen.queryByText('Player data committed.')).not.toBeInTheDocument();
+      expect(
+        screen.getByText('New player added. Nationality set to France. 1 new club added: Arsenal.'),
+      ).toBeInTheDocument();
     });
 
     const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
