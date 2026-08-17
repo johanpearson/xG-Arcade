@@ -476,7 +476,8 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    accept/reject behavior
 
 /infra
-  /github-workflows             -> ci.yml, generate-round.yml, purge-guest-accounts.yml
+  /github-workflows             -> ci.yml, generate-grid-round.yml,
+                                   generate-path-round.yml, purge-guest-accounts.yml
 ```
 
 ## 5. Data model
@@ -1823,7 +1824,9 @@ delegating. **Correction (S-029/ADR-0022):** this used to be invoked only
 via REQ-806's non-Production `POST /internal/test-data/force-close-round/{roundId}`,
 with no automated scheduled job calling round-close anywhere — that gap is
 now closed. `RoundGenerationService.GenerateNextRoundIfNeededAsync` (the
-one piece of code `generate-round.yml`'s cron actually invokes) now also
+one piece of code the per-`GameKey` round-generation cron actually invokes
+— `generate-round.yml` at the time, split into `generate-grid-round.yml`/
+`generate-path-round.yml` as of S-136/ADR-0072) now also
 closes the round it is about to supersede — never `latest` itself, but its
 predecessor, found via the new `IRoundRepository.GetPreviousByGameKeyAsync`
 — before deciding whether to generate a new one. See ADR-0022 for the full
@@ -2453,10 +2456,14 @@ split and sync approach.
   Tier 1 shape: adds a `deploy-dev` job (dev-tagged image + Bicep deploy)
   that E2E depends on, with the test-data reset call (REQ-802) — restored
   when the dev environment exists (ADR-0006)
-- **`generate-round.yml`**: scheduled per the configured frequency
-  (REQ-301), calls a backend endpoint to create a new Round
+- **`generate-grid-round.yml`** / **`generate-path-round.yml`** (split from
+  a single `generate-round.yml` as of S-136/ADR-0072, each with its own
+  daily cron and `workflow_dispatch` input, one per `GameKey`): scheduled
+  per the configured frequency (REQ-301), calls a backend endpoint to
+  create a new Round for its own `GameKey` only
 - **`purge-guest-accounts.yml`** (REQ-718/ADR-0038): scheduled daily
-  (07:00 UTC, offset from `generate-round.yml`'s 06:00), calls
+  (07:00 UTC, offset from `generate-grid-round.yml`'s/`generate-path-round.yml`'s
+  shared 06:00), calls
   `POST /internal/purge-guest-accounts` (same bearer-token pattern as
   `/internal/generate-round`) to delete unclaimed guests older than 30 days
   and inactive guests older than 7 days — the safety net for
@@ -2525,8 +2532,9 @@ document's §1 table, not a routine merge.
 ## 10. Open technical questions
 
 - Container Apps Consumption plan scale-to-zero cold-start impact on
-  scheduled jobs (`generate-round.yml`, and any future re-added
-  `sync-players.yml`-equivalent) — may need a minimum-replica setting if
+  scheduled jobs (`generate-grid-round.yml`, `generate-path-round.yml`, and
+  any future re-added `sync-players.yml`-equivalent) — may need a
+  minimum-replica setting if
   cold starts cause missed schedules
 - Whether Testcontainers is practical in the CI environment, or whether
   SQLite in-memory is sufficient for API tests early on

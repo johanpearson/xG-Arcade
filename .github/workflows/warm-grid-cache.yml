@@ -2,7 +2,9 @@ name: warm-player-cache
 
 # REQ-110 (ADR-0023's follow-up): proactively fills the PlayerAttribute
 # cache for every reference Country x Club / Club x Club pair, so a real
-# generate-round.yml run can resolve almost entirely from cache instead of
+# generate-grid-round.yml run (generate-round.yml at the time this comment
+# was written; split into per-GameKey workflows as of S-136/ADR-0072) can
+# resolve almost entirely from cache instead of
 # gambling on live Wikidata lookups for an unlucky row header — see
 # NOTES.md's 2026-07-13 entry and
 # docs/decisions/0023-grid-generation-wall-clock-deadline.md.

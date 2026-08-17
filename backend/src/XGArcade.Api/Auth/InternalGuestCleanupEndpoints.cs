@@ -10,8 +10,10 @@ namespace XGArcade.Api.Auth;
 // the backend or fails. Runs in every environment (including a future real
 // Production), following the exact same bearer-token pattern
 // InternalRoundEndpoints established for Tier 0's only other
-// production-scheduled trigger (generate-round.yml/
-// /internal/generate-round) — see that file's own comment for why an
+// production-scheduled trigger (generate-grid-round.yml/
+// generate-path-round.yml, split from a single generate-round.yml as of
+// S-136/ADR-0072, calling /internal/generate-round) — see that file's own
+// comment for why an
 // environment gate doesn't apply to a bearer-token-gated /internal/*
 // endpoint like this one.
 public static class InternalGuestCleanupEndpoints

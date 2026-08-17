@@ -4,7 +4,9 @@ using System.Text;
 namespace XGArcade.Api.Internal;
 
 // Shared by every bearer-token-gated /internal/* endpoint whose only caller
-// is a scheduled job (generate-round.yml/InternalRoundEndpoints,
+// is a scheduled job (generate-grid-round.yml/generate-path-round.yml,
+// split from a single generate-round.yml as of S-136/ADR-0072,
+// /InternalRoundEndpoints,
 // purge-guest-accounts.yml/InternalGuestCleanupEndpoints, ...) — extracted
 // from InternalRoundEndpoints (its original, only caller) so a second such
 // endpoint doesn't hand-duplicate this constant-time comparison, the same

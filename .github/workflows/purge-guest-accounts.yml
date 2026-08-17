@@ -8,15 +8,17 @@ name: purge-guest-accounts
 # fails once it does.
 #
 # Cadence: daily (07:00 UTC) — deliberately offset by one hour from
-# generate-round.yml's 06:00 UTC cron so the two scheduled jobs never fire
-# at the exact same minute. Daily is the correct cadence (not more, not
-# less) because both of REQ-718's purge rules are day-granularity
-# (30-day/7-day): running more often than once a day buys no earlier
-# real-world effect (an account a few hours late being purged has no
-# correctness impact, unlike generate-round.yml's ADR-0027 coupling, where a
-# missed cycle means a round nobody can play), and running less often than
-# daily would let both windows drift further past their stated bound than
-# necessary.
+# generate-grid-round.yml's/generate-path-round.yml's shared 06:00 UTC cron
+# (both split from a single generate-round.yml, S-136/ADR-0072, but both
+# still fire at 06:00) so this job never fires at the exact same minute as
+# either. Daily is the correct cadence (not more, not less) because both of
+# REQ-718's purge rules are day-granularity (30-day/7-day): running more
+# often than once a day buys no earlier real-world effect (an account a few
+# hours late being purged has no correctness impact, unlike
+# generate-grid-round.yml's/generate-path-round.yml's own ADR-0027 coupling,
+# where a missed cycle means a round nobody can play), and running less
+# often than daily would let both windows drift further past their stated
+# bound than necessary.
 
 on:
   schedule:

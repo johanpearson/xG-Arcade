@@ -48,11 +48,24 @@ as items complete or new ones surface; don't let it silently go stale.
 ## S-029 follow-up (one-time, after this fix deploys)
 
 - [ ] If any round in the deployed dev environment already ended before
-  ADR-0022's round-closing fix shipped, it needs one extra
-  `generate-round.yml` cron cycle to get closed automatically — or force it
-  immediately via `POST /internal/test-data/force-close-round/{roundId}`
+  ADR-0022's round-closing fix shipped, it needs one extra cron cycle of
+  that round's own `GameKey`-specific workflow (`generate-grid-round.yml`
+  for `xg-grid`, `generate-path-round.yml` for `xg-path` — split from the
+  single `generate-round.yml` as of S-136/ADR-0072) to get closed
+  automatically — or force it immediately via
+  `POST /internal/test-data/force-close-round/{roundId}`
   (non-Production only) so its score reaches the leaderboard right away
   rather than waiting.
+
+## S-136 follow-up (one-time, after this split deploys)
+
+- [ ] Field-verify ADR-0072's `workflow_dispatch` isolation claim against the
+  deployed dev environment: manually dispatch `generate-grid-round.yml` with
+  a `round_duration_hours` override and confirm the next `xg-path` round's
+  `RoundDuration` is unaffected (then the inverse for
+  `generate-path-round.yml`). Not yet possible from this sandbox — no path
+  to trigger a real GitHub Actions dispatch — so this is code-reviewed but
+  not field-verified until done.
 
 ## Tier 1 — revisit only after real testing shows a specific need
 

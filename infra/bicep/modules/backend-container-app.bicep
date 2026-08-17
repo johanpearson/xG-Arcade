@@ -43,7 +43,7 @@ param supabaseAnonKey string
 param supabaseServiceRoleKey string
 
 @secure()
-@description('Shared bearer token authorizing calls to /internal/* endpoints (generate-round.yml, and the /internal/sync-players endpoint, called by hand or a future re-added workflow) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
+@description('Shared bearer token authorizing calls to /internal/* endpoints (generate-grid-round.yml, generate-path-round.yml, and the /internal/sync-players endpoint, called by hand or a future re-added workflow) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
 param internalJobToken string
 
 @secure()
@@ -59,7 +59,7 @@ param adminUserIds string = ''
 @description('Minimum replica count. Keep at 0 for max cost savings; raise to 1 if scheduled-job cold starts (see implementation-document.md open questions) become an issue')
 param minReplicas int = 0
 
-@description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027) — change this (no code/image change needed) for a lasting adjustment; generate-round.yml\'s workflow_dispatch round_duration_hours input overrides it for a single one-off generation call instead.')
+@description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027) — change this (no code/image change needed) for a lasting adjustment; generate-grid-round.yml\'s (and, for xg-path, generate-path-round.yml\'s) own workflow_dispatch round_duration_hours input overrides it for a single one-off generation call instead, scoped to that workflow\'s own GameKey only (S-136/ADR-0072).')
 param roundDurationHours int = 48
 
 @description('GridLiveLookupOptions.Enabled (REQ-211, ADR-0070) — REQ-211\'s guess-time live-lookup fallback. true (default) preserves existing behavior. Same "edit this default, push to main, deploy.yml redeploys with no code/image change" pattern as roundDurationHours above — the sanctioned way to toggle this operationally.')

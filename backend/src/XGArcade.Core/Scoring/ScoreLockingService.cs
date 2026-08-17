@@ -103,7 +103,9 @@ public class ScoreLockingService(
     // path for real (REQ-205: closing a round's predecessor as part of the
     // generate-round scheduled job), alongside the pre-existing non-
     // Production force-close-round endpoint — but both are only ever
-    // triggered by generate-round.yml's low-cadence cron (twice a week) or a
+    // triggered by generate-grid-round.yml's/generate-path-round.yml's
+    // low-cadence cron (twice a week at the time this comment was written;
+    // split from a single generate-round.yml as of S-136/ADR-0072) or a
     // manual test-data call, never expected to overlap in practice; still
     // not fixed, just an accepted, documented risk at Tier 0 scale.
     //

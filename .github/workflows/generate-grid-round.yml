@@ -1,7 +1,7 @@
-name: generate-round
+name: generate-grid-round
 
-# Creates a new Round + game instance per the configured frequency (REQ-301),
-# once per GameKey ("xg-grid", "xg-path" — S-084/REQ-1202).
+# Creates a new Round + GridInstance for GameKey "xg-grid" per the
+# configured frequency (REQ-301).
 # S-008 (docs/backlog.md): Core.Rounds' RoundGenerationService now backs
 # /internal/generate-round, so this cron is enabled.
 #
@@ -12,26 +12,31 @@ name: generate-round
 # under any RoundDurationHours >= 24 instead of an exact-equality cron match.
 # Full reasoning and the rejected `*/2` day-of-month alternative: ADR-0027.
 #
-# S-084 extends this SAME job to also generate an "xg-path" round, rather
-# than adding a second `on.schedule` entry or a matrix strategy: a second
-# cron would need ADR-0027's `RoundDuration >= cron's max gap` invariant
-# re-derived by hand for a new cadence, for no real benefit, since both
-# games can safely share the same daily-cron trigger even with independent
-# RoundDurations — see ADR-0027's "S-084" addendum. Each GameKey below gets
-# its own independent 3-attempt retry loop (generate_round, defined once,
-# called once per GameKey) so one GameKey's retries exhausting doesn't
-# block the other's attempt.
+# S-136 (ADR-0072): this workflow used to be one half of a shared
+# generate-round.yml that looped over both "xg-grid" and "xg-path" in the
+# same job — split into its own file, independent of xG Path's
+# generate-path-round.yml, because nothing server-side requires them to
+# stay coupled: RoundSchedulingOptions is already fully per-GameKey
+# (IRoundSchedulingOptionsResolver, ADR-0051) and /internal/generate-round
+# already takes gameKey as a first-class parameter with no other
+# game-specific branching. This workflow's own cron independently satisfies
+# ADR-0027's "RoundDuration >= cron's max gap" invariant against xG Grid's
+# own configured RoundDurationHours (currently 48h, comfortably >= this
+# workflow's own 24h daily max gap) — see ADR-0072 for the full derivation
+# and why re-verifying this independently, rather than assuming the old
+# shared-cron proof still holds, matters now that the two workflows'
+# schedules and RoundDurationHours can diverge.
 #
 # workflow_dispatch accepts an optional round_duration_hours input for a
 # one-off manual override (passed through as /internal/generate-round's
-# roundDurationHours query param), applied to BOTH GameKeys when supplied —
-# it's a manual one-off knob, not lasting per-game config, so one shared
-# value is simplest. This does NOT change either GameKey's configured
-# default and does NOT require touching this cron; only a *lasting* change
-# to a default needs RoundScheduling:RoundDurationHours (xg-grid) or
-# RoundScheduling:XGPath:RoundDurationHours (xg-path) — or the deployed
-# Container App's matching RoundScheduling__RoundDurationHours /
-# RoundScheduling__XGPath__RoundDurationHours env vars — changed instead.
+# roundDurationHours query param), affecting ONLY "xg-grid" — this workflow
+# is now independent of generate-path-round.yml, fixing a bug in the old
+# shared workflow where supplying this input during a manual dispatch
+# silently applied to both games at once (ADR-0072). This does NOT change
+# xG Grid's configured default and does NOT require touching this cron;
+# only a *lasting* change to the default needs
+# RoundScheduling:RoundDurationHours — or the deployed Container App's
+# matching RoundScheduling__RoundDurationHours env var — changed instead.
 
 on:
   schedule:
@@ -39,12 +44,12 @@ on:
   workflow_dispatch:
     inputs:
       round_duration_hours:
-        description: "One-off RoundDuration override (hours) for this generation call only, applied to both xg-grid and xg-path. Leave blank to use each GameKey's own configured default."
+        description: "One-off RoundDuration override (hours) for this xg-grid generation call only. Leave blank to use xg-grid's own configured default."
         type: string
         required: false
 
 jobs:
-  generate-round:
+  generate-grid-round:
     runs-on: ubuntu-latest
     steps:
       # Bug-bundle follow-up (2026-07-27): a single failed attempt (e.g. a
@@ -57,12 +62,6 @@ jobs:
       # retried call can never create a duplicate or partial round. 3 attempts,
       # 30s/60s backoff — generous relative to ADR-0023's own 90s per-attempt
       # budget, cheap relative to a whole day's wait.
-      #
-      # S-084: this retry logic is now a function, called once per GameKey,
-      # so xg-grid and xg-path each get their own independent 3 attempts —
-      # a bash function's return code is scoped to that one call, so calling
-      # it twice below never lets one GameKey's exhausted retries short-circuit
-      # the other's.
       - name: Trigger round generation
         run: |
           generate_round() {
@@ -97,9 +96,4 @@ jobs:
             return 1
           }
 
-          overall_status=0
-
-          generate_round "xg-grid" || overall_status=1
-          generate_round "xg-path" || overall_status=1
-
-          exit "$overall_status"
+          generate_round "xg-grid"
