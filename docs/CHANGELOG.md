@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `.github/workflows/warm-grid-cache.yml` — follow-up
+  correction to S-134 (PR #209, merged): the rename swept every
+  *reference* to `warm-player-cache.yml` but missed the workflow file's
+  own top-level `name:` property and job id, which were left as
+  `warm-player-cache` — the previous CHANGELOG entry's "content
+  unchanged" framing over-extended to these two fields, which are
+  genuinely part of "the workflow's name" (the `name:` key is what
+  actually displays in the GitHub Actions UI's run list, arguably more
+  visibly than the filename) rather than the CLI-verb-invocation
+  boundary that framing was meant to protect. Both now read
+  `warm-grid-cache`, matching the filename. The `dotnet run --
+  warm-player-cache` CLI invocation, its log/echo strings, and
+  `CliVerbDispatcher.cs`'s dictionary key are still deliberately
+  `warm-player-cache` — that scoping decision stands; only the two
+  fields that are unambiguously "the workflow's name" in the GitHub
+  Actions UI were corrected. S-134.
 - 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
   `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
   `backend/tests/XGArcade.Games.XGPath.Tests/PathCareerStintFilterTests.cs`,
