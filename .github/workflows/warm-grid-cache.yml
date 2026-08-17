@@ -1,4 +1,4 @@
-name: warm-player-cache
+name: warm-grid-cache
 
 # REQ-110 (ADR-0023's follow-up): proactively fills the PlayerAttribute
 # cache for every reference Country x Club / Club x Club pair, so a real
@@ -33,7 +33,7 @@ on:
     - cron: "30 4 * * 0" # weekly, Sunday 04:30 UTC
 
 jobs:
-  warm-player-cache:
+  warm-grid-cache:
     runs-on: ubuntu-latest
     # 2026-08-17 incident: the first run against a fully-purged pool (no
     # ConfirmedLowMatchPair/PairLookupFailure rows left to skip anything —
