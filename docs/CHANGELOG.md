@@ -13,6 +13,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/implementation-document.md`, `docs/requirements-document.md`,
+  `docs/decisions/0059-career-stint-club-name-canonicalization.md` — doc-sync
+  for S-132: deleted `.yml` workflow wrappers for 7 one-off
+  incident-recovery/backfill/cleanup tools that already served their
+  purpose and had no runs in weeks — `audit-club-gaps.yml`,
+  `backfill-player-photos.yml`, `backfill-player-position-birthyear.yml`,
+  `clean-duplicate-career-stints.yml`, `clean-stale-club-attributes.yml`,
+  `clear-pair-lookup-failures.yml`, and `verify-wikidata-player-data.yml`
+  (`purge-player-pool.yml` explicitly kept — actively reused, not a
+  one-time artifact). Only the thin `workflow_dispatch` Actions wrappers
+  were removed; the underlying CLI verbs/services
+  (`PlayerPhotoBackfillService`, `PlayerPositionBirthYearBackfillService`,
+  `DuplicateCareerStintCleaner`, `StaleClubAttributeCleaner`,
+  `PairLookupFailureCleaner`, and the `verify-wikidata-player-data`/
+  `audit-club-gaps` verbs) are unchanged and still runnable via
+  `dotnet run -- <verb>` for any future incident of the same shape.
+  `implementation-document.md` §6's `StaleClubAttributeCleaner`/
+  `backfill-player-photos`/`backfill-player-position-birthyear` passages
+  now describe the verbs as run locally via `dotnet run --`, with the
+  deleted `.yml` wrappers noted as historical (S-132, 2026-08-17), rather
+  than present-tense "run via `<name>.yml`". `requirements-document.md`'s
+  REQ-1207 status note dropped its explicit
+  `.github/workflows/backfill-player-position-birthyear.yml` reference the
+  same way. ADR-0059's Decision-section "run manually via
+  `workflow_dispatch`" line for `clean-duplicate-career-stints` is now
+  stale in the same way ADR-0009's `promote-dev-to-prod-dry-run.yml`
+  reference was after S-130, so it gets the same small, non-rewriting
+  follow-up addendum recording the wrapper's deletion; the decision itself
+  is untouched. Confirmed via grep that `infra/README.md`, `MVP-SCOPE.md`,
+  `docs/architecture-document.md`, and ADRs 0025/0029/0032/0052 have no
+  stale references to any of the 7 removed workflow filenames (they
+  reference the CLI verbs/services, which are unchanged, not the deleted
+  wrapper files) — no changes needed there. `docs/backlog.md` is
+  unchanged per this repo's convention of recording story closure only in
+  this CHANGELOG, not inline in the backlog text. S-132; ADR-0059
+  addendum.
 - 2026-08-17 — `docs/backlog.md`, `NOTES.md` — closed S-131: verified
   `prefetch-player-careers.yml`'s post-#203 re-run (run #6, triggered on
   commit `1e7cb99` itself) against real GitHub Actions run history and job

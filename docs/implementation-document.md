@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.99"
+version: "1.00"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -1344,8 +1344,12 @@ wrong-QID row from a correct one.
 for that gap: a third `dotnet run --` CLI verb, `clean-stale-club-attributes
 "<comma-separated club names>"` (club names as one comma-separated argument
 so a name containing a space, e.g. "AS Roma", survives a GitHub Actions
-`workflow_dispatch` text input intact), run by its own
-`clean-stale-club-attributes.yml` workflow. It deletes every `PlayerData`
+`workflow_dispatch` text input intact), run via `dotnet run --
+clean-stale-club-attributes` locally — its `clean-stale-club-attributes.yml`
+`workflow_dispatch` wrapper was deleted in S-132 (2026-08-17) as a one-off
+incident tool with no runs since 2026-07-17; the verb itself is unchanged
+and can be re-run the same way, or via a throwaway manual `workflow_dispatch`
+re-add if ever needed. It deletes every `PlayerData`
 and `PlayerAttribute` row of type `club` whose value matches one of the
 given names, querying `XGArcadeDbContext` directly rather than through
 `IPlayerStoreRepository` — acceptable here because this code lives inside
@@ -1391,8 +1395,10 @@ before any deletion in `CompositionRoot/CliVerbDispatcher.cs`'s argument
 handling, rather than
 matching zero rows and printing a plausible "removed 0 rows" success —
 no seeded club name starts with `-`, so this never rejects a real list.
-Same manual, workflow_dispatch-only friction as the named mode, same
-clean-then-warm ordering rule, still never wired into `migrate-and-seed`.
+Same manual, CLI-only friction as the named mode (its `workflow_dispatch`
+wrapper was the same `clean-stale-club-attributes.yml`, removed the same
+way in S-132), same clean-then-warm ordering rule, still never wired into
+`migrate-and-seed`.
 
 **REQ-112 player pool restriction (S-038, ADR-0025):** the same
 "can't selectively fix already-cached data" problem, but for the whole
@@ -1447,10 +1453,14 @@ without a destructive wipe-and-rerun — a full `purge-player-pool` +
 anonymize-never-hard-delete precedent is the same instinct applied to a
 different table). It's a sixth `dotnet run --` CLI verb,
 `backfill-player-photos`, same shape as every verb above (builds its
-dependencies directly, reuses `ConfigureWikidataHttpClient`), run manually
-via `backfill-player-photos.yml` (`workflow_dispatch` only) — squarely
-inside ADR-0024's existing "CLI verb, never an HTTP endpoint or background
-task" decision, not a new one.
+dependencies directly, reuses `ConfigureWikidataHttpClient`), run via
+`dotnet run -- backfill-player-photos` locally — its
+`backfill-player-photos.yml` `workflow_dispatch` wrapper was deleted in
+S-132 (2026-08-17) as a one-off incident tool with no runs since
+2026-07-18; re-runnable the same way, or via a throwaway manual
+`workflow_dispatch` re-add if ever needed — squarely inside ADR-0024's
+existing "CLI verb, never an HTTP endpoint or background task" decision,
+not a new one.
 
 Two new members support it:
 - `IWikidataClient.QueryPlayerPhotosByQidsAsync` — a batched, direct-by-QID
@@ -1553,8 +1563,11 @@ like "midfielder." Fixed by adding the label service and requesting
 builders' shared `?position` binding (see REQ-1207's status note in
 `requirements-document.md`). Seventh `dotnet run --` CLI verb,
 `backfill-player-position-birthyear`, same shape as every verb above, run
-manually via `backfill-player-position-birthyear.yml` (`workflow_dispatch`
-only).
+via `dotnet run -- backfill-player-position-birthyear` locally — its
+`backfill-player-position-birthyear.yml` `workflow_dispatch` wrapper was
+deleted in S-132 (2026-08-17) as a one-off incident tool with no runs
+since 2026-08-10; re-runnable the same way, or via a throwaway manual
+`workflow_dispatch` re-add if ever needed.
 
 **xG Path's own direct career fetch (2026-08-02, ADR-0054):** unlike the two
 backfill services above (one-time, bulk, run via a CLI verb against the

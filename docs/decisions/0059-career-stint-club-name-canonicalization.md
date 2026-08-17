@@ -164,3 +164,14 @@ provably the same stint, and added a same-`ClubName` grouping pass. Any
 or treating two DIFFERENT, both-populated `AppearanceCount` values as a
 match) still needs its own fresh ADR referencing both this one and
 ADR-0063 — this guardrail is not satisfied once and then void.
+
+**Follow-up (S-132, 2026-08-17):** the Decision section's "run manually via
+`workflow_dispatch`" line refers to `clean-duplicate-career-stints.yml`,
+which was deleted in S-132 along with six other one-off incident-recovery
+workflow wrappers that had no runs in weeks. This does not change the
+decision recorded above — `DuplicateCareerStintCleaner` and its
+`clean-duplicate-career-stints` CLI verb are unchanged and still runnable
+by hand via `dotnet run -- clean-duplicate-career-stints`, or a throwaway
+manual `workflow_dispatch` re-add if ever needed; only the standing
+Actions-tab wrapper is gone. See `docs/backlog.md` S-132 and
+`docs/CHANGELOG.md`.

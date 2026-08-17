@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.76"
+version: "1.77"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -7648,9 +7648,13 @@ solved, exhausted-unsolved, and still-unlocked cases).
   backfills them. `PlayerPositionBirthYearBackfillService`
   (`XGArcade.DataSync.Wikidata`) — the exact mirror this REQ's own text
   named in advance — backfills them via a new `dotnet run --
-  backfill-player-position-birthyear` CLI verb
-  (`.github/workflows/backfill-player-position-birthyear.yml`,
-  `workflow_dispatch`-only). This REQ's set-once-at-creation contract above
+  backfill-player-position-birthyear` CLI verb. Its
+  `.github/workflows/backfill-player-position-birthyear.yml`
+  `workflow_dispatch`-only wrapper was deleted in S-132 (2026-08-17) as a
+  one-off incident tool with no runs since 2026-08-10 — the verb itself is
+  unchanged and still runnable via `dotnet run --
+  backfill-player-position-birthyear` locally, or a throwaway manual
+  `workflow_dispatch` re-add if ever needed. This REQ's set-once-at-creation contract above
   is unchanged going forward — the backfill only ever writes a `Player`
   row's currently-null field(s), never overwrites an already-set value.
 - **Status note (2026-08-02, bug-bundle fix): Position was persisted as a raw
