@@ -5681,6 +5681,21 @@ guess-scoring narrative notes the fallback is now conditional.
 *Deps:* ADR-0018, ADR-0046 (both describe the fallback this flag gates,
 neither is superseded), REQ-509/510 (remediation path while testing with
 the flag off).
+**Follow-up (2026-08-17):** ADR-0070's own Consequences section claimed
+flipping `GridLiveLookup:Enabled` needs "no redeploy of code" — true at the
+app-config level, but the flag was never actually wired into the deployed
+dev Container App at all: `infra/bicep/modules/backend-container-app.bicep`
+only forwards explicitly-declared params into the container's `env` block
+(same pattern `RoundScheduling__RoundDurationHours` already uses), and
+`gridLiveLookupEnabled` was missing from that list — so the deployed
+backend always ran with the flag's `true` default regardless of intent.
+Fixed by adding `gridLiveLookupEnabled` (default `true`, no behavior
+change) through `main.bicep` → `backend-container-app.bicep`'s
+`GridLiveLookup__Enabled` env entry, mirroring `roundDurationHours` exactly
+— the same "edit the bicep default, push to main, deploy.yml redeploys
+with no image change" pattern that param already establishes. `infra/README.md`
+checked, not updated — it doesn't document `roundDurationHours` at this
+level of detail either, so no drift introduced.
 
 **S-129 · `CommitPlayerDataResponse` reports what actually changed, not just what was requested (backend half)**
 The product owner wants to be certain, after approving a suggestion, that

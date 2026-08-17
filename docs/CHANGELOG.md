@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md`, `docs/decisions/0070-grid-live-lookup-flag.md`,
+  `infra/bicep/main.bicep`, `infra/bicep/modules/backend-container-app.bicep`
+  — S-128 follow-up: `GridLiveLookup__Enabled` was never actually wired into
+  the deployed dev Container App's environment variables, so the flag's
+  `true` default always applied regardless of intent — closed by adding a
+  `gridLiveLookupEnabled` bicep param (default `true`, no behavior change),
+  mirroring `roundDurationHours`'s existing wiring exactly — ADR-0070.
 - 2026-08-17 — `docs/backlog.md` — S-129 (frontend half): `SuggestionsScreen.tsx`
   now shows a real confirmation summary on commit instead of nothing
   (`PendingSuggestionRow`'s approval flow) or a generic "Player data

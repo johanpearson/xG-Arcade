@@ -86,6 +86,21 @@ widening the flag's scope to REQ-103 by accident.
   retire the flag/fallback outright with a new ADR — this decision
   deliberately doesn't prejudge that outcome.
 
+## Status note (2026-08-17)
+
+This ADR's Consequences section said flipping `GridLiveLookup:Enabled`
+needs "no redeploy of code" — accurate at the application-config level, but
+incomplete: the flag was never actually threaded into the deployed dev
+Container App's environment variables at all, so the deployed backend ran
+with the `true` default unconditionally regardless of intent. Closed by
+adding `gridLiveLookupEnabled` to `infra/bicep/main.bicep` and
+`infra/bicep/modules/backend-container-app.bicep` (default `true`, no
+behavior change), mirroring `roundDurationHours`'s existing param exactly.
+Turning the flag off for real still needs a deploy (editing the bicep
+default and pushing to main, or an equivalent `az deployment group create
+--parameters` override) — there is no live, in-place toggle independent of
+a deployment, same as every other option this repo wires through Bicep.
+
 ## For AI agents
 
 Do not extend this flag to gate `GridGenerationService.GetMatchCountAsync`
