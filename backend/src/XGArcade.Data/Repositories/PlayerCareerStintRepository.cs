@@ -46,7 +46,7 @@ public class PlayerCareerStintRepository(XGArcadeDbContext dbContext) : IPlayerC
     }
 
     public async Task<IReadOnlyList<Guid>> GetCareerStintCandidatePlayerIdsAsync(
-        IReadOnlySet<string> seededClubNames, int minStintCount, CancellationToken cancellationToken = default)
+        IReadOnlySet<string> seededClubNames, int minSeededClubCount, CancellationToken cancellationToken = default)
     {
         // Same "materialize via ToListAsync, then GroupBy/filter as
         // LINQ-to-Objects" convention as IPlayerDataQualityRepository's own
@@ -62,9 +62,15 @@ public class PlayerCareerStintRepository(XGArcadeDbContext dbContext) : IPlayerC
             .Select(s => new { s.PlayerId, s.ClubName })
             .ToListAsync(cancellationToken);
 
+        // REQ-1201/ADR-0074/S-138: narrows to players with at least
+        // minSeededClubCount DISTINCT seeded club names among their
+        // stints — distinct ClubName values, not stint rows, so two stints
+        // at the same seeded club (loan, then later return) only ever
+        // contribute one toward this count, matching IsEligible's own
+        // "distinct qualifying club NAMES" semantics.
         return stints
             .GroupBy(s => s.PlayerId)
-            .Where(g => g.Count() >= minStintCount && g.Any(s => seededClubNames.Contains(s.ClubName)))
+            .Where(g => g.Select(s => s.ClubName).Where(seededClubNames.Contains).Distinct().Count() >= minSeededClubCount)
             .Select(g => g.Key)
             .ToList();
     }

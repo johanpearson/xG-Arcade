@@ -1,9 +1,18 @@
 # ADR-0047: xG Path eligibility requires meaningful playing time at the seeded club, not just any stint
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0074 (2026-08-17)
 - **Date:** 2026-07-27
 - **Related requirements:** REQ-1201
 - **Related components:** COMP-11 (Games.XGPath)
+
+> **Superseded by ADR-0074 (2026-08-17):** ADR-0074 raises this ADR's
+> "at least ONE qualifying seeded-club stint" requirement to "at least TWO
+> distinct qualifying seeded-club stints." The 20-appearance-or-unknown
+> quality bar this ADR defines (`MinAppearancesAtSeededClub`) is carried
+> forward unchanged and applied per-club — this ADR remains the
+> authoritative record for that threshold's own reasoning (why 20, why
+> unknown passes) — only the "how many qualifying clubs are required"
+> number changes. See ADR-0074 for the current eligibility rule.
 
 ## Context
 

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.81"
+version: "1.82"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -6995,8 +6995,10 @@ not a claim about current behavior.
   `IsEligible` per candidate. "At least 3 distinct documented career club
   stints" is implemented as **≥3 stint rows**, not 3 distinct clubs — see
   ADR-0045 for why (`PlayerCareerStint`'s own doc comment explicitly allows
-  two rows at the same club, e.g. a loan then a later return). "Chronological
-  order determinable from start/end dates" is implemented as: reject if any
+  two rows at the same club, e.g. a loan then a later return). **(This
+  ≥3-stint-row check was removed entirely 2026-08-17, S-138, ADR-0074 — see
+  the status note below; do not read this sentence as still-current.)**
+  "Chronological order determinable from start/end dates" is implemented as: reject if any
   two stints share an identical `(StartYear, EndYear)` pair, including two
   simultaneously "ongoing" stints (`EndYear` both `null`) — see ADR-0045.
   The "at least one seeded-club stint" check compares `PlayerCareerStint.
@@ -7007,7 +7009,11 @@ not a claim about current behavior.
   (`MinAppearancesAtSeededClub`, ADR-0047) — a known, sub-threshold count
   (e.g. a one-off loan appearance) does not count toward eligibility, but
   an unknown count still does, since Wikidata's P1350 qualifier being
-  absent isn't evidence of a fringe career. The REQ-112 pool-membership
+  absent isn't evidence of a fringe career. **(This 1-club threshold was
+  raised to 2 DISTINCT qualifying seeded clubs 2026-08-17, S-138, ADR-0074,
+  which also dropped the ≥3-stint-row check above entirely — see the status
+  note below for the current rule; the 20-appearance-or-unknown per-club bar
+  itself is unchanged.)** The REQ-112 pool-membership
   criterion is met **by construction, not by a runtime check**: at the time
   this eligibility check was built, `Player` had no `BirthYear`/`Gender`
   field at all to check against — `Player.BirthYear` was added later
@@ -7067,6 +7073,48 @@ not a claim about current behavior.
   See S-141 for the planned follow-up to re-verify the eligible-pool size
   once this and Epic 12's other narrowing changes (S-138–S-140) have
   landed together.
+- **Status note (2026-08-17, S-138, Epic 12 — ADR-0074, superseding ADR-0045's
+  Decision §3 on the ≥3-stint-row point and ADR-0047 in full): eligibility
+  now requires 2 DISTINCT qualifying seeded clubs, not 1, and the old
+  ≥3-stint-row check is dropped entirely, not kept alongside the new
+  check.** `XGPathGameModule.IsEligible` no longer checks `MinStintCount`
+  (the "at least 3 documented career club stints, any clubs" check the
+  original 2026-07-27 bullet above, now pointer-annotated, and the first
+  acceptance criterion below both describe) at all — it is now redundant,
+  since the new check below already implies at least 2 documented rows
+  exist, and nothing in this REQ's intent depends on an unrelated third row
+  once the club-quality bar itself is raised this way. In its place,
+  `IsEligible` now counts the number of DISTINCT seeded `ClubDefinition`
+  club NAMES — not stint rows; two stints at the same seeded club (e.g. a
+  loan then a later return) still count once, not twice — among the
+  candidate's stints where each individual qualifying stint's
+  `AppearanceCount` is either unknown (`null`) or at least
+  `MinAppearancesAtSeededClub` (20), the same per-club bar ADR-0047
+  established, carried forward unchanged and now applied per-club to 2
+  clubs (`MinQualifyingSeededClubs`) instead of to 1. The
+  chronological-order-determinable check (ADR-0045, unrelated to this note)
+  and the `BirthYear >= 1975` floor (2026-08-17, S-137, ADR-0073, above) are
+  both completely unchanged and evaluated independently of this note.
+  `IPlayerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync`'s
+  narrowing pre-filter parameter was renamed `minSeededClubCount` (from
+  `minStintCount`) and its over-inclusive superset condition changed to
+  match: "≥2 distinct seeded club names among a player's stints," still
+  ignoring the per-club appearance-count sub-condition for the same reason
+  as before (that only narrows further, and the cheap projection this
+  method reads doesn't carry `AppearanceCount`) — it remains a true
+  superset of `IsEligible`'s real candidates. **This note supersedes, without
+  editing them in place, the "at least 3 distinct documented career club
+  stints" and "at least one of those stints must be at a club present
+  in... `ClubDefinition`" acceptance-criteria bullets below** — those
+  bullets are kept for history per this REQ's own append-only convention
+  rather than rewritten in place; treat this note, not those two bullets,
+  as the current rule (the same "kept, not deleted, no longer current
+  reasoning" handling the 2026-08-10 note above uses for the 2026-08-08
+  note it supersedes). See ADR-0074 for the full reasoning, the
+  alternatives considered, and why the old check was dropped rather than
+  kept alongside the new one. See S-141 for the planned follow-up pool-size
+  re-verification after Epic 12's S-138–S-140 narrowing changes land
+  together.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club

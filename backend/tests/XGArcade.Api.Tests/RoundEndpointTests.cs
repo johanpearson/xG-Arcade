@@ -122,23 +122,26 @@ public class RoundEndpointTests
         await dbContext.SaveChangesAsync();
     }
 
-    // S-084/REQ-1202: eligible xG Path target players (REQ-1201 — at least 3
-    // ordered career stints, one at a seeded club) — mirrors
-    // XGPathGameModuleTests.SeedEligiblePlayer's exact fixture shape (3
-    // well-ordered stints, one at a seeded club) rather than reinventing it,
-    // since that's the file that already established what "eligible" means
-    // for this game at a fixture level. BirthYear = 1990 for the same reason
-    // XGPathGameModuleTests.SeedPlayer/SeedEligiblePlayer default to it
-    // (REQ-1201/ADR-0073/S-137): comfortably above the new BirthYear >= 1975
+    // S-084/REQ-1202: eligible xG Path target players — REQ-1201/ADR-0074/
+    // S-138: at least 2 DISTINCT qualifying seeded-club stints (updated from
+    // the old "≥3 ordered stints, ≥1 at a seeded club" rule) — mirrors
+    // XGPathGameModuleTests.SeedEligiblePlayer's exact fixture shape (2
+    // distinct seeded clubs plus 1 unseeded stint) rather than reinventing
+    // it, since that's the file that already established what "eligible"
+    // means for this game at a fixture level. BirthYear = 1990 for the same
+    // reason XGPathGameModuleTests.SeedPlayer/SeedEligiblePlayer default to
+    // it (REQ-1201/ADR-0073/S-137): comfortably above the BirthYear >= 1975
     // floor, so this fixture stays eligible without needing to know about
-    // the new rule.
+    // that rule either.
     private async Task SeedEligiblePathPlayersAsync(int count, WebApplicationFactory<Program>? factory = null)
     {
         using var scope = (factory ?? _factory).Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
 
         const string seededClubName = "Seeded FC";
+        const string secondSeededClubName = "Seeded FC 2";
         dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = seededClubName, WikidataQid = "Qclub-seeded-fc" });
+        dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = secondSeededClubName, WikidataQid = "Qclub-seeded-fc-2" });
 
         for (var i = 0; i < count; i++)
         {
@@ -146,7 +149,7 @@ public class RoundEndpointTests
             dbContext.Players.Add(player);
             dbContext.PlayerCareerStints.AddRange(
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = seededClubName, StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },
-                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Some Unseeded Club", StartYear = 2013, EndYear = 2016, SequenceOrder = 1 },
+                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = secondSeededClubName, StartYear = 2013, EndYear = 2016, SequenceOrder = 1 },
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Another Unseeded Club", StartYear = 2016, EndYear = null, SequenceOrder = 2 });
         }
 
