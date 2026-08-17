@@ -70,6 +70,10 @@ export interface CurrentRoundCell {
 
 export interface CurrentRoundResponse {
   roundId: string;
+  // REQ-304: a human-readable, per-GameKey round number (e.g. "Grid Round
+  // #12") — display-only, never a substitute identifier for routing,
+  // submission, or lookup, which always use roundId above.
+  sequenceNumber: number;
   startTime: string;
   endTime: string;
   allowGuessChange: boolean;
@@ -187,10 +191,13 @@ export interface LeaderboardResponse {
 // (never active/upcoming, which is REQ-407/S-053's "Current Round"
 // scope's territory instead) — `closedAt` is the field the list is ordered
 // by (most recently closed first), `startTime`/`endTime` are the round's own
-// window. There is no round-number field anywhere in this data, so the UI
-// must label a row using these timestamps, never a fabricated "round #N."
+// window. REQ-304 (S-135) added `sequenceNumber`, a human-readable
+// per-GameKey round number, alongside the existing `roundId` — `roundId`
+// remains the real identifier for every lookup/route, `sequenceNumber` is
+// display-only.
 export interface ClosedRoundSummary {
   roundId: string;
+  sequenceNumber: number;
   startTime: string;
   endTime: string;
   closedAt: string;
@@ -284,9 +291,13 @@ export interface PlayerOverride {
 }
 
 // REQ-505: a single round, as returned by the admin round-control endpoints
-// (close/end-time) and nested inside AdminActiveRound below.
+// (close/end-time) and nested inside AdminActiveRound below. REQ-304
+// (S-135) added `sequenceNumber` — the human-readable per-GameKey round
+// number rendered by RoundControlSection.tsx as "Grid Round #N"/"Path Round
+// #N", never the raw `roundId` GUID, which stays the real identifier.
 export interface AdminRound {
   roundId: string;
+  sequenceNumber: number;
   gameKey: string;
   startTime: string;
   endTime: string;
@@ -504,6 +515,9 @@ export interface CurrentPathPuzzle {
 // idiom as CurrentRoundResponse above.
 export interface CurrentPathResponse {
   roundId: string;
+  // REQ-304: see CurrentRoundResponse.sequenceNumber above — same
+  // display-only, per-GameKey ("xg-path") round number.
+  sequenceNumber: number;
   startTime: string;
   endTime: string;
   allowGuessChange: boolean;

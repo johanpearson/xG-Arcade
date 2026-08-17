@@ -14,6 +14,9 @@ interface RoundControlSectionProps {
 // REQ-505: rendered only when the round-control/user-deletion probe found
 // the feature present (AdminScreen's `activeRound !== null` gate) — never
 // disabled-but-visible in Production, since the probe itself 404s there.
+// REQ-304: this section is Grid-only (hardcoded XG_GRID_GAME_KEY above), so
+// the round label always uses the "Grid Round #{sequenceNumber}" phrasing —
+// the raw roundId GUID is never rendered as visible text.
 export function RoundControlSection({ accessToken, activeRound, onAuthError, onRefresh }: RoundControlSectionProps) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -67,7 +70,7 @@ export function RoundControlSection({ accessToken, activeRound, onAuthError, onR
       <h3 className="admin-screen__section-title">Round control — {XG_GRID_GAME_KEY}</h3>
       {activeRound.hasActiveRound && activeRound.round ? (
         <p className="admin-screen__row-summary">
-          Round {activeRound.round.roundId} · ends {activeRound.round.endTime}
+          Grid Round #{activeRound.round.sequenceNumber} · ends {activeRound.round.endTime}
         </p>
       ) : (
         <p className="admin-screen__empty">No active round right now.</p>
