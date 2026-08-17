@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md` — folded a rename into S-134:
+  `warm-player-cache.yml` → `warm-grid-cache.yml`, since it only ever
+  fills xG Grid's `PlayerAttribute` cache (not `PlayerCareerStint`, which
+  is xG Path's `prefetch-player-careers.yml`) and the un-scoped name broke
+  parity with the Epic 11 `generate-grid-round.yml`/`generate-path-round.yml`
+  split. Also added a standing "token efficiency" directive to the
+  backlog's "For AI agents" preamble — governs how every story (not just
+  today's) should be turned into a session prompt: hand the implementing
+  agent the story's already-recorded file/line specifics directly instead
+  of re-deriving them via broad exploration, and keep session scope to
+  exactly what the story names. No code changed yet.
 - 2026-08-17 — `docs/backlog.md` — product decision: rewrote S-130 from
   "patch `backup-database.yml` with an early-exit guard" to "delete every
   Tier 1 dev/prod-split workflow that has never succeeded" (clean slate,

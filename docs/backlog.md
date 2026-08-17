@@ -10,6 +10,22 @@ its tests must be named after (`REQ###_...`, see `docs/coding-guidelines.md`).
 > REQ IDs pass, `ci.yml` green, docs updated if reality diverged
 > (`/update-docs`), CHANGELOG entry if docs changed. Do not start a story
 > before its dependencies are merged. Do not pull Tier 1 items forward.
+>
+> **Token efficiency (2026-08-17):** high priority alongside correctness —
+> spend tokens on the work, not on re-deriving context a story already
+> paid for. A well-scoped story already names its exact files, line
+> numbers, and root causes from the investigation that produced it; when
+> turning a story into a session prompt (`/orchestrate` or a direct
+> session), hand the implementing agent those specifics directly instead
+> of re-opening a broad codebase exploration the story text already
+> closed. Keep a session's scope to exactly what its own story names —
+> don't fold in adjacent "while we're in there" cleanup that pulls in
+> files or context outside it (file a follow-up story instead). Prefer a
+> targeted `Edit` over reading and rewriting a whole file. When a story's
+> own investigation is incomplete or a root cause is still unconfirmed,
+> say so in the story rather than sending an agent to re-discover it from
+> scratch. This applies to every story above and below, not just the ones
+> written on this date.
 
 ## Epic 0 — Foundations (no game logic yet)
 
@@ -5898,23 +5914,41 @@ explanation rather than being silently removed or having its number
 reused).
 *Deps:* superseded by S-130.
 
-**S-134 · Workflow naming audit (no renames found necessary beyond the Epic 11 split)**
+**S-134 · Workflow naming audit — rename `warm-player-cache.yml` → `warm-grid-cache.yml`, no other renames needed**
 Explicit audit of every workflow name that survives S-130/S-132's
-deletions against a verb-object, kebab-case, unambiguous-scope bar: `ci`,
-`deploy`, `warm-player-cache`, `prefetch-player-careers`,
-`import-player-name-index`, `purge-guest-accounts`, `purge-player-pool`
-all already read clearly and unambiguously on their own — renaming any of
-them for its own sake would just create diff noise and break muscle-memory/
-external references (`infra/README.md`, dashboards) for no reader benefit.
-The one real ambiguity found was `generate-round.yml` implicitly covering
-both games with no name-level indication of that — S-136 (Epic 11)
-resolves this by splitting it into `generate-grid-round.yml` /
-`generate-path-round.yml`, which *is* the naming fix, not a separate
-rename. With S-130 removing the entire Tier 1 dev/prod-split/backup family
-outright, there's nothing left in that group to weigh a name against.
-*Accept:* this entry itself is the deliverable (a documented "considered
-and found unnecessary" audit) — no code change. Recorded so a future
-session doesn't re-litigate workflow naming from scratch.
+deletions against a verb-object, kebab-case, unambiguous-scope bar. Most
+already read clearly on their own — `ci`, `deploy`,
+`import-player-name-index`, `purge-guest-accounts`, `purge-player-pool` —
+and renaming any of them for its own sake would just create diff noise and
+break muscle-memory/external references (`infra/README.md`, dashboards)
+for no reader benefit. Two real gaps found, both the same shape as the
+`generate-round.yml` split (Epic 11): a name that doesn't say which game it
+serves. `generate-round.yml`'s fix is the split itself (S-136), not a
+separate rename. `warm-player-cache.yml` needs an actual rename: it fills
+`PlayerAttribute` (xG Grid's category-pairing answer cache) only — it does
+not touch `PlayerCareerStint`, which is xG Path's `prefetch-player-careers.yml`.
+"Warm cache" is the right verb (this genuinely is a correctness-cache
+warming operation, confirmed against `PlayerCacheWarmingService`'s own
+behavior — not a raw player-roster import), but "player cache" doesn't say
+*which* cache or *which* game, unlike its Path counterpart. Rename to
+**`warm-grid-cache.yml`**, giving the two per-game data-prep jobs matching,
+scoped names (`warm-grid-cache.yml` / `prefetch-player-careers.yml`) the
+same way `generate-grid-round.yml`/`generate-path-round.yml` will. Do
+**not** invent one shared name for both jobs — they build genuinely
+different tables for genuinely different correctness models (ADR-0042
+deliberately keeps `PlayerAttribute`/xG Grid and `PlayerCareerStint`/xG
+Path unreadable from each other's side), so a shared name would misrepresent
+that boundary, not just relabel it. With S-130 removing the entire Tier 1
+dev/prod-split/backup family outright, there's nothing left in that group
+to weigh a name against.
+*Accept:* `.github/workflows/warm-player-cache.yml` renamed to
+`warm-grid-cache.yml`, content unchanged; a full-repo sweep (not just the
+file itself) updates every reference to the old filename by name —
+`PlayerCacheWarmingService`'s own doc comment, `NOTES.md`, `infra/README.md`,
+`architecture-document.md`, and any other workflow's own comments that
+name it (e.g. `purge-guest-accounts.yml`'s cron-offset note references
+other jobs by name) — a grep for the literal string `warm-player-cache`
+across the repo returns zero hits once done; CHANGELOG entry.
 *Deps:* S-130, S-132 (audit the post-cleanup set, not the pre-cleanup one).
 
 ## Epic 11 — Round generation: per-game workflows, human-readable round IDs
