@@ -5787,28 +5787,45 @@ scheduled runs, and `prefetch-player-careers.yml` has failed 4 of its last
 6 — which is the concrete substance behind "always failing." Everything
 else below is scoped from the same audit, not guessed.
 
-**S-130 · Fix `backup-database.yml`'s 40/40 failing daily cron**
-Every scheduled run since the workflow's creation (2026-07-08, 40 runs) has
-failed. Root cause (from the workflow's own header comment): it targets
-`PROD_*` secrets, but per `MVP-SCOPE.md`'s Tier 1 bright line, prod does
-not exist yet — those secrets were never configured, so every run fails at
-whichever step first references them. This is the exact same situation
-`promote-dev-to-prod-dry-run.yml` was built to handle gracefully: its first
-step checks for `PROD_DATABASE_CONNECTION_STRING` and exits 0 with a clean
-job-summary note when it's unset, rather than going red. `backup-database.yml`
-has no equivalent guard. Add the same early-exit check (same secret name,
-same pattern) so the daily cron goes green-with-a-note instead of red until
-Tier 1's real prod exists, at which point the guard's `if` naturally starts
-running the real backup instead of short-circuiting.
-*Accept:* a run with `PROD_DATABASE_CONNECTION_STRING` unset completes
-`success` with a job-summary line explaining why nothing was backed up; the
-existing backup logic is otherwise untouched (REQ-901's real backup
-behavior, once Tier 1 exists, is unaffected); `infra/README.md`'s restore
-procedure section gets a one-line note that the schedule no-ops until prod
-exists, matching `promote-dev-to-prod-dry-run.yml`'s own documented
-precedent. No REQ change (REQ-901 already describes the intended prod
-behavior; this fixes an operational gap in how Tier 0 handles a Tier-1-only
-job, not the requirement itself).
+**S-130 · Delete every Tier 1 dev/prod-split workflow that has never succeeded — clean slate, re-add when Tier 1 actually needs it**
+Product decision (2026-08-17, explicit): no patch-and-keep for these — if
+a Tier 1 workflow has zero runs or has never once gone green, delete it
+outright rather than fixing/guarding it, since none of Tier 1's real prod
+environment exists yet for it to act on anyway. Re-adding a thin
+`workflow_dispatch` wrapper later, once Tier 1 actually starts, is cheap;
+carrying dead/red entries in the Actions tab in the meantime is not.
+Supersedes this epic's original S-130 (which proposed patching
+`backup-database.yml` with an early-exit guard) and resolves S-133's
+"decide" framing outright — delete, don't debate. Five workflows meet the
+bar, confirmed against `list_workflow_runs`, not assumed:
+- `backup-database.yml` — **40/40 scheduled runs failed** (targets
+  `PROD_*` secrets that don't exist yet).
+- `promote-dev-to-prod.yml` — **0 runs ever**.
+- `sync-players.yml` — **0 runs ever** (own header comment already says it
+  needs rewriting, not just re-enabling, once Tier 1's API-Football
+  integration lands — "T-101" — so today's file gives no head start).
+- `sync-prod-to-dev.yml` — **0 runs ever**.
+- `promote-dev-to-prod-dry-run.yml` — technically ran twice and succeeded
+  both times, so it doesn't meet the "never succeeded" bar on its own, but
+  its entire purpose (an early-warning drift check before someone runs the
+  real promote) is moot once `promote-dev-to-prod.yml` is gone — delete it
+  alongside its target rather than leave an orphaned dry-run for a
+  workflow that no longer exists.
+Keep the underlying scripts (`infra/scripts/sync-prod-to-dev.sh`,
+`infra/scripts/promote-dev-to-prod.sh`, and whatever `sync-players.yml`
+currently wraps) runnable by hand/CLI — same "delete the workflow wrapper,
+keep the capability" pattern S-132 already applies to the one-off
+maintenance tools — so nothing is actually lost, only the always-red or
+never-triggered Actions-tab entries.
+*Accept:* all 5 `.yml` files deleted; `infra/README.md` updated to drop
+references to the deleted workflows and gains a short note (near the Tier 1
+section) that dev/prod-split automation was deliberately removed until
+Tier 1 creates a real prod environment, with a pointer to the kept
+scripts for manual use in the meantime; `MVP-SCOPE.md`'s Tier 1 section
+gets the same pointer so a future Tier-1 session isn't surprised these
+are gone; REQ-901 (backup) gets a status note that its automation was
+removed pending Tier 1, not that the requirement itself changed.
+CHANGELOG entry naming all 5 removed workflows and why.
 *Deps:* none.
 
 **S-131 · Diagnose `prefetch-player-careers.yml`'s 4/6 recent failures**
@@ -5867,50 +5884,38 @@ which workflows were removed and why (matches the "removing something
 non-obvious" documentation bar this repo already holds itself to).
 *Deps:* none.
 
-**S-133 · Decide: keep-dormant vs. remove the three never-triggered Tier-1-pending workflows**
-`promote-dev-to-prod.yml`, `sync-players.yml`, and `sync-prod-to-dev.yml`
-have **zero runs ever** (`total_count: 0` each, confirmed via
-`list_workflow_runs`) — the strongest possible reading of "never used."
-Unlike Epic 10's other removals, these are not incident artifacts that
-already served their purpose: each is deliberately built ahead of when
-it's needed (ADR-0006/ADR-0009's documented environment-split design,
-`sync-players.yml`'s own header comment explicitly says its cron is
-disabled "until Tier 1" and this is intentional, not a bug). Deleting them
-now means re-authoring them later when Tier 1's real prod environment
-actually exists; keeping them means the Actions tab carries three
-permanently-red-if-ever-triggered, always-zero-runs entries indefinitely.
-**This is a product decision, not an engineering one** — flagging it here
-rather than silently picking a side, matching this backlog's own S-092
-precedent (escalate rather than guess when a story's premise touches a
-prior deliberate decision). Recommend: keep `promote-dev-to-prod.yml` and
-`sync-prod-to-dev.yml` (the environment-split pair — small, unlikely to
-rot, directly gates the Tier 1 cutover) but remove `sync-players.yml`
-(its own comment already flags it needs *rewriting*, not just re-enabling,
-once API-Football is actually wired up in Tier 1 — "T-101" — so the
-current file provides no head start and is pure clutter until then).
-*Accept:* product owner confirms keep/remove per workflow; whichever are
-removed get the same "re-add when Tier 1 needs it" note S-132 used;
-`MVP-SCOPE.md`'s Tier 1 section gets a one-line pointer to whichever were
-removed, so a future Tier-1 session doesn't have to rediscover this
-decision from git history.
-*Deps:* none.
+**S-133 · Superseded by S-130 — decision made, not left open**
+Originally framed this as an open product decision (keep-dormant vs.
+remove the three never-triggered Tier-1-pending workflows). Resolved
+2026-08-17: product owner chose "clean slate" outright — delete every
+Tier 1 workflow that's unused or has failed, no debate, re-add later if
+Tier 1 needs it. Folded into S-130 (which now covers all 5 affected
+workflows, not just these 3, since the same reasoning extends to
+`backup-database.yml` and `promote-dev-to-prod-dry-run.yml` too). Kept as
+a numbered entry rather than deleted outright, matching this backlog's own
+S-092 precedent (a dropped/superseded story keeps its number and a short
+explanation rather than being silently removed or having its number
+reused).
+*Deps:* superseded by S-130.
 
 **S-134 · Workflow naming audit (no renames found necessary beyond the Epic 11 split)**
-Explicit audit of all kept workflow names against a verb-object,
-kebab-case, unambiguous-scope bar: `ci`, `deploy`, `warm-player-cache`,
-`prefetch-player-careers`, `import-player-name-index`, `purge-guest-accounts`,
-`purge-player-pool`, `backup-database`, `promote-dev-to-prod`(-dry-run),
-`sync-prod-to-dev` all already read clearly and unambiguously on their own
-— renaming any of them for its own sake would just create diff noise and
-break muscle-memory/external references (`infra/README.md`, dashboards)
-for no reader benefit. The one real ambiguity found was `generate-round.yml`
-implicitly covering both games with no name-level indication of that — S-136
-(Epic 11) resolves this by splitting it into `generate-grid-round.yml` /
-`generate-path-round.yml`, which *is* the naming fix, not a separate rename.
+Explicit audit of every workflow name that survives S-130/S-132's
+deletions against a verb-object, kebab-case, unambiguous-scope bar: `ci`,
+`deploy`, `warm-player-cache`, `prefetch-player-careers`,
+`import-player-name-index`, `purge-guest-accounts`, `purge-player-pool`
+all already read clearly and unambiguously on their own — renaming any of
+them for its own sake would just create diff noise and break muscle-memory/
+external references (`infra/README.md`, dashboards) for no reader benefit.
+The one real ambiguity found was `generate-round.yml` implicitly covering
+both games with no name-level indication of that — S-136 (Epic 11)
+resolves this by splitting it into `generate-grid-round.yml` /
+`generate-path-round.yml`, which *is* the naming fix, not a separate
+rename. With S-130 removing the entire Tier 1 dev/prod-split/backup family
+outright, there's nothing left in that group to weigh a name against.
 *Accept:* this entry itself is the deliverable (a documented "considered
 and found unnecessary" audit) — no code change. Recorded so a future
 session doesn't re-litigate workflow naming from scratch.
-*Deps:* S-132, S-133 (audit the post-cleanup set, not the pre-cleanup one).
+*Deps:* S-130, S-132 (audit the post-cleanup set, not the pre-cleanup one).
 
 ## Epic 11 — Round generation: per-game workflows, human-readable round IDs
 

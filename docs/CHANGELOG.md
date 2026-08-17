@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/backlog.md` — product decision: rewrote S-130 from
+  "patch `backup-database.yml` with an early-exit guard" to "delete every
+  Tier 1 dev/prod-split workflow that has never succeeded" (clean slate,
+  re-add when Tier 1 actually needs it) — now covers `backup-database.yml`
+  (40/40 failed), `promote-dev-to-prod.yml` (0 runs), `sync-players.yml`
+  (0 runs), `sync-prod-to-dev.yml` (0 runs), and `promote-dev-to-prod-dry-run.yml`
+  (orphaned once its target is gone). S-133, which had left keep-vs-remove
+  as an open product decision, is marked superseded rather than deleted
+  (kept numbered, per the S-092 precedent). S-134's naming-audit list and
+  deps updated to match the smaller post-cleanup workflow set. No code
+  changed yet.
 - 2026-08-17 — `docs/backlog.md` — added S-151 (Epic 13) scoping a fix for
   autocomplete's reported first-keystroke slowness: confirmed the backend
   Container App scales to zero (`minReplicas: 0`) and the existing
