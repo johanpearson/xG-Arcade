@@ -7045,8 +7045,8 @@ not a claim about current behavior.
   national team, senior or youth, not just youth/age-grade rows — see
   REQ-1203's own 2026-08-10 status note for the full reasoning; this
   eligibility-check call site is otherwise unchanged.
-- **Status note (2026-08-17, S-137, Epic 12 — new ADR superseding ADR-0045
-  on this one point, number TBD): xG Path now additionally requires
+- **Status note (2026-08-17, S-137, Epic 12 — ADR-0073, superseding ADR-0045
+  on this one point): xG Path now additionally requires
   `Player.BirthYear >= 1975`, a second, xG-Path-only eligibility floor
   layered on top of (not replacing) REQ-112's own 1939 floor.**
   `XGPathGameModule.GetEligiblePlayerIdsAsync` checks `Player.BirthYear`
@@ -7115,9 +7115,12 @@ since `Player` has no field that could represent "outside the pool"; see
 `Player.BirthYear` is a real field this eligibility check reads directly,
 so its boundary is covered by runtime fixtures, not inspection —
 `BirthYear == 1975` (included, boundary), `BirthYear == 1974` (excluded),
-and `BirthYear == null` (excluded, fail-closed) in both
-`PathCareerStintFilterTests.cs` and `XGPathGameModuleTests.cs` per the
-backlog story's own acceptance criteria. ADR-0056's familiarity
+and `BirthYear == null` (excluded, fail-closed) in `XGPathGameModuleTests.cs`
+only, per the backlog story's own acceptance criteria — this check lives in
+`XGPathGameModule.GetEligiblePlayerIdsAsync`, not `PathCareerStintFilter`,
+so `PathCareerStintFilterTests.cs` carries only an explanatory comment
+noting why this rule has no stint-level surface to test, not a fixture
+case. ADR-0056's familiarity
 filter: `XGPathGameModuleTests` covers the game-module-level wiring — below
 threshold, at/above threshold, structural-ineligibility candidates never
 even reaching the filter — via `FakePlayerFamiliarityService`;
