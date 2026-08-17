@@ -166,7 +166,9 @@ public record LeaderboardPage(
 // REQ-408: one browsable closed round, for the round-selection list. Never
 // carries the active/upcoming round (Round.ClosedAt is only ever set once
 // RoundCloseService has actually closed it).
-public record ClosedRoundSummary(Guid RoundId, DateTime StartTime, DateTime EndTime, DateTime ClosedAt);
+// REQ-304: SequenceNumber is a display-only label alongside RoundId — RoundId
+// remains the real identifier this list's rows are looked up by.
+public record ClosedRoundSummary(Guid RoundId, int SequenceNumber, DateTime StartTime, DateTime EndTime, DateTime ClosedAt);
 
 public record ClosedRoundListPage(
     IReadOnlyList<ClosedRoundSummary> Rounds,

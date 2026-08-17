@@ -12,6 +12,16 @@ public class RoundRepository(XGArcadeDbContext dbContext) : IRoundRepository
             .OrderByDescending(r => r.EndTime)
             .FirstOrDefaultAsync(cancellationToken);
 
+    // REQ-304: MAX(SequenceNumber) scoped to this GameKey — null when no
+    // rounds exist yet for it, so the caller's own "start at 1" fallback is
+    // exactly `?? 0` + 1.
+    public async Task<int?> GetMaxSequenceNumberByGameKeyAsync(string gameKey, CancellationToken cancellationToken = default) =>
+        await dbContext.Rounds
+            .AsNoTracking()
+            .Where(r => r.GameKey == gameKey)
+            .Select(r => (int?)r.SequenceNumber)
+            .MaxAsync(cancellationToken);
+
     // REQ-303: RoundStatusExtensions.GetStatus's own definition of "active"
     // (StartTime <= now <= EndTime), applied in the query rather than
     // fetched-then-filtered in memory. REQ-301's one-round-ahead scheduling

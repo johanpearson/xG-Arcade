@@ -46,6 +46,7 @@ public class RoundCloseServiceTests
             Id = Guid.NewGuid(),
             GameKey = "xg-grid",
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = startTime,
             EndTime = endTime,
             AllowGuessChange = true,

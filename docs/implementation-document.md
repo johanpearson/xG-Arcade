@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.00"
+version: "1.01"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -986,6 +986,14 @@ public class Round
     public Guid Id { get; set; }
     public string GameKey { get; set; }        // e.g. "xg-grid"; used to resolve the owning IGameModule
     public Guid GameInstanceId { get; set; }   // opaque to Core; meaningful only to the owning game module
+    // REQ-304/ADR-0071: a display-only, human-readable label — MAX+1 scoped
+    // to this row's own GameKey, assigned once at creation time by
+    // RoundGenerationService. Unique per GameKey ((GameKey, SequenceNumber)
+    // index), but two different GameKeys' rounds may share a value —
+    // independent per-GameKey counters, same scoping as
+    // IRoundSchedulingOptionsResolver. Never a routing/lookup key — Id
+    // remains the only real PK/FK everywhere else in the system.
+    public int SequenceNumber { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public bool AllowGuessChange { get; set; }

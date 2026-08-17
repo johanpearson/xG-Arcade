@@ -160,6 +160,7 @@ public class PathEndpointTests
             Id = Guid.NewGuid(),
             GameKey = XGPathGameModule.XGPathGameKey,
             GameInstanceId = instanceId,
+            SequenceNumber = 1,
             StartTime = startTime,
             EndTime = endTime,
             AllowGuessChange = allowGuessChange,

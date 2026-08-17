@@ -140,6 +140,7 @@ public class CurrentRoundEndpointTests
             Id = Guid.NewGuid(),
             GameKey = GridGameModule.XGGridGameKey,
             GameInstanceId = instanceId,
+            SequenceNumber = 1,
             StartTime = startTime,
             EndTime = endTime,
             AllowGuessChange = allowGuessChange,

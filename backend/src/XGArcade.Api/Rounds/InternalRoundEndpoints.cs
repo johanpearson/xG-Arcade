@@ -117,7 +117,7 @@ public static class InternalRoundEndpoints
                 var round = await roundGenerationService.GenerateNextRoundIfNeededAsync(
                     gameKey, new RoundConfig { TemplateId = templateId }, roundDurationOverride, cancellationToken);
 
-                return Results.Ok(new GenerateRoundResponse(round.Id, round.GameKey, round.StartTime, round.EndTime));
+                return Results.Ok(new GenerateRoundResponse(round.Id, round.SequenceNumber, round.GameKey, round.StartTime, round.EndTime));
             }
             catch (Exception ex) when (ex is GridGenerationException or PathGenerationException)
             {
@@ -271,11 +271,18 @@ public static class InternalRoundEndpoints
                 new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "club", AttributeValue = "Arsenal" },
                 cancellationToken);
 
+            // REQ-304: this test-data endpoint bypasses RoundGenerationService
+            // entirely, so it computes the same MAX(SequenceNumber)+1 scoped
+            // to this GameKey itself — the (GameKey, SequenceNumber) unique
+            // index still applies to every Round row regardless of which
+            // path created it.
+            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(GridGameModule.XGGridGameKey, cancellationToken) ?? 0) + 1;
             var round = await roundRepository.AddAsync(new Round
             {
                 Id = Guid.NewGuid(),
                 GameKey = GridGameModule.XGGridGameKey,
                 GameInstanceId = instance.Id,
+                SequenceNumber = sequenceNumber,
                 StartTime = now.AddMinutes(-1),
                 EndTime = now.AddHours(1),
                 AllowGuessChange = true,
@@ -353,11 +360,14 @@ public static class InternalRoundEndpoints
                 ],
             }, cancellationToken);
 
+            // REQ-304: see seed-guessable-round's identical note above.
+            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(XGPathGameModule.XGPathGameKey, cancellationToken) ?? 0) + 1;
             var round = await roundRepository.AddAsync(new Round
             {
                 Id = Guid.NewGuid(),
                 GameKey = XGPathGameModule.XGPathGameKey,
                 GameInstanceId = instance.Id,
+                SequenceNumber = sequenceNumber,
                 StartTime = now.AddMinutes(-1),
                 EndTime = now.AddHours(1),
                 AllowGuessChange = true,
@@ -385,7 +395,8 @@ public static class InternalRoundEndpoints
     }
 }
 
-public record GenerateRoundResponse(Guid RoundId, string GameKey, DateTime StartTime, DateTime EndTime);
+// REQ-304: SequenceNumber is a display-only label alongside RoundId.
+public record GenerateRoundResponse(Guid RoundId, int SequenceNumber, string GameKey, DateTime StartTime, DateTime EndTime);
 
 public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
 

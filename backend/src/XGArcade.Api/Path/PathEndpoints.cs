@@ -226,7 +226,7 @@ public static class PathEndpoints
                 puzzles.Add(new CurrentPathPuzzleResponse(puzzle.Id, revealedTurns, guessResponse));
             }
 
-            return Results.Ok(new CurrentPathResponse(round.Id, round.StartTime, round.EndTime, round.AllowGuessChange, puzzles));
+            return Results.Ok(new CurrentPathResponse(round.Id, round.SequenceNumber, round.StartTime, round.EndTime, round.AllowGuessChange, puzzles));
         }).RequireAuthorization();
     }
 
@@ -243,8 +243,11 @@ public static class PathEndpoints
             turn.TextValue);
 }
 
+// REQ-304: SequenceNumber is a display-only label alongside RoundId — see
+// CurrentRoundResponse's identical note (RoundEndpoints.cs).
 public record CurrentPathResponse(
     Guid RoundId,
+    int SequenceNumber,
     DateTime StartTime,
     DateTime EndTime,
     bool AllowGuessChange,

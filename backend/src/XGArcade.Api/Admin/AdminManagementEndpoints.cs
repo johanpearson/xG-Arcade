@@ -148,10 +148,11 @@ public static class AdminManagementEndpoints
     }
 
     private static AdminRoundResponse ToResponse(Round round) =>
-        new(round.Id, round.GameKey, round.StartTime, round.EndTime);
+        new(round.Id, round.SequenceNumber, round.GameKey, round.StartTime, round.EndTime);
 }
 
-public record AdminRoundResponse(Guid RoundId, string GameKey, DateTime StartTime, DateTime EndTime);
+// REQ-304: SequenceNumber is a display-only label alongside RoundId.
+public record AdminRoundResponse(Guid RoundId, int SequenceNumber, string GameKey, DateTime StartTime, DateTime EndTime);
 
 // HasActiveRound: false + Round: null is a normal, expected state (no round
 // currently active for this game) — never conflated with the route itself

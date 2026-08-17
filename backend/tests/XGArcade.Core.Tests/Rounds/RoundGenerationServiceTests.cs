@@ -56,6 +56,7 @@ public class RoundGenerationServiceTests
             Id = Guid.NewGuid(),
             GameKey = GameKey,
             GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
             StartTime = startTime,
             EndTime = endTime,
             AllowGuessChange = true,

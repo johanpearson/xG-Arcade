@@ -178,6 +178,7 @@ public class AdminEndpointTests
             Id = Guid.NewGuid(),
             GameKey = GridGameModule.XGGridGameKey,
             GameInstanceId = instanceId,
+            SequenceNumber = 1,
             StartTime = DateTime.UtcNow.AddDays(-1),
             EndTime = DateTime.UtcNow.AddDays(1),
             AllowGuessChange = true,

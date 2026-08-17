@@ -15,6 +15,17 @@ public class Round
     public required string GameKey { get; set; }
     public required Guid GameInstanceId { get; set; }
 
+    // REQ-304: a human-readable, display-only label — MAX(SequenceNumber)+1
+    // scoped to this row's own GameKey, assigned once at creation time by
+    // RoundGenerationService (never renumbered afterward). Unique per
+    // GameKey (XGArcadeDbContext's (GameKey, SequenceNumber) index) but two
+    // different GameKeys' rounds may share the same value — an independent
+    // counter per GameKey, matching IRoundSchedulingOptionsResolver's own
+    // per-GameKey independence (REQ-301). Never a routing/lookup key — Id
+    // (Guid) remains the only real PK/FK for every internal wiring path
+    // (guess/suggestion submission, leaderboard lookups, URLs).
+    public required int SequenceNumber { get; set; }
+
     public required DateTime StartTime { get; set; }
     public required DateTime EndTime { get; set; }
 

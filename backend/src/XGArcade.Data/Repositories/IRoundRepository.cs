@@ -11,6 +11,15 @@ public interface IRoundRepository
     // round for a game, regardless of whether it has started yet.
     Task<Round?> GetLatestByGameKeyAsync(string gameKey, CancellationToken cancellationToken = default);
 
+    // REQ-304: the highest SequenceNumber already assigned to this GameKey,
+    // or null when this GameKey has no rounds yet (caller starts at 1).
+    // Deliberately a separate query from GetLatestByGameKeyAsync (ordered by
+    // EndTime, not SequenceNumber) — the two orderings coincide today
+    // because SequenceNumber is assigned in the same generation call that
+    // sets EndTime, but keeping them as distinct queries avoids relying on
+    // that coincidence.
+    Task<int?> GetMaxSequenceNumberByGameKeyAsync(string gameKey, CancellationToken cancellationToken = default);
+
     // REQ-205: the round immediately before a given round in this game's
     // chronological chain (the one whose EndTime the given round's StartTime
     // was set from) — used by RoundGenerationService to find the round that

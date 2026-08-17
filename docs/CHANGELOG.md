@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/implementation-document.md`, `docs/architecture-document.md`,
+  `docs/decisions/0071-round-sequence-number.md` — implemented S-135
+  (Epic 11) backend side per REQ-304: added `Round.SequenceNumber` (`int`,
+  `required`), computed as `MAX(SequenceNumber) + 1` scoped to the new
+  row's own `GameKey` inside `RoundGenerationService`, guarded against a
+  concurrent-generation race by a new `(GameKey, SequenceNumber)` unique
+  index (`XGArcadeDbContext`/migration `20260817120000_AddRoundSequenceNumber`)
+  rather than an explicit transaction — see ADR-0071 for why. The migration
+  backfills every existing row per `GameKey`, ordered by `StartTime`
+  ascending, via a `ROW_NUMBER() OVER (PARTITION BY "GameKey" ORDER BY
+  "StartTime")` window function. `sequenceNumber` added alongside the
+  unchanged `roundId` on every round-shaped DTO: `CurrentRoundResponse`
+  (`RoundEndpoints.cs`), `CurrentPathResponse` (`PathEndpoints.cs`),
+  `ClosedRoundSummary`/`ClosedRoundSummaryResponse`
+  (`LeaderboardService.cs`/`LeaderboardEndpoints.cs`),
+  `GenerateRoundResponse` and both `/internal/test-data/seed-guessable-*`
+  endpoints (`InternalRoundEndpoints.cs`, which also compute their own
+  `MAX+1` since they bypass `RoundGenerationService`), and
+  `AdminRoundResponse` (`AdminManagementEndpoints.cs`). `Round.Id`
+  unchanged as the sole real routing/FK identifier everywhere — never
+  replaced or supplemented as a lookup key. Frontend
+  (`RoundControlSection.tsx` switching off the raw-GUID label) is a
+  separate follow-up, out of scope for this backend-only pass. REQ-304
+  itself was already added to `docs/requirements-document.md` ahead of
+  this implementation. Existing `new Round { ... }` test-fixture call
+  sites across `XGArcade.Api.Tests`/`XGArcade.Core.Tests` updated to set
+  the now-`required` `SequenceNumber` (a placeholder value in each —
+  `InMemory`'s provider does not enforce unique indexes, per
+  `UserRepositoryTests.cs`'s own existing note, so this doesn't risk a
+  spurious test failure); the REQ-304-named uniqueness/gaplessness test
+  itself is intentionally left for a separate test-writer pass.
 - 2026-08-17 — `.github/workflows/`, `docs/implementation-document.md`,
   `docs/requirements-document.md`, `NOTES.md`,
   `docs/decisions/0024-cache-warming-runs-as-a-cli-verb.md`,
