@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `docs/implementation-document.md`, `docs/architecture-document.md`,
+  `infra/bicep/modules/backend-container-app.bicep`,
+  `docs/decisions/0009-bidirectional-game-data-sync.md` — doc-sync follow-up
+  closing a quality-gate finding on S-130's diff: two "HOW it's built" docs
+  still described the 5 deleted workflows
+  (`promote-dev-to-prod.yml`/`sync-prod-to-dev.yml`/
+  `promote-dev-to-prod-dry-run.yml`/`sync-players.yml`/`backup-database.yml`)
+  as present-tense active/scheduled. `implementation-document.md` §8's
+  CI/CD subsection and game-data-sync subsection now say these wrappers
+  were deleted (S-130, 2026-08-17) while the underlying scripts
+  (`infra/scripts/promote-dev-to-prod.sh`, `infra/scripts/sync-prod-to-dev.sh`)
+  and the `/internal/sync-players` endpoint remain runnable by hand, pointing
+  at `infra/README.md` for current state; its §10 open-questions bullet
+  dropped the stale `sync-players.yml` reference too.
+  `architecture-document.md` §6.9's backup data-flow diagram no longer shows
+  `backup-database.yml` as an active scheduled flow — it now states no
+  backup automation currently runs (REQ-901), pointing at
+  `docs/requirements-document.md`'s REQ-901 status note and
+  `infra/README.md`'s Backups section for the Tier 1 rebuild plan; the old
+  diagram shape is kept below as the intended-once-rebuilt shape, clearly
+  marked "not currently present". `backend-container-app.bicep`'s
+  `internalJobToken` parameter description dropped its stale reference to
+  `sync-players.yml` as a consumer (the param/logic are unchanged — still
+  used by `generate-round.yml` and the `/internal/sync-players` endpoint
+  itself). ADR-0009 gained a brief follow-up note under its existing
+  2026-08-08 addendum recording that `promote-dev-to-prod-dry-run.yml` was
+  later deleted in S-130 once its target workflow was also gone — the
+  addendum's prose about the decision itself is untouched, per ADRs not
+  being rewritten. No code, `infra/README.md`, `MVP-SCOPE.md`, or
+  `requirements-document.md` content touched — those were already updated
+  in the S-130 commit. REQ-901; ADR-0009.
+
 - 2026-08-17 — `.github/workflows/`, `infra/README.md`, `MVP-SCOPE.md`,
   `docs/requirements-document.md` — implemented S-130: deleted all 5 Tier 1
   dev/prod-split/backup workflows that had never once succeeded —

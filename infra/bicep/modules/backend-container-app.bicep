@@ -43,7 +43,7 @@ param supabaseAnonKey string
 param supabaseServiceRoleKey string
 
 @secure()
-@description('Shared bearer token authorizing calls to /internal/* endpoints (generate-round.yml, sync-players.yml) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
+@description('Shared bearer token authorizing calls to /internal/* endpoints (generate-round.yml, and the /internal/sync-players endpoint, called by hand or a future re-added workflow) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
 param internalJobToken string
 
 @secure()

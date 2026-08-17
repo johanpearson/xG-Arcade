@@ -167,6 +167,16 @@ counts per table (previously only the source side's), so a dry run is an
 actual diff a reviewer can read, not just one side's numbers — this
 applies to manual `--dry-run` usage too, not just the new scheduled job.
 
+**Follow-up (S-130, 2026-08-17):** `promote-dev-to-prod-dry-run.yml` was
+deleted along with four other never-succeeded workflows — it had no
+remaining purpose once its target, `promote-dev-to-prod.yml`, was also
+deleted for having never run. This does not change the decision recorded
+above (the sync scripts, the shared allowlist, and the dry-run row-count
+diff behavior are all unchanged and still runnable by hand); only the
+scheduled/`workflow_dispatch` Actions wrapper is gone, to be re-added once
+Tier 1 provisions a real prod environment. See `docs/backlog.md` S-130 and
+`docs/CHANGELOG.md`.
+
 No new ADR: this is a bug fix (restoring the guarantee this ADR already
 states) plus a scheduling/visibility refinement of the existing
 `--dry-run` flag, not a new structural decision.

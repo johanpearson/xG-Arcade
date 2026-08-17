@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.01"
+version: "1.02"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -1004,8 +1004,18 @@ them.
 
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
+No backup automation currently runs. The `backup-database.yml` workflow
+shown in earlier revisions of this diagram was deleted (S-130, 2026-08-17)
+after failing all 40/40 of its scheduled runs — it targeted a
+`PROD_DATABASE_CONNECTION_STRING` secret that has never been set, because
+no prod environment exists yet. There is nothing at stake yet either:
+Tier 0's one environment (dev) holds no real user data. See REQ-901's
+status note in `docs/requirements-document.md` and the "Backups" section
+of `infra/README.md` for the plan to rebuild this flow once Tier 1
+provisions a real prod environment. The intended shape, once rebuilt:
+
 ```
-[scheduled, daily — backup-database.yml]
+[scheduled, daily — backup-database.yml (not currently present)]
 GitHub Actions → Production database: pg_dump (full export)
   → Store as a workflow artifact (or equivalent off-platform storage),
     with a bounded retention window, separate from the primary database
