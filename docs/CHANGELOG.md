@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-17 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/PathCareerStintFilterTests.cs`,
+  `docs/requirements-document.md`, `docs/decisions/0073-xg-path-birth-year-floor.md`,
+  `docs/decisions/0045-xg-path-puzzle-generation-model-and-eligibility.md` —
+  implemented S-137 (Epic 12) per REQ-1201: added an additive, xG-Path-only
+  `Player.BirthYear >= 1975` eligibility floor to `XGPathGameModule
+  .GetEligiblePlayerIdsAsync`, layered on top of (not replacing) REQ-112's
+  own shared 1939 pool floor, fail-closed excluding candidates with a
+  `BirthYear` of `null`; new `IPlayerRepository.GetPlayersByIdsAsync` bulk
+  fetch scoped to the structurally-eligible candidate set, applied before
+  the familiarity filter (ADR-0056 ordering). New ADR-0073 records the
+  decision (xG-Path-only vs. raising the shared REQ-112 floor, and the
+  fail-closed-on-null choice per ADR-0070's precedent) and supersedes
+  ADR-0045 on this one point only, with a pointer note added to ADR-0045's
+  status line. Test coverage added in `XGPathGameModuleTests.cs` for the
+  1975/1974/null boundary and a familiarity-filter-ordering regression;
+  `PathCareerStintFilterTests.cs` gained an explanatory comment only (no
+  stint-level surface for this rule). `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and left unchanged: COMP-11's
+  row and the `GetEligiblePlayerIdsAsync` narrative in the implementation
+  doc don't enumerate REQ-1201's existing structural checks (`MinStintCount`,
+  `MinAppearancesAtSeededClub`) by name either, so adding the new floor
+  there alone would be an inconsistent level of detail.
 - 2026-08-17 — `docs/architecture-document.md`, `docs/requirements-document.md`,
   `docs/implementation-document.md`, `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`,
   `infra/README.md`, `NOTES.md`, `TODO.md` — implemented S-136 (Epic 11) per
