@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.77"
+version: "1.78"
 status: draft
 last_updated: 2026-08-17
 owner: Johan
@@ -3107,6 +3107,13 @@ reusing its fail-closed assertion).
   `CurrentRoundResponse` carries a human-friendly round number today, only
   `roundId` (opaque) — out of scope here and not addressed by the criteria
   below.
+- **Status note (2026-08-17, S-135/REQ-304):** the "Note for whoever
+  implements this" immediately above is now addressed — see REQ-304 for the
+  new human-readable per-`GameKey` `sequenceNumber` field, which
+  `CurrentRoundResponse` (and every other round-shaped DTO) now also
+  carries alongside `roundId`. This endpoint's own `roundId`/`endTime`
+  contract, and every acceptance criterion above and below this note, are
+  otherwise unchanged — REQ-304 governs the new field itself, not this one.
   - Given the grid screen (SCREEN-01) is showing an active round with a
     known `endTime`
   - When the round data has loaded
@@ -3151,6 +3158,93 @@ reusing its fail-closed assertion).
 case covers the game-selection step added in S-021); UI (unit tests
 covering each duration-format bucket above, the "Ending soon" fallback for
 a past/near-past `endTime`, and the accessible-name assertion)
+
+**REQ-304 – Human-readable, per-`GameKey` round sequence number**
+> As an admin, I want to identify a round by a small, human-readable number
+> instead of its opaque database id, so I can talk about, look up, or refer
+> to a specific round without copying a GUID.
+
+**Assignment, uniqueness, and gaplessness:**
+- Given a new Round is being created for a specific `GameKey` (REQ-301's
+  "one round ahead" generation, or any other round-creation path)
+- When the round is persisted
+- Then it is assigned a `SequenceNumber` equal to the current maximum
+  `SequenceNumber` already assigned to that `GameKey`, plus one (starting
+  at 1 for a `GameKey`'s first-ever round), computed inside the same
+  database transaction that creates the Round row — so two concurrent
+  creation attempts for the same `GameKey` can never be assigned the same
+  `SequenceNumber`, the same race-freedom REQ-301's existing idempotency
+  check already relies on
+- Given two rounds created for the same `GameKey`
+- When both are queried
+- Then their `SequenceNumber` values are always distinct, and consecutive
+  when ordered by `SequenceNumber` — no gap can appear as a normal
+  consequence of round creation
+
+**Independence per `GameKey`:**
+- Given two rounds created for two different `GameKey`s (e.g. `"xg-grid"`
+  and `"xg-path"`)
+- When both are queried
+- Then they may carry the same `SequenceNumber` value — `SequenceNumber`
+  is an independent counter per `GameKey`, not a single global counter,
+  matching `IRoundSchedulingOptionsResolver`'s existing per-`GameKey`
+  independence (REQ-301)
+
+**Display-only — never an identifier for routing, submission, or lookup:**
+- Given any client, automated or human-driven, that needs to submit a
+  guess or suggestion, fetch a specific round's grid, or look up a
+  leaderboard entry tied to a round
+- When it makes that request
+- Then it uses the round's `roundId` (GUID) exactly as it does today —
+  `SequenceNumber` is never accepted as a path/route parameter, request
+  body identifier, or foreign-key value anywhere in the system, and no
+  endpoint resolves a round by `SequenceNumber`; `roundId` remains the
+  real primary/foreign key for every internal wiring path this document
+  already describes (REQ-303, REQ-401-410's leaderboard lookups, guess/
+  suggestion submission)
+
+**Backfill of historical rows:**
+- Given the migration that introduces `SequenceNumber` runs against a
+  database with existing Round rows for one or more `GameKey`s
+- When the migration completes
+- Then every existing row has a `SequenceNumber` assigned by ordering that
+  `GameKey`'s own rows by `StartTime` ascending and numbering them 1, 2,
+  3, ... with no gap and no duplicate within a `GameKey` — the backfilled
+  history is indistinguishable, by the two rules above, from a sequence
+  generated entirely by the assignment behavior going forward
+
+**Surfaced on every round-shaped response:**
+- Given any endpoint that already returns a Round in one of the following
+  shapes: the active round for display (`CurrentRoundResponse`, REQ-303),
+  the active xG Path round for display (`CurrentPathResponse`,
+  REQ-1201/1202), a closed-round listing entry (`ClosedRoundSummary`,
+  REQ-408), a round-generation result (`GenerateRoundResponse`, REQ-301),
+  or an admin round-control read (`AdminRound`, REQ-505)
+- When that endpoint responds
+- Then the response also includes the round's `sequenceNumber`, alongside
+  its existing `roundId` — `roundId` is unchanged and remains present on
+  every one of these shapes; no existing field is removed or renamed
+
+**Display in the admin round-control section:**
+- Given an admin viewing the round-control section of the admin screen
+  (`RoundControlSection.tsx`, REQ-505)
+- When the active round loads
+- Then the displayed label uses the round's `sequenceNumber`, not its
+  `roundId` — `"Grid Round #{sequenceNumber}"` when the section's
+  `GameKey` is `"xg-grid"`, `"Path Round #{sequenceNumber}"` when it is
+  `"xg-path"` — and no raw GUID appears as visible text anywhere in this
+  section
+
+**Test level:** Unit (`SequenceNumber` assignment — `MAX + 1` scoped to
+`GameKey`, computed inside the creation transaction), API/Integration (a
+new REQ-304-named test proves two same-`GameKey` rounds are always
+distinct and gapless; two different-`GameKey` rounds can share a
+`SequenceNumber`; the migration backfills every historical row with a
+correct, gapless-per-`GameKey` sequence ordered by `StartTime`; every DTO
+listed above carries `sequenceNumber` alongside an unchanged `roundId`),
+Component (`RoundControlSection.test.tsx` updated to assert the
+`"Grid Round #N"`/`"Path Round #N"` text and that no GUID substring is
+ever rendered)
 
 ---
 
