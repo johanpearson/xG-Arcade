@@ -13,6 +13,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `docs/decisions/0076-generalize-playersuggestion-submission-context.md`,
+  `docs/architecture-document.md` — S-143 (Epic 14, design-only, no code):
+  new ADR-0076 generalizes `PlayerSuggestion`'s submission context off xG
+  Grid's `CellId`/row-col category-type coupling, mirroring ADR-0003's
+  `Round.GameKey`/`GameInstanceId` opaque-reference pattern. Adds
+  `GameKey` (required) and nullable per-game context fields —
+  `CellId`/`RowCategoryType`/`ColCategoryType` populated only for
+  `xg-grid`, a new `PathPuzzleId` populated only for `xg-path` (a
+  deliberate correction of the backlog text's "`PathInstanceId`" —
+  `RoundId` already resolves to `PathInstance.Id` via
+  `Round.GameInstanceId`, so the field this entity actually needs is the
+  per-instance child id, the same structural role `CellId` already plays
+  for `GridInstance`, confirmed against `XGPathGameModule
+  .GetCellIdsAsync`/`PathPuzzle`). Also settles the two open questions
+  S-144 flagged as needing this ADR to decide: the submission route
+  widens from `POST /rounds/{roundId}/cells/{cellId}/suggestions` to
+  `POST /rounds/{roundId}/suggestions` (branching on `round.GameKey`,
+  `cellId`/`pathPuzzleId` moved into the request body) rather than a
+  second per-game route, and `XGPathGameModule
+  .GetCellCategoryTypesAsync`'s existing `NotSupportedException` stays
+  untouched — the new route validates `pathPuzzleId` via the already-
+  implemented, game-agnostic `IGameModule.GetCellIdsAsync` instead.
+  Reviewed by `architecture-reviewer` against `architecture-document.md`
+  and ADR-0003/0007/0053/0060 before finalizing; one accuracy gap it
+  found was fixed in the ADR itself (§3): `GET /admin/suggestions`'s
+  `PendingSuggestionResponse` DTO already surfaces
+  `RowCategoryType`/`ColCategoryType` as non-nullable fields today, so
+  S-144 must widen that DTO (and the matching frontend type) to nullable
+  and add `GameKey` to the response, not leave the admin list endpoint
+  untouched as the ADR's first draft claimed. `architecture-document.md`
+  §10 gets ADR-0076's row; its COMP-06 row is deliberately left unchanged
+  here — S-146 (deps: S-143/144/145) updates that plus REQ-215's status
+  note once the xG Path submission path actually lands, per this ADR's
+  own Follow-up note. No REQ change in this iteration: no behavior
+  changed yet (design-only story, no code), so REQ-215 stays as-is until
+  S-146.
 - 2026-08-18 — `backend/src/XGArcade.Api/Players/PlayerAutocompleteEndpoints.cs`,
   `backend/tests/XGArcade.Api.Tests/PlayerAutocompleteEndpointTests.cs`,
   `frontend/src/lib/rounds.ts`, `frontend/src/grid/GridScreen.tsx`,
