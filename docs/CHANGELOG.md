@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `.github/workflows/backfill-player-photos.yml` (re-added),
+  `docs/implementation-document.md` (v1.04) — re-created the
+  `backfill-player-photos` workflow wrapper S-132 deleted (2026-08-17) as a
+  served-its-purpose one-off incident tool, exactly the "re-add later if
+  ever needed" scenario S-132 planned for: S-159's
+  `PlayerCareerPrefetchService` pool sweeps create players via Wikidata
+  queries that deliberately never fetch P18 (photo), so every one of the
+  ~198K players that job creates needs this backfill to ever get a photo —
+  nothing else will provide one. The underlying `PlayerPhotoBackfillService`/
+  CLI verb was never removed (S-132 kept it on purpose), so this is a pure
+  workflow-wrapper re-add, no application code change. Updated
+  `implementation-document.md`'s stale "deleted in S-132" note to reflect
+  the re-add.
 - 2026-08-18 — `docs/implementation-document.md` (v1.03), `docs/architecture-document.md` (v1.09, §5.3
   COMP-05/COMP-06/COMP-07 evolution table rows), `docs/backlog.md` (S-160 marked SHIPPED),
   `backend/src/XGArcade.Data/Entities/CountryDefinition.cs`,
