@@ -119,20 +119,13 @@ should be triggered by an actual observed problem, not by this list existing:
   (once backups are built — REQ-901)
 - [ ] Confirm GitHub Actions failure-notification emails actually arrive
   (once alerting is built — REQ-902)
-- [ ] **Run the `purge-game-history` clean slate** (`docs/backlog.md` S-152,
-  Epic 16 — CLI verb + `.github/workflows/purge-game-history.yml` built
-  2026-08-18, not yet run for real) once — and only once — Epics 10-15 of
-  the repo-wide overhaul are settled: 10-13 merged, 14/15 formally
-  cancelled (2026-08-18 backlog update — no xG Path suggestions, no
-  suggestion-history feature). That gate is now satisfied; this item is
-  the actual "run it" trigger. Wipes every `Round`/`Guess`/`GridInstance`/
-  `GridCell`/`PathInstance`/`PathPuzzle`/`PathTargetCycle`/
-  `PathCycleTargetUsage` row (including cascaded `PlayerSuggestion` rows —
-  see S-152's own explicit callout on that) so real users start against
-  zero test-era game history. Trigger via `purge-game-history.yml`
-  (`workflow_dispatch`, typed confirmation phrase `"reset all game
-  history"`). Never touches `Player`/reference-table data — that's
-  `purge-player-pool.yml`, a separate, deliberate decision if ever wanted.
+- [x] **Run the `purge-game-history` clean slate** (`docs/backlog.md` S-152,
+  Epic 16). Done 2026-08-18 via `purge-game-history.yml`: 29 `Round`, 230
+  `Guess`, 4 `PlayerSuggestion`, 18 `GridInstance` (+162 `GridCell`), 11
+  `PathInstance` (+4 `PathPuzzle`), 4 `PathCycleTargetUsage`, and the
+  `PathTargetCycle` singleton row wiped — see `NOTES.md`'s matching entry
+  for the full row-count record. `Player`/reference-table data untouched,
+  as designed.
   Record the actual row counts wiped in `NOTES.md` when this runs, per
   `purge-player-pool.yml`'s own incident-log discipline.
 
