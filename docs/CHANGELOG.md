@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `backend/src/XGArcade.Games.XGPath/PathCareerStintFilter.cs`,
+  `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
+  `backend/src/XGArcade.Api/Path/PathEndpoints.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/PathCareerStintFilterTests.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/XGPathGameModuleTests.cs`,
+  `backend/tests/XGArcade.Api.Tests/PathEndpointTests.cs`,
+  `docs/decisions/0075-xg-path-b-team-reserve-team-exclusion.md`,
+  `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/implementation-document.md` — S-139 (Epic 12): added a
+  B-team/reserve-team exclusion (`PathCareerStintFilter.IsBTeam`/
+  `ExcludeBTeams`), parallel to and chained alongside the existing
+  national-team filter at both call sites (`XGPathGameModule.
+  GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check and `GET
+  /path/current`'s clue-reveal path), closing the same class of REQ-1203
+  clue-leak violation for reserve/development-side rows (e.g. "Real Madrid
+  Castilla," "Barcelona B"). New ADR-0075 records the pattern, its
+  alternatives, and its explicitly acknowledged false-positive risk;
+  requirements-document.md gets a new dated status note under REQ-1203
+  (framed as closing the same class of violation via the same mechanism,
+  not as a reinterpretation of the REQ's own national-team-specific
+  wording); architecture-document.md's COMP-11 row and ADR-trail table get
+  a one-line completeness update; implementation-document.md's project-
+  structure tree gets the matching file-history note.
 - 2026-08-17 — `.github/workflows/warm-grid-cache.yml` — follow-up
   correction to S-134 (PR #209, merged): the rename swept every
   *reference* to `warm-player-cache.yml` but missed the workflow file's
