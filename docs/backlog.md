@@ -6780,3 +6780,77 @@ count reduction reported in the PR description.
   CodeScene's own methodology distinguishes from a real hotspot — the
   size is proportional to the number of distinct operations (14 verbs),
   not concern-mixing. No action.
+
+## Epic 18 — Cache warming: eliminate live pairwise Wikidata queries via local derivation
+
+Origin: a real `warm-grid-cache.yml` run (2026-08-18) logged `199 of the
+199 queried-live pairs hit a technical failure` — a 100% failure rate on
+the club×club combinatorial-join query shape, concentrated entirely on
+large historic clubs (Manchester City, Bayern Munich, Real Madrid, PSG,
+Barcelona, ...). Investigation traced this to `PlayerCacheWarmingService`
+issuing a live pairwise SPARQL intersection query per Country×Club/
+Club×Club pair even though `prefetch-player-careers` (ADR-0055/ADR-0069)
+already sweeps the exact same seeded reference data unpaired — the fix is
+to let the two jobs' data actually compose instead of running fully
+independent live-query paths against the same reference tables.
+
+**S-159 · `PlayerCareerPrefetchService` populates `PlayerAttribute` from its existing pool sweeps — SHIPPED**
+Every player in a country's/club's full pool sweep satisfies that
+nationality/club attribute by construction of the pool query's own WHERE
+clause — no extra Wikidata call needed to know it. Writing that fact as a
+`PlayerAttribute` (paired with a `PlayerData` row, `Source="wikidata"`/
+`Confidence="verified"`) lets `PlayerCacheWarmingService`'s existing local
+`CountPlayersWithBothAttributesAsync` pre-check become the *complete*
+answer once both sides of a pair have been swept — the live pairwise query
+is then never issued for that pair at all, including the exact
+combinatorial big-club joins that were failing 100% of the time.
+`PlayerCacheWarmingService.cs` itself needed no code change; its existing
+`cachedCount >= MinValidAnswers` check just starts being right more often.
+REQ-110 (extended), ADR-0077 (deliberate narrow reversal of ADR-0001's
+incremental-only `PlayerAttribute` principle, scoped to the seeded-
+reference subset).
+**Built as:** matches the plan, plus two quality-gate correction rounds
+worth knowing about if this pattern gets reused elsewhere — (1) the first
+implementation pass omitted the paired `PlayerData` write that every other
+automated Wikidata-derived `PlayerAttribute` write in this codebase
+includes (`WikidataLookupService.QueueAttribute`'s established shape,
+required for REQ-502's source/confidence traceability) — caught by both
+`architecture-reviewer` and `quality-architect` independently, fixed; (2)
+the fix for a separate club-name-sourcing concern initially routed the
+club attribute value through `clubNameByClubQid` (the QID→name map
+`PlayerCareerStint.ClubName` uses) to match that write's own sourcing —
+which was itself wrong and reverted after a follow-up architecture-review
+pass: the club attribute value must come from `club.Name` directly, since
+that's what `PlayerCacheWarmingService`'s own join key is sourced from,
+not from a QID map built for an unrelated purpose (resolving an arbitrary
+per-stint club QID pulled from a player's full Wikidata career, not
+identifying the specific `ClubDefinition` row this loop is sweeping). See
+ADR-0077's "Correction (2026-08-18)" section for the full reasoning.
+Never actually compiled in the sandbox that built it (no `dotnet` SDK
+available there) — first CI run on the branch is the real verification.
+*Deps:* none (ADR-0055/ADR-0069 already shipped).
+
+**S-160 · `warm-grid-cache`: mark a swept-but-genuinely-low pair `ConfirmedLowMatchPair` without a live round-trip**
+S-159's own follow-up, flagged in ADR-0077's Consequences section rather
+than solved there. Once a pair's both sides have been fully swept by
+`prefetch-player-careers`, `PlayerCacheWarmingService`'s local
+`CountPlayersWithBothAttributesAsync` count is not just a cache hint, it's
+the *true, final* count for that pair — so a pair that's fully swept but
+still below `MinValidAnswers` is already known to be genuinely low without
+needing a live Wikidata round-trip to confirm it (today's code doesn't
+know this: `PlayerCacheWarmingService.WarmAsync`'s `else` branch still
+issues a live query for `cachedCount < MinValidAnswers` regardless of
+whether both sides are fully swept, then persists `ConfirmedLowMatchPair`
+based on *that* query's result). Needs a way for `PlayerCacheWarmingService`
+to know "both sides of this pair are fully swept" (e.g. a per-country/
+per-club "swept" marker `PlayerCareerPrefetchService` sets on success, or
+inferring it from `ICategoryValueRepository`'s seeded-country/seeded-club
+membership once `prefetch-player-careers` has run at least once
+end-to-end) and, when true, write `ConfirmedLowMatchPair` directly from
+the local count instead of issuing a live query at all. Scope carefully:
+this is a genuinely new signal (today `ConfirmedLowMatchPair` only ever
+gets written as a side effect of a live query that came back low, per
+REQ-110's own "persisted confirmed-low signal" extension) — likely needs
+its own ADR per `CLAUDE.md`'s "could reasonably have gone another way"
+test, not a silent extension of ADR-0077.
+*Deps:* S-159.
