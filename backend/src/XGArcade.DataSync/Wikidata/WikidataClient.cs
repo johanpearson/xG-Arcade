@@ -445,13 +445,12 @@ public class WikidataClient(
     // S-100/S-101 fixed this for the intersection queries; these six were
     // added afterward by later ADRs and never migrated).
     //
-    // NOT yet migrated onto this driver: QueryPlayerPhotosByQidsAsync and
-    // QueryPlayerPhotoByNameAsync also hand-roll the identical throw-on-failure
-    // HTTP send / timeout-CTS / catch shape but are outside S-118's scoped
-    // method list (docs/backlog.md's S-118 entry names exactly the six
-    // above) — left as-is here rather than pulled in opportunistically;
-    // worth a small follow-up story in the same regression-net style if this
-    // file gets touched again. This is the "throwing" sibling of
+    // S-124: QueryPlayerPhotosByQidsAsync and QueryPlayerPhotoByNameAsync
+    // (outside S-118's originally-scoped six-method list) also hand-rolled
+    // this identical throw-on-failure HTTP send / timeout-CTS / catch shape
+    // and have since been migrated onto this same driver — see each
+    // method's own thin-wrapper body below. This is the "throwing" sibling
+    // of
     // RunIntersectionQueryAsync above — deliberately a SEPARATE method, not a
     // generalization of RunIntersectionQueryAsync itself, since the two have
     // genuinely different error contracts (swallow-to-[] unless
@@ -856,40 +855,17 @@ public class WikidataClient(
         }
 
         var query = BuildPlayerPhotosByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Same throw-on-failure contract as QueryPlayerPoolBirthYearAsync
-        // (see that method's own comment) — the opposite of the
-        // intersection queries' swallow-to-[] contract, deliberately: this
-        // is a batch job whose success metric is a backfilled-row count, so
-        // a swallowed failure would be indistinguishable from "none of
-        // these QIDs have a photo."
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParsePhotoBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player-photo batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player-photo batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        // S-124: thin wrapper over the shared RunThrowingQueryAsync driver —
+        // same throw-on-failure contract as every other batch-by-QID query
+        // in this file (see that driver's own doc comment) — the opposite
+        // of the intersection queries' swallow-to-[] contract, deliberately:
+        // this is a batch job whose success metric is a backfilled-row
+        // count, so a swallowed failure would be indistinguishable from
+        // "none of these QIDs have a photo."
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player-photo batch query for {wikidataQids.Count} QID(s)",
+            ParsePhotoBindings, cancellationToken);
     }
 
     // A VALUES clause over the batch, not a candidate-matching pattern —
@@ -1437,34 +1413,13 @@ public class WikidataClient(
             return null;
 
         var query = BuildPlayerPhotoByNameQuery(playerName);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParsePlayerPhotoByNameBinding(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata wrong-guess photo-by-name query for '{playerName}' timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata wrong-guess photo-by-name query for '{playerName}' failed: {ex.Message}", ex);
-        }
+        // S-124: thin wrapper over the shared RunThrowingQueryAsync driver —
+        // same throw-on-failure contract as QueryPlayerPhotosByQidsAsync
+        // (see that method's own comment).
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata wrong-guess photo-by-name query for '{playerName}'",
+            ParsePlayerPhotoByNameBinding, cancellationToken);
     }
 
     // Case-insensitive label-OR-alias match, deliberately LIMIT 1 — see

@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.05"
+version: "1.06"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade
 
-Version 1.00 · 2026-08-17
+Version 1.06 · 2026-08-18
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -809,8 +809,8 @@ without a per-game `using`; this is the same "define the shared signal in
 documents for `LiveLookupUnavailableException`.
 
 **6.2c Player suggestion submission flow** (realizes REQ-215 — added S-089,
-2026-08-01; submission half only, REQ-509/510's admin review/commit half
-is S-090, not yet built)
+2026-08-01; submission half only — REQ-509/510's separate admin
+review/commit half, S-090, has no dedicated flow diagram in this section)
 
 ```
 Player → Web Frontend (SuggestionEntry.tsx, mounted by GuessInput.tsx only
@@ -832,10 +832,11 @@ Player → Web Frontend (SuggestionEntry.tsx, mounted by GuessInput.tsx only
 
 This flow deliberately never reaches `Data.PlayerNameIndex`/COMP-10 or
 `Data.PlayerStore`'s correctness-checking tables (`PlayerAttribute`/
-`PlayerOverride`) — boundary rule 5 and ADR-0052 both apply: a suggestion
-is a pending human claim, not a data write, until a future admin commit
-(REQ-509, S-090, not yet built) resolves it through the normal
-`PlayerOverride`/`PlayerAttribute` write path REQ-501 already uses. The
+`PlayerOverride`) — boundary rule 5 and ADR-0053 both apply: a suggestion
+is a pending human claim, not a data write, until an admin commit
+(REQ-509/510, S-090, `AdminSuggestionEndpoints`) resolves it through the
+normal `PlayerOverride`/`PlayerAttribute` write path REQ-501 already uses,
+per ADR-0060's field-cardinality split. The
 row/col category type lookup originally read `GridCell` directly via
 `IGridInstanceRepository` from the Api layer, bypassing `IGameModule` — a
 boundary rule 2 violation caught by `architecture-reviewer` before merge
@@ -1065,7 +1066,7 @@ unmodified (§6.8) — no new deletion logic was written for this flow.
 `/internal/purge-guest-accounts` runs in every environment, following
 `/internal/generate-round`'s own precedent (§6.1) for why a
 bearer-token-gated `/internal/*` endpoint whose only caller is a scheduled
-job isn't restricted to non-Production the way `XGArcade.Testing`/COMP-09
+job isn't restricted to non-Production the way `Testing.SeedManager`/COMP-09
 is (ADR-0006).
 
 ## 7. Cross-cutting concerns
