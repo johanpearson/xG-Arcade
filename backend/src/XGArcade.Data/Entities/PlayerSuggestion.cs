@@ -18,9 +18,22 @@ namespace XGArcade.Data.Entities;
 // committed suggestion into a PlayerOverride/PlayerAttribute write, and even
 // then only through IPlayerStoreRepository's existing write path, never this
 // table directly.
+//
+// ADR-0076 (S-144): generalized off a single game's shape. GameKey +
+// nullable, per-game opaque context fields (CellId/RowCategoryType/
+// ColCategoryType for "xg-grid", PathPuzzleId for "xg-path") mirror
+// ADR-0003's Round.GameKey/GameInstanceId precedent — see that ADR for the
+// full reasoning, including why a new game's context is a new nullable
+// column here, never a game-specific foreign key.
 public class PlayerSuggestion
 {
     public Guid Id { get; set; }
+
+    // ADR-0076: same vocabulary as Round.GameKey/IGameModule.GameKey
+    // ("xg-grid" / "xg-path") — which per-game context field(s) below are
+    // populated is determined by this value, never inferred from which
+    // field happens to be non-null.
+    public required string GameKey { get; set; }
 
     // The player name exactly as typed in the guess that triggered this
     // suggestion (Guess.SubmittedName) — already known, not re-entered by
@@ -49,7 +62,14 @@ public class PlayerSuggestion
     // that entity's own comment. No FK constraint for the same reason
     // Guess.CellId has none: an opaque cross-game reference, not enforced
     // referential integrity.
-    public required Guid CellId { get; set; }
+    //
+    // ADR-0076: nullable as of S-144 — populated only when GameKey ==
+    // "xg-grid". Null for every "xg-path" row, which uses PathPuzzleId
+    // below instead. SuggestionEndpoints.cs enforces "exactly one of
+    // CellId/PathPuzzleId set, matching GameKey" at the application level;
+    // there is no database constraint for it (same trade-off this ADR
+    // accepts for GameKey/GameInstanceId's own cross-game genericity).
+    public Guid? CellId { get; set; }
 
     public required Guid RoundId { get; set; }
 
@@ -58,8 +78,21 @@ public class PlayerSuggestion
     // never needs a second query to know "what were this cell's two
     // category types" and this row stays meaningful context even if the
     // originating round/grid is long closed.
-    public required string RowCategoryType { get; set; }
-    public required string ColCategoryType { get; set; }
+    //
+    // ADR-0076: nullable as of S-144, same "xg-grid only" scoping as
+    // CellId above — xG Path has no row/col category concept at all
+    // (XGPathGameModule.GetCellCategoryTypesAsync's own NotSupportedException).
+    public string? RowCategoryType { get; set; }
+    public string? ColCategoryType { get; set; }
+
+    // ADR-0076 (S-144): xG Path's equivalent of CellId above — the specific
+    // PathPuzzle (target player) this report concerns, populated only when
+    // GameKey == "xg-path". Not a second copy of the instance id (that's
+    // already RoundId -> Round.GameInstanceId, per ADR-0003) — this
+    // identifies which of a PathInstance's several puzzles, the same
+    // structural role CellId plays for a GridInstance's several cells. No FK
+    // constraint, same "opaque cross-game reference" reasoning as CellId.
+    public Guid? PathPuzzleId { get; set; }
 
     // REQ-215: never anything but Pending as of this story (S-089) — no
     // code path here writes Committed/Rejected. Modeled as an enum now
