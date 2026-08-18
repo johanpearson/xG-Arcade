@@ -2,14 +2,17 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Games.XGPath.Tests;
 
-// REQ-1203, bug fix (2026-08-08; broadened 2026-08-10, bug-bundle):
+// REQ-1203, bug fix (2026-08-08; broadened 2026-08-10, bug-bundle;
+// broadened again 2026-08-18, S-140):
 // PathCareerStintFilter.ExcludeNationalTeams / IsNationalTeam — the
 // read-time defensive filter for leftover pre-2026-08-02 national-team
 // PlayerCareerStint rows (see PathCareerStintFilter's own doc comment for
-// the full "why a read-time filter, not a cleanup script" reasoning, and
-// its 2026-08-10 scope-correction comment for why this now covers senior
-// national teams too, not just youth/age-grade). Deliberately pure/DB-free,
-// same precedent as PathClueSequenceBuilderTests.
+// the full "why a read-time filter, not a cleanup script" reasoning, its
+// 2026-08-10 scope-correction comment for why this now covers senior
+// national teams too, not just youth/age-grade, and its 2026-08-18
+// correction for why "regional" + "team"/"representative" phrasing is now
+// excluded on the same principle as "national" + "team" phrasing).
+// Deliberately pure/DB-free, same precedent as PathClueSequenceBuilderTests.
 //
 // S-137/ADR-0073 note: the new BirthYear >= 1975 eligibility floor has no
 // case here. Despite docs/backlog.md's S-137 entry naming this file, the
@@ -66,14 +69,21 @@ public class PathCareerStintFilterTests
         Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.True);
     }
 
-    // ---- Scope: a non-FIFA regional side (seen in the same screenshots, ---
-    // not flagged as a problem) is still left alone — regional --------------
-    // representative teams are NOT national teams -----------------------
+    // ---- Bug fix (2026-08-18, S-140): a non-FIFA REGIONAL representative --
+    // side must be excluded on the same principle as a national one — the --
+    // original regex excluded "Catalonia national football team" but not ---
+    // "Basque Country regional football team" purely because the two ------
+    // labels use different words ("national" vs. "regional"), not because -
+    // of any deliberate distinction. This flips the previous ---------------
+    // "NonFifaRegionalTeam_ReturnsFalse" assertion, which pinned the bug ---
+    // as correct behavior. See PathCareerStintFilter.cs's own 2026-08-18 ---
+    // doc-comment correction for the full reasoning. ------------------------
 
-    [Test]
-    public void REQ1203_IsNationalTeam_NonFifaRegionalTeam_ReturnsFalse()
+    [TestCase("Basque Country regional football team")]
+    [TestCase("Basque Country regional representative team")]
+    public void REQ1203_IsNationalTeam_NonFifaRegionalRepresentativeTeam_ReturnsTrue(string clubName)
     {
-        Assert.That(PathCareerStintFilter.IsNationalTeam("Basque Country regional football team"), Is.False);
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.True);
     }
 
     // ---- Boundary fix (2026-08-10 follow-up, quality-gate finding): the ---
@@ -81,12 +91,13 @@ public class PathCareerStintFilterTests
     // regional representative sides alone" as if that were a general -------
     // FIFA-affiliation carve-out. It isn't — this filter has no way to know -
     // FIFA affiliation at all and matches purely on label wording. A -------
-    // non-FIFA side whose Wikidata label nonetheless uses "national team" ---
-    // phrasing (unlike the "regional" wording of the Basque Country case ----
-    // above) IS excluded, same as any FIFA member. NOT verified against a --
-    // live Wikidata query from this sandbox — "Catalonia national football --
-    // team" is used as a plausible real label but is flagged for manual -----
-    // confirmation rather than presented as a verified Wikidata fact --------
+    // non-FIFA side whose Wikidata label uses "national team" phrasing IS ---
+    // excluded, same as any FIFA member (and, since S-140/2026-08-18, so is -
+    // a non-FIFA side whose label instead uses "regional" + "team"/---------
+    // "representative" phrasing — see the test above). NOT verified against -
+    // a live Wikidata query from this sandbox — "Catalonia national --------
+    // football team" is used as a plausible real label but is flagged for --
+    // manual confirmation rather than presented as a verified Wikidata fact -
 
     [Test]
     public void REQ1203_IsNationalTeam_NonFifaButLabeledAsNationalTeam_ReturnsTrue()
@@ -128,6 +139,78 @@ public class PathCareerStintFilterTests
     [TestCase("National")]
     [TestCase("CD National")]
     public void REQ1203_IsNationalTeam_ClubNamedNationalWithoutTeamWord_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
+    }
+
+    // ---- Regression (2026-08-18, S-140): without a leading \b before ------
+    // "regional", the broadened pattern would match "regional" as a bare ----
+    // substring inside a longer word (e.g. "Inter" + "regional") — the ------
+    // same false-positive risk NationalTeamPattern's own leading \b before --
+    // "national" already guards against, above ------------------------------
+
+    [TestCase("Interregional Development Squad Team")]
+    public void REQ1203_IsNationalTeam_ClubNamesContainingRegionalAsSubstring_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
+    }
+
+    // ---- Regression (2026-08-18, S-140): a club literally named "Regional" -
+    // (no accompanying "team"/"representative" word) must not be excluded — -
+    // the trailing \b(?:team|representative)\b requirement is what keeps ---
+    // this pattern from over-matching on the word "regional" alone, the -----
+    // same discipline the "National"/"CD National" test above applies to ---
+    // the "national" alternative -------------------------------------------
+
+    [TestCase("Regional")]
+    [TestCase("CD Regional")]
+    public void REQ1203_IsNationalTeam_ClubNamedRegionalWithoutTeamOrRepresentativeWord_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
+    }
+
+    // ---- ADR-0075's false-positive check, run against IsNationalTeam too --
+    // (not just IsBTeam below), now that NationalTeamPattern also matches ---
+    // "regional" + "team"/"representative": every club name currently in ---
+    // ReferenceDataSeeder.cs's Clubs array must never match. Read directly --
+    // from that file (as of S-140/2026-08-18, unchanged from S-139's own ----
+    // 33-club count) — none contain "national," "regional," "team," or ------
+    // "representative" as their own word. ------------------------------------
+
+    [TestCase("Real Madrid")]
+    [TestCase("Barcelona")]
+    [TestCase("Manchester United")]
+    [TestCase("Manchester City")]
+    [TestCase("Liverpool")]
+    [TestCase("Arsenal")]
+    [TestCase("Chelsea")]
+    [TestCase("Bayern Munich")]
+    [TestCase("Borussia Dortmund")]
+    [TestCase("Juventus")]
+    [TestCase("AC Milan")]
+    [TestCase("Inter Milan")]
+    [TestCase("Paris Saint-Germain")]
+    [TestCase("Ajax")]
+    [TestCase("Benfica")]
+    [TestCase("Tottenham Hotspur")]
+    [TestCase("Atletico Madrid")]
+    [TestCase("Napoli")]
+    [TestCase("AS Roma")]
+    [TestCase("Sevilla")]
+    [TestCase("Porto")]
+    [TestCase("RB Leipzig")]
+    [TestCase("Bayer Leverkusen")]
+    [TestCase("Marseille")]
+    [TestCase("Lyon")]
+    [TestCase("Monaco")]
+    [TestCase("Lille")]
+    [TestCase("Lazio")]
+    [TestCase("Valencia")]
+    [TestCase("Real Sociedad")]
+    [TestCase("Newcastle United")]
+    [TestCase("West Ham United")]
+    [TestCase("Celtic")]
+    public void REQ1203_IsNationalTeam_CurrentSeededClubNames_ReturnsFalse(string clubName)
     {
         Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
     }

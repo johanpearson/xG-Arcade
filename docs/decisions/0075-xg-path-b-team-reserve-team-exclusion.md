@@ -162,8 +162,9 @@ sandbox has no database access either.
   initially scoped to youth-only national teams, then broadened
   2026-08-10 to senior teams too after a real bug report showed senior
   teams leaking; and a genuine Catalonia/Basque wording inconsistency in
-  that same regex was found later and is tracked as S-140
-  (`docs/backlog.md`), not yet fixed as of this ADR. Label-pattern filters
+  that same regex was found later and fixed under S-140
+  (`docs/backlog.md`, 2026-08-18, `PathCareerStintFilter.NationalTeamPattern`
+  broadened to also match "regional" + "team"/"representative"). Label-pattern filters
   over free-text Wikidata data get refined iteratively as real false
   positives/negatives surface in production, not solved correctly in one
   pass — this ADR's `BTeamPattern` should be expected to need the same

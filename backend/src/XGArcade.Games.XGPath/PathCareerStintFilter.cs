@@ -73,13 +73,28 @@ namespace XGArcade.Games.XGPath;
 // correct, not over-broad, behavior: excluding anything self-described in
 // its own label as a "national team" is safer and more REQ-consistent than
 // trying to encode FIFA membership this filter has no way to check anyway.
-// "Basque Country regional football team" stays a valid clue ONLY because
-// its label uses "regional" and never triggers the "national" + "team"
-// match in the first place — that is not a general carve-out for non-FIFA
-// sides, just the one existing test case's specific wording (preserved
-// unchanged below). See
-// REQ1203_IsNationalTeam_NonFifaButLabeledAsNationalTeam_ReturnsTrue for
-// the test that pins down this exact boundary.
+// See REQ1203_IsNationalTeam_NonFifaButLabeledAsNationalTeam_ReturnsTrue
+// for the test that pins down this exact boundary.
+//
+// CORRECTED (2026-08-18, S-140, bug fix): the paragraph above, as
+// originally written, went on to say "Basque Country regional football
+// team" stays a valid clue ONLY because its label uses "regional" instead
+// of "national." That was itself an accidental inconsistency, not a
+// deliberate distinction — "Basque Country regional football team" and
+// "Catalonia national football team" are both non-club representative
+// sides, and the fact that one Wikidata label happens to say "national"
+// and the other "regional" carries no real signal this filter (or REQ-1203)
+// cares about. NationalTeamPattern now also excludes any label pairing the
+// word-bounded token "regional" with a trailing "team" or "representative"
+// — see NationalTeamPattern's own comment below for the exact match and
+// its word-boundary reasoning. This does not change the "no real
+// FIFA-affiliation signal, purely label wording" framing established by
+// the 2026-08-10 correction above — it only closes a wording-based gap
+// within that same label-only approach. See
+// REQ1203_IsNationalTeam_NonFifaRegionalRepresentativeTeam_ReturnsTrue for
+// the test that now pins this down (previously
+// REQ1203_IsNationalTeam_NonFifaRegionalTeam_ReturnsFalse asserted the
+// opposite, buggy, behavior).
 public static class PathCareerStintFilter
 {
     // Wikidata's English label convention for a national representative
@@ -94,22 +109,40 @@ public static class PathCareerStintFilter
     // "women's" marker, with or without "association" — without needing a
     // combinatorial list of exact phrasings.
     //
-    // Both \b anchors matter, independently:
-    //   - The leading \b before "national" stops the pattern from matching
-    //     "national" as a bare substring inside a longer word — e.g.
-    //     "International Under-20 Select XI", "FC International Milan
-    //     Under-20", and "Multinational Development Squad Under-19" all
-    //     contain "...national" via "Inter"+"national"/"Multi"+"national",
-    //     and would be wrongly excluded despite not being national teams
-    //     at all. The leading \b anchors the match to a real word boundary
-    //     so "national" must start its own word.
-    //   - The trailing \b before "team" (and requiring "team" as its own
-    //     word, not just any occurrence of the four characters) is what
-    //     keeps a genuine club literally named "National" (no accompanying
-    //     "team" word in its label) from matching, and is also why a
-    //     "Basque Country regional football team" — which never contains
-    //     the word "national" at all — is correctly left alone regardless
-    //     of this trailing check.
+    // BROADENED (2026-08-18, S-140, bug fix): a sub-national/regional
+    // representative side (e.g. "Basque Country regional football team")
+    // is the same kind of non-club representative side as a national team,
+    // and REQ-1203's own acceptance criterion draws no distinction between
+    // them — the only reason the original pattern excluded "Catalonia
+    // national football team" but not "Basque Country regional football
+    // team" was that the two labels happen to use different words
+    // ("national" vs. "regional"), not any deliberate scoping choice. This
+    // pattern now also matches the word-bounded token "regional" paired
+    // with a trailing "team" or "representative" (e.g. "Basque Country
+    // regional football team", "Basque Country regional representative
+    // team"), as its own alternative alongside the original
+    // "national"...*"team" match — same reasoning, same lack of any real
+    // FIFA/federation-affiliation signal (this filter only ever sees a
+    // ClubName string), just recognizing that "regional" is used the same
+    // way "national" is in these labels: to mark a representative side,
+    // not a club.
+    //
+    // Both \b anchors matter, independently, for every alternative:
+    //   - The leading \b before "national" (and, separately, before
+    //     "regional") stops the pattern from matching either word as a bare
+    //     substring inside a longer word — e.g. "International Under-20
+    //     Select XI", "FC International Milan Under-20", and
+    //     "Multinational Development Squad Under-19" all contain
+    //     "...national" via "Inter"+"national"/"Multi"+"national", and
+    //     "Interregional Development Squad" would contain "...regional" via
+    //     "Inter"+"regional" — none of these are national or regional
+    //     representative teams, so the leading \b anchors each match to a
+    //     real word boundary.
+    //   - The trailing \b before "team"/"representative" (requiring either
+    //     as its own word, not just any occurrence of those characters) is
+    //     what keeps a genuine club literally named "National" or
+    //     "Regional" (no accompanying "team"/"representative" word in its
+    //     label) from matching.
     //
     // NOT verified against a live Wikidata query from this sandbox (no
     // wikidata.org access here) — this pattern is inferred from the
@@ -117,7 +150,8 @@ public static class PathCareerStintFilter
     // real production PlayerCareerStint rows if this is found to under- or
     // over-match in practice.
     private static readonly Regex NationalTeamPattern =
-        new(@"\bnational\b.*\bteam\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"\bnational\b.*\bteam\b|\bregional\b.*\b(?:team|representative)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static bool IsNationalTeam(string clubName) =>
         NationalTeamPattern.IsMatch(clubName);
@@ -231,9 +265,9 @@ public static class PathCareerStintFilter
     // production data, the same way the national-team filter itself needed
     // two follow-up corrections (2026-08-10 broadening the age-grade scope
     // to senior teams too, after a real bug report; and a Catalonia/Basque
-    // wording inconsistency found later and tracked as S-140, not yet
-    // fixed) rather than being solved correctly in one pass — see this
-    // class's own top-of-file doc comment for that history.
+    // wording inconsistency found later and fixed under S-140, 2026-08-18)
+    // rather than being solved correctly in one pass — see this class's own
+    // top-of-file doc comment for that history.
     //
     // NOT verified against a live Wikidata query from this sandbox (no
     // wikidata.org access here) — this pattern is inferred from the known
