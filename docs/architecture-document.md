@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.06"
+version: "1.07"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -242,8 +242,8 @@ rationale, don't expect this list to explain anything on its own.
 | COMP-03 Core.Rounds | ADR-0022 (close-previous-round-on-generate), REQ-408 (`Round.ClosedAt`), ADR-0051 (per-`GameKey` round scheduling) |
 | COMP-04 Core.Scoring | ADR-0020 (exclude own guess from ratio), ADR-0021 (lowest-wins scoring), ADR-0040/ADR-0041 (pluggable `IScoringStrategy`/attempt cap), ADR-0049 (clue-efficiency strategy signature), ADR-0057 (wrong-guess player resolution) |
 | COMP-05 Games.XGGrid | ADR-0018 (guess-time live-lookup fallback), ADR-0023, ADR-0032, ADR-0035 (home-nation query path), ADR-0050/ADR-0052 (cache-warming failure tracking), ADR-0061 (trophy pool growth), ADR-0068 (responsibility split), ADR-0070 (guess-time fallback config flag) |
-| COMP-06 Data.PlayerStore | ADR-0015 (override precedence), ADR-0042 (career stints), ADR-0050/ADR-0052 (data-quality markers), ADR-0053 (player suggestions), ADR-0067 (repository split) |
-| COMP-07 DataSync.Clients | ADR-0035 (query-path dispatch), ADR-0050/ADR-0052 (timeout tiers, query-shape fix), ADR-0054/ADR-0055/ADR-0069 (career-stint refresh/prefetch, prefetch pool widened to clubs), ADR-0056 (familiarity filter), ADR-0059 (club canonicalization), ADR-0061 (trophy query shape) |
+| COMP-06 Data.PlayerStore | ADR-0015 (override precedence), ADR-0042 (career stints), ADR-0050/ADR-0052 (data-quality markers), ADR-0053 (player suggestions), ADR-0067 (repository split), ADR-0077 (`PlayerAttribute` populated from prefetch's bulk pool sweeps, not only pairwise lookups) |
+| COMP-07 DataSync.Clients | ADR-0035 (query-path dispatch), ADR-0050/ADR-0052 (timeout tiers, query-shape fix), ADR-0054/ADR-0055/ADR-0069 (career-stint refresh/prefetch, prefetch pool widened to clubs), ADR-0056 (familiarity filter), ADR-0059 (club canonicalization), ADR-0061 (trophy query shape), ADR-0077 (prefetch pool sweeps double as `PlayerAttribute` source, eliminating live pairwise queries for fully-swept pairs) |
 | COMP-11 Games.XGPath | ADR-0045 (puzzle generation), ADR-0041 (attempt cap), ADR-0049 (clue-efficiency scoring), ADR-0051 (round scheduling), ADR-0054/ADR-0055/ADR-0056/ADR-0069 (career data + familiarity + club-scoped prefetch), ADR-0058 (no-repeat cycling), ADR-0059 (club canonicalization), ADR-0075 (B-team/reserve-team exclusion) |
 | COMP-12 Core.IncidentReporting | ADR-0064 (incident reporting design), ADR-0066 (cached admin issue summary) |
 | COMP-13 Core.Announcements | ADR-0065 (singleton banner design) |
