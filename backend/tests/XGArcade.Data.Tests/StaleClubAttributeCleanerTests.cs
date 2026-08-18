@@ -357,4 +357,65 @@ public class StaleClubAttributeCleanerTests
         Assert.That(await _dbContext.PairLookupFailures.CountAsync(), Is.EqualTo(0),
             "the --all-clubs mode's 'purge and re-warm must force a real re-check' invariant applies to PairLookupFailure the same as ConfirmedLowMatchPair/PlayerAttribute/PlayerData");
     }
+
+    // ---- REQ-110/ADR-0078/S-160: CleanAsync/CleanAllSeededClubsAsync must
+    // also null out the cleaned ClubDefinition row(s)' own PlayerPoolSweptAt
+    // — leaving it set would let PlayerCacheWarmingService's
+    // confirmed-low-from-sweep short-circuit keep trusting a "fully swept"
+    // claim about pool data this cleanup just declared suspect, wrongly
+    // suppressing the real re-sweep the correction is meant to make room
+    // for. Same invalidation-surface reasoning, and same regression risk,
+    // as the ConfirmedLowMatchPair/PairLookupFailure coverage above.
+
+    [Test]
+    public async Task REQ110_CleanAsync_NullsOutPlayerPoolSweptAt_OnTheNamedClub()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Napoli", WikidataQid = "Q1", PlayerPoolSweptAt = DateTime.UtcNow });
+        await _dbContext.SaveChangesAsync();
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        var napoli = await _dbContext.ClubDefinitions.SingleAsync(c => c.Name == "Napoli");
+        Assert.That(napoli.PlayerPoolSweptAt, Is.Null,
+            "a corrected club's stale 'fully swept' claim must not survive its own cleanup — a later prefetch/warm cycle needs a real chance to re-sweep it");
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_LeavesPlayerPoolSweptAtForOtherClubsUntouched()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Napoli", WikidataQid = "Q1", PlayerPoolSweptAt = DateTime.UtcNow });
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q2", PlayerPoolSweptAt = DateTime.UtcNow });
+        await _dbContext.SaveChangesAsync();
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        var arsenal = await _dbContext.ClubDefinitions.SingleAsync(c => c.Name == "Arsenal");
+        Assert.That(arsenal.PlayerPoolSweptAt, Is.Not.Null,
+            "cleaning one club's stale sweep marker must never touch another club's real one");
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_ClubWithNoClubDefinitionRow_DoesNotThrow()
+    {
+        // Same "no matching data" tolerance as this cleaner's own
+        // REQ111_CleanAsync_NoMatchingData_ReturnsZero_DoesNotThrow test — a
+        // club name with no ClubDefinition row at all (e.g. a legacy
+        // PlayerAttribute value) must not make the cleanup fail.
+        await SeedPlayerWithClubAttributeAsync("Unseeded Legacy Club");
+
+        Assert.DoesNotThrowAsync(() => StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Unseeded Legacy Club"]));
+    }
+
+    [Test]
+    public async Task REQ110_CleanAllSeededClubsAsync_NullsOutPlayerPoolSweptAt_ForEverySeededClub()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Napoli", WikidataQid = "Q1", PlayerPoolSweptAt = DateTime.UtcNow });
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "AC Milan", WikidataQid = "Q2", PlayerPoolSweptAt = DateTime.UtcNow });
+        await _dbContext.SaveChangesAsync();
+
+        await StaleClubAttributeCleaner.CleanAllSeededClubsAsync(_dbContext);
+
+        Assert.That(await _dbContext.ClubDefinitions.AllAsync(c => c.PlayerPoolSweptAt == null), Is.True,
+            "the --all-clubs mode's 'purge and re-warm must force a real re-check' invariant applies to PlayerPoolSweptAt the same as PlayerAttribute/PlayerData/ConfirmedLowMatchPair/PairLookupFailure");
+    }
 }

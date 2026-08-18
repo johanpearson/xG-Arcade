@@ -31,4 +31,28 @@ public class CategoryValueRepository(XGArcadeDbContext dbContext) : ICategoryVal
         dbContext.TrophyDefinitions.Add(trophy);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    // REQ-110/ADR-0078/S-160: load-then-SaveChangesAsync, not
+    // ExecuteUpdateAsync — see this method's own doc comment on
+    // ICategoryValueRepository for why (InMemory-provider test safety,
+    // docs/coding-guidelines.md).
+    public async Task UpdateCountrySweptAtAsync(Guid countryId, DateTime sweptAt, CancellationToken cancellationToken = default)
+    {
+        var country = await dbContext.CountryDefinitions.FirstOrDefaultAsync(c => c.Id == countryId, cancellationToken);
+        if (country is null)
+            return;
+
+        country.PlayerPoolSweptAt = sweptAt;
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateClubSweptAtAsync(Guid clubId, DateTime sweptAt, CancellationToken cancellationToken = default)
+    {
+        var club = await dbContext.ClubDefinitions.FirstOrDefaultAsync(c => c.Id == clubId, cancellationToken);
+        if (club is null)
+            return;
+
+        club.PlayerPoolSweptAt = sweptAt;
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

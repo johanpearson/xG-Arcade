@@ -6830,7 +6830,7 @@ Never actually compiled in the sandbox that built it (no `dotnet` SDK
 available there) — first CI run on the branch is the real verification.
 *Deps:* none (ADR-0055/ADR-0069 already shipped).
 
-**S-160 · `warm-grid-cache`: mark a swept-but-genuinely-low pair `ConfirmedLowMatchPair` without a live round-trip**
+**S-160 · `warm-grid-cache`: mark a swept-but-genuinely-low pair `ConfirmedLowMatchPair` without a live round-trip — SHIPPED**
 S-159's own follow-up, flagged in ADR-0077's Consequences section rather
 than solved there. Once a pair's both sides have been fully swept by
 `prefetch-player-careers`, `PlayerCacheWarmingService`'s local
@@ -6854,3 +6854,38 @@ REQ-110's own "persisted confirmed-low signal" extension) — likely needs
 its own ADR per `CLAUDE.md`'s "could reasonably have gone another way"
 test, not a silent extension of ADR-0077.
 *Deps:* S-159.
+**Built as:** `CountryDefinition`/`ClubDefinition.PlayerPoolSweptAt`
+(`DateTime?`), the per-row "swept" marker option this entry's own note
+above named — see ADR-0078 for the full decision, including why the
+alternative signals considered (a single shared timestamp, a new pair
+table, an implicit global flag) were rejected. `PlayerCacheWarmingService
+.WarmAsync` checks both sides before `IsConfirmedLowAsync`/
+`IsPersistentTechnicalFailureAsync`/the live-query chain and calls
+`RecordConfirmedLowAsync` directly when both are swept — a new
+`PairsConfirmedLowFromSweep` counter makes it visible in the run summary.
+Both invalidation sites ADR-0078 requires are wired:
+`StaleClubAttributeCleaner` (REQ-111) and `purge-player-pool`
+(REQ-112/S-038) now also clear `PlayerPoolSweptAt`. Never actually compiled
+in the sandbox that built it (no `dotnet` SDK available there); the
+migration and Designer/snapshot files were hand-written by mirroring
+`20260817120000_AddRoundSequenceNumber`'s exact shape — first CI run on the
+branch is the real verification.
+**Quality-gate follow-up, non-blocking (2026-08-18):** `architecture-reviewer`/
+`quality-architect` passed this cleanly but flagged three small,
+explicitly-non-blocking items worth a future look, not their own story:
+(1) `CliVerbDispatcher.HandlePurgePlayerPoolAsync`'s five bulk statements
+(the pre-existing three plus this story's two new `PlayerPoolSweptAt`
+resets) run as separate, non-transactional operations — a crash mid-purge
+could leave `PlayerPoolSweptAt` stale relative to already-deleted
+`PlayerAttribute` data; reordering the resets to run *before* the
+`Players` delete (or wrapping the whole verb in a transaction) would make
+a crash fail safe instead of stale-trusting, same incident class
+ADR-0078 exists to prevent, but this pattern predates this story and
+isn't new drift; (2) `UpdateCountrySweptAtAsync`/`UpdateClubSweptAtAsync`
+silently no-op if the row is gone — fine today (nothing deletes
+`CountryDefinition`/`ClubDefinition` rows), a `LogWarning` would help if
+that ever changes; (3) `RecordConfirmedLowAsync`'s tracked load-then-save
+runs on every `WarmAsync` run for an already-swept-and-low pair forever
+(cheaper than a live query, but not as cheap as `IsConfirmedLowAsync`'s
+`AsNoTracking` read) — negligible at Tier 0's ~15-club scale, worth
+revisiting only if the reference-data pool grows substantially.

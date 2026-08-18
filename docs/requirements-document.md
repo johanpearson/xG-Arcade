@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.90"
+version: "1.91"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -631,6 +631,66 @@ without erroring), API
   `WikidataLookupService.PersistMatchesAsync`. `PlayerCareerPrefetchResult`
   gains `AttributesAdded`, a combined total across both sweeps, alongside
   the existing `PlayersTouched`/`StintsAdded`.
+- **Extended (2026-08-18) — confirmed-low without a live query for a
+  fully-swept pair (ADR-0078).** Direct follow-up to the extension
+  immediately above: once `PlayerCareerPrefetchService`'s pool sweep has
+  written every `PlayerAttribute` a specific country's or club's *complete*
+  Wikidata pool could ever produce, a Country×Club or Club×Club pair where
+  **both** sides have been fully swept has a local `PlayerAttribute` count
+  (`CountPlayersWithBothAttributesAsync`) that is no longer a partial cache
+  hint — it is the true, final count, since nothing a live query could
+  return is missing from it. `PlayerCacheWarmingService.WarmAsync` still
+  issued a live Wikidata query for exactly this case, which is pure waste
+  (and, per the incident that motivated ADR-0077, the query shape most
+  likely to be slow or fail). `CountryDefinition` and `ClubDefinition` each
+  gain a nullable `PlayerPoolSweptAt` (`DateTime?`) so `WarmAsync` can check
+  "this reference value's pool is fully and currently swept" directly
+  instead of re-deriving it live.
+- Given `PlayerCareerPrefetchService` completes a specific country's or
+  club's pool sweep successfully in a run (the existing
+  `countriesProcessed++`/`clubsProcessed++` success path)
+- When that sweep completes
+- Then that `CountryDefinition`/`ClubDefinition` row's `PlayerPoolSweptAt`
+  is set to the current UTC time
+- And a country/club skipped this run for having no `WikidataQid`, or one
+  whose sweep this run ends in a caught `WikidataQueryException`, does
+  **not** have its `PlayerPoolSweptAt` set or changed — an incomplete pool
+  must never be marked as fully swept
+- Given a Country×Club pair (or a Club×Club pair) whose local
+  `PlayerAttribute` count is below `MinValidAnswers`, where **both** sides
+  of the pair already have a non-null `PlayerPoolSweptAt`
+- When `PlayerCacheWarmingService.WarmAsync` reaches that pair
+- Then no live Wikidata query is issued for it — the system calls
+  `RecordConfirmedLowAsync` directly, using the existing local count as the
+  confirmed match count, and the pair is skipped on every subsequent run
+  the same way an already-confirmed-low pair is today
+- Given a pair below `MinValidAnswers` where only one side, or neither
+  side, has a non-null `PlayerPoolSweptAt`
+- When `WarmAsync` reaches that pair
+- Then the existing live-query fallback behavior is unchanged — partial
+  sweep coverage on either side is never treated as "final," only both
+  sides swept is
+- Given `StaleClubAttributeCleaner` (REQ-111) purges a club's
+  `PlayerAttribute`/`PlayerData` rows, in either its named or `--all-clubs`
+  mode
+- When that cleanup runs
+- Then the affected `ClubDefinition` row(s)' `PlayerPoolSweptAt` is reset to
+  `null` alongside the data it already clears — a stale "fully swept"
+  marker left in place after the underlying data was wiped would
+  permanently and wrongly suppress the very re-check that cleanup exists to
+  force, the same incident class ADR-0050/ADR-0052 already document once
+  in this codebase
+- Given the `purge-player-pool` CLI verb (REQ-112/S-038) runs
+- When it deletes every `Player` row and its cascading
+  `PlayerAttribute`/`PlayerData`/etc.
+- Then it also resets `PlayerPoolSweptAt` to `null` on every
+  `CountryDefinition` and `ClubDefinition` row — today it deletes `Player`
+  data but does not touch either reference table at all, and this extension
+  requires that it starts to, for the same full-reset-scope reason
+- This does not widen the skip condition to a single swept side: a pair
+  where only one side is swept still falls through to a live query, because
+  a partial pool on either side leaves the true match count unknown, not
+  merely "probably low"
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -674,6 +734,21 @@ the same player appearing in both a country's and a club's pool in one run
 correctly counts two distinct new attributes, not one. `WikidataClientTests.cs` covers `QueryPlayerPoolByClubAsync`'s
 own query shape (byte-for-byte, including the full `p:P54`/`ps:P54`
 statement path, never the truthy `wdt:P54` shortcut) and error contract.
+**(ADR-0078 additions):** `PlayerCareerPrefetchServiceTests.cs` — a
+country's or club's pool sweep that completes successfully this run sets
+that row's `PlayerPoolSweptAt` to the current time; a country/club skipped
+for having no `WikidataQid`, or one whose sweep ends in a caught
+`WikidataQueryException` this run, leaves `PlayerPoolSweptAt` unchanged.
+`PlayerCacheWarmingServiceTests.cs` — a below-`MinValidAnswers` pair with
+both sides' `PlayerPoolSweptAt` set calls `RecordConfirmedLowAsync`
+directly with the local count and issues zero calls to the mocked
+`IWikidataLookupService`/`IWikidataClient`; the same pair with only one
+side set (or neither) falls through to the existing live-query path
+unchanged. `StaleClubAttributeCleanerTests.cs` — cleaning a club (named or
+`--all-clubs` mode) also nulls that club's `PlayerPoolSweptAt`, not just
+its `PlayerAttribute`/`PlayerData` rows. A `purge-player-pool` regression
+test — purging resets `PlayerPoolSweptAt` to `null` on every
+`CountryDefinition`/`ClubDefinition` row, not only deleting `Player` rows.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched

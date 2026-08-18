@@ -10,4 +10,17 @@ public class ClubDefinition
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public string? WikidataQid { get; set; }   // nullable until resolved
+
+    // REQ-110/ADR-0078/S-160: mirrors CountryDefinition.PlayerPoolSweptAt's
+    // own doc comment — set by PlayerCareerPrefetchService's clubsProcessed++
+    // success path, checked by PlayerCacheWarmingService alongside the
+    // paired CountryDefinition/ClubDefinition's own PlayerPoolSweptAt before
+    // skipping a live Wikidata lookup. Unlike CountryDefinition's column,
+    // this one has TWO invalidation sites, not one: StaleClubAttributeCleaner
+    // (REQ-111, CleanAsync/CleanAllSeededClubsAsync) nulls it alongside the
+    // PlayerAttribute/PlayerData/ConfirmedLowMatchPair/PairLookupFailure
+    // rows it already clears for a corrected club, and purge-player-pool
+    // (REQ-112/S-038) nulls it at full-reset scope. See ADR-0078's "For AI
+    // agents" section before adding a third invalidation site.
+    public DateTime? PlayerPoolSweptAt { get; set; }
 }

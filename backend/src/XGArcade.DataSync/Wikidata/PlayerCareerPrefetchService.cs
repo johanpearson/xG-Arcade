@@ -52,6 +52,18 @@ namespace XGArcade.DataSync.Wikidata;
 // swept, eliminating the live pairwise SPARQL intersection queries that
 // otherwise time out on big-club combinations. PlayerCacheWarmingService
 // itself is unchanged — its skip-logic just starts being right more often.
+//
+// REQ-110/ADR-0078/S-160 (2026-08-18): also stamps
+// CountryDefinition/ClubDefinition.PlayerPoolSweptAt = DateTime.UtcNow the
+// moment a given country's/club's pool sweep completes successfully —
+// inside the countriesProcessed++/clubsProcessed++ success path ONLY,
+// never on the null-QID skip or a caught WikidataQueryException. This is
+// the signal PlayerCacheWarmingService now checks (alongside its own
+// CountPlayersWithBothAttributesAsync count) to know a pair's local count
+// is not just a cache hint but the true, final answer — see
+// PlayerCacheWarmingService.WarmAsync's own comment for the read side of
+// this and ADR-0078's "For AI agents" section for the invalidation
+// contract this write side must never violate.
 public class PlayerCareerPrefetchService(
     ICategoryValueRepository categoryValueRepository,
     IPlayerCareerStintRepository playerCareerStintRepository,
@@ -138,6 +150,14 @@ public class PlayerCareerPrefetchService(
             }
 
             countriesProcessed++;
+            // REQ-110/ADR-0078/S-160: only reached once this country's pool
+            // fetch has actually succeeded (past the try/catch above) —
+            // never on the null-QID skip or a caught WikidataQueryException.
+            // A genuinely empty pool (pool.Count == 0, handled just below)
+            // is still a complete, successful sweep — the country simply
+            // has no eligible players — so it's marked swept too, before
+            // the empty-pool `continue`.
+            await categoryValueRepository.UpdateCountrySweptAtAsync(country.Id, DateTime.UtcNow, cancellationToken);
             if (pool.Count == 0)
                 continue;
 
@@ -201,6 +221,11 @@ public class PlayerCareerPrefetchService(
             }
 
             clubsProcessed++;
+            // REQ-110/ADR-0078/S-160: mirrors the country loop's own comment
+            // above — this club's pool sweep genuinely succeeded (including
+            // a genuinely empty pool), so mark it swept before the
+            // empty-pool `continue`.
+            await categoryValueRepository.UpdateClubSweptAtAsync(club.Id, DateTime.UtcNow, cancellationToken);
             if (pool.Count == 0)
                 continue;
 

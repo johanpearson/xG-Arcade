@@ -139,4 +139,51 @@ public class CategoryValueRepositoryTests
 
         Assert.That(trophies.Select(t => t.Name), Is.EquivalentTo(new[] { "Copa América" }));
     }
+
+    // ---- UpdateCountrySweptAtAsync/UpdateClubSweptAtAsync (REQ-110/ADR-0078/
+    // S-160) -------------------------------------------------------------
+    // GetCountriesAsync/GetClubsAsync return AsNoTracking rows, so
+    // PlayerCareerPrefetchService can't just mutate the entity it already
+    // has and rely on SaveChangesAsync — these two methods exist as the
+    // explicit write path instead (load-then-SaveChangesAsync, per
+    // docs/coding-guidelines.md — never ExecuteUpdateAsync, which the
+    // InMemory provider these tests use can't translate).
+
+    [Test]
+    public async Task REQ110_UpdateCountrySweptAtAsync_SetsPlayerPoolSweptAt_VisibleToGetCountriesAsync()
+    {
+        var country = new CountryDefinition { Id = Guid.NewGuid(), Name = "France", WikidataQid = "Q142" };
+        await _repository.AddCountryAsync(country);
+        var sweptAt = DateTime.UtcNow;
+
+        await _repository.UpdateCountrySweptAtAsync(country.Id, sweptAt);
+
+        var reloaded = (await _repository.GetCountriesAsync()).Single(c => c.Id == country.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.EqualTo(sweptAt));
+    }
+
+    [Test]
+    public void REQ110_UpdateCountrySweptAtAsync_UnknownCountryId_IsANoOp_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.UpdateCountrySweptAtAsync(Guid.NewGuid(), DateTime.UtcNow));
+    }
+
+    [Test]
+    public async Task REQ110_UpdateClubSweptAtAsync_SetsPlayerPoolSweptAt_VisibleToGetClubsAsync()
+    {
+        var club = new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q9617" };
+        await _repository.AddClubAsync(club);
+        var sweptAt = DateTime.UtcNow;
+
+        await _repository.UpdateClubSweptAtAsync(club.Id, sweptAt);
+
+        var reloaded = (await _repository.GetClubsAsync()).Single(c => c.Id == club.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.EqualTo(sweptAt));
+    }
+
+    [Test]
+    public void REQ110_UpdateClubSweptAtAsync_UnknownClubId_IsANoOp_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.UpdateClubSweptAtAsync(Guid.NewGuid(), DateTime.UtcNow));
+    }
 }

@@ -13,6 +13,47 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `docs/implementation-document.md` (v1.03), `docs/architecture-document.md` (v1.09, §5.3
+  COMP-05/COMP-06/COMP-07 evolution table rows), `docs/backlog.md` (S-160 marked SHIPPED),
+  `backend/src/XGArcade.Data/Entities/CountryDefinition.cs`,
+  `ClubDefinition.cs`, `backend/src/XGArcade.Data/Migrations/20260818120000_AddPlayerPoolSweptAt.*`,
+  `XGArcadeDbContextModelSnapshot.cs` — implemented ADR-0078/S-160 (REQ-110's
+  "Extended (2026-08-18) — confirmed-low without a live query for a
+  fully-swept pair" criterion, already drafted in requirements-document.md
+  v1.91): `CountryDefinition`/`ClubDefinition` gain a nullable
+  `PlayerPoolSweptAt`, set by `PlayerCareerPrefetchService` only inside its
+  existing `countriesProcessed++`/`clubsProcessed++` success path (never on
+  a null-QID skip or a caught `WikidataQueryException`) via two new
+  `ICategoryValueRepository` methods (`UpdateCountrySweptAtAsync`/
+  `UpdateClubSweptAtAsync`, load-then-`SaveChangesAsync`, since
+  `GetCountriesAsync`/`GetClubsAsync` return `AsNoTracking` rows).
+  `PlayerCacheWarmingService.WarmAsync` checks both sides of a
+  below-threshold pair for a non-null `PlayerPoolSweptAt` before
+  `IsConfirmedLowAsync`/`IsPersistentTechnicalFailureAsync`/the live-query
+  chain and, when both are set, calls `RecordConfirmedLowAsync` directly
+  from the local count with zero Wikidata round-trips — a new
+  `PairsConfirmedLowFromSweep` counter on `CacheWarmingResult` makes this
+  visible in the run summary. Both documented invalidation sites are wired:
+  `StaleClubAttributeCleaner.CleanAsync`/`CleanAllSeededClubsAsync` (REQ-111)
+  now also null a cleaned club's `PlayerPoolSweptAt`; `CliVerbDispatcher
+  .HandlePurgePlayerPoolAsync` (REQ-112/S-038, `purge-player-pool`) now also
+  resets it to `null` on every `CountryDefinition`/`ClubDefinition` row via
+  `ExecuteUpdateAsync`, matching that verb's existing `ExecuteDeleteAsync`
+  style (a standalone operational CLI verb not exercised by the
+  InMemory-provider test suite). Tests extended in
+  `PlayerCareerPrefetchServiceTests.cs`, `PlayerCacheWarmingServiceTests.cs`,
+  `StaleClubAttributeCleanerTests.cs`, and `CategoryValueRepositoryTests.cs`
+  (the two new repository methods themselves); no dedicated test file exists yet
+  for `CliVerbDispatcher.HandlePurgePlayerPoolAsync` itself (same
+  ExecuteDeleteAsync/ExecuteUpdateAsync InMemory-provider limitation as its
+  existing deletes), so its `PlayerPoolSweptAt` reset is covered the same
+  way its existing `ConfirmedLowMatchPair`/`PairLookupFailure` resets
+  already are — a same-end-state proxy assertion in
+  `PlayerCacheWarmingServiceTests.cs`, not a direct unit test of the verb.
+  `dotnet` was unavailable in this session; the migration and Designer/
+  snapshot updates were hand-written by mirroring
+  `20260817120000_AddRoundSequenceNumber`'s exact shape rather than
+  generated, and none of this has been run.
 - 2026-08-18 — `docs/requirements-document.md` (v1.90), `docs/decisions/0077-prefetch-populates-playerattribute.md`
   (new), `docs/architecture-document.md` (v1.07, §5.3 evolution table:
   COMP-06/COMP-07 rows) — `PlayerCareerPrefetchService`'s

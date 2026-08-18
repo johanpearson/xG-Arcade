@@ -155,6 +155,103 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(result.CountriesFailed, Is.EqualTo(0));
     }
 
+    // ---- PlayerPoolSweptAt (REQ-110/ADR-0078/S-160) ------------------------
+    // Set only inside the countriesProcessed++/clubsProcessed++ success
+    // path — never on a null-QID skip, never on a caught
+    // WikidataQueryException (ADR-0078's own explicit "For AI agents" note:
+    // setting it on anything less than a genuinely complete pool fetch
+    // would make PlayerCacheWarmingService silently trust an incomplete
+    // pool as final).
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryPoolSweepSucceeds_SetsPlayerPoolSweptAt()
+    {
+        var france = await SeedCountryAsync("France", "Q142");
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        await BuildService().PrefetchAsync();
+
+        var reloaded = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == france.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Not.Null,
+            "a successfully-swept country's pool is complete, so PlayerCacheWarmingService can trust its local count going forward");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryWithEmptyPool_StillSetsPlayerPoolSweptAt()
+    {
+        var iceland = await SeedCountryAsync("Iceland", "Q189"); // No SetPoolForNationality call — genuinely zero eligible players.
+
+        await BuildService().PrefetchAsync();
+
+        var reloaded = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == iceland.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Not.Null,
+            "a genuinely empty pool is still a complete, successful sweep — the country simply has no eligible players");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryWithNoQid_LeavesPlayerPoolSweptAtNull()
+    {
+        var country = new CountryDefinition { Id = Guid.NewGuid(), Name = "No QID Country", WikidataQid = null };
+        await _categoryValueRepository.AddCountryAsync(country);
+
+        await BuildService().PrefetchAsync();
+
+        var reloaded = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == country.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Null,
+            "a null-QID skip never actually fetched a pool — must not be marked swept");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryPoolQueryFails_LeavesPlayerPoolSweptAtNull()
+    {
+        var france = await SeedCountryAsync("France", "Q142");
+        _wikidataClient.FailNextNationalityPoolCalls(1);
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await BuildService().PrefetchAsync());
+
+        var reloaded = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == france.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Null,
+            "a caught WikidataQueryException means the pool was NOT fully fetched this run — must not be marked swept");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_ClubPoolSweepSucceeds_SetsPlayerPoolSweptAt()
+    {
+        var celtic = await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        await BuildService().PrefetchAsync();
+
+        var reloaded = await _dbContext.ClubDefinitions.AsNoTracking().SingleAsync(c => c.Id == celtic.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_ClubWithNoQid_LeavesPlayerPoolSweptAtNull()
+    {
+        var club = new ClubDefinition { Id = Guid.NewGuid(), Name = "No QID Club", WikidataQid = null };
+        await _categoryValueRepository.AddClubAsync(club);
+
+        await BuildService().PrefetchAsync();
+
+        var reloaded = await _dbContext.ClubDefinitions.AsNoTracking().SingleAsync(c => c.Id == club.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Null,
+            "a null-QID skip never actually fetched a pool — must not be marked swept");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_ClubPoolQueryFails_LeavesPlayerPoolSweptAtNull()
+    {
+        var celtic = await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.FailNextClubPoolCalls(1);
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await BuildService().PrefetchAsync());
+
+        var reloaded = await _dbContext.ClubDefinitions.AsNoTracking().SingleAsync(c => c.Id == celtic.Id);
+        Assert.That(reloaded.PlayerPoolSweptAt, Is.Null,
+            "a caught WikidataQueryException means the pool was NOT fully fetched this run — must not be marked swept");
+    }
+
     [Test]
     public async Task PrefetchAsync_EmptyPoolForACountry_IsNotAFailure()
     {
