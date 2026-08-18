@@ -204,35 +204,41 @@ public class PlayerCareerPrefetchService(
             if (pool.Count == 0)
                 continue;
 
-            // Quality-gate fix (2026-08-18): ADR-0077 requires this to be
-            // sourced from the SAME clubNameByClubQid map PlayerCareerStint
-            // .ClubName already uses (built with "last club wins on a QID
-            // collision" — PlayerCareerStintRefreshService
-            // .BuildClubNameByClubQidAsync's own comment), not club.Name
-            // (the raw loop variable) directly — the two are almost always
-            // equal, but only clubNameByClubQid is guaranteed to match what
-            // PlayerCareerStint.ClubName resolves to for this exact QID in
-            // the rare two-ClubDefinition-rows-share-one-QID case. club
-            // .WikidataQid is non-null here (checked above), and every
-            // non-null-QID club is a key of clubNameByClubQid by
-            // construction, so this lookup is safe without a fallback.
-            var clubAttributeValue = clubNameByClubQid[club.WikidataQid!];
-
-            // REQ-110 follow-up: same reasoning as the country loop's own
-            // playerIdsWithNationality above, but for the "club" attribute
-            // type — using clubAttributeValue (not the raw club.Name) so
-            // this is byte-identical to what PlayerCacheWarmingService's
-            // club loop and CountPlayersWithBothAttributesAsync's later
-            // match will use.
+            // Quality-gate fix (2026-08-18), corrected after a follow-up
+            // architecture-review pass caught a mistake in the FIRST fix
+            // attempt here: this deliberately uses club.Name (the current
+            // ClubDefinition row's own name), NOT clubNameByClubQid — the
+            // opposite of PlayerCareerStint.ClubName's own sourcing a few
+            // lines below, and for a real reason, not an oversight.
+            // clubNameByClubQid resolves an ARBITRARY QID pulled out of a
+            // player's Wikidata career-stint response (any club they've
+            // ever played for, not necessarily this loop's club) — for that
+            // case a QID→name map is the only option, and "last club wins
+            // on a QID collision" (PlayerCareerStintRefreshService
+            // .BuildClubNameByClubQidAsync's own comment) is an accepted,
+            // unavoidable approximation there. Here there is no such
+            // ambiguity to resolve: `club` IS the exact ClubDefinition row
+            // this iteration is sweeping, so club.Name is already the
+            // correct, unambiguous identity for it — routing it through
+            // clubNameByClubQid instead would, on an actual QID collision
+            // between two ClubDefinition rows, silently mislabel one of
+            // them with the OTHER colliding club's "winning" name. What
+            // actually matters for correctness here is matching
+            // PlayerCacheWarmingService's own join key exactly
+            // (CountPlayersWithBothAttributesAsync's ClubAttributeType/
+            // club.Name — PlayerCacheWarmingService.cs), which is itself
+            // sourced the same way, directly off each ClubDefinition row's
+            // own Name, never through a QID map. See ADR-0077's own
+            // correction note.
             var playerIdsWithClub = (await playerAttributeRepository.GetPlayerAttributesAsync(
-                    ClubAttributeType, clubAttributeValue, cancellationToken))
+                    ClubAttributeType, club.Name, cancellationToken))
                 .Select(a => a.PlayerId)
                 .ToHashSet();
 
             foreach (var batch in pool.Chunk(CareerBatchSize))
             {
                 var (touched, added, attrsAdded, batchFailed) = await FetchAndPersistBatchAsync(
-                    batch, clubNameByClubQid, ClubAttributeType, clubAttributeValue, playerIdsWithClub, cancellationToken);
+                    batch, clubNameByClubQid, ClubAttributeType, club.Name, playerIdsWithClub, cancellationToken);
                 playersTouched += touched;
                 stintsAdded += added;
                 attributesAdded += attrsAdded;
@@ -270,8 +276,8 @@ public class PlayerCareerPrefetchService(
     //
     // REQ-110 follow-up: attributeType/attributeValue/playerIdsWithAttribute
     // describe THIS pool's own attribute (nationality+country.Name for the
-    // country loop, club+clubNameByClubQid[club.WikidataQid] for the club
-    // loop — see the club loop's own comment on why not club.Name directly)
+    // country loop, club+club.Name for the club loop — see the club loop's
+    // own comment on why club.Name, not clubNameByClubQid, is correct here)
     // — every player in `batch` gets that attribute queued, deduped against
     // playerIdsWithAttribute, which the caller built once per country/club
     // (not per batch) and passes by reference so dedup state accumulates

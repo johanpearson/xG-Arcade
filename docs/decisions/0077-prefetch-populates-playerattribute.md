@@ -68,13 +68,30 @@ complete, correct answer, and the live pairwise SPARQL query for that pair
 is never issued — including the exact combinatorial big-club joins that were
 failing 100% of the time.
 
-The club-name value written here is sourced from the same
-`clubNameByClubQid` map `PlayerCareerPrefetchService` already builds for
-`PlayerCareerStint.ClubName` — this is load-bearing: it must stay
-byte-identical to the `club.Name`/`ClubAttributeType` value
-`PlayerCacheWarmingService`'s own club loop and
-`CountPlayersWithBothAttributesAsync` match against, or the local join
-silently misses.
+**Correction (2026-08-18, follow-up architecture-review pass):** an earlier
+draft of this ADR said the club-attribute value must come from the same
+`clubNameByClubQid` map `PlayerCareerPrefetchService` uses for
+`PlayerCareerStint.ClubName`, and a first quality-gate fix pass implemented
+exactly that — which was wrong. The two writes have different correctness
+requirements and must NOT share a source:
+
+- `PlayerCareerStint.ClubName` resolves an *arbitrary* club QID pulled out
+  of a player's Wikidata career-stint response (any club they've ever
+  played for, not necessarily the one this loop is sweeping) — there is no
+  "current `ClubDefinition` row" to fall back on for that QID, so a
+  QID→name map is the only option, and `clubNameByClubQid`'s "last club
+  wins on a QID collision" is an accepted, unavoidable approximation there.
+- The club `PlayerAttribute` value, by contrast, identifies THIS sweep's
+  own `club` — the exact `ClubDefinition` row already being iterated, with
+  its own unambiguous `Name`. It is written as `club.Name` directly, the
+  same way `PlayerCacheWarmingService`'s own club loop and
+  `CountPlayersWithBothAttributesAsync` source their own match key — never
+  through `clubNameByClubQid`. Routing it through that map instead would,
+  on an actual `WikidataQid` collision between two `ClubDefinition` rows,
+  silently mislabel one of them with the *other* colliding club's
+  "winning" name — the opposite of the byte-identical match this ADR
+  requires, introduced by trying to avoid a different, unrelated
+  divergence that doesn't actually apply to this write.
 
 This is a deliberate, narrow reversal of ADR-0001's "`PlayerAttribute` only
 ever grows from combinations an actually-generated grid has needed"
@@ -141,12 +158,17 @@ Do not write to `PlayerNameIndex` from `PlayerCareerPrefetchService` under
 any circumstance — this decision only touches COMP-06's `PlayerAttribute`,
 never COMP-10. See ADR-0007/ADR-0053 for that boundary.
 
-The club-name value written by the club-loop sweep MUST come from the same
-`clubNameByClubQid` source `PlayerCareerStint.ClubName` already uses, not a
-second, independently-derived string — a divergence here silently breaks the
-local-join `PlayerCacheWarmingService` depends on, with no error, just a
-pair that never appears "fully swept" even though both sides were actually
-fetched.
+The club `PlayerAttribute` value written by the club-loop sweep MUST come
+from `club.Name` (the current `ClubDefinition` row being iterated) — the
+same source `PlayerCacheWarmingService`'s own club loop and
+`CountPlayersWithBothAttributesAsync` use for their match key. Do NOT
+route it through `clubNameByClubQid` (the QID→name map
+`PlayerCareerStint.ClubName` uses) — see this ADR's 2026-08-18 Correction
+note above for why that's a different, unrelated lookup with a different
+correctness requirement, and why using it here was already tried once and
+reverted. A divergence from `club.Name` here silently breaks the local-join
+`PlayerCacheWarmingService` depends on, with no error, just a pair that
+never appears "fully swept" even though both sides were actually fetched.
 
 If you are about to change `PlayerCacheWarmingService`'s skip-check
 speculatively "to take advantage of" this decision, stop — its existing
