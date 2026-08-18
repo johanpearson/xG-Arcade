@@ -305,12 +305,21 @@ public class PlayerCareerPrefetchService(
         // costs the (unrelated, purely local) attribute write.
         //
         // Quality-gate fix (2026-08-18): pairs each new PlayerAttribute row
-        // with a PlayerData row — same shape WikidataLookupService
-        // .QueueAttribute already establishes for every other automated
-        // Wikidata-derived attribute write, and required so REQ-502's admin
-        // view has a Source/Confidence to show for these rows. One shared
-        // syncedAt per batch call (not a fresh timestamp per player), same
-        // as PersistMatchesAsync.
+        // with a PlayerData row, required so REQ-502's admin view has a
+        // Source/Confidence to show for these rows — but deliberately NOT
+        // the same shape as WikidataLookupService.QueueAttribute, whose own
+        // comment calls PlayerData "a raw, per-source append log ... always
+        // recorded" regardless of whether the paired PlayerAttribute is new.
+        // Here BOTH lists are gated behind the identical
+        // playerIdsWithAttribute.Add(...) dedup check: a repeat sweep that
+        // re-confirms an already-known nationality/club fact does not
+        // re-append a fresh PlayerData row for it. That's the right call for
+        // this bulk sweep specifically — the fact being recorded doesn't
+        // change run to run the way a fresh per-guess Wikidata match can,
+        // and appending an unchanged PlayerData row on every one of this
+        // job's ~weekly full-pool sweeps would grow that table for zero
+        // informational gain. One shared syncedAt per batch call (not a
+        // fresh timestamp per player), same as PersistMatchesAsync.
         var attributesToAdd = new List<PlayerAttribute>();
         var playerDataToAdd = new List<PlayerData>();
         var syncedAt = DateTime.UtcNow;
