@@ -35,12 +35,15 @@ namespace XGArcade.DataSync.Wikidata;
 // deleted IPlayerStoreRepository); playerCareerStintRepository carries
 // GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync — see ADR-0067.
 //
-// REQ-110 follow-up (2026-08-18): playerAttributeRepository is new here —
-// both sweeps now ALSO persist a PlayerAttribute row per pooled player
-// (nationality for the country loop, club for the club loop), not just the
-// Player/PlayerCareerStint rows they always wrote. Every player in a given
-// country's/club's pool satisfies that attribute BY CONSTRUCTION of the
-// pool query's own WHERE clause (QueryPlayerPoolByNationalityAsync/
+// REQ-110 follow-up (2026-08-18): playerAttributeRepository/
+// playerDataRepository are new here — both sweeps now ALSO persist a
+// PlayerAttribute row (paired with a PlayerData row, same as every other
+// Wikidata-derived attribute write in this codebase — REQ-502's admin view
+// needs PlayerData's Source/Confidence for every data point) per pooled
+// player (nationality for the country loop, club for the club loop), not
+// just the Player/PlayerCareerStint rows they always wrote. Every player in
+// a given country's/club's pool satisfies that attribute BY CONSTRUCTION of
+// the pool query's own WHERE clause (QueryPlayerPoolByNationalityAsync/
 // QueryPlayerPoolByClubAsync) — no separate Wikidata read-back is needed to
 // know this. This is what lets PlayerCacheWarmingService's existing
 // CountPlayersWithBothAttributesAsync pre-check
@@ -54,16 +57,27 @@ public class PlayerCareerPrefetchService(
     IPlayerCareerStintRepository playerCareerStintRepository,
     IPlayerRepository playerRepository,
     IPlayerAttributeRepository playerAttributeRepository,
+    IPlayerDataRepository playerDataRepository,
     IWikidataClient wikidataClient,
     ILogger<PlayerCareerPrefetchService> logger) : IPlayerCareerPrefetchService
 {
-    private const string NationalityAttributeType = "nationality";
-    // Must stay byte-identical to WikidataLookupService's own
-    // ClubAttributeType constant and to the club.Name value
-    // PlayerCacheWarmingService's club loop uses — this is the exact string
-    // CountPlayersWithBothAttributesAsync later matches against, so there is
-    // no room for a second, potentially-divergent spelling.
-    private const string ClubAttributeType = "club";
+    // Quality-gate fix (2026-08-18): reference WikidataLookupService's own
+    // constants (made internal for exactly this) instead of redeclaring a
+    // second private copy in this class — one definition of the
+    // "nationality"/"club" AttributeType spelling, not two kept in sync
+    // only by comment discipline. This is the exact string
+    // CountPlayersWithBothAttributesAsync later matches against, so there
+    // is no room for a second, potentially-divergent spelling.
+    private const string NationalityAttributeType = WikidataLookupService.NationalityAttributeType;
+    private const string ClubAttributeType = WikidataLookupService.ClubAttributeType;
+
+    // Mirrors WikidataLookupService's own WikidataSource/VerifiedConfidence
+    // — every row this service writes to PlayerData is Wikidata-sourced and
+    // "verified" by default (ADR-0032: all Wikidata-sourced writes persist
+    // verified, no per-origin split needed), same as every other automated
+    // Wikidata-derived PlayerAttribute/PlayerData write in this codebase.
+    private const string WikidataDataSource = "wikidata";
+    private const string VerifiedConfidence = "verified";
 
     // Conservative batch size for QueryPlayerCareerStintsByQidsAsync's VALUES
     // clause within one country's pool — same size PlayerPhotoBackfillService/
@@ -190,21 +204,35 @@ public class PlayerCareerPrefetchService(
             if (pool.Count == 0)
                 continue;
 
+            // Quality-gate fix (2026-08-18): ADR-0077 requires this to be
+            // sourced from the SAME clubNameByClubQid map PlayerCareerStint
+            // .ClubName already uses (built with "last club wins on a QID
+            // collision" — PlayerCareerStintRefreshService
+            // .BuildClubNameByClubQidAsync's own comment), not club.Name
+            // (the raw loop variable) directly — the two are almost always
+            // equal, but only clubNameByClubQid is guaranteed to match what
+            // PlayerCareerStint.ClubName resolves to for this exact QID in
+            // the rare two-ClubDefinition-rows-share-one-QID case. club
+            // .WikidataQid is non-null here (checked above), and every
+            // non-null-QID club is a key of clubNameByClubQid by
+            // construction, so this lookup is safe without a fallback.
+            var clubAttributeValue = clubNameByClubQid[club.WikidataQid!];
+
             // REQ-110 follow-up: same reasoning as the country loop's own
             // playerIdsWithNationality above, but for the "club" attribute
-            // type — using club.Name (from the same ClubDefinition
-            // clubNameByClubQid above is sourced from) so this is
-            // byte-identical to what PlayerCacheWarmingService's club loop
-            // and CountPlayersWithBothAttributesAsync's later match will use.
+            // type — using clubAttributeValue (not the raw club.Name) so
+            // this is byte-identical to what PlayerCacheWarmingService's
+            // club loop and CountPlayersWithBothAttributesAsync's later
+            // match will use.
             var playerIdsWithClub = (await playerAttributeRepository.GetPlayerAttributesAsync(
-                    ClubAttributeType, club.Name, cancellationToken))
+                    ClubAttributeType, clubAttributeValue, cancellationToken))
                 .Select(a => a.PlayerId)
                 .ToHashSet();
 
             foreach (var batch in pool.Chunk(CareerBatchSize))
             {
                 var (touched, added, attrsAdded, batchFailed) = await FetchAndPersistBatchAsync(
-                    batch, clubNameByClubQid, ClubAttributeType, club.Name, playerIdsWithClub, cancellationToken);
+                    batch, clubNameByClubQid, ClubAttributeType, clubAttributeValue, playerIdsWithClub, cancellationToken);
                 playersTouched += touched;
                 stintsAdded += added;
                 attributesAdded += attrsAdded;
@@ -242,8 +270,9 @@ public class PlayerCareerPrefetchService(
     //
     // REQ-110 follow-up: attributeType/attributeValue/playerIdsWithAttribute
     // describe THIS pool's own attribute (nationality+country.Name for the
-    // country loop, club+club.Name for the club loop) — every player in
-    // `batch` gets that attribute queued, deduped against
+    // country loop, club+clubNameByClubQid[club.WikidataQid] for the club
+    // loop — see the club loop's own comment on why not club.Name directly)
+    // — every player in `batch` gets that attribute queued, deduped against
     // playerIdsWithAttribute, which the caller built once per country/club
     // (not per batch) and passes by reference so dedup state accumulates
     // correctly across a pool's multiple CareerBatchSize-sized batches.
@@ -274,14 +303,39 @@ public class PlayerCareerPrefetchService(
         // career-fetch step below succeeds or fails. This intentionally
         // runs before the try/catch so a career-fetch batch failure never
         // costs the (unrelated, purely local) attribute write.
+        //
+        // Quality-gate fix (2026-08-18): pairs each new PlayerAttribute row
+        // with a PlayerData row — same shape WikidataLookupService
+        // .QueueAttribute already establishes for every other automated
+        // Wikidata-derived attribute write, and required so REQ-502's admin
+        // view has a Source/Confidence to show for these rows. One shared
+        // syncedAt per batch call (not a fresh timestamp per player), same
+        // as PersistMatchesAsync.
         var attributesToAdd = new List<PlayerAttribute>();
+        var playerDataToAdd = new List<PlayerData>();
+        var syncedAt = DateTime.UtcNow;
         foreach (var player in playersByQid.Values.Select(r => r.Player))
         {
-            if (playerIdsWithAttribute.Add(player.Id))
-                attributesToAdd.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = attributeType, AttributeValue = attributeValue });
+            if (!playerIdsWithAttribute.Add(player.Id))
+                continue;
+
+            attributesToAdd.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = attributeType, AttributeValue = attributeValue });
+            playerDataToAdd.Add(new PlayerData
+            {
+                Id = Guid.NewGuid(),
+                PlayerId = player.Id,
+                Field = attributeType,
+                Value = attributeValue,
+                Source = WikidataDataSource,
+                Confidence = VerifiedConfidence,
+                SyncedAt = syncedAt,
+            });
         }
         if (attributesToAdd.Count > 0)
+        {
             await playerAttributeRepository.AddPlayerAttributesBatchAsync(attributesToAdd, cancellationToken);
+            await playerDataRepository.AddPlayerDataBatchAsync(playerDataToAdd, cancellationToken);
+        }
 
         IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> stintsByQid;
         try

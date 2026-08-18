@@ -347,10 +347,12 @@ public static class CliVerbDispatcher
         // WebApplication.CreateBuilder. See ADR-0067.
         var prefetchPlayerRepository = new PlayerRepository(prefetchDbContext);
         // REQ-110 follow-up: this verb's two sweeps now also write
-        // PlayerAttribute rows (see PlayerCareerPrefetchService's own doc
-        // comment) — same by-hand construction as every other repository
-        // here, since this verb runs before WebApplication.CreateBuilder.
+        // PlayerAttribute (paired with PlayerData, ADR-0032) rows — see
+        // PlayerCareerPrefetchService's own doc comment — same by-hand
+        // construction as every other repository here, since this verb
+        // runs before WebApplication.CreateBuilder.
         var prefetchPlayerAttributeRepository = new PlayerAttributeRepository(prefetchDbContext);
+        var prefetchPlayerDataRepository = new PlayerDataRepository(prefetchDbContext);
 
         using var prefetchHttpClient = new HttpClient();
         WikidataHttpClientConfiguration.Configure(prefetchHttpClient);
@@ -373,7 +375,7 @@ public static class CliVerbDispatcher
 
         var prefetchService = new PlayerCareerPrefetchService(
             prefetchCategoryValueRepository, prefetchPlayerCareerStintRepository, prefetchPlayerRepository,
-            prefetchPlayerAttributeRepository, prefetchWikidataClient,
+            prefetchPlayerAttributeRepository, prefetchPlayerDataRepository, prefetchWikidataClient,
             prefetchLoggerFactory.CreateLogger<PlayerCareerPrefetchService>());
 
         // Deliberately unhandled — PrefetchAsync throws only after every seeded
