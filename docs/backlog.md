@@ -5509,6 +5509,11 @@ handling) is unchanged, not just non-null; full `WikidataClientTests.cs`
 suite passes unchanged; line count reduction reported in the PR
 description.
 *Deps:* none (extends S-100/S-101's driver without reopening them).
+**Built as (2026-08-11):** matches the plan — new private `RunThrowingQueryAsync<T>`
+added as `RunIntersectionQueryAsync`'s throw-always sibling; all 6 named
+methods became thin wrappers over it, byte-for-byte-identical request/error
+behavior (12 new regression tests). `WikidataClient.cs`: 1,815 → 1,778
+lines. Full detail: `docs/CHANGELOG.md`, 2026-08-11 entry.
 
 **S-119 · GridGameModule.cs: split by responsibility (generation / name-matching / live-lookup dispatch)**
 S-104 (Epic 7) flattened `GridGameModule.cs`'s nesting (25→3 deep-indent
@@ -5527,6 +5532,13 @@ behavior change; `IGameModule`'s public contract unchanged. Add an ADR
 this is exactly that kind of structural split, same test S-106's ADR-0067
 already applied).
 *Deps:* none.
+**Built as (2026-08-11, ADR-0068):** matches the plan — `GridGameModule.cs`
+(1,039 lines) split into `GridGenerationService`/`GridNameMatcher`/
+`GridLiveLookupDispatcher` behind narrow interfaces, composed by
+`GridGameModule` itself (now ~160 lines, still implementing `IGameModule`
+directly since that contract has real external callers). Test coverage
+moved 1:1 (2,345 lines/90 methods), confirmed via mechanical method-name
+diff. Full detail: `docs/CHANGELOG.md`, 2026-08-11 entry; ADR-0068.
 
 **S-120 · Frontend: extract a shared `useAuthedFetch`/`usePaginatedFetch` hook**
 Confirmed via review: multiple screens (`LeaderboardScreen.tsx` most
@@ -5541,6 +5553,11 @@ shape; first migration (the lowest-risk screen, not necessarily
 passing unchanged; further screens migrate in follow-up stories, not all
 in one PR.
 *Deps:* none.
+**Built as (2026-08-16):** matches the plan — `frontend/src/lib/useAuthedFetch.ts`
+added (promoted from the prior `AdminScreen`-local `useAdminSectionFetch`),
+first migrated into `LeaguesScreen.tsx`. `docs/coding-guidelines.md`
+updated to describe the promoted hook. Full detail: `docs/CHANGELOG.md`,
+2026-08-16 entries (S-120).
 
 **S-121 · LeaderboardScreen.tsx: split into per-scope components**
 `LeaderboardScreen.tsx` (1,129 lines) implements 4 independent state
@@ -5557,6 +5574,16 @@ churn-based reasoning was wrong.
 files, not rewritten; no visual/behavior change; `oxlint`/`tsc -b`/`vitest`
 clean.
 *Deps:* S-120.
+**Built as (2026-08-16):** matches the plan — split into `AllTimeLeaderboard.tsx`/
+`LiveLeaderboard.tsx`/`PastRoundsLeaderboard.tsx`/`WindowedLeaderboard.tsx`
+plus shared `LeaderboardRowsList.tsx`; none of the four scopes' fetch
+shapes actually fit S-120's hook (each has its own poll/pagination
+lifecycle), so each kept a small local `handleAuthError` helper instead —
+confirmed consistent with S-120's own scoped hook description.
+`LeaderboardScreen.tsx` is now a 261-line always-mounted orchestrator
+gating visibility via an `active` prop. `CODEBASE_ANALYSIS.md`'s prior
+"watch-only" call on this file was marked superseded in place. Full
+detail: `docs/CHANGELOG.md`, 2026-08-16 entry (S-121).
 
 **S-122 · Add direct repository tests for `PlayerDataQualityRepository`**
 Acknowledged, not-yet-fixed gap from S-107's own "Built as" note (Epic 8):
@@ -5567,6 +5594,9 @@ repository-level test, only indirect coverage via
 *Accept:* new/extended `PlayerDataQualityRepositoryTests.cs` directly
 exercises each of the five methods; no behavior change.
 *Deps:* none.
+**Built as (2026-08-16):** matches the plan — pure test addition to
+`PlayerDataQualityRepositoryTests.cs`, no production code touched, no docs
+needed updating (confirmed against each doc's `update_when` trigger).
 
 **S-123 · Slim `docs/architecture-document.md` §6.1's remaining status-note pocket**
 S-116 above slimmed §5 but deliberately left §6 alone after confirming it
@@ -5617,6 +5647,14 @@ assertions and exact timeout/exception-message assertions for both methods,
 not just non-null; full `WikidataClientTests.cs` suite passes unchanged;
 line count reduction reported in the PR description.
 *Deps:* S-118 (extends its driver without reopening it).
+**Built as (2026-08-18, `code-health-auditor` sweep):** matches the plan —
+both methods are now thin wrappers over `RunThrowingQueryAsync`; exact
+timeout/exception-message text preserved byte-for-byte (existing tests
+only asserted exception type, so two new byte-for-byte SPARQL tests and
+two exact-message timeout tests were added per method, same precedent as
+S-118's own regression tests). `WikidataClient.cs`: 1,820 → 1,775 lines.
+Hand-traced against `RunThrowingQueryAsync`'s existing six call sites, not
+run via `dotnet test` (no SDK in this sandbox — same caveat as S-118).
 
 **S-125 · architecture-document.md §6.2c: fix stale ADR-0052 citation**
 S-123's quality gate (`architecture-reviewer`) found `docs/architecture
@@ -5631,6 +5669,14 @@ own scope limit.
 *Accept:* §6.2c's citation corrected to ADR-0053; no other content change;
 frontmatter bumped; CHANGELOG entry added.
 *Deps:* none.
+**Built as (2026-08-18, `code-health-auditor` sweep):** matches the plan,
+plus one adjacent stale claim found in the same two paragraphs while
+fixing the citation: §6.2c's heading and body both still said REQ-509/510's
+admin commit half was "not yet built" (S-090) — it shipped 2026-08-08,
+well before this note was written, confirmed via `docs/backlog.md`'s own
+S-090 entry and `AdminSuggestionEndpoints.cs`'s git history. Corrected in
+the same edit rather than deferred, since it was the same sentence already
+being touched for the ADR fix, not a separate rewrite.
 
 **S-126 · architecture-document.md §6.10: fix stale `XGArcade.Testing` naming**
 S-123's quality gate (`quality-architect`) found `docs/architecture
@@ -5643,6 +5689,10 @@ diff so was left alone per its own scope limit.
 with §5 and §6.1; no other content change; frontmatter bumped; CHANGELOG
 entry added.
 *Deps:* none.
+**Built as (2026-08-18, `code-health-auditor` sweep):** matches the plan —
+§6.10's lone remaining `XGArcade.Testing` reference corrected to
+`Testing.SeedManager`; grepped the whole document afterward to confirm no
+other instance remained.
 
 **S-127 · Widen `PlayerCareerPrefetchService` to also sweep seeded clubs (ADR-0069)**
 ADR-0055 deliberately scoped `PlayerCareerPrefetchService`'s candidate pool
@@ -5667,6 +5717,8 @@ to mention clubs, not just countries; ADR-0069 records the decision and
 the P54 full-statement-path constraint; REQ-110/architecture-document.md's
 COMP-07 row updated to describe the widened scope.
 *Deps:* ADR-0055 (extends, does not supersede).
+**Built as (2026-08-17):** matches the plan. Full detail: `docs/CHANGELOG.md`,
+2026-08-17 entry (S-127); ADR-0069.
 
 **S-128 · Feature-flag REQ-211's guess-time live-lookup fallback (ADR-0070)**
 The product owner wants to test whether S-127's proactively-built cache is
@@ -5697,6 +5749,8 @@ guess-scoring narrative notes the fallback is now conditional.
 *Deps:* ADR-0018, ADR-0046 (both describe the fallback this flag gates,
 neither is superseded), REQ-509/510 (remediation path while testing with
 the flag off).
+**Built as (2026-08-17):** matches the plan; ADR-0070. See the follow-up
+below for a deploy-time gap found and fixed the same day.
 **Follow-up (2026-08-17):** ADR-0070's own Consequences section claimed
 flipping `GridLiveLookup:Enabled` needs "no redeploy of code" — true at the
 app-config level, but the flag was never actually wired into the deployed
@@ -6571,3 +6625,158 @@ Files: `backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs` (new),
 available in the sandbox this was built in — code was hand-traced against
 concrete scenarios, not compiled/run; `dotnet build`/`dotnet test` must run
 in CI before this is considered verified.
+
+## Epic 17 — Technical debt remediation, round 4 (`CODE_HEALTH_ASSESSMENT.md` follow-up, 2026-08-18 sweep)
+
+Source: `CODE_HEALTH_ASSESSMENT.md` (2026-08-18 revision) and
+`CODEBASE_ANALYSIS.md` (2026-08-18 revision), the `code-health-auditor`
+agent's periodic sweep. Same house rules as Epics 7-9: independent of the
+Tier 0 build sequence, **every story here is a pure refactor/doc-sync/
+test-addition — no behavior change, no new REQ IDs**. Before writing this
+epic, every finding was cross-checked against Epic 9 (`docs/backlog.md`
+S-115–S-129) and `CODEBASE_ANALYSIS.md`'s prior top-10 list to avoid
+re-flagging completed work — the majority of both had already shipped
+since the 2026-08-11 sweep (`GridGameModule.cs` split/ADR-0068,
+`LeaderboardScreen.tsx` split, `useAuthedFetch` hook, `WikidataClient.cs`'s
+remaining query methods migrated onto the shared driver, `PlayerStoreRepository`
+split/ADR-0067, `frontend/src/lib/api.ts` split, `CliVerbDispatcher.cs`
+restructured to a verb registry, `CompositionRoot` testing strategy
+decided, `architecture-document.md` §5/§6 slimmed). This sweep found and
+fixed three small items Epic 9 had explicitly deferred (S-124/S-125/S-126
+— see their own "Built as" notes above, all closed in this sweep, not
+carried into this epic) and identified the items below as the next real
+gaps, prioritized by complexity × churn per this agent's own mandate, not
+score alone.
+
+**S-154 · `XGPathGameModule.cs`: extract the eligibility pipeline into a dedicated service**
+`CODE_HEALTH_ASSESSMENT.md`'s 2026-08-11 revision flagged this file (then
+423 lines) as "already shows the same multi-concern-method pattern XGGrid
+took at this size — a clear pre-emptive refactor candidate." That
+prediction has materialized: the file is now 557 lines (+32%) with 8
+commits since (S-137/138/139/141, the highest churn count of any
+non-generated backend file this sweep found besides `CliVerbDispatcher.cs`,
+whose growth is healthy verb-registry breadth, not concern-mixing — see
+this epic's intro and `CODE_HEALTH_ASSESSMENT.md` §4 for why the two read
+differently despite similar churn). `GetEligiblePlayerIdsAsync`/`IsEligible`
+(~150 lines together) form a genuinely separable "eligibility pipeline"
+concern — candidate narrowing, stint sanitization, three structural checks,
+birth-year filtering, familiarity filtering — distinct from
+`GenerateInstanceAsync`'s own orchestration concern (template lookup,
+cycle rollover, selection, persistence) and from `ScoreSubmissionAsync`'s
+scoring concern. Extract into `IPathEligibilityService`/`PathEligibilityService`,
+composed behind `XGPathGameModule` (now a thinner `IGameModule` adapter),
+mirroring ADR-0068's `GridGameModule` split precedent exactly — same
+"no facade, `IGameModule` keeps its real external callers" shape.
+*Accept:* `XGPathGameModuleTests.cs` coverage moves/renames to match the
+new class boundary rather than being rewritten — structural-only change,
+no behavior change; `IGameModule`'s public contract unchanged; the
+fetch→sanitize→eligibility-check ordering invariant (REQ-1203, locked by
+S-139's own comment block) is preserved byte-for-byte, not just
+behaviorally — that comment block moves with the code it documents. Add
+an ADR per `CLAUDE.md`'s own "could reasonably have gone another way"
+test, same bar ADR-0068 already applied to the equivalent xG Grid split.
+*Deps:* none.
+
+**S-155 · `WikidataClient.cs`: split query-building/parsing helpers out of the client class**
+`CODE_HEALTH_ASSESSMENT.md`'s 2026-08-11 revision scored this file 2.5/10
+and recommended splitting into `SparqlQueryBuilder`/`SparqlQueryRunner`/
+`SparqlResponseParsers`. S-118/S-124 (Epic 9, both complete as of this
+sweep) fixed the specific defect that made it a 2.5 — 9+ near-duplicated
+HTTP-handling blocks, now consolidated behind two shared drivers
+(`RunIntersectionQueryAsync`/`RunThrowingQueryAsync`) — so the duplication-
+driven urgency is gone. What remains is a breadth/SRP concern only: the
+file (1,775 lines) still holds every `Build*Query`/`Parse*Bindings` helper
+for all ~15 query methods alongside the two drivers and the client's own
+public surface. Lower priority than S-154 above (no duplication risk, no
+recent defect history, moderate churn) — included because the original
+recommendation's second half was never done, not because it's urgent.
+Split `Build*Query`/`Parse*` static methods into `SparqlQueryBuilders`/
+`SparqlResponseParsers` (both stateless, dependency-free, trivially
+testable in isolation per the original recommendation's own reasoning);
+`WikidataClient` keeps the two `Run*` drivers and its public
+`IWikidataClient` methods, now thinner wrappers delegating to the moved
+helpers.
+*Accept:* every existing `WikidataClientTests.cs` case passes unchanged
+(pure move, no behavior change); if any `Build*`/`Parse*` method is tested
+indirectly only (via the client's public methods), that indirect coverage
+is preserved, not weakened; line count reduction of `WikidataClient.cs`
+reported in the PR description. Judgment call, flag for
+`architecture-reviewer`: whether the moved helpers land in the same
+`XGArcade.DataSync/Wikidata/` folder as new files or a `Wikidata/Sparql/`
+subfolder — this story doesn't decide that, since it "could reasonably go
+another way" and isn't load-bearing for the refactor's value.
+*Deps:* none.
+
+**S-156 · Add direct tests for `AdminScreen.tsx`'s remaining untested subcomponents**
+`CODEBASE_ANALYSIS.md`'s 2026-08-11 revision (#2, P2) flagged 9 extracted
+`AdminScreen.tsx` subcomponents with zero dedicated tests. Since then,
+5 gained their own test file (`AccountMetricsSection`, `AnnouncementBannerSection`,
+`IncidentReportsEntry`, `PlayerSuggestionsEntry`, `XGPathCycleSection`) —
+confirmed via direct file listing this sweep. Four remain covered only
+indirectly through `AdminScreen.test.tsx` (1,332 lines, itself evidence of
+the gap): `GuestClearSection.tsx`, `RoundControlSection.tsx`,
+`UnverifiedDataSection.tsx`, `UserDeletionSection.tsx`.
+*Accept:* each of the four gains its own `*.test.tsx` file covering its
+own render/interaction/error paths (mirroring the shape the 5 already-split
+files use); `AdminScreen.test.tsx` is trimmed of any case now redundant
+with the new dedicated files (not left duplicated); full `npm run test`
+suite passes with the same or greater total assertion count, not fewer.
+*Deps:* none.
+
+**S-157 · Continue `useAuthedFetch` migration to `GridScreen.tsx`/`PathScreen.tsx`/`AdminScreen.tsx`**
+S-120 (Epic 9) added the shared hook and migrated one screen
+(`LeaguesScreen.tsx`), explicitly scoping further migration to "follow-up
+stories, not all in one PR." Confirmed via grep this sweep:
+`GridScreen.tsx`, `PathScreen.tsx`, and `AdminScreen.tsx` still hand-roll
+their own `phase: 'loading'|...` fetch-on-mount state independently and
+match the hook's covered shape (simple fetch-on-mount, not the leaderboard
+scopes' poll/pagination lifecycles S-121 found didn't fit). Migrate one or
+more of these three, whichever proves lowest-risk first — this story
+doesn't mandate all three in one PR, following S-120's own precedent.
+*Accept:* each migrated screen's existing tests pass unchanged (no
+visual/behavior change); `oxlint`/`tsc -b`/`vitest` clean.
+*Deps:* S-120 (already complete).
+
+**S-158 · Extract `App.tsx`'s auth-session lifecycle into a `useSession()` hook**
+Carried over from `CODEBASE_ANALYSIS.md`'s original (2026-08-10) Quick Win
+list — never done. `App.tsx` (603 lines) still mixes routing, dialog
+state, and ~150 lines of self-contained auth-session lifecycle
+(`handleAuthenticated`/`handleLogout`/`attemptSilentRefresh`/the `fetchMe`
+effect) in one component, confirmed unchanged this sweep (`grep -n
+useSession` returns nothing in `App.tsx`).
+*Accept:* `App.test.tsx` (and the broader `tests/unit/App.test.tsx` suite)
+passes unchanged — pure extraction, no behavior change; `App.tsx`'s line
+count reduction reported in the PR description.
+*Deps:* none.
+
+**Watch-only (no story, low churn/not yet a problem):**
+- `frontend/src/admin/SuggestionsScreen.tsx` (697 lines, now the largest
+  frontend file post-S-129): inspected this sweep and found genuinely
+  cohesive — one feature (REQ-509/510), two entry points sharing one
+  `PlayerReviewPanel` component deliberately, not four unrelated concerns
+  bundled the way pre-split `LeaderboardScreen.tsx` was. Has its own
+  `SuggestionsScreen.test.tsx` (466 lines, a healthy ~0.67x ratio, unlike
+  the `AdminScreen.tsx` pattern above). Low churn (fresh from S-129,
+  2026-08-17). No action; re-check if it keeps growing.
+- `WikidataClientTests.cs` (3,973 lines, now the single largest file in
+  the repo): growing for legitimate regression-proof reasons (S-118/S-124/
+  S-127 each added real byte-for-byte assertions). A future split-by-
+  query-family pass would help navigability but isn't urgent — same
+  judgment `CODEBASE_ANALYSIS.md`'s 2026-08-11 revision already made and
+  still holds.
+- `docs/backlog.md` (6,627 lines) and `docs/CHANGELOG.md` (7,732 lines):
+  both inherently high-churn, append-only-by-design working documents
+  (every story/every doc change adds one entry) — not the same accretion
+  failure mode `architecture-document.md`'s COMP-xx cells had, since each
+  entry here is a distinct, dated, atomic record rather than a single
+  cell being repeatedly rewritten in place. No action.
+- `CliVerbDispatcher.cs` (736 lines, 12 commits since June — the highest
+  raw churn count of any backend source file this sweep found): confirmed
+  healthy despite the churn — a verb-registry pattern (S-112) where every
+  new CLI operation is a new, independent, consistently-shaped entry
+  (`Verbs` dictionary + one handler method reusing `BuildDbContext()`/
+  `BuildLoggerFactory()`, S-114's fix still holding, zero duplication
+  found on inspection). This is the "high churn but well-shaped" case
+  CodeScene's own methodology distinguishes from a real hotspot — the
+  size is proportional to the number of distinct operations (14 verbs),
+  not concern-mixing. No action.

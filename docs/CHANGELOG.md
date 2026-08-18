@@ -13,6 +13,46 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md`, `docs/backlog.md`
+  (new Epic 17, S-154–S-158), `docs/architecture-document.md` (v1.06,
+  §6.2c/§6.10 fixes) — periodic whole-codebase health sweep
+  (`code-health-auditor`). Re-verified Epic 9's actual completion state
+  against `git log`/direct file inspection rather than trusting
+  `docs/backlog.md`'s own notes: 11 of 15 Epic 9 stories (S-115–S-123,
+  S-127–S-129) had already shipped since 2026-08-11 but several were
+  missing their "Built as" note — added in this pass, not re-implemented.
+  Closed the three items Epic 9 had explicitly deferred: **S-124**
+  (`backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`) — migrated
+  `QueryPlayerPhotosByQidsAsync`/`QueryPlayerPhotoByNameAsync` onto the
+  shared `RunThrowingQueryAsync` driver S-118 built, closing the file's
+  last two hand-rolled HTTP/timeout/retry blocks (1,820→1,775 lines); added
+  4 new byte-for-byte/exact-message regression tests to
+  `WikidataClientTests.cs` following S-118's own precedent. **S-125/S-126**
+  (`docs/architecture-document.md`) — fixed §6.2c's stale ADR-0052 citation
+  (should be ADR-0053) and §6.10's stale `XGArcade.Testing` naming (should
+  be `Testing.SeedManager`); found and fixed one adjacent stale claim in
+  the same §6.2c paragraphs (REQ-509/510's admin commit was described as
+  "not yet built" — it shipped 2026-08-08, well before this note was
+  written). All changes hand-traced, not compiled — no `dotnet` SDK in
+  this sandbox, confirmed unchanged from the 2026-08-11 report; `npm run
+  test` (584/584), `tsc -b`, and `oxlint` all ran live and clean after a
+  fresh `npm install`. Overall system health score: 6.4/10 → 7.6/10 (see
+  `CODE_HEALTH_ASSESSMENT.md`'s own revision history for the full
+  per-module/component breakdown). New Epic 17 (`docs/backlog.md`)
+  tracks the remaining gaps found this pass — `XGPathGameModule.cs`'s
+  eligibility pipeline (S-154, the clearest new hotspot-in-progress,
+  growing the same way `GridGameModule.cs` did before ADR-0068),
+  `WikidataClient.cs`'s residual query-builder/parser breadth (S-155,
+  lower urgency now that its duplication risk is resolved), `AdminScreen.tsx`'s
+  4 still-untested subcomponents (S-156), continued `useAuthedFetch`
+  migration (S-157), and `App.tsx`'s carried-over `useSession()` extraction
+  (S-158). No boundary violations, no new ADR-worthy decision made by this
+  sweep itself (S-154/S-119's own ADR-0068 precedent already sets the bar
+  for that story's eventual implementer). `docs/architecture-document.md`'s
+  in-body version line (stale at "1.00 · 2026-08-17" against a frontmatter
+  already at 1.05) was also found drifted again and re-synced to 1.06 —
+  same drift class S-116 fixed once before.
+
 - 2026-08-18 — `docs/backlog.md`, `docs/decisions/0003-generic-round-game-reference.md`,
   `TODO.md` — S-152 (Epic 16, build-only): implemented the `purge-game-history` CLI
   verb (`GameHistoryPurger`, `CliVerbDispatcher`), its

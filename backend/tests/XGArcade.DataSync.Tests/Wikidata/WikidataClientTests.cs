@@ -2434,6 +2434,44 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryPlayerPhotosByQidsAsync(["Q1519", "Arsenal"]));
     }
 
+    // S-124 (docs/backlog.md): regression proof for migrating this method
+    // onto the shared RunThrowingQueryAsync driver (same precedent as
+    // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above) — asserts the SPARQL text sent is byte-for-byte identical to
+    // BuildPlayerPhotosByQidsQuery's pre-refactor output.
+    [Test]
+    public async Task REQ124_QueryPlayerPhotosByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPhotosByQidsAsync(["Q1519", "Q9617"]);
+
+        const string expectedQuery = """
+            SELECT ?player ?photo WHERE {
+              VALUES ?player { wd:Q1519 wd:Q9617 }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-124: pins the exact pre-refactor timeout-message shape and budget
+    // (_queryTimeout — this method has no admin/cache-warming budget of its
+    // own) post-migration onto the shared driver.
+    [Test]
+    public void REQ124_QueryPlayerPhotosByQidsAsync_Timeout_ReportsExactPreRefactorMessage()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotosByQidsAsync(["Q1519", "Q9617"]));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata player-photo batch query for 2 QID(s) timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
+    }
+
     // ---- QueryPlayerPhotoByNameAsync (REQ-216/ADR-0057, wrong-guess photo
     // lookup) --------------------------------------------------------------
     // A single, name-based (not QID-based) lookup — the one case
@@ -2595,6 +2633,56 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
 
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
+    }
+
+    // S-124 (docs/backlog.md): regression proof for migrating this method
+    // onto the shared RunThrowingQueryAsync driver — asserts the SPARQL text
+    // sent is byte-for-byte identical to BuildPlayerPhotoByNameQuery's
+    // pre-refactor output.
+    [Test]
+    public async Task REQ124_QueryPlayerPhotoByNameAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPhotoByNameAsync("Clarence Seedorf");
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?photo WHERE {
+              ?player wdt:P106 wd:Q937857.
+              {
+                ?player rdfs:label ?matchedLabel.
+                FILTER(LANG(?matchedLabel) = "en")
+              }
+              UNION
+              {
+                ?player skos:altLabel ?matchedLabel.
+                FILTER(LANG(?matchedLabel) = "en")
+              }
+              FILTER(LCASE(STR(?matchedLabel)) = LCASE("Clarence Seedorf"))
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            LIMIT 1
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-124: pins the exact pre-refactor timeout-message shape post-migration
+    // onto the shared driver — companion to
+    // REQ216_QueryPlayerPhotoByNameAsync_UsesQueryTimeout_NotAdminLookupBudget
+    // above, which already pins the budget itself; this pins the message text.
+    [Test]
+    public void REQ124_QueryPlayerPhotoByNameAsync_Timeout_ReportsExactPreRefactorMessage()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata wrong-guess photo-by-name query for 'Clarence Seedorf' timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 
     [Test]
