@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `backend/src/XGArcade.Games.XGPath/PathCareerStintFilter.cs`,
+  `backend/tests/XGArcade.Games.XGPath.Tests/PathCareerStintFilterTests.cs`,
+  `docs/requirements-document.md`,
+  `docs/decisions/0075-xg-path-b-team-reserve-team-exclusion.md` — S-140
+  (Epic 12): bug fix broadening `PathCareerStintFilter.NationalTeamPattern`
+  to also exclude a label pairing the word-bounded token "regional" with a
+  trailing "team"/"representative" (e.g. "Basque Country regional football
+  team"), not just "national" + "team" labels — closes the inconsistency
+  where "Catalonia national football team" was excluded as a clue-reveal
+  club but "Basque Country regional football team" wasn't, even though
+  both are non-club representative sides with no real FIFA-affiliation
+  signal this filter can check. Test renamed/flipped
+  (`REQ1203_IsNationalTeam_NonFifaRegionalTeam_ReturnsFalse` →
+  `REQ1203_IsNationalTeam_NonFifaRegionalRepresentativeTeam_ReturnsTrue`),
+  plus new regression cases (substring false-positive guard, bare "Regional"
+  club-name guard, full seeded-club false-positive sweep).
+  requirements-document.md gets a new dated status note under REQ-1203
+  marking the prior notes' "Basque Country stays a valid clue" claim as
+  superseded, without editing that historical prose (REQ-1203's own
+  acceptance criteria wording is unchanged — it already had no
+  FIFA-affiliation qualifier, so this is an internal regex refinement, not
+  a reinterpretation). ADR-0075's own follow-up note (which had tracked
+  this as "not yet fixed as of this ADR") is corrected to reflect S-140
+  landing. No new ADR — confirmed by architecture-reviewer as a bug fix to
+  an already-ADR'd filter's implementation, and ADR-0075 already scoped
+  this fix out of itself as a separately tracked item. REQ-1203.
 - 2026-08-18 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
   `docs/requirements-document.md` — S-139 fast-follow: investigated a
   product concern that a player could see an empty club-reveal turn, and

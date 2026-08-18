@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.85"
+version: "1.86"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -7545,6 +7545,32 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   continue to document the (now-unreachable-via-normal-generation) degrade
   shape for a puzzle whose stints are seeded directly at the DB level,
   bypassing eligibility — not a live code path.
+- **Status note (2026-08-18, S-140, bug fix): the "Basque Country regional
+  football team" carve-out described in the 2026-08-08 and 2026-08-10 notes
+  above is now closed — that carve-out is superseded, not current
+  behavior.** Those two notes are left unedited as history, per this
+  section's own convention, but their claim that a "Basque Country regional
+  football team"-style stint "stays a valid clue" / "is preserved" no
+  longer holds. Both notes already correctly identified this as
+  **incidental, not a deliberate policy exemption** — the filter has no
+  FIFA-affiliation signal and matches purely on label wording — and that
+  reasoning is exactly why excluding "Catalonia national football team" but
+  not "Basque Country regional football team" was an inconsistency to
+  close, not a distinction to keep: both are non-club representative sides,
+  and this REQ's acceptance criterion below draws no line between them.
+  `PathCareerStintFilter.NationalTeamPattern` now also matches the
+  word-bounded token "regional" paired with a trailing "team" or
+  "representative" (alongside the existing "national" + "team" match), so
+  both label shapes are excluded on the same principle. This REQ's own
+  acceptance criteria wording (below) is unchanged — it already had no
+  FIFA-affiliation qualifier, so this fix is an internal regex refinement,
+  not a reinterpretation of the REQ. See `PathCareerStintFilter.cs`'s own
+  2026-08-18 doc-comment correction and
+  `PathCareerStintFilterTests.REQ1203_IsNationalTeam_
+  NonFifaRegionalRepresentativeTeam_ReturnsTrue` (previously
+  `..._NonFifaRegionalTeam_ReturnsFalse`, which pinned the inconsistency as
+  correct behavior). No new ADR — confirmed a bug fix to ADR-0075's own
+  Catalonia/Basque follow-up note, not a new eligibility-model decision.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
