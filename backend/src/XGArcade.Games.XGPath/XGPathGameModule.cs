@@ -396,8 +396,15 @@ public class XGPathGameModule(
         // exactly the intended, safe shape of that narrowing pass; it
         // would only be a bug if it excluded a genuinely eligible
         // candidate, which not filtering here never does).
+        // S-139 (2026-08-18, REQ-1203/ADR-0075): ExcludeBTeams is chained
+        // alongside ExcludeNationalTeams for the same reason — a leftover
+        // B-team/reserve-team row (e.g. "Real Madrid Castilla") is not
+        // itself a seeded club either, but can still collide on dates the
+        // same way a national-team row can.
         var structurallyEligibleIds = stintsByPlayer
-            .Where(kvp => IsEligible(PathCareerStintFilter.ExcludeNationalTeams(kvp.Value), seededClubNames))
+            .Where(kvp => IsEligible(
+                PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(kvp.Value)),
+                seededClubNames))
             .Select(kvp => kvp.Key)
             .ToList();
 

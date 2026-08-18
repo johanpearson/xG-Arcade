@@ -141,8 +141,14 @@ public static class PathEndpoints
                 // doc comment for both the full "why a read-time filter, not
                 // a cleanup script" reasoning and the 2026-08-10
                 // scope-correction reasoning for covering senior teams too.
+                // S-139 (2026-08-18, REQ-1203/ADR-0075): ExcludeBTeams now
+                // also runs here, alongside ExcludeNationalTeams, so a
+                // B-team/reserve-team row (e.g. "Barcelona Atlètic") never
+                // reaches PathClueSequenceBuilder as a raw clue-reveal club
+                // name either.
                 var stints = stintsByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var playerStints)
-                    ? PathCareerStintFilter.ExcludeNationalTeams(playerStints).OrderBy(s => s.SequenceOrder).ToList()
+                    ? PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(playerStints))
+                        .OrderBy(s => s.SequenceOrder).ToList()
                     : [];
                 playersById.TryGetValue(puzzle.TargetPlayerId, out var targetPlayer);
                 var nationality = attributesByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var attributes)

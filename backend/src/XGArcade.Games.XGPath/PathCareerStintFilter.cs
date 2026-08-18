@@ -134,4 +134,130 @@ public static class PathCareerStintFilter
         stints.Count == 0
             ? stints
             : stints.Where(s => !IsNationalTeam(s.ClubName)).ToList();
+
+    // S-139 (Epic 12, 2026-08-18), REQ-1203/ADR-0075: a B-team/reserve-team
+    // exclusion, same read-time-filter shape and same reasoning as
+    // NationalTeamPattern/IsNationalTeam/ExcludeNationalTeams above (no
+    // change to that reasoning — see this class's own doc comment for why
+    // a read-time regex filter, not a QID-based DB query or a DELETE, is
+    // the right tool here). No B-team concept exists anywhere in this
+    // schema — ClubDefinition has no type/tier field, and no B-team club is
+    // seeded — so a stint at a reserve/B side (e.g. "Real Madrid Castilla,"
+    // "Barcelona Atlètic," "Manchester United U21") currently passes every
+    // eligibility check unfiltered and can surface as a raw clue-reveal
+    // club name, the same REQ-1203 "don't leak a non-answer-worthy team
+    // name as a clue" violation the national-team filter above closes for
+    // representative sides.
+    //
+    // Wikidata's English label convention for a reserve/development side
+    // takes several different shapes, none of which share a single common
+    // word the way national teams reliably pair "national" with "team":
+    //   - An explicit tier/reserve word: "reserve"/"reserves" (e.g.
+    //     "Everton Reserves"), or a bare "B" (e.g. "Barcelona B") or "II"
+    //     (e.g. "Bayern Munich II") used as the club's own tier suffix.
+    //   - An age-grade youth-squad marker that is also, in practice, used
+    //     as a club's senior-adjacent development side in some labels:
+    //     "U17"–"U19" and "U20"–"U23" (covering the age range actually seen
+    //     in reserve/development squad labels; deliberately narrower than
+    //     NationalTeamPattern's own "any under-N" youth-team matching,
+    //     since that pattern's job is catching youth NATIONAL teams, not
+    //     bounding what counts as a development-squad age).
+    //   - A language-specific reserve-side name with no shared word at all:
+    //     Spanish "Castilla" (Real Madrid's reserve side) and
+    //     Catalan/Spanish "Atlètic"/"Atlético" as used specifically as a
+    //     reserve-team qualifier (e.g. "Barcelona Atlètic") — note this is
+    //     a DIFFERENT use of "Atlético" than a senior club's own proper
+    //     name (e.g. "Atlético Madrid," a full first-team club, not a
+    //     reserve side of anything), which is exactly why this pattern
+    //     requires "atlètic"/"atletic" as its own trailing word (see the
+    //     \b discussion below) rather than matching it as a bare substring.
+    //
+    // Because there is no single shared word across all these shapes (unlike
+    // NationalTeamPattern's "national"..."team" pair), this pattern is an
+    // alternation of independent tokens, each still individually
+    // word-bounded on both sides:
+    //   - Leading \b matters for every alternative the same way it matters
+    //     for NationalTeamPattern's leading \b before "national": it stops
+    //     the pattern matching a short token as a bare substring inside a
+    //     longer word. Without it, "B" would match inside "Bayer,"
+    //     "Bayern," "Borussia," etc.; "II" would match inside any club name
+    //     that happens to contain the two letters "ii" consecutively; and
+    //     "atl[eè]tic" would match the first 7 letters of "Atletico" even
+    //     though "Atletico" (no trailing "team"/space break after
+    //     "-tic") is one contiguous word.
+    //   - Trailing \b matters the same way: without it, "B" would match the
+    //     leading "B" inside "Barcelona" itself, and "atl[eè]tic" would
+    //     match as a substring prefix of "Atletico" (the characters
+    //     "Atletic" followed immediately by "o," with no word-boundary
+    //     between "c" and "o") — this is exactly why "Atletico Madrid" (a
+    //     genuine, first-team, seeded club — see ReferenceDataSeeder.cs)
+    //     does NOT match this pattern despite sharing a 7-letter prefix
+    //     with "atlètic": the trailing \b fails inside "Atletico" because
+    //     "c" and "o" are both word characters with no boundary between
+    //     them, so only a label that has "atlètic"/"atletic" as its own
+    //     standalone final word (e.g. "Barcelona Atlètic") matches.
+    //   - "RB Leipzig" (a genuine, first-team, seeded club) does not match
+    //     the bare "B" alternative for the same reason: "R" and "B" are
+    //     adjacent word characters in "RB" with no boundary between them,
+    //     so \bB\b never matches the "B" inside "RB." Only a label where
+    //     "B" appears as its own space-separated word (e.g. "Barcelona B")
+    //     matches.
+    //
+    // Verified by hand against the current 30-club seeded list
+    // (ReferenceDataSeeder.cs's Clubs array, as of S-139/2026-08-18: Real
+    // Madrid, Barcelona, Manchester United, Manchester City, Liverpool,
+    // Arsenal, Chelsea, Bayern Munich, Borussia Dortmund, Juventus, AC
+    // Milan, Inter Milan, Paris Saint-Germain, Ajax, Benfica, Tottenham
+    // Hotspur, Atletico Madrid, Napoli, AS Roma, Sevilla, Porto, RB
+    // Leipzig, Bayer Leverkusen, Marseille, Lyon, Monaco, Lille, Lazio,
+    // Valencia, Real Sociedad, Newcastle United, West Ham United, Celtic)
+    // — none contain "reserve(s)," a standalone "B" or "II" token, "U17"–
+    // "U23," "castilla," or "atl[eè]tic" as their own word. See ADR-0075
+    // for this check recorded as a decision artifact, not just this code
+    // comment.
+    //
+    // Deliberately a CONSERVATIVE, imperfect heuristic, not a complete
+    // B-team/reserve-team taxonomy — it is inferred from a handful of known
+    // label shapes, not an exhaustive survey of how every football
+    // federation's reserve sides are labeled on Wikidata. A bare "B" or
+    // "II" token in particular is a real false-positive risk against a
+    // genuinely-named (non-reserve) club that is not in today's 30-club
+    // seeded list but could be added later (e.g. Faroese "B36 Tórshavn"-
+    // style names use "B" as part of a proper name, not a reserve-tier
+    // marker) — not a problem today, since no such club is seeded, but
+    // worth flagging for whoever next expands the seeded list. Like
+    // NationalTeamPattern above, this is expected to be refined
+    // iteratively as real false positives/negatives surface against
+    // production data, the same way the national-team filter itself needed
+    // two follow-up corrections (2026-08-10 broadening the age-grade scope
+    // to senior teams too, after a real bug report; and a Catalonia/Basque
+    // wording inconsistency found later and tracked as S-140, not yet
+    // fixed) rather than being solved correctly in one pass — see this
+    // class's own top-of-file doc comment for that history.
+    //
+    // NOT verified against a live Wikidata query from this sandbox (no
+    // wikidata.org access here) — this pattern is inferred from the known
+    // reserve/B-team label shapes described above only, not from a survey
+    // of real PlayerCareerStint rows. Flagged for manual confirmation
+    // against real production data if this is found to under- or
+    // over-match in practice.
+    private static readonly Regex BTeamPattern =
+        new(@"\b(reserves?|B|II|U1[7-9]|U2[0-3]|castilla|atl[eè]tic)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public static bool IsBTeam(string clubName) => BTeamPattern.IsMatch(clubName);
+
+    // Excludes B-team/reserve-team rows from an already-fetched stint list —
+    // same two read sites as ExcludeNationalTeams above
+    // (PathEndpoints.cs's clue-reveal path and
+    // XGPathGameModule.GetEligiblePlayerIdsAsync's eligibility check), and
+    // deliberately called ALONGSIDE ExcludeNationalTeams at both sites, not
+    // as a replacement for it — the two filters exclude different, disjoint
+    // categories of non-answer-worthy "club" rows (national/representative
+    // sides vs. reserve/development sides) and both need to run.
+    public static IReadOnlyList<PlayerCareerStint> ExcludeBTeams(
+        IReadOnlyList<PlayerCareerStint> stints) =>
+        stints.Count == 0
+            ? stints
+            : stints.Where(s => !IsBTeam(s.ClubName)).ToList();
 }
