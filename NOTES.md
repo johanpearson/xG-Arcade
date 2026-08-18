@@ -1765,3 +1765,30 @@ every non-historical mention of `generate-round.yml` by name; ADR-0022,
 ADR-0023, ADR-0027, ADR-0051, and `docs/review-2026-07-07.md` were left
 untouched as accurate historical record of what was true when they were
 written.
+
+## S-152: `purge-game-history` run for real (2026-08-18)
+
+First and only real run, via `purge-game-history.yml`'s `workflow_dispatch`,
+once Epics 10-15 were settled (10-13 merged, 14/15 formally cancelled the
+same day — see `docs/backlog.md`'s Epic 14/15 cancellation notes). Actual
+row counts wiped, from the verb's own log output:
+
+- `Round`: 29
+- `Guess`: 230
+- `PlayerSuggestion`: 4
+- `GridInstance`: 18 (→ `GridCell`: 162)
+- `PathInstance`: 11 (→ `PathPuzzle`: 4)
+- `PathCycleTargetUsage`: 4
+- `PathTargetCycle`: the singleton row existed and was removed
+
+Same incident-log discipline as `purge-player-pool.yml`'s own entries in
+this file. `User`/`League`/`LeagueMembership` and every `Player`/reference
+table were untouched, as designed — not re-verified here beyond what
+`GameHistoryPurgerTests.cs` already proves at the InMemory-provider level,
+since this was a real production-adjacent run, not a place to add new
+verification steps. No follow-up workflow needed (unlike
+`purge-player-pool.yml`'s own "trigger `warm-grid-cache.yml` next" note) —
+this verb never touches the player pool, so `generate-grid-round.yml`/
+`generate-path-round.yml`'s existing daily `0 6 * * *` cron picks back up
+on its own, generating fresh rounds against a clean `SequenceNumber`
+sequence starting at 1.
