@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.83"
+version: "1.84"
 status: draft
-last_updated: 2026-08-17
+last_updated: 2026-08-18
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -7476,6 +7476,38 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   member national team — this is intentional under the REQ's own unqualified
   acceptance criterion, not an oversight. See `docs/architecture-document.md`
   COMP-11's matching 2026-08-10 status note.
+- **Status note (2026-08-18, S-139, Epic 12 — ADR-0075): B-team/reserve-team
+  rows were also leaking into club-reveal clues — a new, separate read-time
+  filter now closes the same class of violation for that category too.**
+  `PathCareerStintFilter.IsBTeam`/`ExcludeBTeams`, parallel in shape to the
+  existing `IsNationalTeam`/`ExcludeNationalTeams` above, excludes a
+  reserve/development-side stint (e.g. "Real Madrid Castilla," "Barcelona
+  B," "Bayern Munich II") from ever surfacing as a raw clue-reveal club
+  name — no B-team/tier concept exists anywhere in this schema
+  (`ClubDefinition` has no type/tier field, no B-team club is seeded), so
+  such a stint previously passed every check unfiltered. This REQ's own
+  acceptance criterion below ("national team caps/appearances are never
+  revealed as a clue") is worded specifically around national teams and is
+  **not being reinterpreted here** — B-teams were never textually covered
+  by it, and this note does not claim otherwise. What this closes is the
+  same underlying class of violation the national-team fixes above address
+  (a non-answer-worthy "club" name leaking as a clue), via the same
+  mechanism (a conservative, hand-verified, read-time label-matching
+  regex), not an expansion of this REQ's own wording. `ExcludeBTeams` is
+  chained alongside (never instead of) `ExcludeNationalTeams` at both of
+  that filter's existing call sites — `XGPathGameModule.
+  GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check and `GET
+  /path/current`'s (`PathEndpoints.cs`) clue-reveal path — since the two
+  filters exclude disjoint categories and both must run. See ADR-0075 for
+  the full pattern, its alternatives considered, and its explicitly
+  acknowledged false-positive risk (a bare `B`/`II` token against a
+  not-currently-seeded club whose real name happens to use one, e.g.
+  Faroese "B36 Tórshavn"-style names) — not verified against live Wikidata
+  or the production `PlayerCareerStint` table, hand-verified only against
+  the 33 currently-seeded clubs. Covered by `PathCareerStintFilterTests.cs`
+  (including a parametrized `REQ1203_IsBTeam_CurrentSeededClubNames_
+  ReturnsFalse` false-positive check against all 33 seeded clubs),
+  `XGPathGameModuleTests.cs`, and `PathEndpointTests.cs`.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -7581,6 +7613,16 @@ the fixed 7-turn sequence with empty club-reveal/year-range turns, rather
 than erroring — proving `PathClueSequenceBuilder`'s `SplitIntoTurns(0)`
 degrades gracefully and this scenario can't arise for a NEWLY generated
 puzzle now that the same filter also guards REQ-1201's eligibility check).
+B-team/reserve-team exclusion (2026-08-18, S-139, ADR-0075):
+`PathCareerStintFilterTests` adds `REQ1203_IsBTeam_CurrentSeededClubNames_
+ReturnsFalse`, a parametrized case per one of the 33 currently-seeded clubs
+in `ReferenceDataSeeder.cs` proving none false-positive-match `BTeamPattern`
+(including the two closest near-misses, "RB Leipzig" and "Atletico
+Madrid"), alongside direct positive-match coverage for the known
+reserve-side label shapes. `XGPathGameModuleTests` and `PathEndpointTests`
+mirror the same "chained alongside `ExcludeNationalTeams`, at both call
+sites" shape the 2026-08-08/2026-08-10 national-team tests above already
+established, adapted to B-team rows.
 UI: **(2026-08-04 addition)** the round end-time
 indicator's presence/wiring on SCREEN-10 is covered by
 `PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per

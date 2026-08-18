@@ -478,6 +478,164 @@ public class PathEndpointTests
         Assert.That(puzzle.Guess.Locked, Is.True, "the 7-attempt cap still locks the puzzle exactly as it would with real clubs");
     }
 
+    // ---- S-139/ADR-0075: B-team/reserve-team rows (PathCareerStintFilter. --
+    // ExcludeBTeams, chained alongside ExcludeNationalTeams) must never -------
+    // surface as club-reveal clues either --------------------------------
+
+    [Test]
+    public async Task REQ1203_PathCurrent_Get_MixOfRealClubsAndBTeamJunkRows_OnlyRealClubsRevealedAsClues()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        // Interspersed on purpose, same as the sibling youth-national-team
+        // test above — the fix must filter by content, not by position in
+        // the list. Real club data matches the default fixture exactly, so
+        // the assertions below can reuse the same expectations the
+        // un-junked "SevenWrongGuesses" test already proves for a clean
+        // 3-real-stint career.
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1),
+            position: "Forward", nationality: "France", birthYear: 1998,
+            stints:
+            [
+                ("Real Madrid Castilla", 2010, 2011, null),
+                ("AS Monaco", 2015, 2017, 60),
+                ("Barcelona B", 2017, 2017, null),
+                ("Paris Saint-Germain", 2017, 2024, null),
+                ("Real Madrid", 2024, null, 10),
+            ]);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        for (var attempt = 0; attempt < 7; attempt++)
+            await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest($"Nobody Real {attempt}"));
+
+        var response = await client.GetAsync("/path/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Clues, Has.Count.EqualTo(7), "the fixed 7-turn sequence is unaffected by how many junk rows were filtered out");
+
+        var clubNamesRevealed = puzzle.Clues
+            .Where(c => c.Kind == "ClubReveal")
+            .SelectMany(c => c.Clubs!)
+            .Select(c => c.ClubName)
+            .ToList();
+        Assert.That(clubNamesRevealed, Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }),
+            "only the 3 real club stints are revealed, in chronological order, none of the B-team/reserve-team junk rows");
+        Assert.That(clubNamesRevealed, Does.Not.Contain("Real Madrid Castilla"));
+        Assert.That(clubNamesRevealed, Does.Not.Contain("Barcelona B"));
+
+        var yearRangeTurn = puzzle.Clues.Single(c => c.Kind == "YearRange");
+        Assert.That(yearRangeTurn.YearRanges, Is.EqualTo(new[] { "2015-17", "2017-24", "2024-present" }),
+            "the bundled year-range clue only covers the real, filtered clubs — the junk rows' own years must not appear");
+    }
+
+    // Quality-gate finding (S-139/ADR-0075): neither call site had a test
+    // proving ExcludeNationalTeams and ExcludeBTeams compose correctly
+    // together — every existing test above/in PathCareerStintFilterTests.cs
+    // exercises exactly one junk category at a time (the one pure-unit test
+    // that DOES combine both, PathCareerStintFilterTests.cs's own
+    // REQ1203_ExcludeBTeamsChainedWithExcludeNationalTeams_
+    // ExcludesBothNationalAndBTeamRows, never touches a real call site).
+    // This test closes that gap at GET /path/current: a single fixture
+    // carrying one national-team junk row AND one B-team junk row alongside
+    // the same 3 real stints the sibling tests above use, proving both
+    // filters run and both kinds of junk are excluded together, not just
+    // individually.
+    [Test]
+    public async Task REQ1203_PathCurrent_Get_MixOfRealClubsNationalTeamAndBTeamJunkRows_OnlyRealClubsRevealedAsClues()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        // Interspersed on purpose, same as the two single-junk-category
+        // tests above — the fix must filter by content, not by position in
+        // the list. Real club data matches the default fixture exactly, so
+        // the assertions below can reuse the same expectations the
+        // un-junked "SevenWrongGuesses" test already proves for a clean
+        // 3-real-stint career.
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1),
+            position: "Forward", nationality: "France", birthYear: 1998,
+            stints:
+            [
+                ("Spain national under-16 association football team", 2010, 2011, null),
+                ("AS Monaco", 2015, 2017, 60),
+                ("Real Madrid Castilla", 2017, 2017, null),
+                ("Paris Saint-Germain", 2017, 2024, null),
+                ("Real Madrid", 2024, null, 10),
+            ]);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        for (var attempt = 0; attempt < 7; attempt++)
+            await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest($"Nobody Real {attempt}"));
+
+        var response = await client.GetAsync("/path/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Clues, Has.Count.EqualTo(7), "the fixed 7-turn sequence is unaffected by how many junk rows were filtered out");
+
+        var clubNamesRevealed = puzzle.Clues
+            .Where(c => c.Kind == "ClubReveal")
+            .SelectMany(c => c.Clubs!)
+            .Select(c => c.ClubName)
+            .ToList();
+        Assert.That(clubNamesRevealed, Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }),
+            "only the 3 real club stints are revealed, in chronological order — both the national-team junk row and the B-team junk row must be excluded together");
+        Assert.That(clubNamesRevealed, Does.Not.Contain("Real Madrid Castilla"));
+        Assert.That(clubNamesRevealed.Any(name => name.Contains("national", StringComparison.OrdinalIgnoreCase)), Is.False,
+            "no club-reveal clue text should ever contain a national-team row, junk or otherwise");
+
+        var yearRangeTurn = puzzle.Clues.Single(c => c.Kind == "YearRange");
+        Assert.That(yearRangeTurn.YearRanges, Is.EqualTo(new[] { "2015-17", "2017-24", "2024-present" }),
+            "the bundled year-range clue only covers the real, filtered clubs — neither junk row's own years must appear");
+    }
+
+    [Test]
+    public async Task REQ1203_PathCurrent_Get_OnlyBTeamJunkRows_NoRealClubStints_HandledSensibly_NeverCrashes()
+    {
+        // A puzzle whose target's ENTIRE persisted PlayerCareerStint history
+        // is leftover B-team/reserve-team junk (no real club ever
+        // documented) — same edge case, same reasoning, as the sibling
+        // "OnlyYouthNationalTeamJunkRows" test above. The read path must
+        // still degrade gracefully rather than throwing.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1),
+            position: "Forward", nationality: "France", birthYear: 1998,
+            stints:
+            [
+                ("Real Madrid Castilla", 2010, 2011, null),
+                ("Barcelona Atlètic", 2011, 2012, null),
+            ]);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        for (var attempt = 0; attempt < 7; attempt++)
+        {
+            var guessResponse = await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest($"Nobody Real {attempt}"));
+            Assert.That(guessResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), $"attempt {attempt + 1} of 7 must still be accepted even with zero real clubs after filtering");
+        }
+
+        var response = await client.GetAsync("/path/current");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), "the read path must never throw just because filtering leaves zero real club stints");
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Clues, Has.Count.EqualTo(7), "the fixed 7-turn sequence still holds — SplitIntoTurns(0) degrades to three empty club-reveal turns, not a shorter sequence");
+
+        var clubTurns = puzzle.Clues.Where(c => c.Kind == "ClubReveal").ToList();
+        Assert.That(clubTurns, Has.Count.EqualTo(3));
+        Assert.That(clubTurns, Has.All.Matches<PathClueTurnResponse>(t => t.Clubs!.Count == 0),
+            "every club-reveal turn is empty (not omitted, not null) once every documented stint has been filtered out as junk");
+
+        var yearRangeTurn = puzzle.Clues.Single(c => c.Kind == "YearRange");
+        Assert.That(yearRangeTurn.YearRanges, Is.Empty);
+
+        Assert.That(puzzle.Clues.Single(c => c.Kind == "Position").TextValue, Is.EqualTo("Forward"),
+            "the fixed position/nationality/age clues are entirely unaffected by career-stint filtering");
+        Assert.That(puzzle.Guess!.AttemptCount, Is.EqualTo(7));
+        Assert.That(puzzle.Guess.Locked, Is.True, "the 7-attempt cap still locks the puzzle exactly as it would with real clubs");
+    }
+
     // ---- REQ-1206 (2026-08-08 addition): GET /path/current surfaces the -----
     // locked (never provisional) points value ---------------------------------
 

@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.01"
+version: "1.02"
 status: draft
-last_updated: 2026-08-17
+last_updated: 2026-08-18
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -329,7 +329,15 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    national team (senior included) per a bug
                                    report showing a senior team leaking
                                    through — see REQ-1203's 2026-08-10 status
-                                   note in requirements-document.md
+                                   note in requirements-document.md.
+                                   S-139 (2026-08-18, ADR-0075) added a
+                                   second, parallel filter to the same class
+                                   — BTeamPattern/IsBTeam/ExcludeBTeams —
+                                   excluding reserve/development-side rows
+                                   (e.g. "Real Madrid Castilla"), chained
+                                   alongside ExcludeNationalTeams at both
+                                   call sites; see REQ-1203's 2026-08-18
+                                   status note
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -353,7 +361,15 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    added PathCareerStintFilterTests and
                                    REQ1203-named XGPathGameModuleTests
                                    coverage for the youth-national-team
-                                   junk-row exclusion
+                                   junk-row exclusion. S-139 (2026-08-18,
+                                   ADR-0075) added parallel B-team/reserve-
+                                   team coverage to PathCareerStintFilterTests
+                                   (including a parametrized false-positive
+                                   check against all 33 currently-seeded
+                                   clubs) and REQ1203-named
+                                   XGPathGameModuleTests/PathEndpointTests
+                                   coverage mirroring the national-team
+                                   shape
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
                                    S-082 extended WikidataClientTests/
