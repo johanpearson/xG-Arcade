@@ -20,6 +20,7 @@ public class PlayerCareerPrefetchServiceTests
     // IPlayerStoreRepository.
     private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
@@ -32,6 +33,7 @@ public class PlayerCareerPrefetchServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
@@ -40,7 +42,8 @@ public class PlayerCareerPrefetchServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCareerPrefetchService BuildService() =>
-        new(_categoryValueRepository, _playerCareerStintRepository, _playerRepository, _wikidataClient, NullLogger<PlayerCareerPrefetchService>.Instance);
+        new(_categoryValueRepository, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository,
+            _wikidataClient, NullLogger<PlayerCareerPrefetchService>.Instance);
 
     private async Task<CountryDefinition> SeedCountryAsync(string name, string wikidataQid, bool usesCountryForSportProperty = false)
     {
@@ -306,5 +309,93 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(result.ClubsFailed, Is.EqualTo(0));
         Assert.That(result.CareerBatchesFailed, Is.EqualTo(0));
         Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+    }
+
+    // ---- PlayerAttribute persistence (REQ-110 follow-up) ----
+    // These sweeps' pool queries already filter by nationality/club in their
+    // own WHERE clause (FakeWikidataClient.SetPoolForNationality/
+    // SetPoolForClub simulate exactly that), so every pooled player is known
+    // to satisfy the attribute without any further Wikidata round trip —
+    // see PlayerCareerPrefetchService's own doc comment.
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryPoolSweep_WritesNationalityAttributePerPooledPlayer()
+    {
+        await SeedCountryAsync("France", "Q142");
+        _wikidataClient.SetPoolForNationality("Q142",
+        [
+            new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France"),
+            new WikidataNameIndexEntry("Q1521", "Zinedine Zidane", 1972, "France"),
+        ]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(2));
+
+        var henry = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var zidane = await _playerRepository.GetPlayerByWikidataQidAsync("Q1521");
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("nationality", "France");
+        Assert.That(attributes.Select(a => a.PlayerId), Is.EquivalentTo(new[] { henry!.Id, zidane!.Id }));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_ClubPoolSweep_WritesClubAttributePerPooledPlayer()
+    {
+        await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForClub("Q19593",
+        [
+            new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France"),
+            new WikidataNameIndexEntry("Q9617", "Someone Else", 1990, "Scotland"),
+        ]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(2));
+
+        var henry = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var someoneElse = await _playerRepository.GetPlayerByWikidataQidAsync("Q9617");
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("club", "Celtic");
+        Assert.That(attributes.Select(a => a.PlayerId), Is.EquivalentTo(new[] { henry!.Id, someoneElse!.Id }));
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_PlayerAlreadyHasAttribute_DoesNotDuplicate()
+    {
+        await SeedCountryAsync("France", "Q142");
+        var existingPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(
+            new PlayerAttribute { PlayerId = existingPlayer.Id, AttributeType = "nationality", AttributeValue = "France" });
+
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(0), "the already-existing attribute must not be counted as newly added");
+
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("nationality", "France");
+        Assert.That(attributes, Has.Count.EqualTo(1), "the already-existing attribute must not be duplicated");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryAndClubSweeps_OnlyCountsGenuinelyNewAttributes()
+    {
+        await SeedCountryAsync("France", "Q142");
+        await SeedClubAsync("Celtic", "Q19593");
+        // Same player (Q1519) appears in both pools — nationality "France"
+        // and club "Celtic" are two distinct attribute rows, so both count
+        // as new, but a second appearance under the SAME attribute type
+        // must not double-count.
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(2), "one nationality row and one club row for the same player, both new");
+
+        var player = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var allAttributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player!.Id).ToListAsync();
+        Assert.That(allAttributes.Select(a => (a.AttributeType, a.AttributeValue)),
+            Is.EquivalentTo(new[] { ("nationality", "France"), ("club", "Celtic") }));
     }
 }

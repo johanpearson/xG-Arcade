@@ -33,6 +33,14 @@ public interface IPlayerCareerPrefetchService
 // same-run "which sweep found this player first" distinction that nothing
 // downstream needs (a player/stint is a player/stint regardless of which
 // sweep's pool happened to include it first).
+//
+// REQ-110 follow-up (2026-08-18): AttributesAdded is the same kind of
+// combined-across-both-sweeps total as PlayersTouched/StintsAdded above —
+// how many new PlayerAttribute rows (nationality from the country loop,
+// club from the club loop) this run added. Defaulted to 0 for the same
+// backward-compatibility reason ClubsProcessed/ClubsFailed were (ADR-0069):
+// any existing positional-constructor call site that predates this field
+// keeps compiling unchanged.
 public record PlayerCareerPrefetchResult(
     int CountriesProcessed, int PlayersTouched, int StintsAdded, int CountriesFailed, int CareerBatchesFailed,
-    int ClubsProcessed = 0, int ClubsFailed = 0);
+    int ClubsProcessed = 0, int ClubsFailed = 0, int AttributesAdded = 0);
