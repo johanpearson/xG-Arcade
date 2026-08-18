@@ -56,6 +56,7 @@ public static class CliVerbDispatcher
         ["clean-duplicate-career-stints"] = HandleCleanDuplicateCareerStintsAsync,
         ["purge-player-pool"] = HandlePurgePlayerPoolAsync,
         ["reset-path-target-cycle"] = HandleResetPathTargetCycleAsync,
+        ["purge-game-history"] = HandlePurgeGameHistoryAsync,
     };
 
     // Returns true if args matched a known CLI verb and it was handled (the
@@ -680,6 +681,56 @@ public static class CliVerbDispatcher
         Console.WriteLine(resetResult.CycleRowExisted
             ? $"reset-path-target-cycle: removed {resetResult.RemovedUsageCount} PathCycleTargetUsage row(s) and the PathTargetCycle singleton row — the next xG Path generation will start a fresh CycleNumber 1."
             : $"reset-path-target-cycle: removed {resetResult.RemovedUsageCount} PathCycleTargetUsage row(s) — no PathTargetCycle row existed (xG Path has never generated a round yet).");
+        return true;
+    }
+
+    // S-152 (Epic 16, docs/backlog.md): `dotnet run -- purge-game-history
+    // "reset all game history"` — an eighth CLI verb, run manually via
+    // purge-game-history.yml once Epics 10-15 are settled (see that
+    // workflow's own header comment; DO NOT run before then). Wipes every
+    // historical Round/Guess/PlayerSuggestion(+PlayerSuggestionClub)/
+    // GridInstance(+GridCell)/PathInstance(+PathPuzzle)/PathTargetCycle/
+    // PathCycleTargetUsage row so the platform starts with zero game history
+    // — see GameHistoryPurger's own doc comment for the full scope reasoning
+    // and what's deliberately left untouched (User, League,
+    // LeagueMembership, every Player/reference table).
+    //
+    // Same bulk-unscoped-purge safety gate as purge-player-pool above: a
+    // required, exact confirmation-phrase argument, matched BEFORE
+    // BuildDbContext() is even called so a malformed/missing confirmation
+    // never opens a database connection. Deliberately a DIFFERENT phrase
+    // from purge-player-pool's own ("delete all player data") so the two
+    // destructive, easily-confused verbs can never be fat-fingered into one
+    // another.
+    private static async Task<bool> HandlePurgeGameHistoryAsync(string[] args)
+    {
+        const string requiredConfirmationPhrase = "reset all game history";
+        var purgeGameHistoryConfirmationArg = args.Length > 1 ? args[1] : null;
+        if (purgeGameHistoryConfirmationArg != requiredConfirmationPhrase)
+            throw new InvalidOperationException(
+                $"purge-game-history requires the exact confirmation phrase as its argument: `purge-game-history \"{requiredConfirmationPhrase}\"`.");
+
+        await using var purgeGameHistoryDbContext = BuildDbContext();
+        // Same class of fix as purge-player-pool's own 2026-08-17 incident
+        // (see HandlePurgePlayerPoolAsync's own comment above) — set from
+        // day one here rather than discovered the hard way once this
+        // table set has grown: Npgsql's default 30s command timeout
+        // (BuildDbContext's own default) can plausibly be exceeded by a
+        // bulk cascade-shaped delete across seven tables. Verb-scoped to
+        // this one DbContext instance only, never BuildDbContext's shared
+        // default for every other (much smaller-scale) CLI verb.
+        purgeGameHistoryDbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
+
+        var purgeResult = await GameHistoryPurger.PurgeAsync(purgeGameHistoryDbContext);
+
+        Console.WriteLine(
+            $"purge-game-history: deleted {purgeResult.RoundCount} Round row(s), {purgeResult.GuessCount} Guess row(s), " +
+            $"{purgeResult.PlayerSuggestionCount} PlayerSuggestion row(s), {purgeResult.GridInstanceCount} GridInstance row(s), " +
+            $"{purgeResult.GridCellCount} GridCell row(s), {purgeResult.PathInstanceCount} PathInstance row(s), " +
+            $"{purgeResult.PathPuzzleCount} PathPuzzle row(s), {purgeResult.PathCycleTargetUsageCount} PathCycleTargetUsage row(s), " +
+            (purgeResult.PathTargetCycleRowExisted
+                ? "and the PathTargetCycle singleton row."
+                : "and no PathTargetCycle row (xG Path has never generated a round yet)."));
         return true;
     }
 }

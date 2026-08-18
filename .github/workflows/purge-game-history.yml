@@ -1,0 +1,54 @@
+name: purge-game-history
+
+# S-152 (Epic 16, docs/backlog.md): deletes every historical Round, Guess,
+# PlayerSuggestion(+PlayerSuggestionClub), GridInstance(+GridCell),
+# PathInstance(+PathPuzzle), PathTargetCycle, and PathCycleTargetUsage row
+# so the platform starts with zero game history — see GameHistoryPurger's
+# own doc comment (backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs)
+# for the full scope reasoning. Same ADR-0024 "long-running bulk delete is
+# a CLI verb, never an HTTP endpoint or background task" precedent as
+# purge-player-pool.yml, warm-grid-cache.yml, and every other maintenance
+# verb's own workflow in this directory.
+#
+# NOT touched by this workflow: User, League/LeagueMembership (a fresh
+# global league already exists per REQ-401's invariant; wiping it would
+# break that), and every Player/reference table (Player, PlayerData,
+# PlayerAttribute, PlayerOverride, PlayerAlias, PlayerCareerStint,
+# PlayerNameIndex, PlayerNameIndexWord, ClubDefinition, CountryDefinition,
+# TrophyDefinition, GridTemplate, PathTemplate) — this whole overhaul
+# exists to build that data UP; this workflow only ever resets game
+# history, never the player database underneath it. If a genuinely full
+# reset is ever wanted, that's purge-player-pool.yml's own job, run
+# separately and deliberately, never folded into this one.
+#
+# DO NOT RUN before Epics 10-15 (docs/backlog.md) are settled — merged
+# (10-13) or formally cancelled (14/15, per the 2026-08-18 backlog update).
+# Running this early makes Epic 11's (S-135) Round.SequenceNumber backfill
+# pointless (every row it backfills gets deleted anyway) and risks writing
+# this verb against a schema Epic 14/15 was still going to change. As of
+# this workflow's own authoring date, Epics 10-13 are merged and 14/15 are
+# cancelled, so the gate is satisfied — but this job is still never
+# triggered automatically (workflow_dispatch only) and must only be run
+# deliberately, by a human, after re-confirming that state.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type exactly "reset all game history" to confirm this irreversible bulk delete'
+        required: true
+        type: string
+
+jobs:
+  purge-game-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Purge game history
+        run: dotnet run --project backend/src/XGArcade.Api -- purge-game-history "$CONFIRMATION"
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+          CONFIRMATION: ${{ inputs.confirmation }}

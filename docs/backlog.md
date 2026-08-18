@@ -6530,3 +6530,44 @@ operational tool with no REQ/ADR-level decision behind it, matching
 *Deps:* none to build; **do not run for real before Epics 10-15 are merged**
 (see Sequencing above) — `TODO.md`'s pre-launch checklist gets the actual
 "run it" step so this isn't only a capability sitting unused.
+
+**Built 2026-08-18 (code/tests/workflow only — NOT run for real, per this
+story's own sequencing gate; `TODO.md`'s pre-launch checklist item is the
+actual "run it" trigger).** Two deliberate deviations from this story's own
+*Accept* text, both for concrete reasons:
+- The delete logic lives in a new static `GameHistoryPurger`
+  (`backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs`), not an
+  `IRoundRepository` method — that interface is Round-scoped only, and this
+  is a 7-table cross-cutting delete; matches the existing
+  `PathTargetCycleResetter`/`StaleClubAttributeCleaner`/
+  `PairLookupFailureCleaner`/`DuplicateCareerStintCleaner` precedent in the
+  same folder (each its own standalone static class, not shoehorned into an
+  unrelated repository interface).
+- Tests (`backend/tests/XGArcade.Data.Tests/GameHistoryPurgerTests.cs`) are
+  NOT REQ###-named — this story's own text says "No REQ/ADR-level decision
+  behind it," and the existing REQ-less-maintenance-tool precedent in the
+  same test folder (`UserDisplayNameBackfillerTests`,
+  `PlayerNormalizedFullNameBackfillerTests`, `PlayerNameIndexWordBackfillerTests`,
+  `PlayerAliasNormalizedAliasBackfillerTests`) omits the REQ### prefix
+  entirely rather than inventing one.
+
+Also: `GameHistoryPurger` does NOT rely on EF Core's configured
+`DeleteBehavior.Cascade` at runtime for `Guess`/`PlayerSuggestion`(+
+`PlayerSuggestionClub`)/`GridCell`/`PathPuzzle` — that cascade only fires
+for entities already tracked in the context (client cascade) or via a real
+relational database's own `ON DELETE CASCADE` (production Npgsql only).
+The InMemory provider this story's own acceptance criteria require testing
+against has neither, so every table is loaded and removed explicitly; see
+that class's own doc comment for the full reasoning. One `SaveChangesAsync`
+call for the whole purge (not one per table) is what actually satisfies the
+"one transaction" criterion — no explicit `BeginTransactionAsync` needed
+(and one would break the InMemory-provider tests, which don't support real
+transactions).
+
+Files: `backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs` (new),
+`backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs` (new
+`purge-game-history` verb), `backend/tests/XGArcade.Data.Tests/GameHistoryPurgerTests.cs`
+(new), `.github/workflows/purge-game-history.yml` (new). No .NET SDK was
+available in the sandbox this was built in — code was hand-traced against
+concrete scenarios, not compiled/run; `dotnet build`/`dotnet test` must run
+in CI before this is considered verified.
