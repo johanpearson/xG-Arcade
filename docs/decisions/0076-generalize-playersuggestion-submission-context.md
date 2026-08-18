@@ -147,19 +147,28 @@ This directly settles the open question S-144 flagged: whether
 needs replacing. It does not — the new route bypasses it entirely for xG
 Path, exactly as S-144's own text anticipated as the likely outcome.
 
-### 3. Admin review stays untouched
+### 3. Admin review: commit/reject untouched, the pending-list DTO is not
 
-`AdminSuggestionEndpoints.cs`'s list/review/commit/reject flow
-(`ResolveAsync`, `CommitPlayerDataAsync` — ADR-0060's nationality→
-`PlayerOverride` / clubs→additive-`PlayerAttribute` split) reads only
+`AdminSuggestionEndpoints.cs`'s commit/reject actions (`ResolveAsync`,
+`CommitPlayerDataAsync` — ADR-0060's nationality→`PlayerOverride` /
+clubs→additive-`PlayerAttribute` split) read only
 `PlayerName`/`AssertedNationality`/`AssertedClubs`/`Status` — confirmed by
-inspection, no branch anywhere on `CellId`/category types. It needs no
-game-specific change: a `GameKey`/`PathPuzzleId`-carrying row reviews,
-commits, and rejects through the exact same admin flow a `CellId`-carrying
-one does today. `GameKey`/`CellId`/`PathPuzzleId` become available as
-additional, purely informational context on the admin list/detail view if
-wanted later — not required for this story, and not part of this ADR's
-decision.
+inspection, no branch anywhere on `CellId`/category types. They need no
+game-specific change: a `GameKey`/`PathPuzzleId`-carrying row commits and
+rejects through the exact same flow a `CellId`-carrying one does today.
+
+`GET /admin/suggestions` (the pending-list endpoint) is **not**
+untouched, though — architecture review of this ADR (2026-08-18) found it
+already reads `RowCategoryType`/`ColCategoryType` and maps them into
+`PendingSuggestionResponse`, whose corresponding fields (and the matching
+frontend type, `frontend/src/lib/types.ts`) are non-nullable `string`
+today. Once those entity fields become `string?` (§1), S-144 must widen
+this DTO's fields to nullable, and should add `GameKey` (and, useful but
+not required, `PathPuzzleId`) to the response so an admin reviewing the
+pending list can tell which game a row originated from — without it, an
+xG-Path suggestion would show blank/unexplained category-type columns.
+This is a mechanical DTO/UI follow-up for S-144, not a structural
+decision this ADR needs to resolve differently.
 
 ## Alternatives considered
 
@@ -200,8 +209,12 @@ decision.
   rejected above — same "revisit if a second game module shows this
   pattern doesn't hold" follow-up ADR-0003 itself already carries.
 - Follow-up: S-144 must add the backfill migration (`GameKey = "xg-grid"`
-  for all pre-existing rows) and the route/body changes described above;
-  S-146 updates REQ-215's status note and `architecture-document.md`'s
+  for all pre-existing rows), the route/body changes described above, and
+  the `GET /admin/suggestions` `PendingSuggestionResponse` DTO/frontend
+  type widening described in §3 (nullable `RowCategoryType`/
+  `ColCategoryType`, plus surfacing `GameKey` so an admin can tell which
+  game a pending row came from); S-146 updates REQ-215's status note and
+  `architecture-document.md`'s
   COMP-06 row once S-144/S-145 land.
 
 ## For AI agents
