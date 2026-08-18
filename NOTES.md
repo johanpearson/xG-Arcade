@@ -76,6 +76,35 @@ follow-up NOTES.md entry — if the pool dropped by more than roughly half,
 escalate to the product owner (widen the seeded club/country list via
 `audit-club-gaps`, per S-141's own text) rather than silently accepting it.
 
+### 2026-08-18 — S-151: DB-touching autocomplete warm-up built and tested; the actual dev-environment latency check is deferred to whoever has real Container Apps access
+
+S-151 (Epic 13, `docs/backlog.md`) asks for two things: (1) a real,
+DB-touching warm-up call (`GET /players/autocomplete/warmup`) fired
+fire-and-forget on `GridScreen`/`PathScreen` mount, alongside the existing
+app-load `/health` ping which only wakes the process and never touches
+Postgres; and (2) manual verification against the deployed dev environment
+that perceived first-keystroke latency actually drops.
+
+**Part (1) is built and tested** — see the CHANGELOG entry dated today for
+the full breakdown (files, tests, doc updates).
+
+**Part (2) could not be done here**, same category of gap as S-141's
+eligible-pool re-verification entry above: Container Apps' `minReplicas: 0`
+scale-to-zero (`infra/bicep/modules/backend-container-app.bicep`) genuinely
+scaling a replica down to zero and cold-starting on the next request is
+real production/deployed-environment behavior — this local/CI sandbox never
+scales to zero, so there's no cold path to measure a before/after against.
+No number is fabricated here.
+
+**Handoff for whoever next has real dev-environment access:** let the dev
+Container App sit idle long enough to actually scale to zero (check current
+`minReplicas`/idle-timeout in the Bicep module for how long that takes),
+then time-to-first-suggestion (first autocomplete dropdown appearing after
+typing >= 2 characters) on a cold hit — once against the current deployed
+build (pre-S-151, `/health`-only warm-up) if a rollback/prior revision is
+still reachable, then again post-S-151 (this warm-up landed). Record both
+numbers here as a follow-up NOTES.md entry.
+
 ### 2026-08-03 — `PlayerCareerStint`'s "few thousand rows" full-table-read assumption is now stale (608K rows after ADR-0055)
 Several existing in-memory-read helpers (`GetAllCareerStintsByPlayerAsync`,
 `GetPlayersMissingPhotoAsync`, the new `GetUnseededClubCandidatesAsync`) are

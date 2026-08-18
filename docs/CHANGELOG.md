@@ -13,6 +13,57 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `backend/src/XGArcade.Api/Players/PlayerAutocompleteEndpoints.cs`,
+  `backend/tests/XGArcade.Api.Tests/PlayerAutocompleteEndpointTests.cs`,
+  `frontend/src/lib/rounds.ts`, `frontend/src/grid/GridScreen.tsx`,
+  `frontend/src/grid/GridScreen.test.tsx`, `frontend/src/path/PathScreen.tsx`,
+  `frontend/src/path/PathScreen.test.tsx`, `docs/requirements-document.md`,
+  `NOTES.md` — S-151 (Epic 13): added `GET /players/autocomplete/warmup`
+  (bearer-token authenticated), a DB-touching warm-up that runs the real
+  `IPlayerNameIndexRepository.SearchByPrefixAsync` path against a trivial
+  server-side-only 1-character query and returns `204`, distinct from
+  `App.tsx`'s existing app-load `/health` ping, which only wakes the
+  Container App process and never opens a Postgres connection or compiles
+  the EF Core query shape this route needs. `warmUpAutocomplete`
+  (`frontend/src/lib/rounds.ts`) fires it fire-and-forget, try/catch-guarded
+  so it never surfaces an error or blocks render, from a dedicated mount
+  `useEffect` in both `GridScreen.tsx` and `PathScreen.tsx`, independent of
+  each screen's existing round-fetch effect. 2 new NUnit tests
+  (`PlayerAutocompleteEndpointTests.cs`,
+  `REQ207_AutocompleteWarmup_Get_ReturnsNoContent_AndExercisesRealPlayerNameIndexRepository`,
+  `REQ207_AutocompleteWarmup_Get_ReturnsUnauthorized_WithoutBearerToken`) and
+  2 new Vitest tests (one each in `GridScreen.test.tsx`/`PathScreen.test.tsx`).
+  Full frontend suite (584/584), `tsc -b`, and `oxlint` all pass; `dotnet
+  test` could not be run in this sandbox (no .NET SDK available — same
+  limitation S-141's CHANGELOG entry below documents), so the two new
+  backend tests were hand-traced against existing helpers/signatures but not
+  executed — needs confirming in CI. `docs/requirements-document.md` gets a
+  new 2026-08-18 addendum to REQ-207 documenting the warm-up call, following
+  the same dated-addendum pattern as S-142's entry directly below.
+  `docs/architecture-document.md` was checked (COMP-10, ADR-0007) and left
+  unchanged — the warm-up reuses the exact same `PlayerNameIndex` read path
+  already documented there, no new component/boundary/data-flow, and it
+  doesn't touch the `minReplicas: 0` infra trade-off already documented in
+  `infra/README.md` (works within it, doesn't change it).
+  `docs/implementation-document.md` was checked and left unchanged — no
+  project-structure, data-model, or tech-stack change, only one more
+  endpoint in an already-documented file, matching the precedent of prior
+  same-file endpoint additions not being individually cataloged. No ADR —
+  reviewed and explicitly declined by both `architecture-reviewer` and
+  `quality-architect`: the change stays entirely within the already-documented
+  COMP-10 boundary, doesn't cross into COMP-06/`IPlayerStoreRepository`,
+  and reverting it is a clean one-file-per-layer removal with no cascading
+  effect, so it fails CLAUDE.md's own "would reverting require understanding
+  why the original choice was made" ADR test. Two non-blocking optional notes
+  from review, not acted on: the mount-`useEffect` warm-up block is
+  duplicated verbatim between `GridScreen.tsx`/`PathScreen.tsx` (worth a
+  shared hook only if a third such need appears); an additional API-layer
+  test for the empty-`PlayerNameIndex`-table case (low priority). S-151's
+  other acceptance criterion — manual before/after latency verification
+  against the deployed dev environment, since Container Apps' real
+  scale-to-zero can't be reproduced in this sandbox — could not be completed
+  here; `NOTES.md` gets a new 2026-08-18 entry documenting the limitation and
+  handoff steps, same category as S-141's gap noted there. REQ-207, S-151.
 - 2026-08-18 — `docs/requirements-document.md` — S-142 (Epic 13): added an
   explicit acceptance-criterion line to REQ-207 stating the 2-character
   minimum-query-length threshold before autocomplete suggestions are

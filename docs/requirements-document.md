@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.88"
+version: "1.89"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -1429,6 +1429,28 @@ a photo shows neither at rest as of S-048, see that status note)
   frontend) — this addendum only records the value here so a future change
   to any one of them is a REQ violation, not just a cross-file
   inconsistency.
+- **2026-08-18 addendum (S-151, Epic 13) — DB-touching warm-up call on
+  game-screen mount, distinct from app-load `/health`:** mounting
+  `GridScreen.tsx` or `PathScreen.tsx` now also fires
+  `GET /players/autocomplete/warmup` (bearer-token authenticated,
+  `PlayerAutocompleteEndpoints.cs`), which runs the exact same
+  `IPlayerNameIndexRepository.SearchByPrefixAsync` path the real
+  `GET /players/autocomplete` route uses, against a trivial 1-character
+  query that is server-side only and never reachable via the client's own
+  `MinQueryLength = 2` contract above; the result is discarded and the
+  endpoint returns `204`. This is a second, narrower warm-up alongside
+  `App.tsx`'s existing app-load `/health` ping — `/health` only wakes the
+  Container App process (`Results.Ok`, no DB access), so it never opened
+  the Postgres connection or compiled the EF Core query shape this route
+  needs; that cost previously landed on the player's first real keystroke.
+  `warmUpAutocomplete` (`frontend/src/lib/rounds.ts`) is fired from a
+  dedicated mount effect in both screens, independent of each screen's own
+  round-fetch effect: fire-and-forget, never awaited by the caller, never
+  surfaces an error, never blocks or affects round render or its
+  loading/error state — same best-effort, no-UI-impact contract as
+  `/health`'s own failure handling. No change to the 2-character threshold,
+  the suggestion-list data path, or REQ-207's leak-prevention contract
+  above — this addendum is about connection/query warm-up timing only.
 - **2026-07-27 correction — `Nationality` shipped in the autocomplete
   response (found against `PlayerAutocompleteSuggestion`, shipped as part
   of this requirement's own S-032 work):** as shipped, `GET
