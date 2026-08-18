@@ -179,7 +179,7 @@ Do NOT replace `ExcludeNationalTeams` with `ExcludeBTeams` at either call
 site, or vice versa — they must both run, chained, since they exclude
 disjoint categories of non-answer-worthy rows. Do NOT treat the false-
 positive check above as a substitute for real verification: it is a
-hand-trace against the 30 club name strings in `ReferenceDataSeeder.cs`,
+hand-trace against the 33 club name strings in `ReferenceDataSeeder.cs`,
 performed in a sandbox with no `dotnet` SDK, no wikidata.org access, and no
 database access — it has not been run as an actual test, and the pattern
 itself has not been checked against a single real `PlayerCareerStint.

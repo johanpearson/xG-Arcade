@@ -235,13 +235,9 @@ public class PathCareerStintFilterTests
     // a hand-traced code/ADR comment: every club name currently in --------
     // ReferenceDataSeeder.cs's Clubs array must never match. Read directly --
     // from that file (as of S-139/2026-08-18), not trusted secondhand. -----
-    // Note: this is 33 club names, not the "30-club" headline count both ----
-    // PathCareerStintFilter.cs's own doc comment and ADR-0075 use — their ---
-    // prose undercounts the array by 3, even though the actual club names ---
-    // they each list (and this test list) match the real array exactly. ----
-    // Flagged here rather than silently corrected in either doc, per this ---
-    // task's instructions not to edit PathCareerStintFilter.cs or the ADR ---
-    // — worth a follow-up doc fix, but out of scope for a test-only pass. ---
+    // This is 33 club names, matching PathCareerStintFilter.cs's and --------
+    // ADR-0075's own "33-club" headline count (an earlier draft of both -----
+    // undercounted this as "30-club" — since corrected, quality-gate finding).
 
     [TestCase("Real Madrid")]
     [TestCase("Barcelona")]
