@@ -55,6 +55,7 @@ public static class CliVerbDispatcher
         ["clear-pair-lookup-failures"] = HandleClearPairLookupFailuresAsync,
         ["clean-duplicate-career-stints"] = HandleCleanDuplicateCareerStintsAsync,
         ["purge-player-pool"] = HandlePurgePlayerPoolAsync,
+        ["reset-path-target-cycle"] = HandleResetPathTargetCycleAsync,
     };
 
     // Returns true if args matched a known CLI verb and it was handled (the
@@ -642,6 +643,43 @@ public static class CliVerbDispatcher
 
         Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows), " +
             $"{purgedConfirmedLowCount} ConfirmedLowMatchPair row(s), and {purgedLookupFailureCount} PairLookupFailure row(s).");
+        return true;
+    }
+
+    // S-141: `dotnet run -- reset-path-target-cycle` — see
+    // PathTargetCycleResetter's own doc comment for the full reasoning (why
+    // this exists: S-137 birth-year floor, S-138 two-seeded-club
+    // requirement, S-139 B-team exclusion, and S-140 regional/national regex
+    // fix all landed, substantially narrowing xG Path's eligible player
+    // pool, but the existing UsedInCycleCount/PathCycleTargetUsage
+    // bookkeeping was accumulated against the OLD, larger pool and does not
+    // self-correct the way ObservedPoolSize does). Wipes the PathTargetCycle
+    // singleton row and every PathCycleTargetUsage row so the next xG Path
+    // generation starts a clean CycleNumber 1 baseline, scored purely
+    // against the new, post-S-137-140 pool.
+    //
+    // No required argument, same "reads its own scope from the database"
+    // shape as clear-pair-lookup-failures/clean-duplicate-career-stints
+    // above — there's nothing for an operator to supply, the whole table
+    // pair is always the scope. Matched on the verb alone (not exact-length)
+    // for the same reason as those verbs: a malformed invocation should fail
+    // loudly via an explicit exception rather than silently falling through
+    // to WebApplication.CreateBuilder and starting the full server. This
+    // verb takes no arguments, so any extra argument is itself the malformed
+    // case.
+    private static async Task<bool> HandleResetPathTargetCycleAsync(string[] args)
+    {
+        if (args.Length > 1)
+            throw new InvalidOperationException(
+                $"reset-path-target-cycle takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
+
+        await using var resetPathTargetCycleDbContext = BuildDbContext();
+
+        var resetResult = await PathTargetCycleResetter.ResetAsync(resetPathTargetCycleDbContext);
+
+        Console.WriteLine(resetResult.CycleRowExisted
+            ? $"reset-path-target-cycle: removed {resetResult.RemovedUsageCount} PathCycleTargetUsage row(s) and the PathTargetCycle singleton row — the next xG Path generation will start a fresh CycleNumber 1."
+            : $"reset-path-target-cycle: removed {resetResult.RemovedUsageCount} PathCycleTargetUsage row(s) — no PathTargetCycle row existed (xG Path has never generated a round yet).");
         return true;
     }
 }

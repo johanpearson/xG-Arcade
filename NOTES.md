@@ -27,6 +27,55 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-18 — S-141: xG Path eligible-pool re-verification could not be run against real data in this sandbox; reset tooling built and handed off instead
+
+S-141 (Epic 12, docs/backlog.md) asks for a before/after eligible-player
+count for xG Path after S-137 (birth-year >= 1975 floor), S-138 (2 distinct
+seeded clubs, up from 1), S-139 (B-team/reserve exclusion), and S-140
+(regional/national regex fix) all landed together — confirmed merged to
+`main` first (S-137 PR #212, S-138 PR #214, S-139 PR #215/216, S-140 PR
+#217).
+
+**The live count itself could not be produced here.** `XGPathGameModule.
+GetEligiblePlayerIdsAsync`'s real pool is REQ-1201's structural checks
+*narrowed by ADR-0056's `IPlayerFamiliarityService` live-Wikidata
+familiarity filter* — not a DB-only query. This sandbox has no route to
+either half of what "real (dev) data" would require: `query.wikidata.org`/
+`www.wikidata.org` are blocked at the agent proxy (same wall documented
+2026-07-09 and 2026-07-21 below), and there is no access to the real dev
+Postgres instance carrying the ~608K-row `PlayerCareerStint` table
+`prefetch-player-careers` has actually populated there. Computing a count
+against a toy/empty local dataset would not be the number this story asks
+for, so no number is fabricated here — same "flag for manual verification,
+don't guess" discipline as the 2026-07-21 Supabase entry and the 2026-07-09
+Wikidata entry below.
+
+**What was built instead:** the one genuinely code-shaped piece of this
+story — `reset-path-target-cycle`, a new `dotnet run --` CLI verb
+(`backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs`,
+`backend/src/XGArcade.Data/Seeding/PathTargetCycleResetter.cs`, tests in
+`backend/tests/XGArcade.Data.Tests/PathTargetCycleResetterTests.cs`).
+`PathTargetCycle.ObservedPoolSize` self-corrects for free on the next xG
+Path generation, but `UsedInCycleCount`/`PathCycleTargetUsage` do not — they
+were accumulated against the OLD, larger pre-S-137-140 pool. The new verb
+wipes both tables (mirrors `PairLookupFailureCleaner`'s load-then-
+`SaveChangesAsync` shape, safe/idempotent if xG Path has never generated a
+round yet) so the next generation starts a clean `CycleNumber` 1 baseline
+scored purely against the new pool.
+
+**Handoff for whoever next has real dev access:** (1) hit `GET
+/admin/xg-path/cycle` to record the current `ObservedPoolSize` as the
+"before" figure (it still reflects the last generation under the OLD
+rules until a new one runs); (2) trigger (or wait for) one real xG Path
+round generation against the now-deployed S-137-140 rules — `POST
+/internal/generate-round`'s scheduler path, or a manual dispatch; (3) hit
+`GET /admin/xg-path/cycle` again for the "after" `ObservedPoolSize`; (4) run
+`dotnet run -- reset-path-target-cycle` once, so `UsedInCycleCount` isn't
+left mixing old- and new-rule selections; (5) record both numbers in a
+follow-up NOTES.md entry — if the pool dropped by more than roughly half,
+escalate to the product owner (widen the seeded club/country list via
+`audit-club-gaps`, per S-141's own text) rather than silently accepting it.
+
 ### 2026-08-03 — `PlayerCareerStint`'s "few thousand rows" full-table-read assumption is now stale (608K rows after ADR-0055)
 Several existing in-memory-read helpers (`GetAllCareerStintsByPlayerAsync`,
 `GetPlayersMissingPhotoAsync`, the new `GetUnseededClubCandidatesAsync`) are
