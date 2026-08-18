@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
 import { fetchCurrentPath } from '../lib/path';
-import { submitGuess } from '../lib/rounds';
+import { submitGuess, warmUpAutocomplete } from '../lib/rounds';
 import type { CurrentPathResponse } from '../lib/types';
 import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
 import { PathGuessInput } from './PathGuessInput';
@@ -78,6 +78,16 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
       cancelled = true;
     };
   }, [accessToken, onAuthError]);
+
+  // S-151/REQ-207: fire-and-forget cold-start warm-up, independent of the
+  // round-fetch effect above — this must never gate or affect the round
+  // load's own loading/error state (see warmUpAutocomplete's own comment,
+  // frontend/src/lib/rounds.ts). Same call as GridScreen.tsx's own mount
+  // effect — xG Path shares the same PlayerNameIndex-backed autocomplete
+  // path (PathGuessInput.tsx), so it needs the same warm-up.
+  useEffect(() => {
+    warmUpAutocomplete(accessToken);
+  }, [accessToken]);
 
   // REQ-1203/1204 (S-086): xG Path's POST .../guesses response
   // (SubmitGuessResponse) carries isCorrect/attemptCount/locked but no clue

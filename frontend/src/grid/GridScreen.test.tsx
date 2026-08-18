@@ -61,6 +61,47 @@ describe('GridScreen', () => {
     expect(screen.getByText('0/1 answered')).toBeInTheDocument();
   });
 
+  it('S-151/REQ-207: fires a fire-and-forget warm-up GET on mount, and a failing one never affects the round render', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith('/rounds/current')) {
+        return jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: null,
+            },
+          ],
+        });
+      }
+      if (String(url).includes('/players/autocomplete/warmup')) {
+        return Promise.reject(new Error('cold start'));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('France')).toBeInTheDocument());
+    const warmupCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('/players/autocomplete/warmup'),
+    );
+    expect(warmupCall).toBeDefined();
+    expect((warmupCall![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer token',
+    });
+  });
+
   it('REQ-303: logs out via onAuthError when the round fetch is unauthorized', async () => {
     vi.stubGlobal(
       'fetch',

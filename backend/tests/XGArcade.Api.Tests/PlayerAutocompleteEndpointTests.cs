@@ -245,4 +245,35 @@ public class PlayerAutocompleteEndpointTests
         var suggestions = await response.Content.ReadFromJsonAsync<List<PlayerAutocompleteSuggestion>>();
         Assert.That(suggestions!, Has.Count.EqualTo(10));
     }
+
+    // ---- S-151/REQ-207: cold-start warm-up call ------------------------
+    // Proves GET /players/autocomplete/warmup actually exercises the real
+    // PlayerNameIndexRepository via normal DI (the SetUp above only swaps
+    // XGArcadeDbContext for an in-memory provider — the repository itself
+    // is never substituted with a fake), not just /health's process-only
+    // wake-up. Seeding an entry and getting 204 back with no error proves
+    // the repository call ran end-to-end rather than short-circuiting.
+
+    [Test]
+    public async Task REQ207_AutocompleteWarmup_Get_ReturnsNoContent_AndExercisesRealPlayerNameIndexRepository()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedPlayerNameIndexEntryAsync("Aaron Aardvark");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/players/autocomplete/warmup");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+    }
+
+    [Test]
+    public async Task REQ207_AutocompleteWarmup_Get_ReturnsUnauthorized_WithoutBearerToken()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/players/autocomplete/warmup");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
 }
