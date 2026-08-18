@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.86"
+version: "1.87"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -8152,6 +8152,44 @@ cross-game leakage ADR-0042 already rejected for a different reason
 (`PlayerCareerStint` kept separate from `PlayerAttribute` rather than
 widening a shared table for one consumer's needs) — see that ADR's own
 "For AI agents" note.
+
+**Status note (2026-08-18, S-141, Epic 12 follow-up): new
+`reset-path-target-cycle` operational CLI verb wipes stale target-cycle
+bookkeeping after S-137–S-140 narrowed the eligible pool this REQ cycles
+against.** S-137 (birth-year floor), S-138 (two-seeded-club requirement),
+S-139 (B-team exclusion), and S-140 (regional/national regex fix) —
+together, REQ-1201's own 2026-08-17/08-18 status notes — substantially
+narrow the same live pool this REQ's target-cycle tracking is scored
+against (see "Design note" above). `PathTargetCycle.ObservedPoolSize`
+self-corrects for free on the next generation, but `UsedInCycleCount` and
+the `PathCycleTargetUsage` rows it derives from do not — they were
+accumulated by counting distinct targets against the OLD, larger
+pre-S-137–S-140 pool, and left in place would understate how much of the
+NEW, narrower pool remains available, risking this REQ's own rollover
+condition below firing later than it should (repeats becoming visible to
+players before a rollover the stale count should have triggered). Added
+`PathTargetCycleResetter` (`XGArcade.Data.Seeding`) and its
+`reset-path-target-cycle` CLI verb — same "narrow, pair-scoped/table-scoped
+tool, not a re-run of the full purge/reseed pipeline" shape as REQ-110's
+`PairLookupFailureCleaner`/`clear-pair-lookup-failures` and REQ-1203's
+`DuplicateCareerStintCleaner`/`clean-duplicate-career-stints`: it wipes the
+`PathTargetCycle` singleton row and every `PathCycleTargetUsage` row (not
+just the current cycle's — see the class's own doc comment for why a
+leftover row from a previous "cycle 1" would otherwise collide with the
+fresh `CycleNumber` 1 this reset restarts at), so the next generation
+starts a clean baseline scored purely against the new pool. Idempotent and
+a no-op, not an error, when xG Path has never generated a round yet (no
+`PathTargetCycle` row). This does not change this REQ's rollover logic,
+selection logic, or persisted schema in any way — it is a one-time
+operational correction for state that predates S-137–S-140, run manually
+via `dotnet run -- reset-path-target-cycle`, not on any schedule. **S-141's
+other half — an actual before/after eligible-pool count against real (dev)
+data — could not be produced in this pass; no live Wikidata or real dev
+Postgres access was available. See `NOTES.md`'s 2026-08-18 entry for the
+full reasoning and the handoff steps for whoever next has real dev
+access.** REQ-1201 itself already flagged S-141 as its own planned
+follow-up (see that REQ's 2026-08-17 S-137/S-138 status notes) — this note
+records what S-141 actually delivered against REQ-1208 specifically.
 
 - Given the live xG Path target-selection pool for a generation (REQ-1201's
   structural checks narrowed by ADR-0056's familiarity filter — the exact

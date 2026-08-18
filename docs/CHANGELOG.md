@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `backend/src/XGArcade.Data/Seeding/PathTargetCycleResetter.cs`,
+  `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs`,
+  `backend/tests/XGArcade.Data.Tests/PathTargetCycleResetterTests.cs`,
+  `docs/requirements-document.md`, `NOTES.md` — S-141 (Epic 12): added a
+  new `reset-path-target-cycle` `dotnet run --` CLI verb
+  (`PathTargetCycleResetter`, mirroring `PairLookupFailureCleaner`'s
+  load-then-`SaveChangesAsync` shape) that wipes the `PathTargetCycle`
+  singleton row and every `PathCycleTargetUsage` row, so the next xG Path
+  generation starts a clean `CycleNumber` 1 baseline scored against the
+  eligible pool as narrowed by S-137–S-140 — the pre-existing
+  `UsedInCycleCount`/usage bookkeeping was accumulated against the OLD,
+  larger pre-S-137–S-140 pool and does not self-correct the way
+  `ObservedPoolSize` does. 4 new NUnit tests
+  (`PathTargetCycleResetterTests.cs`, `REQ1208_*`); 1548/1548 backend tests
+  pass. `docs/requirements-document.md` gets a new dated status note under
+  REQ-1208 documenting the tool and cross-referencing REQ-1201's own
+  S-137/S-138 notes that already flagged S-141 as a planned follow-up.
+  `docs/architecture-document.md` was checked (COMP-11) and left unchanged
+  — the tool works entirely within xG Path's own already-declared tables,
+  no component/boundary/data-flow change. `docs/implementation-document.md`
+  was checked and left unchanged — matching the precedent of its two
+  structurally-identical predecessors (`clear-pair-lookup-failures`,
+  `clean-duplicate-career-stints`), neither of which was added to its CLI
+  verb narrative either. No ADR — same category as those two precedent
+  reset tools, confirmed by both `architecture-reviewer` and
+  `quality-architect`. S-141's other half — an actual before/after
+  eligible-pool count against real (dev) data — could not be produced in
+  this sandbox (no live Wikidata access, no real dev Postgres access);
+  `NOTES.md` gets a new 2026-08-18 entry documenting the limitation and the
+  handoff steps for whoever next has real dev access. REQ-1208, S-141.
 - 2026-08-18 — `backend/src/XGArcade.Games.XGPath/PathCareerStintFilter.cs`,
   `backend/tests/XGArcade.Games.XGPath.Tests/PathCareerStintFilterTests.cs`,
   `docs/requirements-document.md`,
