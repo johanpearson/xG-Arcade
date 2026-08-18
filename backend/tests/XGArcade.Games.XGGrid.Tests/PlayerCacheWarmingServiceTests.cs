@@ -51,11 +51,11 @@ public class PlayerCacheWarmingServiceTests
             new GridGenerationOptions { MinValidAnswers = minValidAnswers },
             NullLogger<PlayerCacheWarmingService>.Instance);
 
-    private CountryDefinition SeedCountry(string name) =>
-        Seed(new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = $"Qcountry-{name}" }, _dbContext.CountryDefinitions);
+    private CountryDefinition SeedCountry(string name, DateTime? playerPoolSweptAt = null) =>
+        Seed(new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = $"Qcountry-{name}", PlayerPoolSweptAt = playerPoolSweptAt }, _dbContext.CountryDefinitions);
 
-    private ClubDefinition SeedClub(string name) =>
-        Seed(new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = $"Qclub-{name}" }, _dbContext.ClubDefinitions);
+    private ClubDefinition SeedClub(string name, DateTime? playerPoolSweptAt = null) =>
+        Seed(new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = $"Qclub-{name}", PlayerPoolSweptAt = playerPoolSweptAt }, _dbContext.ClubDefinitions);
 
     private T Seed<T>(T entity, DbSet<T> set) where T : class
     {
@@ -460,6 +460,130 @@ public class PlayerCacheWarmingServiceTests
         Assert.That(result.TotalPairs, Is.EqualTo(1));
     }
 
+    // ---- Confirmed-low-from-sweep short-circuit (REQ-110/ADR-0078/S-160) --
+    // Once BOTH sides of a pair have a non-null PlayerPoolSweptAt, WarmAsync
+    // must confirm the pair low directly from the local cachedCount and
+    // never issue a live query — but only when BOTH sides are swept, never
+    // just one (ADR-0078's own explicit "For AI agents" note).
+
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_BothSidesSwept_BelowThreshold_ConfirmsLowFromSweep_NoLiveQuery()
+    {
+        SeedCountry("France", playerPoolSweptAt: DateTime.UtcNow);
+        SeedClub("Arsenal", playerPoolSweptAt: DateTime.UtcNow);
+        SeedCachedMatches("nationality", "France", "club", "Arsenal", count: 2);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(1));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(0));
+        Assert.That(result.PairsSkippedConfirmedLow, Is.EqualTo(0));
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(0),
+            "both sides fully swept means the local count is already final — a live Wikidata call is pure waste");
+        Assert.That(await _playerDataQualityRepository.IsConfirmedLowAsync("nationality", "France", "club", "Arsenal"), Is.True,
+            "the pair must still be persisted as confirmed-low even though no live query ran, so a LATER run's fast path still finds it");
+    }
+
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_OnlyCountrySwept_StillQueriesLive_DoesNotConfirmFromSweep()
+    {
+        SeedCountry("France", playerPoolSweptAt: DateTime.UtcNow);
+        SeedClub("Arsenal", playerPoolSweptAt: null);
+        SeedCachedMatches("nationality", "France", "club", "Arsenal", count: 2);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(0),
+            "a partial pool on the club side means the true count is still unknown — must not short-circuit");
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(1),
+            "only one side swept must still fall through to the existing live-query chain unchanged");
+    }
+
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_OnlyClubSwept_StillQueriesLive_DoesNotConfirmFromSweep()
+    {
+        SeedCountry("France", playerPoolSweptAt: null);
+        SeedClub("Arsenal", playerPoolSweptAt: DateTime.UtcNow);
+        SeedCachedMatches("nationality", "France", "club", "Arsenal", count: 2);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(0),
+            "a partial pool on the country side means the true count is still unknown — must not short-circuit");
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_NeitherSideSwept_StillQueriesLive_DoesNotConfirmFromSweep()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        SeedCachedMatches("nationality", "France", "club", "Arsenal", count: 2);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_BothSidesSweptButAlreadyAtOrAboveThreshold_CountsAsAlreadyValid_NotConfirmedLowFromSweep()
+    {
+        SeedCountry("France", playerPoolSweptAt: DateTime.UtcNow);
+        SeedClub("Arsenal", playerPoolSweptAt: DateTime.UtcNow);
+        SeedCachedMatches("nationality", "France", "club", "Arsenal", count: 5);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsAlreadyValid, Is.EqualTo(1));
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(0),
+            "a pair already meeting MinValidAnswers is a match, not a confirmed-low — the sweep short-circuit only applies to the below-threshold branch");
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(0));
+    }
+
+    // The Club x Club loop's own short-circuit path — a separate code path
+    // from the Country x Club loop above, needing its own coverage rather
+    // than assuming symmetry (same precedent as this file's other
+    // confirmed-low/persistent-failure Club x Club tests).
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_ClubClubPair_BothSidesSwept_BelowThreshold_ConfirmsLowFromSweep_NoLiveQuery()
+    {
+        SeedClub("Arsenal", playerPoolSweptAt: DateTime.UtcNow);
+        SeedClub("Barcelona", playerPoolSweptAt: DateTime.UtcNow);
+        SeedCachedMatches("club", "Arsenal", "club", "Barcelona", count: 1);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(1));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(0));
+        Assert.That(
+            _wikidataLookupService.GetClubClubCallCount("Arsenal", "Barcelona") + _wikidataLookupService.GetClubClubCallCount("Barcelona", "Arsenal"),
+            Is.EqualTo(0),
+            "both clubs fully swept means the local count is already final — a live Wikidata call is pure waste");
+    }
+
+    [Test]
+    public async Task REQ110_ADR0078_WarmAsync_ClubClubPair_OnlyOneSideSwept_StillQueriesLive_DoesNotConfirmFromSweep()
+    {
+        SeedClub("Arsenal", playerPoolSweptAt: DateTime.UtcNow);
+        SeedClub("Barcelona", playerPoolSweptAt: null);
+        SeedCachedMatches("club", "Arsenal", "club", "Barcelona", count: 1);
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+    }
+
     // ---- REQ-110's own "Test level" note (docs/requirements-document.md,
     // lines ~473-477): a regression test proving that running REQ-111's
     // stale-QID cleanup (named or --all-clubs) or REQ-112/S-038's
@@ -601,6 +725,51 @@ public class PlayerCacheWarmingServiceTests
         Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
             "purge-player-pool's unscoped PairLookupFailure delete must make WarmAsync re-query this pair live, not trust a marker left over from before the purge");
         Assert.That(result.PairsSkippedPersistentFailure, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+    }
+
+    // REQ-110/ADR-0078/S-160: the same purge-player-pool regression shape as
+    // the two tests immediately above, for PlayerPoolSweptAt.
+    // CliVerbDispatcher.HandlePurgePlayerPoolAsync resets it via
+    // ExecuteUpdateAsync (a relational-provider bulk operation not supported
+    // by the InMemory provider this file uses — see this file's own
+    // established comment on the two tests above), so a direct field reset
+    // is used here as the same faithful proxy: both leave the row in the
+    // exact same end state (PlayerPoolSweptAt = null), which is the only
+    // thing this regression test or WarmAsync's downstream behavior can
+    // observe. Confirms purge-player-pool's full-reset scope actually
+    // reaches this column, not just Player/ConfirmedLowMatchPair/
+    // PairLookupFailure — a pair that was confirmed-low-from-sweep before
+    // the purge must fall all the way through to a real live query
+    // afterward, since the pool data the sweep certified no longer exists.
+    [Test]
+    public async Task REQ110_ADR0078_PurgePlayerPoolPlayerPoolSweptAtReset_ThenWarmAsync_ReQueriesFormerlySweptPairLive()
+    {
+        var france = SeedCountry("France", playerPoolSweptAt: DateTime.UtcNow);
+        var napoli = SeedClub("Napoli", playerPoolSweptAt: DateTime.UtcNow);
+        SeedCachedMatches("nationality", "France", "club", "Napoli", count: 2);
+        var preCheck = BuildService(minValidAnswers: 5);
+        var preCheckResult = await preCheck.WarmAsync();
+        Assert.That(preCheckResult.PairsConfirmedLowFromSweep, Is.EqualTo(1),
+            "sanity check: before the purge, both sides swept must short-circuit exactly as the other ADR-0078 tests confirm");
+
+        // Proxy for purge-player-pool's ExecuteUpdateAsync reset — same
+        // technique as the ConfirmedLowMatchPair/PairLookupFailure purge
+        // tests above.
+        france.PlayerPoolSweptAt = null;
+        napoli.PlayerPoolSweptAt = null;
+        var staleConfirmedLow = await _dbContext.ConfirmedLowMatchPairs.ToListAsync();
+        _dbContext.ConfirmedLowMatchPairs.RemoveRange(staleConfirmedLow); // purge-player-pool also clears this table.
+        await _dbContext.SaveChangesAsync();
+
+        _wikidataLookupService.SetMatches("France", "Napoli", BuildFakePlayers("France", "Napoli", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
+            "purge-player-pool's unscoped PlayerPoolSweptAt reset must make WarmAsync re-query this pair live, not trust the sweep certification left over from before the purge");
+        Assert.That(result.PairsConfirmedLowFromSweep, Is.EqualTo(0));
         Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
     }
 }

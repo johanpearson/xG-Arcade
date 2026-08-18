@@ -654,8 +654,29 @@ public static class CliVerbDispatcher
         var purgedConfirmedLowCount = await purgeDbContext.ConfirmedLowMatchPairs.ExecuteDeleteAsync();
         var purgedLookupFailureCount = await purgeDbContext.PairLookupFailures.ExecuteDeleteAsync();
 
+        // REQ-110/ADR-0078/S-160: a full player-pool purge invalidates every
+        // CountryDefinition/ClubDefinition row's "this pool was fully
+        // swept" claim just as much as it invalidates the Player/
+        // PlayerAttribute rows above — PlayerCacheWarmingService's
+        // confirmed-low-from-sweep short-circuit must not keep trusting a
+        // PlayerPoolSweptAt timestamp for pool data that no longer exists.
+        // A bulk relational-provider operation (ExecuteUpdateAsync, not
+        // ExecuteDeleteAsync — nothing here should be removed, only
+        // nulled), same style and same caveat as this verb's own Player/
+        // ConfirmedLowMatchPair/PairLookupFailure deletes above: a
+        // standalone operational CLI verb never exercised by the
+        // InMemory-provider unit tests that load-then-SaveChangesAsync
+        // exists to protect.
+        var resetCountrySweptAtCount = await purgeDbContext.CountryDefinitions
+            .Where(c => c.PlayerPoolSweptAt != null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.PlayerPoolSweptAt, (DateTime?)null));
+        var resetClubSweptAtCount = await purgeDbContext.ClubDefinitions
+            .Where(c => c.PlayerPoolSweptAt != null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.PlayerPoolSweptAt, (DateTime?)null));
+
         Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows), " +
-            $"{purgedConfirmedLowCount} ConfirmedLowMatchPair row(s), and {purgedLookupFailureCount} PairLookupFailure row(s).");
+            $"{purgedConfirmedLowCount} ConfirmedLowMatchPair row(s), and {purgedLookupFailureCount} PairLookupFailure row(s); " +
+            $"reset PlayerPoolSweptAt on {resetCountrySweptAtCount} CountryDefinition row(s) and {resetClubSweptAtCount} ClubDefinition row(s).");
         return true;
     }
 

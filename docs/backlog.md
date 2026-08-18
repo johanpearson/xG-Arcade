@@ -6830,7 +6830,7 @@ Never actually compiled in the sandbox that built it (no `dotnet` SDK
 available there) — first CI run on the branch is the real verification.
 *Deps:* none (ADR-0055/ADR-0069 already shipped).
 
-**S-160 · `warm-grid-cache`: mark a swept-but-genuinely-low pair `ConfirmedLowMatchPair` without a live round-trip**
+**S-160 · `warm-grid-cache`: mark a swept-but-genuinely-low pair `ConfirmedLowMatchPair` without a live round-trip — SHIPPED**
 S-159's own follow-up, flagged in ADR-0077's Consequences section rather
 than solved there. Once a pair's both sides have been fully swept by
 `prefetch-player-careers`, `PlayerCacheWarmingService`'s local
@@ -6854,3 +6854,19 @@ REQ-110's own "persisted confirmed-low signal" extension) — likely needs
 its own ADR per `CLAUDE.md`'s "could reasonably have gone another way"
 test, not a silent extension of ADR-0077.
 *Deps:* S-159.
+**Built as:** `CountryDefinition`/`ClubDefinition.PlayerPoolSweptAt`
+(`DateTime?`), the per-row "swept" marker option this entry's own note
+above named — see ADR-0078 for the full decision, including why the
+alternative signals considered (a single shared timestamp, a new pair
+table, an implicit global flag) were rejected. `PlayerCacheWarmingService
+.WarmAsync` checks both sides before `IsConfirmedLowAsync`/
+`IsPersistentTechnicalFailureAsync`/the live-query chain and calls
+`RecordConfirmedLowAsync` directly when both are swept — a new
+`PairsConfirmedLowFromSweep` counter makes it visible in the run summary.
+Both invalidation sites ADR-0078 requires are wired:
+`StaleClubAttributeCleaner` (REQ-111) and `purge-player-pool`
+(REQ-112/S-038) now also clear `PlayerPoolSweptAt`. Never actually compiled
+in the sandbox that built it (no `dotnet` SDK available there); the
+migration and Designer/snapshot files were hand-written by mirroring
+`20260817120000_AddRoundSequenceNumber`'s exact shape — first CI run on the
+branch is the real verification.

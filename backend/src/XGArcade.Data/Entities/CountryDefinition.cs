@@ -29,4 +29,20 @@ public class CountryDefinition
     // ADR-0035 for the alternative considered (a separate
     // NationalTeamDefinition table/category type) and why it was rejected.
     public bool UsesCountryForSportProperty { get; set; }
+
+    // REQ-110/ADR-0078/S-160: set to the current UTC time by
+    // PlayerCareerPrefetchService the moment this country's pool sweep
+    // completes successfully (inside the countriesProcessed++ success path
+    // — never on a null-QID skip or a caught WikidataQueryException, both
+    // of which mean the pool was NOT fully fetched this run). Once this is
+    // non-null AND the paired ClubDefinition's own PlayerPoolSweptAt is also
+    // non-null, PlayerCacheWarmingService trusts the local
+    // CountPlayersWithBothAttributesAsync count as final for that pair and
+    // skips the live Wikidata round-trip entirely. Must be nulled out again
+    // by purge-player-pool (REQ-112/S-038, CliVerbDispatcher
+    // .HandlePurgePlayerPoolAsync) whenever the pool data it certifies is
+    // wiped — StaleClubAttributeCleaner (REQ-111) is club-scoped only and
+    // never touches CountryDefinition. See ADR-0078's "For AI agents"
+    // section before adding a third invalidation site.
+    public DateTime? PlayerPoolSweptAt { get; set; }
 }

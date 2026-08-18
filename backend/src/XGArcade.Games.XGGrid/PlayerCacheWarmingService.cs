@@ -84,6 +84,23 @@ namespace XGArcade.Games.XGGrid;
 // process-crash-survival retry around the whole job) is unaffected — a
 // different, complementary layer from this now-removed single-pair,
 // same-process retry.
+//
+// REQ-110/ADR-0078/S-160 (2026-08-18) — confirmed-low-from-sweep
+// short-circuit: once PlayerCareerPrefetchService has fully swept BOTH
+// sides of a pair (CountryDefinition.PlayerPoolSweptAt/
+// ClubDefinition.PlayerPoolSweptAt both non-null), this class's own
+// cachedCount is no longer a partial cache hint — it is the true, final
+// match count for that pair, because the pool sweep that produced each
+// side was itself unfiltered and complete. WarmAsync checks this BEFORE
+// IsConfirmedLowAsync/IsPersistentTechnicalFailureAsync/the live-query
+// chain and, when both sides are swept, calls RecordConfirmedLowAsync
+// directly with cachedCount — no live Wikidata round-trip. Deliberately
+// requires BOTH sides swept, never just one: a partial pool on either side
+// means the true count is still unknown. See ADR-0078 for the full
+// decision, including its "For AI agents" section on why
+// StaleClubAttributeCleaner/purge-player-pool MUST also invalidate
+// PlayerPoolSweptAt, not just PlayerAttribute/ConfirmedLowMatchPair/
+// PairLookupFailure.
 public class PlayerCacheWarmingService(
     ICategoryValueRepository categoryValueRepository,
     // S-106/S-107 (pure refactor): the original, now-deleted
@@ -144,6 +161,7 @@ public class PlayerCacheWarmingService(
         var pairsAlreadyValid = 0;
         var pairsSkippedConfirmedLow = 0;
         var pairsSkippedPersistentFailure = 0;
+        var pairsConfirmedLowFromSweep = 0;
         var pairsProcessed = 0;
         var pairsWithTechnicalFailure = 0;
         var failingPairs = new List<string>();
@@ -160,6 +178,27 @@ public class PlayerCacheWarmingService(
                 if (cachedCount >= options.MinValidAnswers)
                 {
                     pairsAlreadyValid++;
+                }
+                // REQ-110/ADR-0078/S-160: checked before IsConfirmedLowAsync/
+                // IsPersistentTechnicalFailureAsync/the live-query chain
+                // below — once BOTH sides' pool sweeps have completed
+                // (PlayerCareerPrefetchService's own countriesProcessed++/
+                // clubsProcessed++ success path), cachedCount is not a
+                // partial cache hint, it's the true, final count for this
+                // pair (see that service's own doc comment for the full
+                // "why"). Confirmed directly from the local count, with zero
+                // Wikidata round-trip. Both sides must be swept — a partial
+                // pool on either side means the true count is still
+                // unknown; do not widen this to fire on only one side (see
+                // ADR-0078's "For AI agents" section).
+                else if (country.PlayerPoolSweptAt is not null && club.PlayerPoolSweptAt is not null)
+                {
+                    pairsConfirmedLowFromSweep++;
+                    await playerDataQualityRepository.RecordConfirmedLowAsync(
+                        NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cachedCount, cancellationToken);
+                    logger.LogDebug(
+                        "{Country} x {Club}: confirmed low from sweep — both sides fully swept, cached count ({CachedCount}) is final, no live query needed.",
+                        country.Name, club.Name, cachedCount);
                 }
                 // REQ-110 (2026-07-28 "persisted confirmed-low signal"
                 // extension): checked only once cachedCount has already
@@ -242,6 +281,18 @@ public class PlayerCacheWarmingService(
                 {
                     pairsAlreadyValid++;
                 }
+                // REQ-110/ADR-0078/S-160: see the Country x Club loop's own
+                // comment above — same reasoning here, both ClubDefinition
+                // rows' own PlayerPoolSweptAt.
+                else if (clubs[i].PlayerPoolSweptAt is not null && clubs[j].PlayerPoolSweptAt is not null)
+                {
+                    pairsConfirmedLowFromSweep++;
+                    await playerDataQualityRepository.RecordConfirmedLowAsync(
+                        ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cachedCount, cancellationToken);
+                    logger.LogDebug(
+                        "{ClubA} x {ClubB}: confirmed low from sweep — both sides fully swept, cached count ({CachedCount}) is final, no live query needed.",
+                        clubs[i].Name, clubs[j].Name, cachedCount);
+                }
                 // REQ-110: see the Country x Club loop's own comment above
                 // — same reasoning here.
                 else if (await playerDataQualityRepository.IsConfirmedLowAsync(
@@ -299,7 +350,7 @@ public class PlayerCacheWarmingService(
 
         var result = new CacheWarmingResult(
             totalPairs, pairsQueriedLive, pairsAlreadyValid, pairsWithTechnicalFailure, failingPairs,
-            pairsSkippedConfirmedLow, pairsSkippedPersistentFailure);
+            pairsSkippedConfirmedLow, pairsSkippedPersistentFailure, pairsConfirmedLowFromSweep);
 
         // REQ-110: the failing-pairs list is logged in full here, at
         // Information level, exactly once per run — not per-pair (each
@@ -312,10 +363,11 @@ public class PlayerCacheWarmingService(
         logger.LogInformation(
             "Player cache warming complete: {TotalPairs} pairs checked, {PairsQueriedLive} queried live, {PairsAlreadyValid} already valid, " +
             "{PairsSkippedConfirmedLow} skipped as previously confirmed low, {PairsSkippedPersistentFailure} skipped as a persistent (2+ run) " +
-            "technical failure, {PairsWithTechnicalFailure} of the queried-live pairs hit a technical failure (timeout/HTTP/parse error) " +
+            "technical failure, {PairsConfirmedLowFromSweep} confirmed low from a fully-swept pool with zero live query (ADR-0078), " +
+            "{PairsWithTechnicalFailure} of the queried-live pairs hit a technical failure (timeout/HTTP/parse error) " +
             "rather than a clean answer.{FailingPairsSuffix}",
             result.TotalPairs, result.PairsQueriedLive, result.PairsAlreadyValid, result.PairsSkippedConfirmedLow,
-            result.PairsSkippedPersistentFailure, result.PairsWithTechnicalFailure,
+            result.PairsSkippedPersistentFailure, result.PairsConfirmedLowFromSweep, result.PairsWithTechnicalFailure,
             result.FailingPairs.Count > 0 ? $" Failing pairs: {string.Join(", ", result.FailingPairs)}." : string.Empty);
 
         return result;

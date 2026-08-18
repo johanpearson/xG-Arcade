@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.02"
+version: "1.03"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -798,6 +798,14 @@ public class CountryDefinition
     public Guid Id { get; set; }
     public string Name { get; set; }
     public string WikidataQid { get; set; }   // nullable until resolved
+    public DateTime? PlayerPoolSweptAt { get; set; }  // REQ-110/ADR-0078 (S-160):
+                                                // set by PlayerCareerPrefetchService
+                                                // once this country's pool sweep
+                                                // completes successfully; lets
+                                                // PlayerCacheWarmingService confirm
+                                                // a below-threshold pair low
+                                                // without a live query once BOTH
+                                                // sides are swept
 }
 
 // NOT bulk-seeded — added incrementally when an admin adds a new club as
@@ -809,6 +817,12 @@ public class ClubDefinition
     public string Name { get; set; }
     public string WikidataQid { get; set; }        // nullable until resolved
     public int? ApiFootballTeamId { get; set; }    // nullable until resolved
+    public DateTime? PlayerPoolSweptAt { get; set; }  // REQ-110/ADR-0078 (S-160):
+                                                // mirrors CountryDefinition's own
+                                                // column — invalidated back to
+                                                // null by StaleClubAttributeCleaner
+                                                // (REQ-111) and purge-player-pool
+                                                // (REQ-112/S-038)
 }
 
 // Phase 2 — deferred (see requirements-document.md §6). Not built in v1;

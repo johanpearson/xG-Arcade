@@ -94,6 +94,21 @@ public static class StaleClubAttributeCleaner
             .ToListAsync(cancellationToken);
         dbContext.PairLookupFailures.RemoveRange(staleLookupFailures);
 
+        // REQ-110/ADR-0078/S-160: the newest stale-marker invalidation this
+        // cleaner is responsible for — a club being cleaned here had its
+        // PlayerAttribute/PlayerData rows just wiped above, so any claim
+        // that its pool was "fully swept" (PlayerCacheWarmingService's own
+        // confirmed-low-from-sweep short-circuit) is now stale too. Leaving
+        // PlayerPoolSweptAt set would wrongly suppress the real re-sweep
+        // this cleanup exists to make room for — see ADR-0078's "For AI
+        // agents" section, which calls this out by name as a required
+        // invalidation site.
+        var staleClubDefinitions = await dbContext.ClubDefinitions
+            .Where(c => clubNames.Contains(c.Name))
+            .ToListAsync(cancellationToken);
+        foreach (var club in staleClubDefinitions)
+            club.PlayerPoolSweptAt = null;
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (staleAttributes.Count, stalePlayerData.Count);

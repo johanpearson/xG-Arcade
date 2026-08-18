@@ -45,10 +45,25 @@ public interface IPlayerCacheWarmingService
 // this one is a pair skipped WITHOUT a live query this run, because past
 // runs already failed enough times).
 //
+// PairsConfirmedLowFromSweep (REQ-110/ADR-0078/S-160, 2026-08-18): pairs
+// confirmed below MinValidAnswers and written to ConfirmedLowMatchPair
+// directly from the local cached count, without any live Wikidata query,
+// because BOTH sides of the pair (CountryDefinition/ClubDefinition) have a
+// non-null PlayerPoolSweptAt — see PlayerCareerPrefetchService's own doc
+// comment for what sets that column, and PlayerCacheWarmingService.WarmAsync
+// for the read side. Distinct from PairsSkippedConfirmedLow (that one is a
+// pair a PRIOR run already confirmed low, skipped this run without
+// recomputing anything) — this one is a pair confirmed low FOR THE FIRST
+// TIME (or re-confirmed) THIS run, using this run's own freshly-computed
+// cachedCount, purely because the pool sweep already makes that count
+// final. Checked before IsConfirmedLowAsync in WarmAsync's own branch
+// order, so a pair that qualifies for both counts as
+// PairsConfirmedLowFromSweep, not PairsSkippedConfirmedLow.
+//
 // TotalPairs still equals PairsQueriedLive + PairsAlreadyValid +
-// PairsSkippedConfirmedLow + PairsSkippedPersistentFailure, same
-// exhaustive-partition shape the result already had before this field
-// existed.
+// PairsSkippedConfirmedLow + PairsSkippedPersistentFailure +
+// PairsConfirmedLowFromSweep, same exhaustive-partition shape the result
+// already had before this field existed.
 public record CacheWarmingResult(
     int TotalPairs,
     int PairsQueriedLive,
@@ -56,4 +71,5 @@ public record CacheWarmingResult(
     int PairsWithTechnicalFailure,
     IReadOnlyList<string> FailingPairs,
     int PairsSkippedConfirmedLow = 0,
-    int PairsSkippedPersistentFailure = 0);
+    int PairsSkippedPersistentFailure = 0,
+    int PairsConfirmedLowFromSweep = 0);
