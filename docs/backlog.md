@@ -6259,6 +6259,19 @@ already-documented boundary (COMP-10), not a structural change.
 
 ## Epic 14 — xG Path: suggestion/correction reporting
 
+**CANCELLED (2026-08-18):** product decision — xG Path does not get a
+suggestion/correction entry point. S-143 (the ADR, design-only) already
+merged and stays as historical record of the boundary decision it made;
+S-144/145/146 (the actual submission route, admin-review wiring, frontend
+entry point, and doc sync) are cancelled and will not be built. The
+nullable per-game context fields S-143's migration added to
+`PlayerSuggestion` stay in place unused (harmless, no reason to churn a
+merged migration for a cancelled feature) rather than being rolled back.
+This unblocks S-152 (Epic 16), whose "wait for Epics 10-15" sequencing
+existed only to avoid building the purge verb against a schema that was
+still going to change underneath it — with S-144-146 cancelled, there's no
+further schema change coming from this epic.
+
 `PlayerSuggestion`/`SuggestionEndpoints.cs` today are structurally coupled
 to xG Grid: `PlayerSuggestion.CellId` (no FK, explicitly flagged in its own
 doc comment as a v1 simplification coupling this table to `GridCell`),
@@ -6299,7 +6312,7 @@ already generalizes fine (a suggestion is always "this player's true
 data is X," regardless of which game surfaced the report).
 *Deps:* none (design-only story).
 
-**S-144 · Backend: xG Path suggestion submission + admin review**
+**S-144 · CANCELLED — Backend: xG Path suggestion submission + admin review**
 Implements S-143's chosen shape: migration adding the new nullable
 context field(s) to `PlayerSuggestion`, a new submission route scoped to
 xG Path (either a new `POST /path/rounds/{roundId}/suggestions` mirroring
@@ -6322,7 +6335,7 @@ the exact same admin flow with no special-casing; REQ-215 updated from
 context-field generalization.
 *Deps:* S-143.
 
-**S-145 · Frontend: xG Path "report a correction" entry point**
+**S-145 · CANCELLED — Frontend: xG Path "report a correction" entry point**
 Add the equivalent of xG Grid's existing suggestion-report UI trigger
 (locate and mirror whichever component currently opens the report flow
 from a grid cell/guess result) to `PathScreen.tsx`/`PathGuessInput.tsx` or
@@ -6335,15 +6348,20 @@ component's test shape; no new design tokens introduced (reuse existing
 suggestion-flow styling per `design-document.md` §2's token-reuse rule).
 *Deps:* S-144.
 
-**S-146 · Doc sync: REQ-215/architecture-document.md reflect xG Path suggestion support**
-`requirements-document.md` REQ-215's existing "not fixed now" status note
-about xG Path is now stale once S-144/145 land; `architecture-document.md`'s
-relevant COMP row (suggestion handling) gets a status note describing the
-generalized context shape from S-143. Routine `/update-docs`-shaped
-follow-up, not scoped as its own design work.
+**S-146 · CANCELLED — Doc sync: REQ-215/architecture-document.md reflect xG Path suggestion support**
+Moot: S-144/145 (the behavior this doc sync would describe) are cancelled,
+so REQ-215's "not fixed now" status note about xG Path stays accurate as
+written and needs no update.
 *Deps:* S-143, S-144, S-145.
 
 ## Epic 15 — Settings: a user's own suggestion history
+
+**CANCELLED (2026-08-18):** product decision — no suggestion-history
+feature in Settings. S-147/148/149/150 below are cancelled and will not
+be built; no code or schema exists for this epic today, so cancelling it
+leaves nothing to roll back. This is one of the two epics S-152 (Epic 16)
+was waiting to merge before proceeding — with it cancelled instead, S-152
+is unblocked.
 
 No REQ, repository method, or UI pattern for this exists today — confirmed
 by investigation, not assumed. `PlayerSuggestion.SubmittingUserId` is
@@ -6356,7 +6374,7 @@ no per-user filter, no query for `Committed`/`Rejected` rows, no
 delete/dismiss mutation anywhere in the codebase to copy from (checked
 `IncidentReport` — no local persistence at all, not a usable precedent).
 
-**S-147 · Backend: `GET /me/suggestions` — a user's own suggestion history, all statuses**
+**S-147 · CANCELLED — Backend: `GET /me/suggestions` — a user's own suggestion history, all statuses**
 New repository method (`GetBySubmittingUserIdAsync(userId)`, no status
 filter — unlike admin's `GetPendingAsync`, a user should see their
 `Pending`/`Committed`/`Rejected` suggestions all at once) and a new
@@ -6375,7 +6393,7 @@ user's suggestions (authorization test, same bar as every other
 mirroring `PlayerSuggestionRepository`'s existing test shape.
 *Deps:* none (pure additive read, no schema change).
 
-**S-148 · Backend: let a user clear their own resolved (confirmed/denied) suggestions**
+**S-148 · CANCELLED — Backend: let a user clear their own resolved (confirmed/denied) suggestions**
 No soft-delete/dismiss/clear concept exists anywhere in this codebase
 today — this establishes the first one, so keep it narrow and reversible-
 in-spirit: add a nullable `ClearedByUserAt` timestamp column (not a hard
@@ -6403,7 +6421,7 @@ that reasoning).
 *Deps:* S-147 (same entity/endpoint family, land together or immediately
 after).
 
-**S-149 · Frontend: "My suggestions" section in `SettingsScreen.tsx`**
+**S-149 · CANCELLED — Frontend: "My suggestions" section in `SettingsScreen.tsx`**
 `SettingsScreen.tsx` currently has no list/history UI at all — every
 existing section is a single form or link. Add a new section (after the
 existing admin-link/appearance sections, before account deletion, matching
@@ -6427,15 +6445,9 @@ with no clear button. No new design tokens (reuse existing list/row
 styling per `design-document.md` §2).
 *Deps:* S-147, S-148.
 
-**S-150 · Doc sync: REQ-511/512, architecture-document.md, design-document.md for the Settings suggestion-history feature**
-`requirements-document.md` gains REQ-511/512 formally (drafted inline in
-S-147/S-148 above — this story is the `/update-docs` pass confirming they
-match what actually shipped); `architecture-document.md`'s suggestion-
-handling COMP row gets a status note for the new read/clear paths;
-`design-document.md` gains a SCREEN-level note for Settings' new section
-(or a new SCREEN-xx entry if the section is substantial enough to warrant
-one — `ui-implementer`/design review to decide during implementation, not
-prescribed here). CHANGELOG entry naming all docs touched.
+**S-150 · CANCELLED — Doc sync: REQ-511/512, architecture-document.md, design-document.md for the Settings suggestion-history feature**
+Moot: S-147/148/149 (the behavior this doc sync would describe) are
+cancelled, so REQ-511/512 are never drafted and no doc sync is needed.
 *Deps:* S-147, S-148, S-149.
 
 ## Epic 16 — Pre-launch clean slate
@@ -6485,15 +6497,21 @@ data *up*, and this story is explicitly about resetting *game history*,
 never the player database underneath it. If a genuinely full reset is ever
 wanted later, that's `purge-player-pool.yml`'s job, run separately and
 deliberately, not folded into this one.
-**Sequencing: land and run this LAST**, after Epics 10-15 are all merged,
-not before and not mid-overhaul. Reasons, not just preference: Epic 11
-(S-135) adds `Round.SequenceNumber` with a backfill for existing rows —
-running the wipe first makes that backfill work pointless (every row it'd
-backfill gets deleted anyway) and running it last means the fresh
-post-launch rounds start a clean `SequenceNumber` sequence from 1 with no
-backfill math involved at all. Epic 14/15 (S-143-150) change
-`PlayerSuggestion`'s `RoundId`/`CellId` coupling — building this verb
-against the *final* post-overhaul schema avoids writing it twice.
+**Sequencing: land and run this LAST**, after Epics 10-15 are all either
+merged or (as of 2026-08-18) formally cancelled, not before and not
+mid-overhaul. Reasons, not just preference: Epic 11 (S-135) adds
+`Round.SequenceNumber` with a backfill for existing rows — running the
+wipe first makes that backfill work pointless (every row it'd backfill
+gets deleted anyway) and running it last means the fresh post-launch
+rounds start a clean `SequenceNumber` sequence from 1 with no backfill
+math involved at all. Epic 14/15 (S-143-150) were going to change
+`PlayerSuggestion`'s `RoundId`/`CellId` coupling further — building this
+verb against the *final* post-overhaul schema avoids writing it twice.
+**Epic 14/15 are now cancelled** (S-143's ADR-0076 stays merged as-is;
+S-144-150 will not be built — see each epic's cancellation note above), so
+this gate is satisfied: Epics 10-13 are merged, and 14/15 have no further
+schema change coming. Building this verb now, against the current schema,
+is the correct read of this section's own intent.
 *Accept:* new `IRoundRepository`/equivalent method(s) performing the
 delete in one transaction (mirroring `PlayerRepository`'s existing
 cascade-delete pattern for `purge-player-pool`); the workflow's
@@ -6512,3 +6530,44 @@ operational tool with no REQ/ADR-level decision behind it, matching
 *Deps:* none to build; **do not run for real before Epics 10-15 are merged**
 (see Sequencing above) — `TODO.md`'s pre-launch checklist gets the actual
 "run it" step so this isn't only a capability sitting unused.
+
+**Built 2026-08-18 (code/tests/workflow only — NOT run for real, per this
+story's own sequencing gate; `TODO.md`'s pre-launch checklist item is the
+actual "run it" trigger).** Two deliberate deviations from this story's own
+*Accept* text, both for concrete reasons:
+- The delete logic lives in a new static `GameHistoryPurger`
+  (`backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs`), not an
+  `IRoundRepository` method — that interface is Round-scoped only, and this
+  is a 7-table cross-cutting delete; matches the existing
+  `PathTargetCycleResetter`/`StaleClubAttributeCleaner`/
+  `PairLookupFailureCleaner`/`DuplicateCareerStintCleaner` precedent in the
+  same folder (each its own standalone static class, not shoehorned into an
+  unrelated repository interface).
+- Tests (`backend/tests/XGArcade.Data.Tests/GameHistoryPurgerTests.cs`) are
+  NOT REQ###-named — this story's own text says "No REQ/ADR-level decision
+  behind it," and the existing REQ-less-maintenance-tool precedent in the
+  same test folder (`UserDisplayNameBackfillerTests`,
+  `PlayerNormalizedFullNameBackfillerTests`, `PlayerNameIndexWordBackfillerTests`,
+  `PlayerAliasNormalizedAliasBackfillerTests`) omits the REQ### prefix
+  entirely rather than inventing one.
+
+Also: `GameHistoryPurger` does NOT rely on EF Core's configured
+`DeleteBehavior.Cascade` at runtime for `Guess`/`PlayerSuggestion`(+
+`PlayerSuggestionClub`)/`GridCell`/`PathPuzzle` — that cascade only fires
+for entities already tracked in the context (client cascade) or via a real
+relational database's own `ON DELETE CASCADE` (production Npgsql only).
+The InMemory provider this story's own acceptance criteria require testing
+against has neither, so every table is loaded and removed explicitly; see
+that class's own doc comment for the full reasoning. One `SaveChangesAsync`
+call for the whole purge (not one per table) is what actually satisfies the
+"one transaction" criterion — no explicit `BeginTransactionAsync` needed
+(and one would break the InMemory-provider tests, which don't support real
+transactions).
+
+Files: `backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs` (new),
+`backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs` (new
+`purge-game-history` verb), `backend/tests/XGArcade.Data.Tests/GameHistoryPurgerTests.cs`
+(new), `.github/workflows/purge-game-history.yml` (new). No .NET SDK was
+available in the sandbox this was built in — code was hand-traced against
+concrete scenarios, not compiled/run; `dotnet build`/`dotnet test` must run
+in CI before this is considered verified.

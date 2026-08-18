@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `docs/backlog.md`, `docs/decisions/0003-generic-round-game-reference.md`,
+  `TODO.md` — S-152 (Epic 16, build-only): implemented the `purge-game-history` CLI
+  verb (`GameHistoryPurger`, `CliVerbDispatcher`), its
+  `.github/workflows/purge-game-history.yml` confirmation-gated workflow,
+  and `GameHistoryPurgerTests.cs`. Wipes every `Round`/`Guess`/
+  `PlayerSuggestion`(+`PlayerSuggestionClub`)/`GridInstance`(+`GridCell`)/
+  `PathInstance`(+`PathPuzzle`)/`PathTargetCycle`/`PathCycleTargetUsage`
+  row, leaving `User`/`League`/`LeagueMembership` and every `Player`/
+  reference table untouched — not run for real; `TODO.md`'s pre-launch
+  checklist is the actual trigger, per the story's own sequencing gate
+  (after Epics 10-15 settle, satisfied as of the prior 2026-08-18 backlog
+  entry cancelling Epics 14/15). No new REQ (self-contained operational
+  tool, matching `purge-player-pool.yml`'s own precedent). `architecture-reviewer`
+  and `quality-architect` both reviewed the diff (`/quality-gate`): no
+  blocking findings; two trivial test/comment nits from `quality-architect`
+  applied directly (a missing pair of assertions in the "every table
+  empty" test, an inaccurate verb-count comment). `architecture-reviewer`
+  flagged one architecturally-significant point worth recording rather
+  than leaving implicit — `GameHistoryPurger` is the first tool to
+  hardcode both Core and two separate game modules' table names in one
+  class instead of routing per-game deletion through `IGameModule` — so
+  ADR-0003 gets a 2026-08-18 follow-up addendum accepting this as a scoped
+  exception for one-off, human-triggered maintenance tooling outside the
+  request-serving path, explicitly not extending to `Core.Rounds` or any
+  other request-serving code.
 - 2026-08-18 — `docs/decisions/0076-generalize-playersuggestion-submission-context.md`,
   `docs/architecture-document.md` — S-143 (Epic 14, design-only, no code):
   new ADR-0076 generalizes `PlayerSuggestion`'s submission context off xG
