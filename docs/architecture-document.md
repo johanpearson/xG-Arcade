@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.07"
+version: "1.08"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -862,6 +862,14 @@ fallback-specific `"unverified"` carve-out) — no code path writes
 `"unverified"` today, pending a real player-suggestion/correction channel
 (both ADRs' shared follow-up note). Merge-on-read prefers `PlayerOverride`
 when present, else `PlayerData`, in exactly one place (ADR-0015).
+`PlayerCareerPrefetchService`'s country/club pool sweeps (ADR-0055/
+ADR-0069/ADR-0077) write the same paired `PlayerData`(`Source =
+"wikidata"`, `Confidence = "verified"`)/`PlayerAttribute` shape directly,
+not through `IWikidataLookupService` — a fourth, bulk-sweep-scoped writer
+of the same pattern, deduped per-country/per-club rather than per
+pairwise lookup (ADR-0077's own "why not the same shape as
+`QueueAttribute`" note covers the one deliberate divergence: no repeat
+`PlayerData` row on a sweep that re-confirms an already-known fact).
 
 `XGArcade.Api.Admin.AdminEndpoints`, behind the "Admin" authorization
 policy (§7), is the admin-facing surface, reached only through
