@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.87"
+version: "1.88"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -1418,6 +1418,17 @@ a photo shows neither at rest as of S-048, see that status note)
 - And a name appearing in autocomplete implies nothing about whether it is
   correct for the current cell — correctness is only ever determined after
   submission (REQ-203)
+- **2026-08-18 addendum (S-142, Epic 13) — explicit threshold value, no
+  code change:** suggestions are only fetched/shown once the (trimmed)
+  guess is at least 2 characters long; below that, no request is made and
+  no suggestions are shown. This was already enforced identically in three
+  places — `frontend/src/grid/GuessInput.tsx` (`MIN_QUERY_LENGTH = 2`),
+  `frontend/src/path/PathGuessInput.tsx` (same constant), and
+  `backend/src/XGArcade.Api/Players/PlayerAutocompleteEndpoints.cs`
+  (`MinQueryLength = 2`, enforced server-side independent of either
+  frontend) — this addendum only records the value here so a future change
+  to any one of them is a REQ violation, not just a cross-file
+  inconsistency.
 - **2026-07-27 correction — `Nationality` shipped in the autocomplete
   response (found against `PlayerAutocompleteSuggestion`, shipped as part
   of this requirement's own S-032 work):** as shipped, `GET

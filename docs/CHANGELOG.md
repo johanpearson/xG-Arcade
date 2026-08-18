@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `docs/requirements-document.md` — S-142 (Epic 13): added an
+  explicit acceptance-criterion line to REQ-207 stating the 2-character
+  minimum-query-length threshold before autocomplete suggestions are
+  fetched/shown, citing the three places that already enforce it
+  identically: `frontend/src/grid/GuessInput.tsx` (`MIN_QUERY_LENGTH = 2`),
+  `frontend/src/path/PathGuessInput.tsx` (same constant), and
+  `backend/src/XGArcade.Api/Players/PlayerAutocompleteEndpoints.cs`
+  (`MinQueryLength = 2`, enforced server-side independent of either
+  frontend). Doc-only — verified as already-correct in code, not newly
+  built; no code, test, or ADR change. `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and left unchanged — no
+  component/boundary/data-flow or build-detail change, only an
+  acceptance-criterion addendum to an already-`Implemented` REQ. REQ-207,
+  S-142.
 - 2026-08-18 — `backend/src/XGArcade.Data/Seeding/PathTargetCycleResetter.cs`,
   `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs`,
   `backend/tests/XGArcade.Data.Tests/PathTargetCycleResetterTests.cs`,
