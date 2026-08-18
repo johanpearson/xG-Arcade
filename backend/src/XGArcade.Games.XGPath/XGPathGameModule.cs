@@ -401,6 +401,28 @@ public class XGPathGameModule(
         // B-team/reserve-team row (e.g. "Real Madrid Castilla") is not
         // itself a seeded club either, but can still collide on dates the
         // same way a national-team row can.
+        // INVARIANT (S-139 fast-follow hardening, 2026-08-18/REQ-1203): the
+        // order of operations here — fetch raw stints, THEN sanitize via
+        // PathCareerStintFilter.ExcludeBTeams(ExcludeNationalTeams(...)),
+        // THEN check IsEligible — must NEVER change, and must NEVER be
+        // computed against unsanitized stint data. This is what guarantees
+        // "always PuzzleCount puzzles per round, never an empty club-reveal
+        // turn" as a structural property of every puzzle this method ever
+        // selects a target for, not a display-time patch: IsEligible's own
+        // MinDocumentedStintCount floor (>= 3) exists specifically so
+        // PathClueSequenceBuilder.SplitIntoTurns always has >= 3 stints to
+        // split across its 3 fixed club-reveal turns, and that guarantee
+        // only holds if "eligible" is judged AFTER the same national-team/
+        // B-team rows PathEndpoints.cs strips before ever building the clue
+        // sequence are already excluded from the count — never before.
+        // GET /path/current applies the identical filter chain
+        // (ExcludeBTeams(ExcludeNationalTeams(...))) to the same persisted
+        // stints, so its view can never diverge from what this method
+        // already verified. Any future refactor of this method must
+        // preserve this fetch->sanitize->eligible-check ordering exactly —
+        // reordering it (or checking IsEligible before sanitizing) silently
+        // reopens the exact "empty clue" bug class this invariant exists to
+        // close.
         var structurallyEligibleIds = stintsByPlayer
             .Where(kvp => IsEligible(
                 PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(kvp.Value)),

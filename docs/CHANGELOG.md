@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
+  `docs/requirements-document.md` — S-139 fast-follow: investigated a
+  product concern that a player could see an empty club-reveal turn, and
+  confirmed "always `PuzzleCount` puzzles per round, never an empty
+  turn" already holds structurally for every puzzle the current
+  generation pipeline selects — `GetEligiblePlayerIdsAsync` only ever
+  judges eligibility against the sanitized (B-team/national-team
+  excluded) stint list, so `MinDocumentedStintCount >= 3` always holds
+  before `PathClueSequenceBuilder.SplitIntoTurns` ever runs. Locked that
+  fetch-sanitize-eligible ordering down as an explicit "must never
+  change" code comment rather than leaving it an emergent property. A
+  read-time defensive assertion (log-and-continue) was drafted and
+  reverted — it logged the violation but still rendered the degraded
+  turn, so it didn't satisfy "never show an empty clue," and the only
+  way to fully guarantee that (omitting the puzzle from the response)
+  was rejected for breaking "always `PuzzleCount` puzzles." No test or
+  runtime-behavior changes; REQ-1203 status note records the full
+  reasoning. REQ-1203.
 - 2026-08-18 — `backend/src/XGArcade.Games.XGPath/PathCareerStintFilter.cs`,
   `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs`,
   `backend/src/XGArcade.Api/Path/PathEndpoints.cs`,
