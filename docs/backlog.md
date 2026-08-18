@@ -6870,3 +6870,22 @@ in the sandbox that built it (no `dotnet` SDK available there); the
 migration and Designer/snapshot files were hand-written by mirroring
 `20260817120000_AddRoundSequenceNumber`'s exact shape — first CI run on the
 branch is the real verification.
+**Quality-gate follow-up, non-blocking (2026-08-18):** `architecture-reviewer`/
+`quality-architect` passed this cleanly but flagged three small,
+explicitly-non-blocking items worth a future look, not their own story:
+(1) `CliVerbDispatcher.HandlePurgePlayerPoolAsync`'s five bulk statements
+(the pre-existing three plus this story's two new `PlayerPoolSweptAt`
+resets) run as separate, non-transactional operations — a crash mid-purge
+could leave `PlayerPoolSweptAt` stale relative to already-deleted
+`PlayerAttribute` data; reordering the resets to run *before* the
+`Players` delete (or wrapping the whole verb in a transaction) would make
+a crash fail safe instead of stale-trusting, same incident class
+ADR-0078 exists to prevent, but this pattern predates this story and
+isn't new drift; (2) `UpdateCountrySweptAtAsync`/`UpdateClubSweptAtAsync`
+silently no-op if the row is gone — fine today (nothing deletes
+`CountryDefinition`/`ClubDefinition` rows), a `LogWarning` would help if
+that ever changes; (3) `RecordConfirmedLowAsync`'s tracked load-then-save
+runs on every `WarmAsync` run for an already-swept-and-low pair forever
+(cheaper than a live query, but not as cheap as `IsConfirmedLowAsync`'s
+`AsNoTracking` read) — negligible at Tier 0's ~15-club scale, worth
+revisiting only if the reference-data pool grows substantially.
