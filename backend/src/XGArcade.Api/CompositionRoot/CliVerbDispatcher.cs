@@ -685,7 +685,7 @@ public static class CliVerbDispatcher
     }
 
     // S-152 (Epic 16, docs/backlog.md): `dotnet run -- purge-game-history
-    // "reset all game history"` — an eighth CLI verb, run manually via
+    // "reset all game history"` — a new CLI verb, run manually via
     // purge-game-history.yml once Epics 10-15 are settled (see that
     // workflow's own header comment; DO NOT run before then). Wipes every
     // historical Round/Guess/PlayerSuggestion(+PlayerSuggestionClub)/

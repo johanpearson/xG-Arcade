@@ -380,6 +380,8 @@ public class GameHistoryPurgerTests
         Assert.That(result.GridCellCount, Is.EqualTo(0));
         Assert.That(result.PathInstanceCount, Is.EqualTo(0));
         Assert.That(result.PathPuzzleCount, Is.EqualTo(0));
+        Assert.That(result.PathCycleTargetUsageCount, Is.EqualTo(0));
+        Assert.That(result.PathTargetCycleRowExisted, Is.False);
     }
 
     [Test]

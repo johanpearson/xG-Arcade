@@ -45,6 +45,30 @@ answer-validation to that module.
 - Follow-up: when a second game module is actually built, use it to verify
   this pattern holds — if `Core.Rounds` ends up needing game-specific
   branching logic anyway, that's a signal this ADR needs revisiting
+- **Follow-up addendum (2026-08-18, S-152/Epic 16):** the second game
+  module (xG Path) is now built, and this pattern has held for
+  `Core.Rounds` itself — no game-specific branching was added there.
+  One adjacent question came up during `architecture-reviewer`'s review
+  of the `purge-game-history` CLI verb, worth recording rather than
+  leaving implicit: `GameHistoryPurger`
+  (`backend/src/XGArcade.Data/Seeding/GameHistoryPurger.cs`) is a
+  one-off, human-triggered, `workflow_dispatch`-only maintenance tool
+  that hardcodes table names from both Core (`Round`/`Guess`/
+  `PlayerSuggestion`) and two separate game modules (xG Grid's
+  `GridInstance`/`GridCell`, xG Path's `PathInstance`/`PathPuzzle`/
+  `PathTargetCycle`/`PathCycleTargetUsage`) in a single class, rather
+  than resolving per-game deletion through `IGameModule` the way
+  request-serving code (e.g. round close) already does. **Decision:**
+  this is an accepted, scoped exception — operational/maintenance CLI
+  tooling under `XGArcade.Data/Seeding` may reference game-specific
+  table names directly, since it runs outside the request-serving path,
+  is not part of any `IGameModule` contract, and a third game module
+  already requires touching many other files (seeders, DI registration,
+  etc.), so this isn't a new class of maintenance burden. This exception
+  does **not** extend to `Core.Rounds` or any other request-serving Core
+  code — the original decision above is unchanged there. If a third game
+  module makes this class unwieldy, extending `IGameModule` with a purge/
+  reset hook is the fallback, not required now.
 
 ## For AI agents
 
