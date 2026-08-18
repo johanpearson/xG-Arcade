@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.03"
+version: "1.04"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -1493,12 +1493,16 @@ anonymize-never-hard-delete precedent is the same instinct applied to a
 different table). It's a sixth `dotnet run --` CLI verb,
 `backfill-player-photos`, same shape as every verb above (builds its
 dependencies directly, reuses `ConfigureWikidataHttpClient`), run via
-`dotnet run -- backfill-player-photos` locally — its
-`backfill-player-photos.yml` `workflow_dispatch` wrapper was deleted in
-S-132 (2026-08-17) as a one-off incident tool with no runs since
-2026-07-18; re-runnable the same way, or via a throwaway manual
-`workflow_dispatch` re-add if ever needed — squarely inside ADR-0024's
-existing "CLI verb, never an HTTP endpoint or background task" decision,
+`dotnet run -- backfill-player-photos` locally or via
+`backfill-player-photos.yml` (`workflow_dispatch`-only) in CI. That
+workflow wrapper was deleted in S-132 (2026-08-17) as a one-off incident
+tool with no runs since 2026-07-18, then re-added 2026-08-18 once a real
+new need appeared — S-159's `PlayerCareerPrefetchService` pool sweeps
+create players via queries that never fetch P18, so every player it
+creates needs this backfill — matching S-132's own "re-add via a
+throwaway manual `workflow_dispatch` re-add if ever needed" plan exactly.
+Squarely inside ADR-0024's existing "CLI verb, never an HTTP endpoint or
+background task" decision,
 not a new one.
 
 Two new members support it:

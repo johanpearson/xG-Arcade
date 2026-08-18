@@ -1,0 +1,51 @@
+name: backfill-player-photos
+
+# REQ-214 backfill (S-045): fills Player.PhotoUrl for every Player row that
+# has never had one fetched — WikidataLookupService.GetOrCreatePlayerAsync
+# only ever sets PhotoUrl at the moment a Player row is first created, so
+# any row created without a photo in its own creation request has PhotoUrl
+# permanently NULL with no other code path that will ever revisit it. See
+# PlayerPhotoBackfillService's own doc comment for the full reasoning.
+#
+# Re-added 2026-08-18 (originally removed in S-132, 2026-08-17, as a
+# one-off incident-cleanup workflow with no runs since 2026-07-18) — S-132
+# deliberately kept the underlying PlayerPhotoBackfillService/CLI verb
+# intact for exactly this situation ("re-add later if ever needed"), and a
+# real new need has since appeared: S-159 (ADR-0077, PR #225) had
+# PlayerCareerPrefetchService's country/club pool sweeps create the ~198K
+# players its full-pool Wikidata queries return, but those queries
+# (QueryPlayerPoolByNationalityAsync/QueryPlayerPoolByClubAsync) never
+# request P18 — deliberately, see those query builders' own comments — so
+# every one of those players was created with PhotoUrl left NULL. This
+# workflow is what closes that gap; nothing else will.
+#
+# A plain CLI job (`dotnet run -- backfill-player-photos`), not an HTTP
+# endpoint — same ADR-0024 reasoning as every other bulk Wikidata job in
+# this codebase: this can take a while (one live Wikidata call per
+# 200-player batch), and a GitHub Actions job has a generous default
+# timeout unlike the deployed backend's own HTTP ingress (~240s).
+#
+# Manual trigger only, no recurring schedule — idempotent and safe to
+# re-run at any time (only ever writes rows still missing a photo,
+# IPlayerBackfillRepository.GetPlayersMissingPhotoAsync's own WHERE
+# PhotoUrl IS NULL filter), so there's no need for a fixed cadence; run it
+# once to clear the current backlog, and again later only if a fresh
+# prefetch-player-careers/warm-grid-cache run creates more photo-less
+# Player rows in the meantime.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill-player-photos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Backfill player photos
+        run: dotnet run --project backend/src/XGArcade.Api -- backfill-player-photos
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
