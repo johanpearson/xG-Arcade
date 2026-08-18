@@ -13,6 +13,39 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-18 — `docs/requirements-document.md` (v1.90), `docs/decisions/0077-prefetch-populates-playerattribute.md`
+  (new), `docs/architecture-document.md` (v1.07, §5.3 evolution table:
+  COMP-06/COMP-07 rows) — `PlayerCareerPrefetchService`'s
+  country/club sweeps now also persist `PlayerAttribute` rows (nationality/
+  club), not just `Player`/`PlayerCareerStint` — every pooled player
+  satisfies that attribute by construction of the pool query, so this needs
+  no extra Wikidata call. Lets `PlayerCacheWarmingService`'s existing local
+  `CountPlayersWithBothAttributesAsync` pre-check become the complete
+  answer once both sides of a pair have been swept, avoiding the live
+  pairwise SPARQL intersection queries that were timing out at a 100%
+  failure rate on large club combinations. `PlayerCareerPrefetchResult`
+  gains `AttributesAdded`. REQ-110, ADR-0077 (deliberate narrow reversal of
+  ADR-0001's incremental-only `PlayerAttribute` principle, scoped to the
+  seeded-reference subset). `PlayerCacheWarmingService.cs` itself and
+  `PlayerNameIndex` are untouched.
+- 2026-08-18 — `docs/decisions/0077-prefetch-populates-playerattribute.md`,
+  `docs/architecture-document.md` (v1.08, §6.3) — two quality-gate follow-up
+  fixes to the above, caught by `architecture-reviewer`/`quality-architect`
+  before merge: (1) the new `PlayerAttribute` writes now also write a paired
+  `PlayerData` row (`Source = "wikidata"`, `Confidence = "verified"`),
+  matching every other automated Wikidata-derived attribute write and
+  satisfying REQ-502's source/confidence traceability — gated on the same
+  per-country/per-club dedup, so a repeat sweep re-confirming an
+  already-known fact does not re-append a `PlayerData` row (a deliberate,
+  documented divergence from `WikidataLookupService.QueueAttribute`'s
+  always-append shape); (2) a first attempt to fix a club-name-sourcing
+  concern (route the club attribute value through `clubNameByClubQid`) was
+  itself wrong and reverted — the value must come from `club.Name` directly
+  to match `PlayerCacheWarmingService`'s own join key, not from the QID→name
+  map used for the unrelated `PlayerCareerStint.ClubName` write. ADR-0077
+  updated with a correction note explaining why the two writes need
+  different sources; §6.3 now lists this as a fourth writer of the
+  `PlayerData`/`PlayerAttribute` pairing pattern.
 - 2026-08-18 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md`, `docs/backlog.md`
   (new Epic 17, S-154–S-158), `docs/architecture-document.md` (v1.06,
   §6.2c/§6.10 fixes) — periodic whole-codebase health sweep

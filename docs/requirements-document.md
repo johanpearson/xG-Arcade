@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.89"
+version: "1.90"
 status: draft
 last_updated: 2026-08-18
 owner: Johan
@@ -609,6 +609,28 @@ without erroring), API
   `CountriesProcessed`/`CountriesFailed`; `PlayersTouched`/`StintsAdded`
   remain combined totals across both sweeps (a player found via either
   sweep is written through the same batch-persist path).
+- **Extended (2026-08-18): `PlayerCareerPrefetchService`'s two sweeps now
+  also write `PlayerAttribute` rows, not just `Player`/`PlayerCareerStint`.**
+  Every player returned by `QueryPlayerPoolByNationalityAsync`/
+  `QueryPlayerPoolByClubAsync` satisfies that pool's own nationality/club
+  value by construction of the query's own WHERE clause, so persisting
+  `PlayerAttribute { AttributeType = "nationality" | "club", AttributeValue =
+  <that pool's value> }` for every pooled player needs no separate Wikidata
+  read-back. This is what lets `PlayerCacheWarmingService`'s existing
+  `CountPlayersWithBothAttributesAsync` pre-check (a pure local SQL join,
+  unchanged) become the *complete* answer for a Country×Club pair once both
+  sides have been swept by `prefetch-player-careers`, rather than a partial
+  one that still falls through to a live pairwise SPARQL intersection query
+  — the mechanism that was timing out at a 100% failure rate on large,
+  historically-overlapping club combinations (see the 2026-08-01 ADR-0052
+  status note above for the same underlying row-explosion problem from the
+  other direction). `PlayerCacheWarmingService` itself is unchanged; its
+  skip-logic simply starts being correct more often. Deduped per
+  country/club against what's already stored (one batched
+  `GetPlayerAttributesAsync` call, not one per player), same discipline as
+  `WikidataLookupService.PersistMatchesAsync`. `PlayerCareerPrefetchResult`
+  gains `AttributesAdded`, a combined total across both sweeps, alongside
+  the existing `PlayersTouched`/`StintsAdded`.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -644,7 +666,12 @@ skipped and never queried; an empty pool for a country/club is not a
 failure; one country's (or one club's) pool-query failure still lets the
 rest of the sweep — country or club — proceed, then throws at the end;
 both sweeps run in the same `PrefetchAsync` call and their player/stint
-totals combine. `WikidataClientTests.cs` covers `QueryPlayerPoolByClubAsync`'s
+totals combine. **(ADR-0077 additions):** a country-pool sweep writes a
+`nationality` `PlayerAttribute` per pooled player; a club-pool sweep writes
+a `club` `PlayerAttribute` per pooled player; a player who already has the
+attribute is not duplicated and does not count toward `AttributesAdded`;
+the same player appearing in both a country's and a club's pool in one run
+correctly counts two distinct new attributes, not one. `WikidataClientTests.cs` covers `QueryPlayerPoolByClubAsync`'s
 own query shape (byte-for-byte, including the full `p:P54`/`ps:P54`
 statement path, never the truthy `wdt:P54` shortcut) and error contract.
 

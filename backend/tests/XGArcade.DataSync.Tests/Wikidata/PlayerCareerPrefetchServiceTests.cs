@@ -20,6 +20,8 @@ public class PlayerCareerPrefetchServiceTests
     // IPlayerStoreRepository.
     private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
+    private IPlayerDataRepository _playerDataRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
@@ -32,6 +34,8 @@ public class PlayerCareerPrefetchServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
+        _playerDataRepository = new PlayerDataRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
@@ -40,7 +44,8 @@ public class PlayerCareerPrefetchServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCareerPrefetchService BuildService() =>
-        new(_categoryValueRepository, _playerCareerStintRepository, _playerRepository, _wikidataClient, NullLogger<PlayerCareerPrefetchService>.Instance);
+        new(_categoryValueRepository, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository,
+            _playerDataRepository, _wikidataClient, NullLogger<PlayerCareerPrefetchService>.Instance);
 
     private async Task<CountryDefinition> SeedCountryAsync(string name, string wikidataQid, bool usesCountryForSportProperty = false)
     {
@@ -198,6 +203,11 @@ public class PlayerCareerPrefetchServiceTests
 
         Assert.That(ex!.Message, Does.Contain("1 career-fetch batch"));
         Assert.That(_wikidataClient.QueriedCareerStintBatches, Has.Count.EqualTo(2), "both batches must still be attempted");
+        // Quality-gate fix (2026-08-18): the attribute write is unrelated to
+        // and unaffected by the career-fetch batch failure above — every
+        // one of the pool's CareerBatchSize+1 distinct players (spanning
+        // both chunks) still gets its attribute recorded.
+        Assert.That(ex.Message, Does.Contain($"{PlayerCareerPrefetchService.CareerBatchSize + 1} attribute(s) added"));
     }
 
     [Test]
@@ -306,5 +316,151 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(result.ClubsFailed, Is.EqualTo(0));
         Assert.That(result.CareerBatchesFailed, Is.EqualTo(0));
         Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+    }
+
+    // ---- PlayerAttribute persistence (REQ-110 follow-up) ----
+    // These sweeps' pool queries already filter by nationality/club in their
+    // own WHERE clause (FakeWikidataClient.SetPoolForNationality/
+    // SetPoolForClub simulate exactly that), so every pooled player is known
+    // to satisfy the attribute without any further Wikidata round trip —
+    // see PlayerCareerPrefetchService's own doc comment.
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryPoolSweep_WritesNationalityAttributePerPooledPlayer()
+    {
+        await SeedCountryAsync("France", "Q142");
+        _wikidataClient.SetPoolForNationality("Q142",
+        [
+            new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France"),
+            new WikidataNameIndexEntry("Q1521", "Zinedine Zidane", 1972, "France"),
+        ]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(2));
+
+        var henry = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var zidane = await _playerRepository.GetPlayerByWikidataQidAsync("Q1521");
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("nationality", "France");
+        Assert.That(attributes.Select(a => a.PlayerId), Is.EquivalentTo(new[] { henry!.Id, zidane!.Id }));
+
+        // Quality-gate fix (2026-08-18): REQ-502's admin view needs a
+        // Source/Confidence to show for every PlayerAttribute row — assert
+        // the paired PlayerData row exists, same "wikidata"/"verified"
+        // shape WikidataLookupService.QueueAttribute already writes.
+        var henryData = await _dbContext.PlayerData.Where(d => d.PlayerId == henry.Id && d.Field == "nationality").ToListAsync();
+        Assert.That(henryData, Has.Count.EqualTo(1));
+        Assert.That(henryData[0].Value, Is.EqualTo("France"));
+        Assert.That(henryData[0].Source, Is.EqualTo("wikidata"));
+        Assert.That(henryData[0].Confidence, Is.EqualTo("verified"));
+    }
+
+    [Test]
+    public async Task ADR0069_PrefetchAsync_ClubPoolSweep_WritesClubAttributePerPooledPlayer()
+    {
+        await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForClub("Q19593",
+        [
+            new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France"),
+            new WikidataNameIndexEntry("Q9617", "Someone Else", 1990, "Scotland"),
+        ]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(2));
+
+        var henry = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var someoneElse = await _playerRepository.GetPlayerByWikidataQidAsync("Q9617");
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("club", "Celtic");
+        Assert.That(attributes.Select(a => a.PlayerId), Is.EquivalentTo(new[] { henry!.Id, someoneElse!.Id }));
+
+        var henryData = await _dbContext.PlayerData.Where(d => d.PlayerId == henry.Id && d.Field == "club").ToListAsync();
+        Assert.That(henryData, Has.Count.EqualTo(1));
+        Assert.That(henryData[0].Value, Is.EqualTo("Celtic"));
+        Assert.That(henryData[0].Source, Is.EqualTo("wikidata"));
+        Assert.That(henryData[0].Confidence, Is.EqualTo("verified"));
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_PlayerAlreadyHasAttribute_DoesNotDuplicate()
+    {
+        await SeedCountryAsync("France", "Q142");
+        var existingPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(
+            new PlayerAttribute { PlayerId = existingPlayer.Id, AttributeType = "nationality", AttributeValue = "France" });
+
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(0), "the already-existing attribute must not be counted as newly added");
+
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("nationality", "France");
+        Assert.That(attributes, Has.Count.EqualTo(1), "the already-existing attribute must not be duplicated");
+
+        // No new PlayerAttribute means no new paired PlayerData either — the
+        // write is gated by the same dedup check, not issued independently.
+        var existingPlayerData = await _dbContext.PlayerData.Where(d => d.PlayerId == existingPlayer.Id && d.Field == "nationality").ToListAsync();
+        Assert.That(existingPlayerData, Is.Empty, "no PlayerData row is written when the paired PlayerAttribute is a duplicate");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryAndClubSweeps_OnlyCountsGenuinelyNewAttributes()
+    {
+        await SeedCountryAsync("France", "Q142");
+        await SeedClubAsync("Celtic", "Q19593");
+        // Same player (Q1519) appears in both pools — nationality "France"
+        // and club "Celtic" are two distinct attribute rows, so both count
+        // as new, but a second appearance under the SAME attribute type
+        // must not double-count.
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(2), "one nationality row and one club row for the same player, both new");
+
+        var player = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var allAttributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player!.Id).ToListAsync();
+        Assert.That(allAttributes.Select(a => (a.AttributeType, a.AttributeValue)),
+            Is.EquivalentTo(new[] { ("nationality", "France"), ("club", "Celtic") }));
+
+        var allPlayerData = await _dbContext.PlayerData.Where(d => d.PlayerId == player!.Id).ToListAsync();
+        Assert.That(allPlayerData.Select(d => (d.Field, d.Value)),
+            Is.EquivalentTo(new[] { ("nationality", "France"), ("club", "Celtic") }));
+        Assert.That(allPlayerData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
+    }
+
+    // Quality-gate fix (2026-08-18): the dedup HashSet<Guid> is built once
+    // per country/club and passed BY REFERENCE into FetchAndPersistBatchAsync
+    // across the WHOLE pool's set of CareerBatchSize-sized chunks — this
+    // proves cross-chunk dedup actually works, not just within a single
+    // chunk. If the HashSet were rebuilt per-chunk instead of shared across
+    // the pool (the exact regression this guards against), the duplicate
+    // QID appended below (in the pool's second chunk) would be wrongly
+    // counted as a second, genuinely-new attribute.
+    [Test]
+    public async Task REQ110_PrefetchAsync_AttributeDedup_CatchesDuplicatePlayerAcrossChunkBoundary()
+    {
+        await SeedCountryAsync("France", "Q142");
+        var pool = Enumerable.Range(0, PlayerCareerPrefetchService.CareerBatchSize)
+            .Select(i => new WikidataNameIndexEntry($"Q{1000 + i}", $"Player {i}", 1990, "France"))
+            .ToList();
+        // One extra entry beyond the first CareerBatchSize-sized chunk,
+        // reusing the very first entry's QID (Q1000) — lands in the pool's
+        // second chunk while duplicating a player already processed in the
+        // first.
+        pool.Add(new WikidataNameIndexEntry("Q1000", "Player 0 (duplicate)", 1990, "France"));
+        _wikidataClient.SetPoolForNationality("Q142", pool);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(PlayerCareerPrefetchService.CareerBatchSize),
+            "the duplicate QID in the second chunk must not be counted as a new attribute");
+
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("nationality", "France");
+        Assert.That(attributes, Has.Count.EqualTo(PlayerCareerPrefetchService.CareerBatchSize),
+            "no duplicate PlayerAttribute row for the player appearing in both chunks");
     }
 }

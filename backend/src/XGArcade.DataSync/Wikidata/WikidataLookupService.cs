@@ -18,8 +18,14 @@ public class WikidataLookupService(
     IPlayerAliasRepository playerAliasRepository,
     IPlayerDataRepository playerDataRepository) : IWikidataLookupService
 {
-    private const string NationalityAttributeType = "nationality";
-    private const string ClubAttributeType = "club";
+    // REQ-110 follow-up (2026-08-18, quality-gate fix): internal, not
+    // private — PlayerCareerPrefetchService (same assembly, same
+    // XGArcade.DataSync.Wikidata namespace) references these two directly
+    // rather than redeclaring its own copies, so there is exactly one
+    // definition of the "nationality"/"club" AttributeType spelling to keep
+    // in sync, not two kept aligned only by comment discipline.
+    internal const string NationalityAttributeType = "nationality";
+    internal const string ClubAttributeType = "club";
     // S-031/REQ-108: PlayerAttribute.AttributeType's vocabulary spells this
     // one identically to CategoryPairingRules' "trophy" — no mapping needed,
     // unlike Country/Club.

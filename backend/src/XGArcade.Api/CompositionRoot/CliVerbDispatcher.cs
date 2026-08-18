@@ -346,6 +346,13 @@ public static class CliVerbDispatcher
         // DI registration, built by hand here since this verb runs before
         // WebApplication.CreateBuilder. See ADR-0067.
         var prefetchPlayerRepository = new PlayerRepository(prefetchDbContext);
+        // REQ-110 follow-up: this verb's two sweeps now also write
+        // PlayerAttribute (paired with PlayerData, ADR-0032) rows — see
+        // PlayerCareerPrefetchService's own doc comment — same by-hand
+        // construction as every other repository here, since this verb
+        // runs before WebApplication.CreateBuilder.
+        var prefetchPlayerAttributeRepository = new PlayerAttributeRepository(prefetchDbContext);
+        var prefetchPlayerDataRepository = new PlayerDataRepository(prefetchDbContext);
 
         using var prefetchHttpClient = new HttpClient();
         WikidataHttpClientConfiguration.Configure(prefetchHttpClient);
@@ -367,7 +374,8 @@ public static class CliVerbDispatcher
             logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
 
         var prefetchService = new PlayerCareerPrefetchService(
-            prefetchCategoryValueRepository, prefetchPlayerCareerStintRepository, prefetchPlayerRepository, prefetchWikidataClient,
+            prefetchCategoryValueRepository, prefetchPlayerCareerStintRepository, prefetchPlayerRepository,
+            prefetchPlayerAttributeRepository, prefetchPlayerDataRepository, prefetchWikidataClient,
             prefetchLoggerFactory.CreateLogger<PlayerCareerPrefetchService>());
 
         // Deliberately unhandled — PrefetchAsync throws only after every seeded
@@ -380,11 +388,15 @@ public static class CliVerbDispatcher
         // ADR-0069: reports both sweeps' processed counts — the club sweep
         // is additional to, not a replacement for, the original
         // nationality sweep's own reporting.
+        // REQ-110 follow-up: attribute(s) added is reported alongside
+        // stint(s) added — both are combined totals across both sweeps, see
+        // PlayerCareerPrefetchResult's own doc comment.
         Console.WriteLine(
             $"prefetch-player-careers: complete — {prefetchResult.CountriesProcessed} countr" +
             $"{(prefetchResult.CountriesProcessed == 1 ? "y" : "ies")} processed, " +
             $"{prefetchResult.ClubsProcessed} club(s) processed, " +
-            $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added.");
+            $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added, " +
+            $"{prefetchResult.AttributesAdded} attribute(s) added.");
         return true;
     }
 
