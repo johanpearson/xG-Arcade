@@ -201,4 +201,196 @@ public class PathCareerStintFilterTests
 
         Assert.That(filtered, Is.EqualTo(stints));
     }
+
+    // ==== S-139/ADR-0075: PathCareerStintFilter.IsBTeam/ExcludeBTeams — ====
+    // ==== the B-team/reserve-team read-time filter, same shape/reasoning ===
+    // ==== as IsNationalTeam/ExcludeNationalTeams above (see BTeamPattern's =
+    // ==== own doc comment in PathCareerStintFilter.cs for the full ========
+    // ==== false-positive analysis this section pins down as real tests) ===
+
+    // ---- REQ-1203: each known reserve/B-team label shape is excluded ------
+
+    [TestCase("Everton Reserves")] // explicit plural "Reserves" suffix
+    [TestCase("Everton Reserve")] // singular "Reserve" suffix — "reserves?" makes the trailing s optional
+    [TestCase("Barcelona B")] // bare "B" tier suffix, standalone word
+    [TestCase("Bayern Munich II")] // bare "II" tier suffix, standalone word
+    [TestCase("Manchester United U17")] // age-grade marker, low boundary of U1[7-9]
+    [TestCase("Manchester United U20")] // age-grade marker, mid-range
+    [TestCase("Manchester United U23")] // age-grade marker, high boundary of U2[0-3]
+    [TestCase("Real Madrid Castilla")] // Real Madrid's Spanish-named reserve side
+    [TestCase("Barcelona Atlètic")] // Catalan/Spanish reserve-side qualifier, accented spelling
+    [TestCase("Barcelona Atletic")] // same qualifier, unaccented spelling — atl[eè]tic covers both
+    public void REQ1203_IsBTeam_KnownReserveTeamLabelShapes_ReturnsTrue(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsBTeam(clubName), Is.True);
+    }
+
+    [Test]
+    public void REQ1203_IsBTeam_IsCaseInsensitive()
+    {
+        Assert.That(PathCareerStintFilter.IsBTeam("REAL MADRID CASTILLA"), Is.True);
+    }
+
+    // ---- ADR-0075's false-positive check, as a real test rather than only -
+    // a hand-traced code/ADR comment: every club name currently in --------
+    // ReferenceDataSeeder.cs's Clubs array must never match. Read directly --
+    // from that file (as of S-139/2026-08-18), not trusted secondhand. -----
+    // Note: this is 33 club names, not the "30-club" headline count both ----
+    // PathCareerStintFilter.cs's own doc comment and ADR-0075 use — their ---
+    // prose undercounts the array by 3, even though the actual club names ---
+    // they each list (and this test list) match the real array exactly. ----
+    // Flagged here rather than silently corrected in either doc, per this ---
+    // task's instructions not to edit PathCareerStintFilter.cs or the ADR ---
+    // — worth a follow-up doc fix, but out of scope for a test-only pass. ---
+
+    [TestCase("Real Madrid")]
+    [TestCase("Barcelona")]
+    [TestCase("Manchester United")]
+    [TestCase("Manchester City")]
+    [TestCase("Liverpool")]
+    [TestCase("Arsenal")]
+    [TestCase("Chelsea")]
+    [TestCase("Bayern Munich")]
+    [TestCase("Borussia Dortmund")]
+    [TestCase("Juventus")]
+    [TestCase("AC Milan")]
+    [TestCase("Inter Milan")]
+    [TestCase("Paris Saint-Germain")]
+    [TestCase("Ajax")]
+    [TestCase("Benfica")]
+    [TestCase("Tottenham Hotspur")]
+    [TestCase("Atletico Madrid")]
+    [TestCase("Napoli")]
+    [TestCase("AS Roma")]
+    [TestCase("Sevilla")]
+    [TestCase("Porto")]
+    [TestCase("RB Leipzig")]
+    [TestCase("Bayer Leverkusen")]
+    [TestCase("Marseille")]
+    [TestCase("Lyon")]
+    [TestCase("Monaco")]
+    [TestCase("Lille")]
+    [TestCase("Lazio")]
+    [TestCase("Valencia")]
+    [TestCase("Real Sociedad")]
+    [TestCase("Newcastle United")]
+    [TestCase("West Ham United")]
+    [TestCase("Celtic")]
+    public void REQ1203_IsBTeam_CurrentSeededClubNames_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsBTeam(clubName), Is.False);
+    }
+
+    // ---- ADR-0075 calls these two seeded clubs out by name as the closest -
+    // near-misses — dedicated individual tests, not just buried in the ------
+    // full-list parametrized test above, so a regression in either one -----
+    // fails clearly and specifically -----------------------------------------
+
+    [Test]
+    public void REQ1203_IsBTeam_RBLeipzig_ReturnsFalse()
+    {
+        // "R" and "B" are adjacent word characters with no boundary between
+        // them in "RB" — \bB\b never matches the "B" inside "RB". Only a
+        // label with "B" as its own space-separated word (e.g. "Barcelona
+        // B") matches.
+        Assert.That(PathCareerStintFilter.IsBTeam("RB Leipzig"), Is.False);
+    }
+
+    [Test]
+    public void REQ1203_IsBTeam_AtleticoMadrid_ReturnsFalse()
+    {
+        // The trailing \b fails inside "Atletico" — "c" and "o" are both
+        // word characters with no boundary between them, so atl[eè]tic's
+        // trailing \b never matches. Only a label with "atlètic"/"atletic"
+        // as its own standalone final word (e.g. "Barcelona Atlètic")
+        // matches.
+        Assert.That(PathCareerStintFilter.IsBTeam("Atletico Madrid"), Is.False);
+    }
+
+    // ---- Boundary/negative regression: a real club whose name contains ----
+    // one of BTeamPattern's tokens as a bare substring, not as its own -------
+    // word, must never match -------------------------------------------------
+
+    [TestCase("Athletic Bilbao")] // "B" is inside "Bilbao", not its own word; "Athletic" has an extra "h" so it never matches atl[eè]tic either ("Athletic" vs "atletic")
+    [TestCase("Real Betis")] // "B" is inside "Betis", not its own word
+    [TestCase("B36 Tórshavn")] // ADR-0075's own named theoretical risk case — "B" is immediately followed by the digit "3" with no word boundary between them, so bare B does not match this exact "B36" formatting
+    public void REQ1203_IsBTeam_ClubNamesContainingBTeamTokensAsSubstring_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsBTeam(clubName), Is.False);
+    }
+
+    // ---- ExcludeBTeams: filters a mixed stint list -------------------------
+
+    [Test]
+    public void REQ1203_ExcludeBTeams_MixOfRealClubsAndBTeams_KeepsOnlyRealClubs()
+    {
+        var stints = new[]
+        {
+            Stint("AS Monaco"),
+            Stint("Real Madrid Castilla"),
+            Stint("Paris Saint-Germain"),
+            Stint("Barcelona B"),
+            Stint("Real Madrid"),
+        };
+
+        var filtered = PathCareerStintFilter.ExcludeBTeams(stints);
+
+        Assert.That(filtered.Select(s => s.ClubName), Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }));
+    }
+
+    [Test]
+    public void REQ1203_ExcludeBTeams_OnlyBTeams_ReturnsEmpty()
+    {
+        var stints = new[]
+        {
+            Stint("Everton Reserves"),
+            Stint("Bayern Munich II"),
+            Stint("Barcelona Atlètic"),
+        };
+
+        var filtered = PathCareerStintFilter.ExcludeBTeams(stints);
+
+        Assert.That(filtered, Is.Empty);
+    }
+
+    [Test]
+    public void REQ1203_ExcludeBTeams_EmptyInput_ReturnsEmpty()
+    {
+        var filtered = PathCareerStintFilter.ExcludeBTeams([]);
+
+        Assert.That(filtered, Is.Empty);
+    }
+
+    [Test]
+    public void REQ1203_ExcludeBTeams_NoJunkRows_ReturnsAllUnchanged()
+    {
+        var stints = new[] { Stint("AS Monaco"), Stint("Paris Saint-Germain"), Stint("Real Madrid") };
+
+        var filtered = PathCareerStintFilter.ExcludeBTeams(stints);
+
+        Assert.That(filtered, Is.EqualTo(stints));
+    }
+
+    // ---- Combined filtering: both call sites chain -------------------------
+    // ExcludeBTeams(ExcludeNationalTeams(stints)) — both must run, together, -
+    // excluding both a national-team row AND a B-team row from the same ------
+    // mixed list ---------------------------------------------------------
+
+    [Test]
+    public void REQ1203_ExcludeBTeamsChainedWithExcludeNationalTeams_ExcludesBothNationalAndBTeamRows()
+    {
+        var stints = new[]
+        {
+            Stint("AS Monaco"),
+            Stint("Spain national under-16 association football team"),
+            Stint("Real Madrid Castilla"),
+            Stint("Paris Saint-Germain"),
+            Stint("Barcelona B"),
+            Stint("Real Madrid"),
+        };
+
+        var filtered = PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(stints));
+
+        Assert.That(filtered.Select(s => s.ClubName), Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }));
+    }
 }

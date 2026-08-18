@@ -297,6 +297,20 @@ public class XGPathGameModuleTests
     // junk rows are ALSO present — the filter must not accidentally reject
     // a real candidate just because junk rows exist alongside their real
     // career data.
+    //
+    // Bug fix (S-139/ADR-0075, test-only): the third real stint below was
+    // originally named "Unseeded Club B" — since ExcludeBTeams is now
+    // chained alongside ExcludeNationalTeams at this exact call site
+    // (XGPathGameModule.GetEligiblePlayerIdsAsync), BTeamPattern's own bare
+    // "B" alternative matched that fixture's trailing standalone "B" word
+    // and silently filtered out this test's own "real" stint, dropping the
+    // filtered stint count to 2 (below MinDocumentedStintCount=3) and
+    // flipping this candidate to ineligible — this test was failing before
+    // this rename, for a fixture-naming collision, not a real product bug
+    // (this is exactly ADR-0075's own flagged "bare B/II token... real
+    // false-positive risk" theoretical concern, materializing here in test
+    // data rather than a seeded club). Renamed to "Unseeded Club Two",
+    // which does not match any BTeamPattern alternative.
     [Test]
     public async Task REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteYouthNationalTeamJunkRows()
     {
@@ -309,8 +323,73 @@ public class XGPathGameModuleTests
         SeedStints(withJunk.Id,
             (2010, 2013, "Seeded FC"),
             (2013, 2016, "Seeded FC 2"),
-            (2016, null, "Unseeded Club B"),
+            (2016, null, "Unseeded Club Two"),
             (2005, 2007, "Spain national under-17 association football team"));
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(withJunk.Id));
+    }
+
+    // S-139/ADR-0075: same "must never count toward eligibility" bug class as
+    // the youth-national-team junk-row tests above, now for B-team/
+    // reserve-team junk rows (PathCareerStintFilter.ExcludeBTeams, chained
+    // alongside ExcludeNationalTeams — see that file's own doc comment and
+    // XGPathGameModule.GetEligiblePlayerIdsAsync's S-139 comment). Same
+    // "baseline + 1" rejection-test technique as the youth-national-team
+    // version: 2 real stints (only 1 at the seeded club) + 2 B-team junk
+    // rows, neither a seeded club, so the qualifying-seeded-club count is 1
+    // regardless of whether the junk rows are filtered.
+    [Test]
+    public void REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByBTeamJunkRows_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var paddedByJunk = SeedPlayer("PaddedByBTeamJunk");
+        SeedStints(paddedByJunk.Id,
+            (2010, 2013, "Seeded FC"),
+            (2013, null, "Other FC"),
+            (2005, 2007, "Real Madrid Castilla"),
+            (2007, 2009, "Barcelona B"));
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Positive control for the fix above: a candidate with a genuinely
+    // eligible career must still be selected even when leftover B-team/
+    // reserve-team junk rows are ALSO present — the filter must not
+    // accidentally reject a real candidate just because junk rows exist
+    // alongside their real career data. The third real stint is deliberately
+    // named "Unseeded Club Two", NOT "...Club B" like the sibling
+    // youth-national-team version of this test uses — BTeamPattern's own
+    // bare-"B" alternative would now match a trailing standalone "B" word
+    // (see REQ1203_IsBTeam_KnownReserveTeamLabelShapes_ReturnsTrue's
+    // "Barcelona B" case in PathCareerStintFilterTests.cs), so reusing that
+    // name here would wrongly filter out this test's own "real" fixture row
+    // and collapse the filtered stint count below MinDocumentedStintCount.
+    [Test]
+    public async Task REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteBTeamJunkRows()
+    {
+        SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var withJunk = SeedPlayer("RealCareerPlusBTeamJunk");
+        SeedStints(withJunk.Id,
+            (2010, 2013, "Seeded FC"),
+            (2013, 2016, "Seeded FC 2"),
+            (2016, null, "Unseeded Club Two"),
+            (2005, 2007, "Bayern Munich II"));
 
         var template = SeedTemplate(3);
 
@@ -427,6 +506,15 @@ public class XGPathGameModuleTests
     // (REQ-1201/ADR-0074/S-138) to carry a SECOND qualifying seeded club
     // (unknown appearance count) alongside the at-threshold one, since a
     // single qualifying club is no longer enough on its own.
+    //
+    // Bug fix (S-139/ADR-0075, test-only): the extra stint below was
+    // originally named "Unseeded Club B" — see the identical rename/comment
+    // on REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubStints_
+    // StillEligible_DespiteYouthNationalTeamJunkRows above for the full
+    // explanation (BTeamPattern's bare-"B" alternative now filters that name
+    // out, dropping the filtered stint count below MinDocumentedStintCount
+    // and flipping this candidate to ineligible). Renamed to "Unseeded Club
+    // Two".
     [Test]
     public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintAtAppearanceThreshold_IsEligible()
     {
@@ -439,7 +527,7 @@ public class XGPathGameModuleTests
         SeedStints(atThreshold.Id,
             (2010, 2011, "Seeded FC", 20), // exactly the threshold — qualifies
             (2011, 2014, "Seeded FC 2", (int?)null), // unknown count — also qualifies
-            (2014, null, "Unseeded Club B", (int?)null));
+            (2014, null, "Unseeded Club Two", (int?)null));
 
         var template = SeedTemplate(3);
 
@@ -457,6 +545,15 @@ public class XGPathGameModuleTests
     // seeded club alongside the unknown-count one, plus an extra unseeded
     // stint — also doubles as the "2 qualifying seeded clubs plus an extra
     // non-seeded stint is still eligible, extra stints ignored" case.
+    //
+    // Bug fix (S-139/ADR-0075, test-only): the extra stint below was
+    // originally named "Unseeded Club B" — same rename/reason as the two
+    // sibling tests above (BTeamPattern's bare-"B" alternative now filters
+    // that name out). Renamed to "Unseeded Club Two". Note this stint is
+    // NOT actually "ignored" as this comment's last sentence claims — it is
+    // required to reach MinDocumentedStintCount (3), since only 2 stints
+    // qualify as seeded clubs; a pre-existing comment inaccuracy, left
+    // unchanged here as out of scope for this test-only pass.
     [Test]
     public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintUnknownAppearanceCount_IsEligible()
     {
@@ -469,7 +566,7 @@ public class XGPathGameModuleTests
         SeedStints(unknownCount.Id,
             (2010, 2011, "Seeded FC", (int?)null), // unknown count — qualifies
             (2011, 2014, "Seeded FC 2", 25), // qualifies
-            (2014, null, "Unseeded Club B", (int?)null)); // extra, ignored
+            (2014, null, "Unseeded Club Two", (int?)null)); // extra, required to reach MinDocumentedStintCount
 
         var template = SeedTemplate(3);
 

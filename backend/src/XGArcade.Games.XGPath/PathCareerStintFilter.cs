@@ -203,7 +203,7 @@ public static class PathCareerStintFilter
     //     "B" appears as its own space-separated word (e.g. "Barcelona B")
     //     matches.
     //
-    // Verified by hand against the current 30-club seeded list
+    // Verified by hand against the current 33-club seeded list
     // (ReferenceDataSeeder.cs's Clubs array, as of S-139/2026-08-18: Real
     // Madrid, Barcelona, Manchester United, Manchester City, Liverpool,
     // Arsenal, Chelsea, Bayern Munich, Borussia Dortmund, Juventus, AC
@@ -221,7 +221,7 @@ public static class PathCareerStintFilter
     // label shapes, not an exhaustive survey of how every football
     // federation's reserve sides are labeled on Wikidata. A bare "B" or
     // "II" token in particular is a real false-positive risk against a
-    // genuinely-named (non-reserve) club that is not in today's 30-club
+    // genuinely-named (non-reserve) club that is not in today's 33-club
     // seeded list but could be added later (e.g. Faroese "B36 Tórshavn"-
     // style names use "B" as part of a proper name, not a reserve-tier
     // marker) — not a problem today, since no such club is seeded, but

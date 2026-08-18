@@ -22,7 +22,7 @@ floor, ADR-0073) and S-138 (2-seeded-club eligibility, ADR-0074).
 
 No B-team/reserve-team concept exists anywhere in this schema —
 `ClubDefinition` has no type/tier field, and no B-team club is seeded in
-`ReferenceDataSeeder.cs`'s 30-club `Clubs` array. As a result, a
+`ReferenceDataSeeder.cs`'s 33-club `Clubs` array. As a result, a
 `PlayerCareerStint` row for a reserve or development side — e.g. "Real
 Madrid Castilla," "Barcelona Atlètic," "Manchester United U21" — currently
 passes every existing check unfiltered:
@@ -96,7 +96,7 @@ rows (representative/national sides vs. reserve/development sides):
 
 ### False-positive check against the current seeded club list
 
-Hand-verified against `ReferenceDataSeeder.cs`'s current 30-club `Clubs`
+Hand-verified against `ReferenceDataSeeder.cs`'s current 33-club `Clubs`
 array (Real Madrid, Barcelona, Manchester United, Manchester City,
 Liverpool, Arsenal, Chelsea, Bayern Munich, Borussia Dortmund, Juventus, AC
 Milan, Inter Milan, Paris Saint-Germain, Ajax, Benfica, Tottenham Hotspur,
@@ -117,9 +117,12 @@ because they look close to a match:
   "atlètic"/"atletic" is itself a standalone final word (e.g. "Barcelona
   Atlètic").
 
-This check was done by hand-tracing the regex against the 30 club-name
-strings, not by running the test suite (no `dotnet` SDK in this sandbox —
-see the "For AI agents" section below). It has not been re-run against the
+This check was originally done by hand-tracing the regex against the 33
+club-name strings; `PathCareerStintFilterTests.cs`'s
+`REQ1203_IsBTeam_CurrentSeededClubNames_ReturnsFalse` now pins it down as a
+real, parametrized test case per seeded club (added alongside this ADR, not
+run against a compiler in this sandbox — no `dotnet` SDK here, see the "For
+AI agents" section below). It has not been re-run against the
 production `PlayerCareerStint` table's actual `ClubName` values, since this
 sandbox has no database access either.
 
@@ -139,7 +142,7 @@ sandbox has no database access either.
   low-risk, read-time-filter mechanism already established for national
   teams — no schema change, no new external call, no new repository
   method.
-- Positive: verified by hand against the full current 30-club seeded list
+- Positive: verified by hand against the full current 33-club seeded list
   with no false positives found (see above), including the two closest
   near-misses ("RB Leipzig," "Atletico Madrid").
 - Negative / trade-off accepted: **this pattern is explicitly not a
