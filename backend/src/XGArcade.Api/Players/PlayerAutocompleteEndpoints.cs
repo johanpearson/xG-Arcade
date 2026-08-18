@@ -48,6 +48,27 @@ public static class PlayerAutocompleteEndpoints
 
             return Results.Ok(suggestions);
         }).RequireAuthorization();
+
+        // S-151/REQ-207: cold-start warm-up call, fired best-effort from
+        // GridScreen/PathScreen on mount (never on every app load — that's
+        // /health's job). Unlike /health (EndpointMapping.cs), which is a
+        // static Results.Ok with no DB access, this deliberately runs the
+        // exact same IPlayerNameIndexRepository.SearchByPrefixAsync path the
+        // real /players/autocomplete route uses, so the Postgres connection
+        // open and EF Core query-plan compilation happen here instead of on
+        // the player's first real keystroke. The 1-character query is
+        // server-side only and must never be reachable via the client's
+        // MinQueryLength = 2 contract on the real route above. Result is
+        // discarded; 204 tells the caller only that the round-trip happened.
+        app.MapGet("/players/autocomplete/warmup", async (
+            IPlayerNameIndexRepository playerNameIndexRepository,
+            CancellationToken cancellationToken) =>
+        {
+            var normalizedQuery = PlayerNameNormalizer.Normalize("a");
+            await playerNameIndexRepository.SearchByPrefixAsync(normalizedQuery, limit: 1, cancellationToken);
+
+            return Results.NoContent();
+        }).RequireAuthorization();
     }
 }
 

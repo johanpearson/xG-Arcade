@@ -115,3 +115,27 @@ export async function fetchPlayerAutocomplete(
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as PlayerAutocompleteSuggestion[];
 }
+
+// S-151/REQ-207: fired best-effort from GridScreen/PathScreen on mount to
+// force the backend's cold-start DB connection + EF Core query-plan compile
+// to happen before the player's first real keystroke, rather than on it.
+// Distinct from App.tsx's own /health warm-up, which only wakes the
+// container process and never touches Postgres. Deliberately fire-and-
+// forget: never awaited by the caller, never surfaces an error, never
+// updates any component state — same "best-effort, no UI impact" contract
+// as /health's own failure handling.
+export function warmUpAutocomplete(accessToken: string): void {
+  try {
+    fetch(`${API_BASE_URL}/players/autocomplete/warmup`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }).catch(() => {
+      // Best-effort — a failed warm-up never surfaces to the player, it
+      // just means the first real autocomplete query pays the cold-start
+      // cost. Outer try/catch covers a synchronous throw from fetch itself
+      // (e.g. an unusual runtime, or a test double that throws rather than
+      // rejects), same "never surfaces" contract either way.
+    });
+  } catch {
+    // See comment above — swallow, never surface.
+  }
+}

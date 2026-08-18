@@ -63,6 +63,30 @@ describe('PathScreen', () => {
     await waitFor(() => expect(onAuthError).toHaveBeenCalled());
   });
 
+  it('S-151/REQ-207: fires a fire-and-forget warm-up GET on mount, and a failing one never affects the round render', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith('/path/current')) {
+        return jsonResponse(roundResponse());
+      }
+      if (String(url).includes('/players/autocomplete/warmup')) {
+        return Promise.reject(new Error('cold start'));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('Clue 1 of 7')).toBeInTheDocument();
+    const warmupCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('/players/autocomplete/warmup'),
+    );
+    expect(warmupCall).toBeDefined();
+    expect((warmupCall![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer token',
+    });
+  });
+
   it('REQ-1202: shows "Puzzle N of M" in the header, from the round\'s own puzzle count', async () => {
     vi.stubGlobal(
       'fetch',

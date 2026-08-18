@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
-import { fetchCurrentRound, submitGuess } from '../lib/rounds';
+import { fetchCurrentRound, submitGuess, warmUpAutocomplete } from '../lib/rounds';
 import type {
   CurrentRoundCell,
   CurrentRoundResponse,
@@ -82,6 +82,13 @@ export function GridScreen({ accessToken, onAuthError, isGuest = false }: GridSc
       cancelled = true;
     };
   }, [accessToken, onAuthError]);
+
+  // S-151/REQ-207: fire-and-forget cold-start warm-up, independent of the
+  // round-fetch effect above — this must never gate or affect the round
+  // load's own loading/error state (see warmUpAutocomplete's own comment).
+  useEffect(() => {
+    warmUpAutocomplete(accessToken);
+  }, [accessToken]);
 
   // Shared by both handlers below — only ever called with a genuinely
   // scored response (candidates: null), never a disambiguation-needed one.
