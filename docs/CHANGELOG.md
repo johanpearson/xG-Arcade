@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-19 — `docs/requirements-document.md` (v1.92, REQ-1201 dated status
+  note + new acceptance-criteria bullet + updated test-level paragraph),
+  `docs/decisions/0079-xg-path-position-eligibility-floor.md` (new),
+  `docs/backlog.md` (Epic 19 added, S-161 marked SHIPPED, S-162/S-163 filed
+  as queued follow-ups) — closes a 2026-08-18 user-QA-reported bug: xG Path
+  puzzles rendering "Position: not available" because nothing previously
+  excluded a null/empty-`Player.Position` candidate from being selected as
+  a target in the first place. `XGPathGameModule.GetEligiblePlayerIdsAsync`
+  gains a second, independent `Player`-level eligibility floor
+  (`Position != null`/non-empty, fail-closed via `IsNullOrWhiteSpace`),
+  additive to and mirroring ADR-0073's existing `BirthYear >= 1975` floor
+  field-for-field — same `playersById` bulk-fetch reused, no new repository
+  call (ADR-0079, REQ-1201, S-161). `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and need no change: this
+  is a pure runtime-filter addition inside the already-documented COMP-11
+  (Games.XGPath), with no new component, boundary, data flow, or data-model
+  field.
 - 2026-08-18 — `.github/workflows/backfill-player-photos.yml` (re-added),
   `docs/implementation-document.md` (v1.04) — re-created the
   `backfill-player-photos` workflow wrapper S-132 deleted (2026-08-17) as a
