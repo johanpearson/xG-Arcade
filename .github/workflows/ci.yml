@@ -116,7 +116,9 @@ jobs:
         # never persists) — but `playwright install` itself skips the slow
         # binary download once the cached version already matches, which is
         # most of what made this step slow.
-        run: npx playwright install --with-deps chromium
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list /etc/apt/sources.list.d/* || true
+          npx playwright install --with-deps chromium
       - name: Migrate + seed local database
         run: dotnet run --project backend/src/XGArcade.Api -- migrate-and-seed
         env:
