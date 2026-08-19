@@ -21,7 +21,7 @@
          (package downgrade). 10.0.10 matches the version NuGet was already
          going to resolve to, the same convention XGArcade.Data itself uses
          for its EF Core package pins. -->
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.11" />
   </ItemGroup>
 
   <PropertyGroup>

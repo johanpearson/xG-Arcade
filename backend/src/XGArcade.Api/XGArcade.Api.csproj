@@ -19,8 +19,8 @@
          AddDbContext/UseNpgsql directly) — avoids NuGet resolving a lower
          transitive floor for this project than what XGArcade.Data itself
          builds against. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -29,11 +29,11 @@
          Microsoft.EntityFrameworkCore.Relational at 10.0.4, so it must be
          pinned explicitly here too or NuGet settles on that floor instead of
          the 10.0.10 this project actually builds against (MSB3277). -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- JWT validation middleware (REQ-606's pipeline, ADR-0004: auth
          delegated to Supabase Auth, backend validates JWTs only). -->
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
   </ItemGroup>
 
 </Project>
