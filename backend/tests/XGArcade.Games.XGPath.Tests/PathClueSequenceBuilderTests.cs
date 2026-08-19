@@ -315,4 +315,36 @@ public class PathClueSequenceBuilderTests
         // is ever revealed once solved.
         Assert.That(PathClueSequenceBuilder.GetRevealedTurnCount(attemptsMade, isCorrect: true), Is.EqualTo(attemptsMade));
     }
+
+    // ---- S-163/ADR-0080: PathClubClue.IsLoan is wired through from --------
+    // PathCareerStintFilter.IsInferredLoan — see that method's own doc ------
+    // comment (PathCareerStintFilter.cs) for the inference rule itself; -----
+    // this only confirms BuildSequence actually calls it per-stint with the -
+    // full stintsChronological list, not that the heuristic itself is -------
+    // correct (covered by PathCareerStintFilterTests instead) ---------------
+
+    [Test]
+    public void REQ1203_BuildSequence_LoanShapedFixture_WiresIsLoanThroughForContainedStintOnly()
+    {
+        // Man-Utd/Preston-shaped: one long-range stint, one short-range
+        // stint fully inside it, different clubs — plus a third, unrelated,
+        // non-overlapping stint that must NOT be flagged.
+        var stints = new[]
+        {
+            Stint("Manchester United", 1992, 2003),
+            Stint("Preston North End", 1994, 1995),
+            Stint("LA Galaxy", 2003, 2007),
+        };
+
+        var turns = PathClueSequenceBuilder.BuildSequence(stints, null, null, null);
+
+        var allClubClues = turns
+            .Where(t => t.Kind == PathClueKind.ClubReveal)
+            .SelectMany(t => t.Clubs!)
+            .ToList();
+
+        Assert.That(allClubClues.Single(c => c.ClubName == "Manchester United").IsLoan, Is.False);
+        Assert.That(allClubClues.Single(c => c.ClubName == "Preston North End").IsLoan, Is.True);
+        Assert.That(allClubClues.Single(c => c.ClubName == "LA Galaxy").IsLoan, Is.False);
+    }
 }

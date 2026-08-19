@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.91"
+version: "1.93"
 status: draft
-last_updated: 2026-08-18
+last_updated: 2026-08-19
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -7261,6 +7261,33 @@ not a claim about current behavior.
   originally proposed. See S-141 for the planned follow-up pool-size
   re-verification after Epic 12's S-138–S-140 narrowing changes land
   together.
+- **Status note (2026-08-18, S-161, Epic 19 — ADR-0079, additive to
+  ADR-0073 on this REQ, not a supersession of it): xG Path now additionally
+  requires `Player.Position` to be non-null and non-empty, a second,
+  independent field-level eligibility floor alongside the `BirthYear >=
+  1975` floor above (2026-08-17, S-137, ADR-0073).** `XGPathGameModule.
+  GetEligiblePlayerIdsAsync` checks `Player.Position` directly, once per
+  candidate, at the same call site and in the same manner as the
+  `BirthYear` check above — a player-level fact, evaluated alongside
+  `IsEligible`, not inside `PathCareerStintFilter`, since it is not a
+  stint-level fact. This closes a gap surfaced by a 2026-08-18 user QA pass
+  over freshly-generated xG Path rounds (`docs/backlog.md` Epic 19): a
+  puzzle for a structurally eligible target rendered "Position: not
+  available" on the puzzle screen because `Player.Position` was `null` for
+  that row. `Player.Position` staying `null` forever for a subset of rows
+  is already-documented, deliberate REQ-1207 behavior (a data gap, not a
+  code bug) — but nothing previously stopped a `Position == null`
+  candidate from being SELECTED as a puzzle target in the first place,
+  unlike `BirthYear`, which ADR-0073/S-137 already excludes on `null`.
+  **Fail-closed on `Position == null` or `Position == ""`:** a candidate
+  with no recorded position is excluded, not included — the same
+  fail-closed convention this REQ's `BirthYear` check above already
+  established (ADR-0070; ADR-0073), applied here to a second, independent
+  field. This check is completely independent of the `BirthYear >= 1975`
+  floor and of REQ-112's pool-membership check — a candidate can fail
+  either, both, or neither, and evaluation order does not matter since all
+  are simple boolean conditions. See ADR-0079 for the full reasoning and
+  the alternatives considered.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -7288,6 +7315,14 @@ not a claim about current behavior.
   excluded) rather than being treated as passing it — this is the opposite
   of the "unknown appearance count passes" treatment used for the
   seeded-club-stint check above, which does not apply here
+- And (2026-08-18, S-161) the candidate's `Player.Position` must also be
+  non-null and non-empty — a second, independent, xG-Path-only floor,
+  additive to and evaluated independently of both the `BirthYear >= 1975`
+  floor above and the REQ-112 pool-membership check; a candidate whose
+  `Player.Position` is `null` or an empty string fails this check
+  (fail-closed, excluded) rather than being treated as passing it, the
+  same fail-closed treatment as the `BirthYear` check above, now applied
+  to a second field
 - And (ADR-0056, added 2026-08-02) the player must be judged "familiar
   enough" by the familiarity filter — a Wikipedia sitelink count that
   resolves to at least the configured threshold — UNLESS the filter itself
@@ -7314,7 +7349,13 @@ only, per the backlog story's own acceptance criteria — this check lives in
 `XGPathGameModule.GetEligiblePlayerIdsAsync`, not `PathCareerStintFilter`,
 so `PathCareerStintFilterTests.cs` carries only an explanatory comment
 noting why this rule has no stint-level surface to test, not a fixture
-case. ADR-0056's familiarity
+case. `Player.Position` eligibility floor (2026-08-18, S-161): same shape
+as the `BirthYear` boundary immediately above — `Position == null`
+(excluded, fail-closed) and a non-null `Position` (e.g. `"Forward"`,
+included, positive control) are covered by fixtures in
+`XGPathGameModuleTests.cs` only, this check likewise living in
+`XGPathGameModule.GetEligiblePlayerIdsAsync` rather than
+`PathCareerStintFilter`, for the same reason. ADR-0056's familiarity
 filter: `XGPathGameModuleTests` covers the game-module-level wiring — below
 threshold, at/above threshold, structural-ineligibility candidates never
 even reaching the filter — via `FakePlayerFamiliarityService`;
@@ -7706,6 +7747,44 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   `..._NonFifaRegionalTeam_ReturnsFalse`, which pinned the inconsistency as
   correct behavior). No new ADR — confirmed a bug fix to ADR-0075's own
   Catalonia/Basque follow-up note, not a new eligibility-model decision.
+- **Status note (2026-08-19, S-163, Epic 19 — ADR-0080): club-reveal clues
+  can now carry an additional "inferred loan" annotation — a new
+  `PathCareerStintFilter` heuristic, but unlike the two notes above this is
+  not an exclusion, it's a display-only per-clue flag.** Reported directly
+  (a puzzle matching David Beckham's real career): "Manchester United" and
+  "Preston North End" rendered together in the same club-reveal turn with
+  no indication that the Preston stint (1994-95) was a loan chronologically
+  NESTED inside the Man Utd stint (1992-2003), not a sequential next club —
+  a player reasoning about the sequence had no way to tell the two apart.
+  `PathCareerStintFilter.IsInferredLoan(stint, allStints)` flags a stint as
+  a probable loan when its `[StartYear, EndYear]` range is fully contained
+  within a DIFFERENT club's concurrent stint range, called from
+  `PathClueSequenceBuilder.BuildSequence` for every stint in a target's
+  chronological list; the resulting `bool` flows through `PathClubClue.
+  IsLoan` → `PathClubClueResponse.IsLoan` (`PathEndpoints.cs`) →
+  `PathClubClue.isLoan` (frontend `lib/types.ts`), rendered by
+  `PathTimeline.tsx` as a "(loan)" text qualifier next to the club name.
+  **This is presentation-only and does NOT affect `XGPathGameModule`'s
+  eligibility logic in any way** — unlike the `BirthYear >= 1975`/`Position`
+  floors documented under REQ-1201, which gate whether a player can be
+  SELECTED as a target at all, `IsInferredLoan` only annotates a clue that
+  is already going to be revealed; `GetEligiblePlayerIdsAsync` never calls
+  it, and every stint still surfaces as its own club-reveal clue regardless
+  of the flag's value — an "eligibility floor" and a "clue annotation" are
+  not the same thing and should not be conflated, since they act at
+  entirely different points in the pipeline (target selection vs.
+  clue-content presentation). Two edge cases resolved (see ADR-0080 for the
+  full reasoning): an ongoing candidate stint (`EndYear == null`) is never
+  itself flagged as a loan, but an ongoing stint CAN be the containing one
+  for an already-ended candidate. **Like `NationalTeamPattern`/`BTeamPattern`
+  above, this heuristic is NOT verified against live Wikidata or real
+  production `PlayerCareerStint` data** (no `wikidata.org` or database
+  access from this sandbox) — it is a pure date-range inference, explicitly
+  framed as a deliberate experiment ("test out," S-163's own wording)
+  rather than a load-bearing correctness claim, and is expected to need the
+  same kind of iterative correction those two filters needed after landing
+  (see their own dated notes above) once real false positives/negatives
+  surface against production data.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -7727,6 +7806,12 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   same turn, per club; when the appearance count is not known for a given
   club, that club is still revealed, without an appearance count, rather
   than being delayed or skipped
+- And (2026-08-19, S-163) a club-reveal clue MAY additionally carry an
+  inferred-loan indicator when that stint's date range is fully contained
+  within a different club's concurrent stint range — this is an advisory,
+  heuristic annotation only, not a guaranteed-correct employment-status
+  claim, and its presence or absence never changes which clubs are
+  revealed, their order, or their appearance counts
 - And once all 3 club-reveal turns have happened and the player has not
   yet guessed correctly, exactly one further clue is revealed showing the
   start-end year range for every club stint already revealed (e.g.
@@ -7821,6 +7906,23 @@ reserve-side label shapes. `XGPathGameModuleTests` and `PathEndpointTests`
 mirror the same "chained alongside `ExcludeNationalTeams`, at both call
 sites" shape the 2026-08-08/2026-08-10 national-team tests above already
 established, adapted to B-team rows.
+Inferred-loan annotation (2026-08-19, S-163, ADR-0080):
+`PathCareerStintFilterTests` adds `REQ1203_IsInferredLoan_*` covering the
+full-containment positive case (a Beckham/Preston-shaped fixture), a
+partial-overlap negative case, a no-overlap negative case, the
+identical-date-range-different-club case (both stints flagged `true`), both
+ongoing-stint edge cases (`REQ1203_IsInferredLoan_
+CandidateStintItselfOngoing_ReturnsFalse` and `REQ1203_IsInferredLoan_
+ContainingStintIsOngoing_EarlierEndedCandidate_ReturnsTrue`), and same-club
+stints never self-flagging
+(`REQ1203_IsInferredLoan_SameClubDifferentStintRecords_NeverSelfFlagged`).
+`PathClueSequenceBuilderTests` adds
+`REQ1203_BuildSequence_LoanShapedFixture_WiresIsLoanThroughForContainedStintOnly`,
+proving the flag is wired end-to-end through `BuildSequence`'s output for
+exactly the contained stint, never its container or an unrelated club.
+Frontend: `PathTimeline.test.tsx` covers the "(loan)" text qualifier
+rendering when a club clue is flagged `isLoan: true` and its absence when
+`isLoan` is `false` or omitted.
 UI: **(2026-08-04 addition)** the round end-time
 indicator's presence/wiring on SCREEN-10 is covered by
 `PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per

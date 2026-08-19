@@ -132,7 +132,9 @@ public class RoundEndpointTests
     // reason XGPathGameModuleTests.SeedPlayer/SeedEligiblePlayer default to
     // it (REQ-1201/ADR-0073/S-137): comfortably above the BirthYear >= 1975
     // floor, so this fixture stays eligible without needing to know about
-    // that rule either.
+    // that rule either. Position = "Forward" for the same reason again
+    // (REQ-1201/ADR-0079/S-161, 2026-08-19 CI fix): a null Position now
+    // fails eligibility too, and this fixture predates that floor.
     private async Task SeedEligiblePathPlayersAsync(int count, WebApplicationFactory<Program>? factory = null)
     {
         using var scope = (factory ?? _factory).Services.CreateScope();
@@ -145,7 +147,7 @@ public class RoundEndpointTests
 
         for (var i = 0; i < count; i++)
         {
-            var player = new Player { Id = Guid.NewGuid(), FullName = $"Eligible Path Player {i}", WikidataQid = $"Qpathplayer-{i}-{Guid.NewGuid()}", BirthYear = 1990 };
+            var player = new Player { Id = Guid.NewGuid(), FullName = $"Eligible Path Player {i}", WikidataQid = $"Qpathplayer-{i}-{Guid.NewGuid()}", BirthYear = 1990, Position = "Forward" };
             dbContext.Players.Add(player);
             dbContext.PlayerCareerStints.AddRange(
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = seededClubName, StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },

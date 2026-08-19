@@ -19,7 +19,17 @@ public enum PathClueKind
 // stint (ADR-0042/PlayerCareerStint's own "count unknown, never a
 // misleading 0" rule); the club is still revealed either way, never
 // delayed or omitted for a missing count.
-public record PathClubClue(string ClubName, int? AppearanceCount);
+//
+// IsLoan (S-163/ADR-0080, 2026-08-19): a display-only, heuristically
+// INFERRED "was this probably a loan spell?" flag — see
+// PathCareerStintFilter.IsInferredLoan's own doc comment for the exact
+// date-range containment rule, its edge cases, and the explicit "not
+// verified against live Wikidata/production data" disclosure. Defaults to
+// false so every pre-existing positional `new PathClubClue(name, count)`
+// call site (including PathClueSequenceBuilderTests.cs) keeps compiling
+// unchanged. Never used for eligibility or scoring — see ADR-0080's "For AI
+// agents" section.
+public record PathClubClue(string ClubName, int? AppearanceCount, bool IsLoan = false);
 
 // REQ-1203/S-082: one turn of the fixed 7-turn clue-reveal sequence.
 // TurnNumber is 1-based and matches this turn's position in

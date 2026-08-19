@@ -294,4 +294,106 @@ public static class PathCareerStintFilter
         stints.Count == 0
             ? stints
             : stints.Where(s => !IsBTeam(s.ClubName)).ToList();
+
+    // S-163 (Epic 19, 2026-08-19), REQ-1203/ADR-0080: a heuristic "was this
+    // stint probably a loan?" label for xG Path's club-reveal clue, same
+    // "inferred, not verified, expected to need iteration" risk class as
+    // NationalTeamPattern/BTeamPattern above — see ADR-0080 for the decision
+    // record. Bug report this closes: a puzzle matching David Beckham's real
+    // career rendered "Manchester United" and "Preston North End" together
+    // in the same club-reveal turn with no indication that Preston (1994-95)
+    // was a loan spell chronologically NESTED inside the Man Utd stint
+    // (1992-2003), not a next, sequential club — misleading for a player
+    // trying to reason about the sequence of clubs shown.
+    //
+    // UNLIKE NationalTeamPattern/BTeamPattern above, this is not a label-text
+    // regex — there is no Wikidata label wording that distinguishes a loan
+    // from a permanent transfer (Wikidata's real "on loan from" signal,
+    // property P1642, is not stored anywhere in this schema at all; see
+    // ADR-0042, the data-model ADR, which has no such field — confirmed by
+    // reading it, not assumed). This is a pure DATE-RANGE heuristic instead:
+    // a stint is inferred as a loan when some OTHER, different-club stint in
+    // the same player's full stint list fully contains its date range. The
+    // real-world intuition: a player loaned out to a second club still
+    // "belongs to" (and, in Wikidata's data, is still recorded as having a
+    // concurrent, wider-spanning stint at) the parent club for the loan's
+    // duration — Beckham's Man Utd stint (1992-2003) fully contains his
+    // Preston loan (1994-95), which is exactly the shape this catches.
+    //
+    // This is DISPLAY-ONLY (see ADR-0080's "For AI agents" section) — it has
+    // no effect on eligibility (XGPathGameModule.GetEligiblePlayerIdsAsync
+    // never calls this) or on which clubs get revealed at all (both stints
+    // still surface as their own PathClubClue; this only adds a qualifier to
+    // the contained one). A false positive/negative here just mislabels one
+    // clue's "(loan)" qualifier, never blocks or corrupts a puzzle.
+    //
+    // The exact containment test, matching S-163's own interface contract
+    // verbatim (see docs/backlog.md):
+    //   stint.EndYear is not null &&
+    //   (other.StartYear <= stint.StartYear &&
+    //    (other.EndYear is null || other.EndYear >= stint.EndYear))
+    //
+    // Note the `stint.EndYear is not null` guard applies to the WHOLE
+    // containment test (it gates the `allStints.Any(...)` call itself), not
+    // just the inner OR's second branch — putting it inside the OR instead
+    // would let `other.EndYear is null` short-circuit the OR to true without
+    // ever consulting `stint.EndYear`, wrongly flagging two simultaneously-
+    // ongoing stints at different clubs as loan-contained (fixed 2026-08-19;
+    // see edge case 1 below, which this guard placement exists to satisfy).
+    //
+    // Three edge cases this comment (and ADR-0080) deliberately pins down,
+    // rather than leaving to be discovered by accident:
+    //
+    // 1. The CANDIDATE stint (the one being tested) is itself ongoing
+    //    (EndYear is null): always false, regardless of any other stint's
+    //    range — including when that other stint is ALSO ongoing. The
+    //    top-level `stint.EndYear is not null` guard is what forces this —
+    //    an ongoing stint has no known end date yet, so it cannot be judged
+    //    "fully contained" within anything; it might yet outlast every
+    //    other stint currently on record. Conservative by design, per
+    //    S-163's own wording, not an oversight.
+    // 2. The CONTAINING stint (`other`) is ongoing (EndYear is null) while
+    //    the candidate stint has already ended: this CAN mark the candidate
+    //    as a loan. `other.EndYear is null` short-circuits the whole
+    //    right-hand side of the OR to true, so only `other.StartYear <=
+    //    stint.StartYear` need hold. Intuition: an open-ended stint at a
+    //    different club that started before this one necessarily still
+    //    "covers" it today, whether or not the open stint's true end date
+    //    (once known) will turn out to exceed this one's.
+    // 3. IDENTICAL date range, different club (other.StartYear ==
+    //    stint.StartYear && other.EndYear == stint.EndYear): the formula's
+    //    non-strict `<=`/`>=` comparisons mean this DOES satisfy
+    //    containment — deliberately, not an oversight. Chosen over
+    //    special-casing a strict inequality (which the interface contract
+    //    does not call for and would need its own extra branch) because (a)
+    //    it keeps this method a direct, literal implementation of the
+    //    agreed contract with no undocumented deviation, and (b) the
+    //    practical consequence is small: this shape means BOTH stints in
+    //    the pair are symmetric — evaluating IsInferredLoan for either one
+    //    (using the other as `other`) returns true, so a genuinely
+    //    coincidental identical-range data shape (e.g. two loan-adjacent
+    //    "on paper" club rows for the same real spell, or a Wikidata
+    //    data-quality duplicate) gets both stints labeled "(loan)" rather
+    //    than picking one as "the real club." Since this is presentation-
+    //    only with no eligibility impact, that ambiguity is an acceptable,
+    //    documented trade-off rather than a correctness bug.
+    //
+    // NOT verified against a live Wikidata query or real production
+    // PlayerCareerStint data from this sandbox (no wikidata.org access, no
+    // database access here) — this is a date-range inference, not a
+    // Wikidata-sourced fact. Explicitly framed as a deliberate experiment
+    // ("test out," S-163's own wording) rather than a load-bearing
+    // correctness claim, the same way NationalTeamPattern/BTeamPattern
+    // needed real follow-up corrections after landing (see this class's own
+    // doc-comment history above) — expect this to need the same kind of
+    // iteration once real false positives/negatives surface against
+    // production data. See ADR-0080 for the full decision record, including
+    // the P1642 real-schema alternative that was considered and rejected
+    // for now as out of reach from this sandbox / Tier 1+ scope.
+    public static bool IsInferredLoan(PlayerCareerStint stint, IReadOnlyList<PlayerCareerStint> allStints) =>
+        stint.EndYear is not null &&
+        allStints.Any(other =>
+            other.ClubName != stint.ClubName &&
+            other.StartYear <= stint.StartYear &&
+            (other.EndYear is null || other.EndYear >= stint.EndYear));
 }

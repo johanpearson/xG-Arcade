@@ -244,7 +244,7 @@ public static class PathEndpoints
         new(
             turn.TurnNumber,
             turn.Kind.ToString(),
-            turn.Clubs?.Select(c => new PathClubClueResponse(c.ClubName, c.AppearanceCount)).ToList(),
+            turn.Clubs?.Select(c => new PathClubClueResponse(c.ClubName, c.AppearanceCount, c.IsLoan)).ToList(),
             turn.YearRanges,
             turn.TextValue);
 }
@@ -280,7 +280,11 @@ public record PathClueTurnResponse(
     IReadOnlyList<string>? YearRanges,
     string? TextValue);
 
-public record PathClubClueResponse(string ClubName, int? AppearanceCount);
+// IsLoan (S-163/ADR-0080): straight passthrough of PathClubClue's own
+// heuristic, display-only flag — see that record's doc comment and
+// PathCareerStintFilter.IsInferredLoan for the inference rule and its
+// disclosed limitations.
+public record PathClubClueResponse(string ClubName, int? AppearanceCount, bool IsLoan);
 
 // Same only-when-IsCorrect rule for ResolvedPlayerName/ResolvedPlayerPhotoUrl
 // as RoundEndpoints.CurrentRoundGuessResponse — never a substitute for

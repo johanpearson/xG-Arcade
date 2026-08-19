@@ -132,9 +132,18 @@ public class XGPathGameModuleTests
     // BirthYear null here would fail-closed-exclude every one of them.
     // Overridable per test for the BirthYear-specific cases (1975 boundary,
     // 1974, null) this default is designed to keep untouched.
-    private Player SeedPlayer(string name, int? birthYear = 1990)
+    //
+    // REQ-1201/ADR-0079/S-161: position defaults to "Forward" for the exact
+    // same reason birthYear defaults to 1990 above — every pre-existing
+    // "this candidate should be eligible" fixture predates the
+    // Position != null/empty floor and relies on this helper producing an
+    // eligible player by default; leaving Position at its own null default
+    // would fail-closed-exclude every one of them. Overridable per test for
+    // the Position-specific cases (non-null control, null) this default is
+    // designed to keep untouched.
+    private Player SeedPlayer(string name, int? birthYear = 1990, string? position = "Forward")
     {
-        var player = new Player { Id = Guid.NewGuid(), FullName = name, WikidataQid = $"Qplayer-{name}", BirthYear = birthYear };
+        var player = new Player { Id = Guid.NewGuid(), FullName = name, WikidataQid = $"Qplayer-{name}", BirthYear = birthYear, Position = position };
         _dbContext.Players.Add(player);
         _dbContext.SaveChanges();
         return player;
@@ -181,13 +190,15 @@ public class XGPathGameModuleTests
     // SeedEligiblePlayer calls), so deriving and self-registering the
     // second club here keeps every one of those call sites unchanged.
     // birthYear forwards to SeedPlayer's own default/override
-    // (REQ-1201/ADR-0073/S-137) — same overridable-per-case shape.
-    private Player SeedEligiblePlayer(string name, string seededClubName, int? birthYear = 1990)
+    // (REQ-1201/ADR-0073/S-137) — same overridable-per-case shape. position
+    // likewise forwards to SeedPlayer's own default/override
+    // (REQ-1201/ADR-0079/S-161).
+    private Player SeedEligiblePlayer(string name, string seededClubName, int? birthYear = 1990, string? position = "Forward")
     {
         var secondSeededClubName = $"{seededClubName} 2";
         SeedClub(secondSeededClubName);
 
-        var player = SeedPlayer(name, birthYear);
+        var player = SeedPlayer(name, birthYear, position);
         SeedStints(player.Id,
             (2010, 2013, seededClubName),
             (2013, 2016, secondSeededClubName),
@@ -732,6 +743,110 @@ public class XGPathGameModuleTests
 
         Assert.That(_playerFamiliarityService.Calls, Has.Count.EqualTo(1));
         Assert.That(_playerFamiliarityService.Calls[0], Does.Not.Contain(tooOld.Id));
+    }
+
+    // ---- REQ-1201/ADR-0079/S-161: Player.Position != null/empty floor ------
+    // Additive to (not a fold into) the BirthYear floor above — see
+    // GetEligiblePlayerIdsAsync's own doc comment. Same "baseline + one
+    // violating candidate, PuzzleCount = baseline+1" rejection-test
+    // technique as every other REQ-1201 structural check above. Fixes a
+    // real 2026-08-18 QA report: a puzzle rendered "Position: not
+    // available" for a target whose Nationality/BirthYear WERE populated —
+    // Player.Position staying null forever for a subset of rows is
+    // deliberate, documented REQ-1207 behavior (a data gap, not a bug),
+    // but nothing previously stopped such a candidate from being SELECTED
+    // as a target in the first place.
+
+    // Positive control, mirroring REQ1201_GenerateInstanceAsync_
+    // CandidateWithBirthYearAtFloor_IsEligible's shape: a candidate with a
+    // non-null Position (SeedEligiblePlayer's own default, "Forward") is
+    // still eligible — this is the "the check doesn't over-exclude" half of
+    // the pair, made explicit rather than left as an implicit assumption
+    // baked into every other test in this file's default fixture.
+    [Test]
+    public async Task REQ1201_GenerateInstanceAsync_CandidateWithNonNullPosition_IsEligible()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var withPosition = SeedEligiblePlayer("HasPosition", "Seeded FC", position: "Midfielder");
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(withPosition.Id));
+    }
+
+    // Fail-closed (ADR-0079, matching ADR-0073/ADR-0070's precedent): a
+    // candidate with no recorded Position at all must be excluded, not
+    // silently admitted — this is the exact bug the 2026-08-18 QA report
+    // found: a structurally-eligible, BirthYear-eligible candidate whose
+    // Position happened to be null was still selected as a puzzle target
+    // before this story's fix.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithNullPosition_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        SeedEligiblePlayer("UnknownPosition", "Seeded FC", position: null);
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Same fail-closed rule as the null-Position case immediately above, but
+    // for the broader IsNullOrWhiteSpace branch specifically — a whitespace-
+    // only Position ("" would work identically, since both fail
+    // IsNullOrWhiteSpace the same way; see MinBirthYear's neighboring
+    // comment and ADR-0079 for why IsNullOrWhiteSpace was deliberately
+    // chosen over a bare null check) must also be excluded, not admitted.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithWhitespaceOnlyPosition_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        SeedEligiblePlayer("WhitespaceOnlyPosition", "Seeded FC", position: " ");
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Ordering regression, mirroring REQ1201_GenerateInstanceAsync_
+    // BirthYearFilterOnlySeesStructurallyEligibleCandidates above: the
+    // Position floor is applied to the structurally-eligible set BEFORE
+    // the familiarity filter runs — a candidate excluded by the Position
+    // floor must never even be offered to IPlayerFamiliarityService, let
+    // alone counted against it.
+    [Test]
+    public async Task REQ1201_GenerateInstanceAsync_PositionFilterOnlySeesStructurallyEligibleCandidates()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+        SeedEligiblePlayer("Eligible3", "Seeded FC");
+
+        // Structurally eligible (3 well-ordered stints, one at the seeded
+        // club) and BirthYear-eligible, but excluded solely by the Position
+        // floor.
+        var noPosition = SeedEligiblePlayer("NoPosition", "Seeded FC", position: null);
+
+        var template = SeedTemplate(3);
+        await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_playerFamiliarityService.Calls, Has.Count.EqualTo(1));
+        Assert.That(_playerFamiliarityService.Calls[0], Does.Not.Contain(noPosition.Id));
     }
 
     // ADR-0056: a candidate that passes every REQ-1201 structural check is
