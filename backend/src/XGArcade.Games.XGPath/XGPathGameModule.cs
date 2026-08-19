@@ -20,7 +20,10 @@ namespace XGArcade.Games.XGPath;
 // (Epic 12) tightened REQ-1201's own eligibility rule from "≥3 documented
 // stint rows, any clubs, plus ≥1 stint at a qualifying seeded club" to
 // "≥2 DISTINCT qualifying seeded clubs" — see IsEligible's own doc comment
-// for the exact current rule.
+// for the exact current rule. ADR-0073/S-137 and ADR-0079/S-161 each add a
+// further, independent Player-level eligibility floor (BirthYear, then
+// Position) on top of that — see GetEligiblePlayerIdsAsync's own doc
+// comment.
 public class XGPathGameModule(
     IPathInstanceRepository pathInstanceRepository,
     // S-106/S-107 (pure refactor): the sibling repositories carrying the
@@ -87,6 +90,18 @@ public class XGPathGameModule(
     // Grid's pool, out of scope — same reasoning Epic 12's intro in
     // docs/backlog.md already gives for why the 1939 floor couldn't simply
     // be raised in place).
+    //
+    // REQ-1201/ADR-0079/S-161: a second, independent Player-level floor sits
+    // alongside this one in GetEligiblePlayerIdsAsync (not folded into this
+    // constant, since it has no numeric threshold of its own) — a candidate
+    // whose Player.Position is null/empty is excluded the same fail-closed
+    // way a null BirthYear is. Player.Position staying null forever for a
+    // subset of rows is deliberate, documented REQ-1207 behavior (a
+    // Wikidata data gap, not a bug), but nothing previously stopped a
+    // Position-less candidate from being SELECTED as a target, which let a
+    // preventable "Position: not available" surface on a real puzzle screen
+    // (the 2026-08-18 QA report ADR-0079 fixes). See the Position check's
+    // own comment in GetEligiblePlayerIdsAsync and ADR-0079.
     private const int MinBirthYear = 1975;
 
     // REQ-1205/ADR-0041: xG Path's fixed per-puzzle attempt cap — matches
@@ -353,6 +368,11 @@ public class XGPathGameModule(
     // (unlike REQ-112, nothing filters this at Wikidata-query time), so
     // unlike REQ-112 above it cannot be treated as "already guaranteed by
     // construction." See MinBirthYear's own comment and ADR-0073.
+    //
+    // REQ-1201/ADR-0079/S-161: Position != null/empty IS ALSO checked here,
+    // below, in the same pass as BirthYear above — a second, independent
+    // Player-level floor, not a re-check of BirthYear and not folded into
+    // it. See MinBirthYear's neighboring comment above and ADR-0079.
     private async Task<IReadOnlyList<Guid>> GetEligiblePlayerIdsAsync(CancellationToken cancellationToken)
     {
         var seededClubNames = (await categoryValueRepository.GetClubsAsync(cancellationToken))
@@ -459,6 +479,35 @@ public class XGPathGameModule(
                          player.BirthYear.Value >= MinBirthYear)
             .ToList();
 
+        // REQ-1201/ADR-0079/S-161: Position != null/empty, applied here in
+        // the SAME pass as BirthYear above (reusing the playersById fetch —
+        // no second GetPlayersByIdsAsync call needed) rather than inside
+        // IsEligible/PathCareerStintFilter, for the identical reason
+        // BirthYear lives here rather than there: it's a fact about the
+        // PLAYER (Player.Position), not about any individual
+        // PlayerCareerStint row — stints have no Position of their own.
+        // Fixes a real 2026-08-18 QA report: Player.Position staying null
+        // forever for a subset of rows is deliberate, documented REQ-1207
+        // behavior (a Wikidata data gap, not a bug), but nothing previously
+        // stopped a null-Position candidate from being SELECTED as a
+        // target in the first place, which let a preventable
+        // "Position: not available" surface on a real puzzle screen.
+        //
+        // Fail-closed (ADR-0079, matching ADR-0073/ADR-0070's precedent): a
+        // candidate whose Player.Position is null, empty, or whitespace-only
+        // is EXCLUDED, not included — xG Path cannot verify such a
+        // candidate has real Position data to show, and silently admitting
+        // it would be exactly the "admit what can't be verified" failure
+        // mode ADR-0070/REQ-211's fallback deliberately avoid elsewhere in
+        // this codebase. IsNullOrWhiteSpace is used, not a bare null check,
+        // as the null-tolerant-string equivalent of BirthYear's HasValue
+        // guard immediately above — so this too reads as an explicit
+        // decision, not an accident of string-comparison semantics.
+        var birthYearAndPositionEligibleIds = birthYearEligibleIds
+            .Where(id => playersById.TryGetValue(id, out var player) &&
+                         !string.IsNullOrWhiteSpace(player.Position))
+            .ToList();
+
         // ADR-0056: a real player-facing complaint ("I got this Austrian guy
         // I had no idea who he is") — the three structural checks above say
         // nothing about whether a candidate is actually recognizable, so a
@@ -468,8 +517,8 @@ public class XGPathGameModule(
         // total data gap — see its own doc comment) — GenerateInstanceAsync's
         // existing "not enough eligible players" abort still covers the case
         // where familiarity filtering leaves too few candidates.
-        var familiarIds = await playerFamiliarityService.FilterFamiliarAsync(birthYearEligibleIds, cancellationToken);
-        return birthYearEligibleIds.Where(familiarIds.Contains).ToList();
+        var familiarIds = await playerFamiliarityService.FilterFamiliarAsync(birthYearAndPositionEligibleIds, cancellationToken);
+        return birthYearAndPositionEligibleIds.Where(familiarIds.Contains).ToList();
     }
 
     // REQ-1201/ADR-0074/S-138's three independent structural checks (down

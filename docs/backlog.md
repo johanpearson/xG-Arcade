@@ -6889,3 +6889,123 @@ runs on every `WarmAsync` run for an already-swept-and-low pair forever
 (cheaper than a live query, but not as cheap as `IsConfirmedLowAsync`'s
 `AsNoTracking` read) — negligible at Tier 0's ~15-club scale, worth
 revisiting only if the reference-data pool grows substantially.
+
+## Epic 19 — xG Path clue-content data-quality bugs (post-Epic-12 QA)
+
+Origin: a 2026-08-18 user QA pass over freshly-generated xG Path rounds
+(the first rounds built under Epic 12's tightened eligibility rules)
+surfaced three independent clue-content defects via screenshots. None of
+the three are duplicates of anything Epic 12 itself already tracked.
+
+**S-161 · xG Path: add a `Player.Position != null` eligibility requirement, additive to ADR-0073's `BirthYear` floor — SHIPPED**
+A puzzle for a French, 1980-born target rendered "Position: not available"
+— `Player.BirthYear`/`Player.Nationality` were populated but `Position`
+was null. `Player.Position` staying null forever for a subset of rows is
+already-documented, deliberate REQ-1207 behavior (a data gap, not a code
+bug) — but nothing currently stops a `Position == null` candidate from
+being SELECTED as a target in the first place, unlike `BirthYear`, which
+ADR-0073/S-137 already excludes on `null` (fail-closed). This story closes
+that gap the same way, for the same reason: exclude `Position == null`
+candidates from the eligible pool rather than let a preventable "not
+available" surface on a puzzle screen at all.
+*Accept:* `XGPathGameModuleTests.cs` gains a case for `Position == null`
+(excluded) alongside the existing `BirthYear` boundary cases, using the
+same fixture shape; new ADR (mirrors ADR-0073's shape almost exactly —
+additive, `Player`-level, fail-closed on null); REQ-1201 status note
+extending the eligibility rule, following the S-137/S-138 status-note
+precedent (existing acceptance-criteria bullets are not rewritten, a new
+dated note is appended, same as those two stories did).
+*Deps:* none — same "additive `Player`-level check, alongside not inside
+`IsEligible`" pattern ADR-0073 already established, applied to a second
+field.
+
+**S-162 · xG Path: collapse adjacent same-club `PlayerCareerStint` rows for clue display**
+A puzzle for a target matching Divock Origi's real career shape rendered
+three consecutive "Lille" entries back to back — `PlayerClueSequenceBuilder`
+renders every stint row it's given with no notion that two (or three)
+ADJACENT rows (nothing else in between, chronologically) at the identical
+`ClubName` might be one real "chapter" of a career split across multiple
+Wikidata statements (a squad-list renewal, a sell-then-loan-back, etc.).
+This reads as broken/duplicated data regardless of the administrative
+reason behind the split. **This is NOT the same fix as
+`DuplicateCareerStintCleaner`/ADR-0063** — that class proves two DB rows
+are the same real-world stint and deletes one; ADR-0063 explicitly forbids
+merging two rows with different, both-populated `AppearanceCount` values
+(exactly the Lille shape here: "40 apps" / "33 apps" / a third unknown-apps
+row), on the reasoning that they could be a genuine loan-and-return. A
+DB-level merge is therefore not safe here. What IS safe: a **read-time,
+display-only** collapse (no DB write, no deletion, reversible by
+construction) of stint rows that are ADJACENT in chronological sequence
+AND share the identical `ClubName` — nothing else could have happened in
+between them regardless of why Wikidata recorded them as separate
+statements, so collapsing them into one displayed entry (earliest
+`StartYear`, latest `EndYear`, summed `AppearanceCount` when all inputs
+are known, `null` if any input is unknown) cannot be "wrong" the way a DB
+merge could be.
+**The real complexity, and why this isn't a same-day fix:** this collapse
+would run in `PathCareerStintFilter`, chained alongside
+`ExcludeNationalTeams`/`ExcludeBTeams` — but `XGPathGameModule.IsEligible`'s
+`MinDocumentedStintCount` (>= 3) floor exists SPECIFICALLY so
+`PathClueSequenceBuilder.SplitIntoTurns` always has >= 3 rows to split
+across its 3 fixed club-reveal turns (see that constant's own doc comment
+and the "INVARIANT" comment on `GetEligiblePlayerIdsAsync`). A new collapse
+step shrinks the row count the same way `ExcludeNationalTeams`/
+`ExcludeBTeams` already do — so it MUST be applied, identically, at both
+the eligibility call site and the clue-building call site, in the same
+position in the filter chain, exactly like those two existing filters —
+never only at one. Landing it at only the display call site would silently
+reopen the exact "eligible with < 3 real stints, empty first club-reveal
+turn" bug class S-138's quality-gate review already found and fixed once
+(ADR-0074). This needs its own ADR (a new heuristic, same class as
+ADR-0075's B-team pattern) plus test coverage in BOTH
+`PathCareerStintFilterTests.cs` (the collapse function in isolation:
+2 adjacent same-club rows merge, 3 adjacent same-club rows merge, a
+same-club pair with something else in between does NOT merge, an unknown
+`AppearanceCount` on one side propagates the known value same as
+`DuplicateCareerStintCleaner`'s own null-tolerant rule) AND
+`XGPathGameModuleTests.cs` (a candidate whose raw row count is >= 3 but
+whose POST-COLLAPSE distinct-chapter count is < 3 must be excluded, not
+just displayed differently) — i.e. real invariant-preserving work, not a
+one-file display tweak. No `dotnet` SDK or database access in this
+sandbox to verify against; do this in a session where compiling/running
+the test suite is possible, not by hand-writing it blind the way this bug
+report's own investigation found several past xG Path filters were forced
+to (see ADR-0075's "For AI agents" section on unverified regexes as the
+precedent for what NOT to repeat blind twice in the same file).
+*Accept:* see test coverage above; new ADR; REQ-1203 status note.
+*Deps:* none structurally, but should land in a session with real
+`dotnet test` access given the invariant risk described above.
+
+**S-163 · xG Path: investigate loan/nested-stint display for club-reveal clues (design question, not yet a code fix)**
+A puzzle matching David Beckham's real career rendered "Manchester United"
+and "Preston North End" together in the same club-reveal turn — real-world,
+Preston was a loan spell chronologically NESTED inside the Man Utd stint
+(1994-95, inside 1992-2003), not a sequential "next club." Nothing in
+`PlayerCareerStint`/`ClubDefinition` records loan-vs-permanent status or a
+parent-club relationship at all (confirmed: no such field exists —
+ADR-0042 is the data-model ADR and does not mention one), so there is no
+data to render a "(loan)" qualifier from without either (a) a real schema
+addition (new column, new Wikidata property to source it from — P1642
+"on loan from" via Wikidata `wdt:P1642` is a candidate, unverified from
+this sandbox, no wikidata.org access), which is real Tier 1/2-shaped scope
+per `MVP-SCOPE.md`, not a bug-fix-sized change, or (b) a heuristic inferred
+purely from date overlap (a stint whose `[StartYear, EndYear]` range is
+fully contained within a DIFFERENT club's concurrent range is PROBABLY a
+loan) — the same class of imprecise, iteratively-refined heuristic
+`PathCareerStintFilter`'s `NationalTeamPattern`/`BTeamPattern` already are,
+with the same false-positive/negative risk profile, and the same "needs
+its own ADR before landing" bar ADR-0075 sets. **Do not implement either
+option without a product decision first** — unlike S-161/S-162, this
+isn't a case where the "correct" fix is already unambiguous once traced;
+whether an inferred, unverified "(loan)" label is better or worse than
+today's unlabeled-but-honest club-name display is a genuine judgment call.
+File this as a requirements-writer/architecture-reviewer discussion before
+any `backend-implementer` work: does REQ-1203 need an explicit acceptance
+criterion about loan/nested stints at all, or is "every documented stint
+is shown, in chronological order, with no claim about employment status"
+an acceptable, already-met bar that this bug report's "could be
+interpreted as incorrect" concern doesn't actually violate?
+*Accept:* a decision recorded (ADR if a heuristic/schema change is chosen;
+a REQ-1203 status note explicitly declining to change behavior if not) —
+not necessarily a code change.
+*Deps:* none.
