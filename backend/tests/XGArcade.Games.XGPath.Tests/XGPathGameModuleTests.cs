@@ -802,6 +802,27 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
+    // Same fail-closed rule as the null-Position case immediately above, but
+    // for the broader IsNullOrWhiteSpace branch specifically — a whitespace-
+    // only Position ("" would work identically, since both fail
+    // IsNullOrWhiteSpace the same way; see MinBirthYear's neighboring
+    // comment and ADR-0079 for why IsNullOrWhiteSpace was deliberately
+    // chosen over a bare null check) must also be excluded, not admitted.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithWhitespaceOnlyPosition_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        SeedEligiblePlayer("WhitespaceOnlyPosition", "Seeded FC", position: " ");
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
     // Ordering regression, mirroring REQ1201_GenerateInstanceAsync_
     // BirthYearFilterOnlySeesStructurallyEligibleCandidates above: the
     // Position floor is applied to the structurally-eligible set BEFORE
