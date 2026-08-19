@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.91"
+version: "1.92"
 status: draft
-last_updated: 2026-08-18
+last_updated: 2026-08-19
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -7261,6 +7261,33 @@ not a claim about current behavior.
   originally proposed. See S-141 for the planned follow-up pool-size
   re-verification after Epic 12's S-138–S-140 narrowing changes land
   together.
+- **Status note (2026-08-18, S-161, Epic 19 — ADR-0079, additive to
+  ADR-0073 on this REQ, not a supersession of it): xG Path now additionally
+  requires `Player.Position` to be non-null and non-empty, a second,
+  independent field-level eligibility floor alongside the `BirthYear >=
+  1975` floor above (2026-08-17, S-137, ADR-0073).** `XGPathGameModule.
+  GetEligiblePlayerIdsAsync` checks `Player.Position` directly, once per
+  candidate, at the same call site and in the same manner as the
+  `BirthYear` check above — a player-level fact, evaluated alongside
+  `IsEligible`, not inside `PathCareerStintFilter`, since it is not a
+  stint-level fact. This closes a gap surfaced by a 2026-08-18 user QA pass
+  over freshly-generated xG Path rounds (`docs/backlog.md` Epic 19): a
+  puzzle for a structurally eligible target rendered "Position: not
+  available" on the puzzle screen because `Player.Position` was `null` for
+  that row. `Player.Position` staying `null` forever for a subset of rows
+  is already-documented, deliberate REQ-1207 behavior (a data gap, not a
+  code bug) — but nothing previously stopped a `Position == null`
+  candidate from being SELECTED as a puzzle target in the first place,
+  unlike `BirthYear`, which ADR-0073/S-137 already excludes on `null`.
+  **Fail-closed on `Position == null` or `Position == ""`:** a candidate
+  with no recorded position is excluded, not included — the same
+  fail-closed convention this REQ's `BirthYear` check above already
+  established (ADR-0070; ADR-0073), applied here to a second, independent
+  field. This check is completely independent of the `BirthYear >= 1975`
+  floor and of REQ-112's pool-membership check — a candidate can fail
+  either, both, or neither, and evaluation order does not matter since all
+  are simple boolean conditions. See ADR-0079 for the full reasoning and
+  the alternatives considered.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -7288,6 +7315,14 @@ not a claim about current behavior.
   excluded) rather than being treated as passing it — this is the opposite
   of the "unknown appearance count passes" treatment used for the
   seeded-club-stint check above, which does not apply here
+- And (2026-08-18, S-161) the candidate's `Player.Position` must also be
+  non-null and non-empty — a second, independent, xG-Path-only floor,
+  additive to and evaluated independently of both the `BirthYear >= 1975`
+  floor above and the REQ-112 pool-membership check; a candidate whose
+  `Player.Position` is `null` or an empty string fails this check
+  (fail-closed, excluded) rather than being treated as passing it, the
+  same fail-closed treatment as the `BirthYear` check above, now applied
+  to a second field
 - And (ADR-0056, added 2026-08-02) the player must be judged "familiar
   enough" by the familiarity filter — a Wikipedia sitelink count that
   resolves to at least the configured threshold — UNLESS the filter itself
@@ -7314,7 +7349,13 @@ only, per the backlog story's own acceptance criteria — this check lives in
 `XGPathGameModule.GetEligiblePlayerIdsAsync`, not `PathCareerStintFilter`,
 so `PathCareerStintFilterTests.cs` carries only an explanatory comment
 noting why this rule has no stint-level surface to test, not a fixture
-case. ADR-0056's familiarity
+case. `Player.Position` eligibility floor (2026-08-18, S-161): same shape
+as the `BirthYear` boundary immediately above — `Position == null`
+(excluded, fail-closed) and a non-null `Position` (e.g. `"Forward"`,
+included, positive control) are covered by fixtures in
+`XGPathGameModuleTests.cs` only, this check likewise living in
+`XGPathGameModule.GetEligiblePlayerIdsAsync` rather than
+`PathCareerStintFilter`, for the same reason. ADR-0056's familiarity
 filter: `XGPathGameModuleTests` covers the game-module-level wiring — below
 threshold, at/above threshold, structural-ineligibility candidates never
 even reaching the filter — via `FakePlayerFamiliarityService`;
