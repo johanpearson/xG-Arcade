@@ -6976,36 +6976,72 @@ precedent for what NOT to repeat blind twice in the same file).
 *Deps:* none structurally, but should land in a session with real
 `dotnet test` access given the invariant risk described above.
 
-**S-163 · xG Path: investigate loan/nested-stint display for club-reveal clues (design question, not yet a code fix)**
+**S-163 · xG Path: infer and label loan spells on club-reveal clues (decision made 2026-08-19: build the heuristic, option (b) below)**
 A puzzle matching David Beckham's real career rendered "Manchester United"
 and "Preston North End" together in the same club-reveal turn — real-world,
 Preston was a loan spell chronologically NESTED inside the Man Utd stint
 (1994-95, inside 1992-2003), not a sequential "next club." Nothing in
 `PlayerCareerStint`/`ClubDefinition` records loan-vs-permanent status or a
 parent-club relationship at all (confirmed: no such field exists —
-ADR-0042 is the data-model ADR and does not mention one), so there is no
-data to render a "(loan)" qualifier from without either (a) a real schema
-addition (new column, new Wikidata property to source it from — P1642
-"on loan from" via Wikidata `wdt:P1642` is a candidate, unverified from
-this sandbox, no wikidata.org access), which is real Tier 1/2-shaped scope
-per `MVP-SCOPE.md`, not a bug-fix-sized change, or (b) a heuristic inferred
-purely from date overlap (a stint whose `[StartYear, EndYear]` range is
-fully contained within a DIFFERENT club's concurrent range is PROBABLY a
-loan) — the same class of imprecise, iteratively-refined heuristic
-`PathCareerStintFilter`'s `NationalTeamPattern`/`BTeamPattern` already are,
-with the same false-positive/negative risk profile, and the same "needs
-its own ADR before landing" bar ADR-0075 sets. **Do not implement either
-option without a product decision first** — unlike S-161/S-162, this
-isn't a case where the "correct" fix is already unambiguous once traced;
-whether an inferred, unverified "(loan)" label is better or worse than
-today's unlabeled-but-honest club-name display is a genuine judgment call.
-File this as a requirements-writer/architecture-reviewer discussion before
-any `backend-implementer` work: does REQ-1203 need an explicit acceptance
-criterion about loan/nested stints at all, or is "every documented stint
-is shown, in chronological order, with no claim about employment status"
-an acceptable, already-met bar that this bug report's "could be
-interpreted as incorrect" concern doesn't actually violate?
-*Accept:* a decision recorded (ADR if a heuristic/schema change is chosen;
-a REQ-1203 status note explicitly declining to change behavior if not) —
-not necessarily a code change.
-*Deps:* none.
+ADR-0042 is the data-model ADR and does not mention one). Two options were
+considered: (a) a real schema addition sourced from Wikidata's P1642 "on
+loan from" property — real Tier 1/2-shaped scope per `MVP-SCOPE.md`, out
+of reach from this sandbox (no wikidata.org access) regardless; (b) a
+heuristic inferred purely from date-range containment (a stint whose
+`[StartYear, EndYear]` is fully contained within a DIFFERENT club's
+concurrent range is PROBABLY a loan) — the same class of imprecise,
+iteratively-refined heuristic `PathCareerStintFilter`'s
+`NationalTeamPattern`/`BTeamPattern` already are, same false-positive/
+negative risk profile, same "needs its own ADR" bar ADR-0075 sets.
+**Decision (explicit product request, 2026-08-19): build (b), accepting
+the inference-accuracy trade-off as a deliberate experiment ("test out")
+rather than a load-bearing correctness claim** — this is presentation-only
+(no eligibility/scoring impact) and reversible (a single boolean flowing
+through, easy to strip back out if the false-positive rate turns out
+unacceptable in practice).
+**The exact interface contract** (both backend and frontend implement
+against this, independently, in parallel):
+- New method in `PathCareerStintFilter.cs`:
+  `public static bool IsInferredLoan(PlayerCareerStint stint, IReadOnlyList<PlayerCareerStint> allStints)`
+  — true when `allStints` contains a DIFFERENT-`ClubName` stint whose
+  range fully contains `stint`'s: `other.StartYear <= stint.StartYear &&
+  (other.EndYear is null || (stint.EndYear is not null && other.EndYear
+  >= stint.EndYear))`. Conservative on purpose: a stint with a null
+  `EndYear` (still ongoing) is never itself flagged as contained (an
+  ongoing stint can't be "inside" anything yet), but CAN be the containing
+  stint for an earlier-ended one.
+- `PathClubClue` (`PathClueTurn.cs`) gains a third field:
+  `bool IsLoan = false` (default keeps every existing positional
+  `new PathClubClue(name, count)` call site — tests included — compiling
+  unchanged).
+- `PathClueSequenceBuilder.BuildSequence` passes `IsLoan:
+  PathCareerStintFilter.IsInferredLoan(s, stintsChronological)` when
+  building each turn's `PathClubClue`s (it already has the full
+  `stintsChronological` list in scope).
+- `PathClubClueResponse` (`PathEndpoints.cs`) and its `ToTurnResponse`
+  mapping gain the same `bool IsLoan` field, propagated straight through.
+- Frontend `PathClubClue` (`frontend/src/lib/types.ts`) gains `isLoan:
+  boolean`; `PathTimeline.tsx`'s `ClubReveal` rendering (around its
+  existing `club.appearanceCount != null &&` conditional span) renders a
+  small "(loan)" text qualifier next to the club name when `club.isLoan`
+  is true — reuse an existing muted/secondary text token from
+  `design-document.md` §2, do not introduce a new color/weight for this.
+**Accept:** `PathCareerStintFilterTests.cs` cases for `IsInferredLoan` —
+fully contained (true), partial overlap only (false), no overlap (false),
+identical range different club (edge case — document the chosen behavior,
+don't leave it unspecified), an ongoing (`EndYear: null`) stint as the
+candidate being tested (false, per the conservative rule above), an
+ongoing stint as the containing stint for an earlier-ended one (true).
+`PathClueSequenceBuilderTests.cs` updated/extended for `IsLoan` wiring.
+A `PathTimelineTests` (Vitest) case renders a loan-flagged club clue and
+asserts the qualifier appears. New ADR (mirrors ADR-0075's shape: Context/
+Decision/Alternatives/Consequences/For-AI-agents, explicit "not verified
+against live Wikidata or production data" disclosure, explicit "this is a
+deliberate experiment, expected to need iteration" framing matching how
+this session's own investigation found `NationalTeamPattern`/`BTeamPattern`
+needed follow-up corrections). REQ-1203 status note (new dated addendum,
+same style as the national-team/B-team ones already in that REQ).
+*Deps:* none. Backend (`XGPathGameModule`/`PathCareerStintFilter`/
+`PathEndpoints.cs`) and frontend (`types.ts`/`PathTimeline.tsx`) can be
+built in parallel against the interface contract above without waiting on
+each other.
