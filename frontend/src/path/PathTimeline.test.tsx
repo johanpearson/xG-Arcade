@@ -3,10 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { PathTimeline } from './PathTimeline';
 import type { PathClueTurn } from '../lib/types';
 
-const clubTurn = (turnNumber: number, clubs: { clubName: string; appearanceCount: number | null }[]): PathClueTurn => ({
+const clubTurn = (
+  turnNumber: number,
+  clubs: { clubName: string; appearanceCount: number | null; isLoan?: boolean }[],
+): PathClueTurn => ({
   turnNumber,
   kind: 'ClubReveal',
-  clubs,
+  // S-163: isLoan defaults to false for every existing call site in this
+  // file that predates the field, mirroring the backend's own
+  // `bool IsLoan = false` default (docs/backlog.md S-163) — only the new
+  // loan-specific tests below opt in explicitly.
+  clubs: clubs.map((club) => ({ isLoan: false, ...club })),
   yearRanges: null,
   textValue: null,
 });
@@ -101,6 +108,43 @@ describe('PathTimeline', () => {
     expect(screen.getByText('Ajax')).toBeInTheDocument();
     expect(screen.queryByText(/apps/)).not.toBeInTheDocument();
     expect(screen.queryByText('0 apps')).not.toBeInTheDocument();
+  });
+
+  // S-163: `isLoan` is a presentation-only heuristic flag (date-range
+  // containment, e.g. Beckham's 1994-95 Preston North End loan nested
+  // inside his 1992-2003 Man Utd stint) — see PathClubClue.isLoan's own
+  // doc comment in lib/types.ts. Real-world example matching the backlog
+  // story's own motivating case.
+  it('S-163: renders a "(loan)" qualifier next to a club flagged isLoan: true', () => {
+    const clues: PathClueTurn[] = [
+      clubTurn(1, [
+        { clubName: 'Manchester United', appearanceCount: 265 },
+        { clubName: 'Preston North End', appearanceCount: 5, isLoan: true },
+      ]),
+    ];
+
+    render(<PathTimeline clues={clues} solved={false} locked={false} />);
+
+    expect(screen.getByText('(loan)')).toBeInTheDocument();
+    // The qualifier sits within Preston North End's own club block, not
+    // Manchester United's.
+    const node = screen.getByRole('listitem');
+    const clubBlocks = node.querySelectorAll('.path-timeline__club');
+    expect(clubBlocks[0]).not.toHaveTextContent('(loan)');
+    expect(clubBlocks[1]).toHaveTextContent('(loan)');
+  });
+
+  it('S-163: renders no "(loan)" qualifier when isLoan is false (or simply omitted)', () => {
+    const clues: PathClueTurn[] = [
+      clubTurn(1, [
+        { clubName: 'Manchester United', appearanceCount: 265, isLoan: false },
+        { clubName: 'Real Madrid', appearanceCount: 116 },
+      ]),
+    ];
+
+    render(<PathTimeline clues={clues} solved={false} locked={false} />);
+
+    expect(screen.queryByText('(loan)')).not.toBeInTheDocument();
   });
 
   it('REQ-1207: a "not available" position/nationality/age still renders its own turn rather than being skipped', () => {

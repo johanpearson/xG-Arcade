@@ -150,6 +150,14 @@ function renderClueContent(turn: PathClueTurn, revealedClubNames: string[]) {
           <div key={club.clubName} className="path-timeline__club">
             <CategoryGlyph categoryType="club" value={club.clubName} size="small" />
             <span className="path-timeline__club-name">{club.clubName}</span>
+            {/* S-163: a presentation-only heuristic ("probably a loan," inferred
+                from date-range containment, not a sourced fact — see
+                PathClubClue.isLoan's own doc comment in lib/types.ts) — reuses
+                the existing muted-secondary-text treatment
+                (.path-timeline__club-apps' own --color-text-muted/12px rule)
+                rather than introducing a new badge color/weight, per
+                design-document.md §2's "no ad-hoc token" rule. */}
+            {club.isLoan && <span className="path-timeline__club-apps">(loan)</span>}
             {club.appearanceCount != null && (
               <span className="path-timeline__club-apps mono-figure">{club.appearanceCount} apps</span>
             )}

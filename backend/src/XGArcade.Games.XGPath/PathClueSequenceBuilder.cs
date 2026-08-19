@@ -50,7 +50,8 @@ public static class PathClueSequenceBuilder
             var clubsInTurn = stintsChronological
                 .Skip(cursor)
                 .Take(size)
-                .Select(s => new PathClubClue(s.ClubName, s.AppearanceCount))
+                .Select(s => new PathClubClue(s.ClubName, s.AppearanceCount,
+                    IsLoan: PathCareerStintFilter.IsInferredLoan(s, stintsChronological)))
                 .ToList();
             cursor += size;
 

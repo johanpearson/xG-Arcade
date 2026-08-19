@@ -6976,7 +6976,7 @@ precedent for what NOT to repeat blind twice in the same file).
 *Deps:* none structurally, but should land in a session with real
 `dotnet test` access given the invariant risk described above.
 
-**S-163 · xG Path: infer and label loan spells on club-reveal clues (decision made 2026-08-19: build the heuristic, option (b) below)**
+**S-163 · xG Path: infer and label loan spells on club-reveal clues — SHIPPED**
 A puzzle matching David Beckham's real career rendered "Manchester United"
 and "Preston North End" together in the same club-reveal turn — real-world,
 Preston was a loan spell chronologically NESTED inside the Man Utd stint
@@ -7004,12 +7004,16 @@ against this, independently, in parallel):
 - New method in `PathCareerStintFilter.cs`:
   `public static bool IsInferredLoan(PlayerCareerStint stint, IReadOnlyList<PlayerCareerStint> allStints)`
   — true when `allStints` contains a DIFFERENT-`ClubName` stint whose
-  range fully contains `stint`'s: `other.StartYear <= stint.StartYear &&
-  (other.EndYear is null || (stint.EndYear is not null && other.EndYear
-  >= stint.EndYear))`. Conservative on purpose: a stint with a null
-  `EndYear` (still ongoing) is never itself flagged as contained (an
-  ongoing stint can't be "inside" anything yet), but CAN be the containing
-  stint for an earlier-ended one.
+  range fully contains `stint`'s: `stint.EndYear is not null &&
+  (other.StartYear <= stint.StartYear && (other.EndYear is null ||
+  other.EndYear >= stint.EndYear))`. Conservative on purpose: a stint with
+  a null `EndYear` (still ongoing) is never itself flagged as contained —
+  the `stint.EndYear is not null` guard must gate the WHOLE expression
+  (an ongoing stint can't be "inside" anything yet, regardless of what
+  else is going on), not just the second branch of the inner `||` (a
+  guard placed there would short-circuit to `true` whenever `other` is
+  also ongoing, without ever consulting `stint.EndYear`) — but CAN be the
+  containing stint for an earlier-ended one.
 - `PathClubClue` (`PathClueTurn.cs`) gains a third field:
   `bool IsLoan = false` (default keeps every existing positional
   `new PathClubClue(name, count)` call site — tests included — compiling

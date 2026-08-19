@@ -30,6 +30,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   is a pure runtime-filter addition inside the already-documented COMP-11
   (Games.XGPath), with no new component, boundary, data flow, or data-model
   field.
+- 2026-08-19 — `docs/requirements-document.md` (v1.93, REQ-1203 dated
+  status note for the new inferred-loan label), `docs/decisions/0080-xg-path-inferred-loan-label.md`
+  (new), `docs/backlog.md` (S-163 marked SHIPPED) — closes the Beckham/
+  Preston loan-shown-as-a-peer-club concern from the same 2026-08-18 QA
+  report S-161 (Position eligibility floor) already fixed: an inferred,
+  heuristic, presentation-only "(loan)" qualifier now appears on xG Path
+  club-reveal clues when a stint's date range is fully contained within a
+  different club's concurrent stint. New `PathCareerStintFilter.IsInferredLoan`
+  flows through `PathClubClue.IsLoan` → `PathClubClueResponse.IsLoan` (API)
+  → frontend `PathClubClue.isLoan` → the qualifier in `PathTimeline.tsx`;
+  no eligibility/scoring impact. A quality-gate review caught and fixed a
+  short-circuit bug in the original containment formula before it reached
+  production — the shipped version gates the whole check on
+  `stint.EndYear is not null` rather than only one branch of the inner
+  `||` (ADR-0080). `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and need no change: this
+  is a runtime-filter/annotation addition inside the already-documented
+  COMP-11 (Games.XGPath), with no new component, boundary, data flow, or
+  data-model field — `PathClubClue`/`PathClubClueResponse` are existing
+  DTOs gaining one field.
 - 2026-08-18 — `.github/workflows/backfill-player-photos.yml` (re-added),
   `docs/implementation-document.md` (v1.04) — re-created the
   `backfill-player-photos` workflow wrapper S-132 deleted (2026-08-17) as a

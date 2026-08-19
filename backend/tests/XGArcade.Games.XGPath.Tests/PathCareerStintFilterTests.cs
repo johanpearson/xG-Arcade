@@ -472,4 +472,120 @@ public class PathCareerStintFilterTests
 
         Assert.That(filtered.Select(s => s.ClubName), Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }));
     }
+
+    // ==== S-163/ADR-0080: PathCareerStintFilter.IsInferredLoan — the ======
+    // ==== date-range-containment loan heuristic (see that method's own ====
+    // ==== doc comment in PathCareerStintFilter.cs for the exact rule, its =
+    // ==== two ongoing-stint edge cases, and the identical-range-different- =
+    // ==== club decision this section pins down as real tests) =============
+
+    private static PlayerCareerStint StintWithRange(string clubName, int startYear, int? endYear) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = Guid.NewGuid(),
+            ClubName = clubName,
+            StartYear = startYear,
+            EndYear = endYear,
+        };
+
+    [Test]
+    public void REQ1203_IsInferredLoan_FullyContainedDifferentClubStint_ReturnsTrue()
+    {
+        // Beckham-shaped: Man Utd 1992-2003 fully contains Preston 1994-95.
+        var manUtd = StintWithRange("Manchester United", 1992, 2003);
+        var preston = StintWithRange("Preston North End", 1994, 1995);
+        var allStints = new[] { manUtd, preston };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(preston, allStints), Is.True);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_PartialOverlapOnly_ReturnsFalse()
+    {
+        // Overlaps 2011-2013 but neither stint's range fully contains the
+        // other's — a real overlapping-transfer-window shape, not a loan.
+        var clubA = StintWithRange("Club A", 2010, 2013);
+        var clubB = StintWithRange("Club B", 2011, 2015);
+        var allStints = new[] { clubA, clubB };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(clubA, allStints), Is.False);
+        Assert.That(PathCareerStintFilter.IsInferredLoan(clubB, allStints), Is.False);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_NoOverlapAtAll_ReturnsFalse()
+    {
+        var clubA = StintWithRange("Club A", 2010, 2013);
+        var clubB = StintWithRange("Club B", 2013, 2016);
+        var allStints = new[] { clubA, clubB };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(clubA, allStints), Is.False);
+        Assert.That(PathCareerStintFilter.IsInferredLoan(clubB, allStints), Is.False);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_IdenticalRangeDifferentClub_ReturnsTrue()
+    {
+        // Documented decision (PathCareerStintFilter.IsInferredLoan's own
+        // doc comment, edge case 3): the contract's non-strict <=/>=
+        // comparisons mean an identical date range on a different club DOES
+        // satisfy containment, symmetrically for both stints. This is a
+        // deliberate, documented trade-off, not an oversight — presentation-
+        // only, no eligibility impact.
+        var clubA = StintWithRange("Club A", 2010, 2013);
+        var clubB = StintWithRange("Club B", 2010, 2013);
+        var allStints = new[] { clubA, clubB };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(clubA, allStints), Is.True);
+        Assert.That(PathCareerStintFilter.IsInferredLoan(clubB, allStints), Is.True);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_CandidateStintItselfOngoing_ReturnsFalse()
+    {
+        // Conservative rule: an ongoing stint (EndYear: null) is never
+        // itself flagged as contained, even though a different, wider,
+        // also-ongoing stint started earlier — it might yet outlast it.
+        var wideOngoing = StintWithRange("Club A", 2000, null);
+        var candidateOngoing = StintWithRange("Club B", 2010, null);
+        var allStints = new[] { wideOngoing, candidateOngoing };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(candidateOngoing, allStints), Is.False);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_ContainingStintIsOngoing_EarlierEndedCandidate_ReturnsTrue()
+    {
+        // The CONTAINING stint being ongoing (EndYear: null) CAN still mark
+        // an earlier-ended stint at a different club as a loan — an
+        // open-ended stint that started before the candidate necessarily
+        // still "covers" it today.
+        var ongoingParentClub = StintWithRange("Parent Club", 2005, null);
+        var earlierEndedLoan = StintWithRange("Loan Club", 2010, 2011);
+        var allStints = new[] { ongoingParentClub, earlierEndedLoan };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(earlierEndedLoan, allStints), Is.True);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_NoOtherStints_ReturnsFalse()
+    {
+        var onlyStint = StintWithRange("Club A", 2010, 2013);
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(onlyStint, new[] { onlyStint }), Is.False);
+    }
+
+    [Test]
+    public void REQ1203_IsInferredLoan_SameClubDifferentStintRecords_NeverSelfFlagged()
+    {
+        // A same-named club appearing twice (e.g. two separate spells) must
+        // never count as "a different club" containing the other, even if
+        // their ranges would otherwise satisfy containment.
+        var firstSpell = StintWithRange("Club A", 2000, 2020);
+        var secondSpellSameClub = StintWithRange("Club A", 2005, 2010);
+        var allStints = new[] { firstSpell, secondSpellSameClub };
+
+        Assert.That(PathCareerStintFilter.IsInferredLoan(secondSpellSameClub, allStints), Is.False);
+    }
 }
