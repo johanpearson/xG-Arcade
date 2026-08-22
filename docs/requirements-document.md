@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.94"
+version: "1.95"
 status: draft
-last_updated: 2026-08-19
+last_updated: 2026-08-22
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -8619,6 +8619,139 @@ pattern `AccountMetricsSection` already establishes).
 
 ---
 
+### 4.13 Cross-game player experience
+
+Requirements in this section apply uniformly to every game xG Arcade
+hosts (currently xG Grid and xG Path, and any game added later) — they
+are written in terms of the shared `Round`/cell model (ADR-0003), never
+in terms of one game's own internals, so a new game does not need its own
+copy of the requirement.
+
+**REQ-1210 – Round-completion animation with current points and a
+leaderboard link**
+> As a player, I want a completion animation when I finish a round of any
+> game, showing my current points for that round and a link straight to
+> that round's leaderboard for that specific game, so I get immediate
+> feedback and can immediately see how I compare to others on this round.
+
+- **Context — no generic completion signal exists today.** Neither game's
+  current-round response DTO (`CurrentRoundResponse`, `CurrentPathResponse`
+  in `frontend/src/lib/types.ts`) carries an `isComplete`/equivalent field.
+  `GridScreen.tsx` never branches on completion at all (it always shows
+  "X/Y answered"); `PathScreen.tsx` has only an inline, ad hoc `locked &&
+  isLastPuzzle` check with no hoisted signal, generic signal, or shared
+  component. This requirement specifies the observable trigger, the
+  points value, and the link's destination only — it deliberately does
+  not mandate whether "round complete" is computed backend-side (e.g. a
+  new response field) or frontend-side (e.g. derived from the existing
+  per-cell data both games' current-round responses already return), or
+  what mechanism carries a round-scoped, game-scoped leaderboard link
+  given the frontend's hash-based, flat-lookup-table routing (ADR-0039)
+  has no per-round/per-game parameterized route today — see the "Needs an
+  ADR" note below.
+- **Context — reuses existing scoring, introduces no new formula.** Today
+  neither game exposes a single "my current total for this round" value
+  from the backend; `GridScreen.tsx`'s `totalKnownPoints` sums each
+  cell's live/locked value client-side ad hoc, and xG Path's `GET
+  /path/current` only returns each puzzle's own locked `Points` (REQ-1206)
+  with no round-level sum anywhere. This requirement does not introduce a
+  second scoring path — the value it requires is the sum of exactly the
+  values each game's own existing live/locked per-cell scoring already
+  treats as authoritative (REQ-204/205/206 for xG Grid; REQ-1206 for xG
+  Path), computed however the game already computes them.
+- Given a round instance's fixed set of cells for a specific player (xG
+  Grid's grid cells, REQ-101/102; xG Path's puzzles, REQ-1202 — both
+  represented as cells in the shared `Round`/`IGameModule` model, ADR-0003)
+- When that player's own guessing activity resolves the last cell
+  available to them — i.e., every cell in the round now has a locked
+  outcome for that player, each either correctly guessed (REQ-210/1204)
+  or incorrect with attempts exhausted (REQ-210/1205)
+- Then a completion animation is shown to that player, distinguishing this
+  moment from ordinary in-progress play
+- Given that trigger, when the completion animation is displayed
+- Then it shows a current-points value for that round that is numerically
+  identical, at that instant, to whatever value that same game already
+  treats as this player's authoritative current total for that round — for
+  xG Grid, the sum of each cell's live/locked value exactly as already
+  computed for in-progress play (REQ-204/206); for xG Path, the sum of
+  each locked puzzle's own points value (REQ-1206) — never a second,
+  independently-computed total
+- And the value's presentation follows whichever wording convention that
+  game's own live-scoring requirement already established — xG Grid's
+  "~N pts estimated"/provisional framing (REQ-204/213), since another
+  player's still-open guess on a shared cell can still change this
+  player's own completed total until the round actually closes (REQ-205);
+  xG Path's plain, non-provisional "N pts" wording (REQ-1206), since a
+  locked xG Path puzzle's points never change afterward — this requirement
+  does not introduce a third wording convention
+- Given the round this player just completed has not yet closed (REQ-302)
+  at the moment the animation is shown
+- When a player activates the leaderboard link inside the animation
+- Then they are taken directly to that specific round's live leaderboard
+  for that specific game (REQ-407), already scoped to it — not the
+  generic all-time leaderboard landing view, and without the player
+  needing to separately select the round or the game themselves
+- Given the round this player just completed has already closed (REQ-205)
+  by the time the animation is shown or the link is activated
+- When a player activates the leaderboard link
+- Then they are taken instead to that specific round's closed, final
+  leaderboard for that specific game (REQ-408) — the link never 404s,
+  errors, or silently falls back to the generic all-time leaderboard
+  merely because the round closed in the interim
+- Given a player has `prefers-reduced-motion` enabled
+- When the completion trigger above occurs
+- Then the current-points value and the leaderboard link are both still
+  shown immediately, without either being gated behind an animation
+  actually playing — matching this document's established pattern for
+  every other animation (`docs/design-document.md` §2's badge-dock and
+  rejected-guess cues, REQ-212/S-020), which each keep their functional
+  content/cue while only removing the motion itself
+
+**Test level:** Unit (whichever component computes the completion trigger
+returns true only once every cell for that player is locked, for both an
+xG Grid fixture and an xG Path fixture, and false for a partially-answered
+round), Unit/API (the current-points value surfaced at completion matches
+exactly what that game's own existing live/locked scoring path already
+returns for the same round/player, with no divergent calculation), UI
+(component: the animation renders the current-points value with that
+game's own established wording convention and a leaderboard link; the
+link's destination resolves to REQ-407's live view while the round is
+still active and to REQ-408's closed view once it has closed;
+`prefers-reduced-motion` still renders both the points value and the link
+without requiring the animation to play), E2E (Playwright: answering a
+round's last cell in xG Grid, and separately in xG Path, each show the
+completion animation with the correct current points; activating the
+leaderboard link lands on that exact round+game's leaderboard, pre-scoped,
+not the all-time view; the closed-round case is exercised via REQ-806's
+force-close test-data endpoint).
+
+**Needs an ADR:** two structural, "could reasonably have gone another
+way" decisions are deliberately left open here, not decided in this
+requirement:
+1. **How "round complete" is signaled generically across games.** Options
+   include a new boolean/field on each game's current-round response DTO,
+   a shared derivation computed frontend-side from data both DTOs already
+   return, or some other shared mechanism — any of these must resolve
+   through each game's existing `IGameModule` contract or its response
+   shape, never a game-specific special case hard-coded into a
+   cross-game component, per ADR-0003's boundary.
+2. **How a round-scoped, game-scoped leaderboard link is reached without a
+   router.** ADR-0039 deliberately chose a flat, hand-rolled hash lookup
+   table for exactly six fixed screens and explicitly named "a per-round or
+   per-league detail URL" as the trigger for revisiting that decision (see
+   ADR-0039's own "Follow-up" note) — this requirement's leaderboard link
+   is precisely that trigger. Whether this is solved by extending the
+   existing lookup table with parameters, introducing a real router
+   (superseding ADR-0039), or an in-memory navigation mechanism that
+   doesn't touch the URL at all is not decided here.
+
+Flagged for `architecture-reviewer`/the implementer to resolve, via a new
+ADR (or an amendment/supersession of ADR-0039 for point 2), before or
+alongside implementation — a requirements document specifies WHAT and HOW
+TO VERIFY, not HOW TO BUILD.
+
+---
+
 ## 5. Decisions made as sensible technical defaults
 
 The following were open questions in earlier drafts. They're implementation
@@ -8844,3 +8977,24 @@ need a real league-tier data model — explicitly out of scope for the
 problem actually diagnosed here, and already rejected on the same
 "disproportionate to the problem" grounds by ADR-0047's own alternatives
 table for a closely related eligibility question.
+
+**New (2026-08-22), unresolved:** REQ-1210 (round-completion animation)
+specifies the trigger as the moment a player's own guessing activity locks
+the last cell available to them in a round. It deliberately does not say
+whether that animation should play only the first time this happens, or
+every time the player subsequently views that round after it is already
+complete (e.g. reloading the page, or navigating back into the
+game screen after finishing). This is a genuine product/UX decision, not
+a technical default: there is no directly applicable existing precedent
+either way — `docs/design-document.md` §2's badge-dock cue deliberately
+replays on every reveal, but that is a small, user-initiated, per-cell
+interaction, not an automatic, full-round celebration, so extending that
+precedent by analogy would be guessing, not following an established
+pattern. Playing it every time risks feeling repetitive/annoying on a
+revisit; playing it only once requires persisting "has this player already
+seen the completion animation for this round" somewhere (a genuine new
+piece of state, not currently modeled anywhere), which is itself a
+build-order/scope question this document shouldn't answer by default.
+Recorded here pending a product decision; REQ-1210's own acceptance
+criteria describe only the trigger condition and content, not replay
+frequency, until this is resolved.
