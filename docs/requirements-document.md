@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.93"
+version: "1.94"
 status: draft
 last_updated: 2026-08-19
 owner: Johan
@@ -7785,6 +7785,41 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   same kind of iterative correction those two filters needed after landing
   (see their own dated notes above) once real false positives/negatives
   surface against production data.
+- **Status note (2026-08-19, S-162, Epic 19 — ADR-0081): club-reveal clues
+  no longer render chronologically-adjacent, identically-named
+  `PlayerCareerStint` rows as separate entries.** A 2026-08-18 QA report
+  showed a target whose real career included three consecutive Wikidata
+  statements for the same club (e.g. a squad-list renewal or a
+  sell-then-loan-back split across statements) rendered as three
+  back-to-back club-reveal entries for the identical club name — reading as
+  broken/duplicated data. `DuplicateCareerStintCleaner`/ADR-0063 cannot fix
+  this: that class only ever DELETES a persisted row after proving it's the
+  literal same real-world stint, and explicitly refuses to merge two rows
+  with different, both-populated `AppearanceCount` values (they could be a
+  genuine loan-and-return). `PathCareerStintFilter.CollapseAdjacentSameClub`
+  is a different, narrower, read-time-only mechanism: it merges
+  chronologically ADJACENT (nothing else in between) rows sharing an
+  identical `ClubName` into one displayed entry — earliest `StartYear`,
+  latest `EndYear`, and `AppearanceCount` summed only if every merged row's
+  count is known (a `null` on any merged row makes the whole merged total
+  `null`, deliberately NOT `DuplicateCareerStintCleaner`'s null-tolerant
+  single-value-propagation rule, since appearance counts are additive
+  across a continuous chapter and silently treating an unknown segment as
+  contributing zero would understate a real total). No `PlayerCareerStint`
+  row is ever deleted or mutated — this only changes what a already-fetched
+  list looks like at the two places that turn it into eligibility/clue
+  content. Applied identically, in the identical chain position (after
+  `ExcludeNationalTeams`/`ExcludeBTeams`), at BOTH
+  `XGPathGameModule.GetEligiblePlayerIdsAsync` (so
+  REQ-1201's `MinDocumentedStintCount >= 3` floor is judged against the
+  POST-collapse count, not the raw row count — a candidate whose real
+  stints collapse to fewer than 3 chapters is correctly excluded, the same
+  "never diverge between eligibility and display" invariant
+  `ExcludeNationalTeams`/`ExcludeBTeams` already established) and
+  `GET /path/current`'s clue-building path. A documented, intentional side
+  effect: a player whose true single-club appearance total was split
+  across two adjacent sub-threshold rows now correctly counts toward
+  REQ-1201's seeded-club appearance-count bar once merged — see ADR-0081.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -7812,6 +7847,12 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   heuristic annotation only, not a guaranteed-correct employment-status
   claim, and its presence or absence never changes which clubs are
   revealed, their order, or their appearance counts
+- And (2026-08-19, S-162) chronologically adjacent documented stints at the
+  identical club are revealed as ONE club-reveal entry, not one per
+  underlying `PlayerCareerStint` row — this collapsing changes what `N`
+  (the total club count driving the 3-way turn split above) counts as one
+  chapter, but never reorders or drops a real club, and never applies
+  across a gap where a different club's stint sits in between
 - And once all 3 club-reveal turns have happened and the player has not
   yet guessed correctly, exactly one further clue is revealed showing the
   start-end year range for every club stint already revealed (e.g.
@@ -7923,6 +7964,24 @@ exactly the contained stint, never its container or an unrelated club.
 Frontend: `PathTimeline.test.tsx` covers the "(loan)" text qualifier
 rendering when a club clue is flagged `isLoan: true` and its absence when
 `isLoan` is `false` or omitted.
+Adjacent-same-club collapse (2026-08-19, S-162, ADR-0081):
+`PathCareerStintFilterTests` adds `REQ1203_CollapseAdjacentSameClub_*`
+covering a 2-row merge (summed count), a 3-row merge (one result, not
+two), a same-club pair with a different club in between (does NOT merge),
+one known + one unknown `AppearanceCount` in a run (merged result is
+`null`, not the known value alone), an all-unknown run (`null`), an
+ongoing last stint in a run (`EndYear` stays `null`, count still sums), a
+single-stint passthrough, and an empty-input no-op. `XGPathGameModuleTests`
+adds `REQ1203_GenerateInstanceAsync_CandidateWithThreeRawStintsButTwoPostCollapse_NeverSelected`
+(a candidate whose raw row count meets `MinDocumentedStintCount` but whose
+post-collapse chapter count does not must still be rejected) and its
+positive-control sibling
+`REQ1203_GenerateInstanceAsync_CandidateWithAdjacentSameClubPair_StillEligible_PoolDoesNotShrinkBelowPuzzleCount`
+(a genuinely eligible candidate with an adjacent same-club pair is still
+selected). `PathClueSequenceBuilderTests` adds a composition-level test
+confirming `CollapseAdjacentSameClub` output feeds correctly into
+`BuildSequence` (the builder itself has no collapse-awareness — collapse
+is applied only by its two callers).
 UI: **(2026-08-04 addition)** the round end-time
 indicator's presence/wiring on SCREEN-10 is covered by
 `PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per

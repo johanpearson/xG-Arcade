@@ -146,9 +146,22 @@ public static class PathEndpoints
                 // B-team/reserve-team row (e.g. "Barcelona Atlètic") never
                 // reaches PathClueSequenceBuilder as a raw clue-reveal club
                 // name either.
+                // S-162 (2026-08-19, REQ-1203/ADR-0081): CollapseAdjacentSameClub
+                // now runs after the two Excludes (identical chain and
+                // ordering to XGPathGameModule.GetEligiblePlayerIdsAsync's own
+                // eligibility check — see that method's INVARIANT comment),
+                // so a target whose real career has adjacent same-club rows
+                // (e.g. three consecutive "Lille" rows) renders as ONE
+                // club-reveal entry, not three duplicate-looking ones. The
+                // OrderBy(SequenceOrder) below is placed immediately before
+                // Collapse, not after it, because Collapse's own doc comment
+                // requires chronologically sorted input to identify "adjacent"
+                // correctly.
                 var stints = stintsByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var playerStints)
-                    ? PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(playerStints))
-                        .OrderBy(s => s.SequenceOrder).ToList()
+                    ? PathCareerStintFilter.CollapseAdjacentSameClub(
+                        PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(playerStints))
+                            .OrderBy(s => s.SequenceOrder)
+                            .ToList())
                     : [];
                 playersById.TryGetValue(puzzle.TargetPlayerId, out var targetPlayer);
                 var nationality = attributesByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var attributes)

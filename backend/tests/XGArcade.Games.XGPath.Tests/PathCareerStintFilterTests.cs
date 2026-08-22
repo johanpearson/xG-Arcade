@@ -588,4 +588,162 @@ public class PathCareerStintFilterTests
 
         Assert.That(PathCareerStintFilter.IsInferredLoan(secondSpellSameClub, allStints), Is.False);
     }
+
+    // ==== S-162/ADR-0081: PathCareerStintFilter.CollapseAdjacentSameClub — =
+    // ==== the read-time, display-only collapse of ADJACENT same-ClubName ===
+    // ==== PlayerCareerStint rows (see that method's own doc comment in =====
+    // ==== PathCareerStintFilter.cs for the exact per-field merge rule, ====
+    // ==== especially the null-vs-sum AppearanceCount reasoning this ========
+    // ==== section pins down as real tests) ==================================
+
+    private static PlayerCareerStint StintWithSequence(
+        string clubName, int startYear, int? endYear, int sequenceOrder, int? appearanceCount) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = Guid.NewGuid(),
+            ClubName = clubName,
+            StartYear = startYear,
+            EndYear = endYear,
+            SequenceOrder = sequenceOrder,
+            AppearanceCount = appearanceCount,
+        };
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_TwoAdjacentSameClubRowsBothKnownAppearanceCounts_MergesIntoOneSummedRow()
+    {
+        // Origi-shaped: two adjacent "Lille" rows, both AppearanceCount known
+        // (40, 33) — merges into one row, summed count, earliest start,
+        // latest end.
+        var stints = new[]
+        {
+            StintWithSequence("Lille", 2015, 2017, 0, 40),
+            StintWithSequence("Lille", 2017, 2020, 1, 33),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(stints);
+
+        Assert.That(collapsed, Has.Count.EqualTo(1));
+        Assert.That(collapsed[0].ClubName, Is.EqualTo("Lille"));
+        Assert.That(collapsed[0].StartYear, Is.EqualTo(2015));
+        Assert.That(collapsed[0].EndYear, Is.EqualTo(2020));
+        Assert.That(collapsed[0].AppearanceCount, Is.EqualTo(73));
+        Assert.That(collapsed[0].SequenceOrder, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_ThreeAdjacentSameClubRows_MergesIntoOneRowNotTwo()
+    {
+        var stints = new[]
+        {
+            StintWithSequence("Lille", 2015, 2016, 0, 10),
+            StintWithSequence("Lille", 2016, 2018, 1, 20),
+            StintWithSequence("Lille", 2018, 2020, 2, null),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(stints);
+
+        Assert.That(collapsed, Has.Count.EqualTo(1));
+        Assert.That(collapsed[0].ClubName, Is.EqualTo("Lille"));
+        Assert.That(collapsed[0].StartYear, Is.EqualTo(2015));
+        Assert.That(collapsed[0].EndYear, Is.EqualTo(2020));
+        // Third row's AppearanceCount is null -> whole merged run is null,
+        // not "10 + 20" alone.
+        Assert.That(collapsed[0].AppearanceCount, Is.Null);
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_SameClubPairWithDifferentClubInBetween_DoesNotMerge()
+    {
+        // Lille -> AS Monaco -> Lille: the two Lille rows are the SAME club
+        // but NOT adjacent (AS Monaco sits between them), so they stay
+        // separate — only strictly adjacent same-club runs merge.
+        var stints = new[]
+        {
+            StintWithSequence("Lille", 2010, 2012, 0, 15),
+            StintWithSequence("AS Monaco", 2012, 2014, 1, 25),
+            StintWithSequence("Lille", 2014, 2016, 2, 30),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(stints);
+
+        Assert.That(collapsed.Select(s => s.ClubName), Is.EqualTo(new[] { "Lille", "AS Monaco", "Lille" }));
+        Assert.That(collapsed.Select(s => s.AppearanceCount), Is.EqualTo(new int?[] { 15, 25, 30 }));
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_OneKnownOneUnknownAppearanceCountInRun_MergedIsNull()
+    {
+        // The corrected rule: a null on EITHER side of an adjacent same-club
+        // run makes the merged AppearanceCount null — NOT the known value
+        // alone (40, not the unknown one, would be the WRONG old/rejected
+        // behavior this test guards against).
+        var stints = new[]
+        {
+            StintWithSequence("Lille", 2015, 2017, 0, 40),
+            StintWithSequence("Lille", 2017, 2019, 1, null),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(stints);
+
+        Assert.That(collapsed, Has.Count.EqualTo(1));
+        Assert.That(collapsed[0].AppearanceCount, Is.Null);
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_AllUnknownAppearanceCountsInRun_MergedIsNull()
+    {
+        var stints = new[]
+        {
+            StintWithSequence("Lille", 2015, 2017, 0, null),
+            StintWithSequence("Lille", 2017, 2019, 1, null),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(stints);
+
+        Assert.That(collapsed, Has.Count.EqualTo(1));
+        Assert.That(collapsed[0].AppearanceCount, Is.Null);
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_LastStintInRunIsOngoing_MergedEndYearIsNull()
+    {
+        var stints = new[]
+        {
+            StintWithSequence("Lille", 2015, 2017, 0, 40),
+            StintWithSequence("Lille", 2017, null, 1, 33),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(stints);
+
+        Assert.That(collapsed, Has.Count.EqualTo(1));
+        Assert.That(collapsed[0].EndYear, Is.Null);
+        // Still additive — an ongoing final segment doesn't make the whole
+        // merged AppearanceCount unknown by itself.
+        Assert.That(collapsed[0].AppearanceCount, Is.EqualTo(73));
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_SingleStintWithNoSameClubNeighbor_PassesThroughUnchanged()
+    {
+        var stint = StintWithSequence("Lille", 2015, 2017, 0, 40);
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(new[] { stint });
+
+        Assert.That(collapsed, Has.Count.EqualTo(1));
+        Assert.That(collapsed[0].ClubName, Is.EqualTo(stint.ClubName));
+        Assert.That(collapsed[0].StartYear, Is.EqualTo(stint.StartYear));
+        Assert.That(collapsed[0].EndYear, Is.EqualTo(stint.EndYear));
+        Assert.That(collapsed[0].SequenceOrder, Is.EqualTo(stint.SequenceOrder));
+        Assert.That(collapsed[0].AppearanceCount, Is.EqualTo(stint.AppearanceCount));
+        Assert.That(collapsed[0].PlayerId, Is.EqualTo(stint.PlayerId));
+    }
+
+    [Test]
+    public void REQ1203_CollapseAdjacentSameClub_EmptyInput_ReturnsEmptyNoException()
+    {
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(Array.Empty<PlayerCareerStint>());
+
+        Assert.That(collapsed, Is.Empty);
+    }
 }
