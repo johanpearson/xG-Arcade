@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
+import { useCallback } from 'react';
+import { ApiError } from '../lib/apiClient';
 import { fetchActiveAdminRound, fetchUnverifiedPlayerData } from '../lib/admin';
-import type { AdminActiveRound, UnverifiedPlayerData } from '../lib/types';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
 import { PlayerSuggestionsEntry } from './PlayerSuggestionsEntry';
 import { IncidentReportsEntry } from './IncidentReportsEntry';
@@ -23,102 +23,71 @@ export interface AdminScreenProps {
   onOpenSuggestions: () => void;
 }
 
-type PageState =
-  | { phase: 'loading' }
-  | { phase: 'access-denied' }
-  | { phase: 'error'; message: string }
-  | { phase: 'ready' };
-
 // SCREEN-04, REQ-504: the admin page S-012 deliberately deferred. Reached
 // only via App.tsx's admin-only nav link (REQ-504's "no visible entry
 // point" half); this component provides the other half — every underlying
 // endpoint 403s a non-admin token directly, and the unverified-data fetch's
 // own 403 is what flips this whole page to an access-denied message,
 // independent of the nav-hiding.
+//
+// S-157: migrated onto the shared useAuthedFetch hook (two independent
+// instances, one per endpoint, mirroring AccountMetricsSection's own usage)
+// rather than the single hand-rolled Promise.allSettled effect this used to
+// run. The two fetches must stay independently refetchable — see
+// refreshUnverified/refreshActiveRound below — so this deliberately does NOT
+// collapse to one shared refetch.
 export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: AdminScreenProps) {
-  const [pageState, setPageState] = useState<PageState>({ phase: 'loading' });
-  const [unverifiedRows, setUnverifiedRows] = useState<UnverifiedPlayerData[]>([]);
-  // null both while the round-control/user-deletion feature is genuinely
-  // absent (404 probe) and before the first load resolves — pageState.phase
-  // gates the "still loading" case, so by the time pageState is 'ready',
-  // null here always means "hidden", never "not fetched yet".
-  const [activeRound, setActiveRound] = useState<AdminActiveRound | null>(null);
+  const rowsFetchFn = useCallback(() => fetchUnverifiedPlayerData(accessToken), [accessToken]);
+  const {
+    data: unverifiedRows,
+    hidden: rowsHidden,
+    loadError: rowsError,
+    refetch: refreshUnverified,
+  } = useAuthedFetch(rowsFetchFn, { onAuthError });
 
-  const refreshUnverified = useCallback(async () => {
-    const rows = await fetchUnverifiedPlayerData(accessToken);
-    setUnverifiedRows(rows);
-  }, [accessToken]);
-
-  const refreshActiveRound = useCallback(async () => {
-    const probe = await fetchActiveAdminRound(accessToken, XG_GRID_GAME_KEY);
-    setActiveRound(probe);
-  }, [accessToken]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      const [unverifiedResult, activeRoundResult] = await Promise.allSettled([
-        fetchUnverifiedPlayerData(accessToken),
-        fetchActiveAdminRound(accessToken, XG_GRID_GAME_KEY),
-      ]);
-      if (cancelled) return;
-
-      if (unverifiedResult.status === 'rejected') {
-        const err = unverifiedResult.reason;
-        if (err instanceof ApiError && err.status === 401) {
-          onAuthError();
-          return;
-        }
-        if (err instanceof ApiError && err.status === 403) {
-          setPageState({ phase: 'access-denied' });
-          return;
-        }
-        setPageState({ phase: 'error', message: describeError(err) });
-        return;
-      }
-      setUnverifiedRows(unverifiedResult.value);
-
-      if (activeRoundResult.status === 'rejected') {
-        const err = activeRoundResult.reason;
-        if (err instanceof ApiError && err.status === 401) {
-          onAuthError();
-          return;
-        }
-        if (err instanceof ApiError && err.status === 403) {
-          setPageState({ phase: 'access-denied' });
-          return;
-        }
-        // Non-fatal for the page as a whole — the round-control/user-deletion
-        // sections just stay hidden, same as a genuine 404 probe result.
-        setActiveRound(null);
-      } else {
-        setActiveRound(activeRoundResult.value);
-      }
-
-      setPageState({ phase: 'ready' });
+  // REQ-505/506: fetchActiveAdminRound already resolves a bare 404 (feature
+  // absent in Production) to `null` rather than throwing — this wrapper
+  // additionally swallows any OTHER non-401/403 failure (e.g. a 500 or a
+  // network error) to `null` too, so useAuthedFetch's own loadError/hidden
+  // never fire for this probe on anything but a real 401/403. That matches
+  // the pre-S-157 behavior exactly: only 401/403 ever escalated to a
+  // page-level outcome for this fetch, every other failure just meant "treat
+  // as no active round."
+  const activeRoundFetchFn = useCallback(async () => {
+    try {
+      return await fetchActiveAdminRound(accessToken, XG_GRID_GAME_KEY);
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) throw err;
+      return null;
     }
+  }, [accessToken]);
+  const {
+    data: activeRound,
+    hidden: activeRoundHidden,
+    refetch: refreshActiveRound,
+  } = useAuthedFetch(activeRoundFetchFn, { onAuthError });
 
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
-
-  if (pageState.phase === 'loading') {
-    return <p className="admin-screen__status">Loading…</p>;
-  }
-
-  if (pageState.phase === 'access-denied') {
+  // REQ-504/505: a 403 from either endpoint is a page-wide decision, unlike
+  // every other admin sub-section's own 403 (which only hides that one
+  // section) — this is the one exception, preserved from the pre-S-157
+  // single-pageState version.
+  if (rowsHidden || activeRoundHidden) {
     // REQ-504: the defense-in-depth half — reachable even if a non-admin
     // somehow lands on this screen directly, independent of App.tsx's
     // nav-hiding.
     return <p className="admin-screen__status">You don't have access to this page.</p>;
   }
 
-  if (pageState.phase === 'error') {
-    return <p className="admin-screen__status admin-screen__status--error">{pageState.message}</p>;
+  if (rowsError !== null) {
+    return <p className="admin-screen__status admin-screen__status--error">{rowsError}</p>;
+  }
+
+  // A real, resolved fetch is always a UnverifiedPlayerData[] (possibly
+  // empty) and never itself `null` — so `unverifiedRows === null` here is an
+  // unambiguous "hasn't loaded yet" signal, same reasoning LeaguesScreen
+  // already relies on for its own useAuthedFetch usage.
+  if (unverifiedRows === null) {
+    return <p className="admin-screen__status">Loading…</p>;
   }
 
   return (
