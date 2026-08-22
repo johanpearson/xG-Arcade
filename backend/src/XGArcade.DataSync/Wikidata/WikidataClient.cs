@@ -662,7 +662,7 @@ public class WikidataClient(
     // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync/
     // QueryPlayerCareerStintsByQidsAsync (throw WikidataQueryException on
     // timeout/HTTP/parse failure, not the intersection queries' swallow-to-[]
-    // contract): the caller (XGPathGameModule.GetEligiblePlayerIdsAsync) is
+    // contract): the caller (PathEligibilityService.GetEligiblePlayerIdsAsync) is
     // responsible for deciding a failed familiarity check must never block
     // round generation (REQ-103's established reasoning, same as
     // PlayerCareerStintRefreshService's own catch) — this client method

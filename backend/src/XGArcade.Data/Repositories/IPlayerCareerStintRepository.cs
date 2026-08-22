@@ -50,7 +50,7 @@ public interface IPlayerCareerStintRepository
     // at least minTotalStintCount rows, AND (b) include at least
     // minSeededClubCount DISTINCT ClubName values that are in
     // seededClubNames (exact ordinal/case-sensitive match — matches
-    // XGPathGameModule.IsEligible's own seededClubNames.Contains(s.ClubName)
+    // PathEligibilityService.IsEligible's own seededClubNames.Contains(s.ClubName)
     // check exactly; deliberately NOT the case-insensitive comparison
     // IPlayerDataQualityRepository.GetUnseededClubCandidatesAsync uses,
     // since that was a diagnostic-only choice for a different method and
@@ -64,7 +64,7 @@ public interface IPlayerCareerStintRepository
     // found that dropping it (as the original backlog story assumed was
     // safe once minSeededClubCount existed) let a 2-total-stint candidate
     // through eligibility and broke that split; see
-    // XGPathGameModule.MinDocumentedStintCount's own comment.
+    // PathEligibilityService.MinDocumentedStintCount's own comment.
     //
     // This is a true SUPERSET of "possibly eligible" — both conditions
     // checked here (>= minTotalStintCount total rows, and >=

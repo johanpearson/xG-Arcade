@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `docs/architecture-document.md` (v1.10, COMP-11 row + ADR
+  mapping table), `docs/requirements-document.md` (v1.95, REQ-1201/1203
+  prose and test-level references) — doc-sync for S-154 (Epic 17):
+  `XGPathGameModule.GetEligiblePlayerIdsAsync`/`IsEligible` and their
+  supporting constants were extracted into a new
+  `IPathEligibilityService`/`PathEligibilityService`, mirroring ADR-0068's
+  `GridGameModule` split (pure structural refactor, no behavior/requirement
+  change — `XGPathGameModule` remains the `IGameModule` adapter, no
+  facade). `PathEligibilityService` is registered independently
+  (`AddScoped`) in `ServiceRegistration.cs`. Updated COMP-11's architecture
+  row to describe the split (mirroring COMP-05's own ADR-0068 note) and
+  fixed every stale `XGPathGameModule.GetEligiblePlayerIdsAsync`/
+  `XGPathGameModule.IsEligible`/`XGPathGameModuleTests` reference under
+  REQ-1201/REQ-1203 to point at `PathEligibilityService`/
+  `PathEligibilityServiceTests` instead, including renamed test method
+  names where coverage moved 1:1. See ADR-0082 (new, scaffolded
+  separately) for the split decision itself.
 - 2026-08-22 — `docs/backlog.md` (S-155 marked SHIPPED) — `WikidataClient.cs`
   (backend/src/XGArcade.DataSync/Wikidata/) split from 1,775 to 782 lines
   (a 993-line/56% reduction), a pure refactor with zero behavior change.

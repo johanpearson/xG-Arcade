@@ -130,6 +130,13 @@ public static class ServiceRegistration
         // Games.XGPath-only, registered-alongside-its-sibling-service reasoning as
         // IPlayerCareerStintRefreshService immediately above.
         builder.Services.AddScoped<IPlayerFamiliarityService, PlayerFamiliarityService>();
+        // S-154 (pure refactor, docs/backlog.md Epic 17): XGPathGameModule split —
+        // REQ-1201's whole target-player eligibility pipeline extracted into its own
+        // narrowly-scoped class, following the same "independently registered, no
+        // facade" convention docs/decisions/0068-grid-game-module-responsibility-split.md
+        // established for GridGameModule's own split. XGPathGameModule itself is now
+        // a thin IGameModule adapter composing this alongside its other dependencies.
+        builder.Services.AddScoped<IPathEligibilityService, PathEligibilityService>();
         builder.Services.AddScoped<IGameModule, XGPathGameModule>();
         // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
         // GridGenerationOptions' role/precedent above for xG Path's own generation
