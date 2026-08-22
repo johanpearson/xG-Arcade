@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `docs/requirements-document.md` (v1.94 → v1.95, new §4.13
+  "Cross-game player experience" with REQ-1210 + an unresolved §7 product
+  question on replay-on-revisit), `docs/design-document.md` (v0.72 →
+  v0.73, new `SCREEN-12: Round-completion banner` section + a settle-in
+  named-animation paragraph in §2), `docs/decisions/0082-round-completion-client-side-signal-and-navigation.md`
+  (new), `docs/backlog.md` (S-164 added, SHIPPED) — implements REQ-1210:
+  a completion animation, generic across every game (xG Grid, xG Path
+  today), shown once a player's own guessing activity locks every cell
+  available to them in a round, showing their current points for that
+  round and a link straight to that round's live-or-closed leaderboard
+  for that specific game. Frontend-only — new `frontend/src/lib/roundCompletion.ts`
+  (game-agnostic `computeRoundCompletion`/`useCompletionTransition`) and
+  `frontend/src/components/RoundCompletionBanner.tsx`, wired into
+  `GridScreen.tsx`/`PathScreen.tsx` and threaded through `App.tsx`'s
+  existing hash-based screen-switch mechanism (no `react-router`, no new
+  route) into `LeaderboardScreen`/`PastRoundsLeaderboard`/`LiveLeaderboard`
+  via new optional `initial*` props, per ADR-0082, which records the two
+  structural decisions: completion/current-points computed entirely
+  client-side from data both games' existing current-round responses
+  already return (no backend/`IGameModule` change, so it never crosses
+  the ADR-0003 boundary), and the leaderboard link is in-memory
+  navigation state rather than a URL route (explicitly reasoned against
+  ADR-0039's own "add react-router" follow-up trigger — not superseding
+  it). `docs/architecture-document.md` was checked (architecture-reviewer
+  review, independently sanity-checked here) and needs no change: nothing
+  crosses a Core/game/component boundary — this is new frontend
+  state/component composition entirely inside the already-described
+  CONT-01 "Web Frontend" container, against two endpoints
+  (`GET /rounds/current`, `GET /path/current`) whose response shapes are
+  unchanged.
 - 2026-08-19 — `docs/requirements-document.md` (v1.92, REQ-1201 dated status
   note + new acceptance-criteria bullet + updated test-level paragraph),
   `docs/decisions/0079-xg-path-position-eligibility-floor.md` (new),
