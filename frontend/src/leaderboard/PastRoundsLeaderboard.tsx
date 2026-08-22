@@ -43,13 +43,37 @@ export interface PastRoundsLeaderboardProps {
   // switch away and back — `active` (rather than unmount/remount) is what
   // drives the "fetch on entry, refetch on every re-entry" effect below.
   active: boolean;
+  // REQ-1210/ADR-0082: seeds a direct jump straight into this specific
+  // round's detail the first time this scope becomes active, bypassing the
+  // round-selection list entirely — used by the round-completion banner's
+  // leaderboard link once the completed round has already closed (see
+  // LeaderboardScreen.tsx's own doc comment on `initialRoundId`). Consumed
+  // exactly once (the ref-guarded effect below) so a later "Back to
+  // previous rounds" click, or re-entering this scope normally afterward,
+  // never re-triggers the jump.
+  initialRoundId?: string;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027, split out of LeaderboardScreen.tsx
 // in S-121): REQ-408's browsable closed-round list + drill-in detail.
-export function PastRoundsLeaderboard({ accessToken, gameKey, onAuthError, active }: PastRoundsLeaderboardProps) {
+export function PastRoundsLeaderboard({
+  accessToken,
+  gameKey,
+  onAuthError,
+  active,
+  initialRoundId,
+}: PastRoundsLeaderboardProps) {
   const [pastListState, setPastListState] = useState<PastListState>({ phase: 'idle' });
-  const [selectedRound, setSelectedRound] = useState<ClosedRoundSummary | null>(null);
+  // REQ-1210/ADR-0082: split from a single `selectedRound: ClosedRoundSummary
+  // | null` into an always-known id plus an optionally-known summary —
+  // picking a round from the list (handleSelectRound below) has the full
+  // summary (including `closedAt`, shown in the detail header) up front;
+  // jumping in externally via `initialRoundId` only ever has the bare id
+  // (the completion banner's link only knows `roundId`, per REQ-1210's own
+  // "no backend change" scoping — see ADR-0082). The detail header below
+  // simply omits the "Closed {date}" line when the summary isn't known.
+  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
+  const [selectedRoundSummary, setSelectedRoundSummary] = useState<ClosedRoundSummary | null>(null);
   const [pastDetailState, setPastDetailState] = useState<PastDetailState | null>(null);
 
   // Stable across renders (as long as onAuthError itself is) so the effects
@@ -84,7 +108,8 @@ export function PastRoundsLeaderboard({ accessToken, gameKey, onAuthError, activ
   const prevGameKeyForPastDetailRef = useRef<GameKey>(gameKey);
   useEffect(() => {
     if (prevGameKeyForPastDetailRef.current !== gameKey) {
-      setSelectedRound(null);
+      setSelectedRoundId(null);
+      setSelectedRoundSummary(null);
       setPastDetailState(null);
     }
     prevGameKeyForPastDetailRef.current = gameKey;
@@ -96,7 +121,16 @@ export function PastRoundsLeaderboard({ accessToken, gameKey, onAuthError, activ
   // LiveLeaderboard's own effect. REQ-410 (S-087): also re-fetched on a game
   // switch while already active, same reasoning as LiveLeaderboard's
   // `isSwitchingGameWhileLive`.
-  const prevActiveRef = useRef(active);
+  // REQ-1210/ADR-0082 fix: initialized to `false`, not `active` — same fix
+  // and same reasoning as LiveLeaderboard.tsx's own `prevActiveRef` (see
+  // that file's comment): a mount that starts already active
+  // (LeaderboardScreen's new `initialScope: 'past'`) must still count as
+  // "entering" this scope so the round list actually gets fetched (needed
+  // so "Back to previous rounds" has something real to show after an
+  // externally-seeded `initialRoundId` jump straight into a round's
+  // detail). Every existing caller (always mounts with `active: false`
+  // initially) is unaffected.
+  const prevActiveRef = useRef(false);
   const prevGameKeyForPastListRef = useRef<GameKey>(gameKey);
   useEffect(() => {
     const isEnteringPast = active && !prevActiveRef.current;
@@ -159,46 +193,76 @@ export function PastRoundsLeaderboard({ accessToken, gameKey, onAuthError, activ
     }
   }
 
-  function handleSelectRound(round: ClosedRoundSummary) {
-    setSelectedRound(round);
-    setPastDetailState({ phase: 'loading' });
+  // REQ-1210/ADR-0082: extracted out of the former handleSelectRound so
+  // both a real list click (which also knows the full `ClosedRoundSummary`)
+  // and an externally-seeded `initialRoundId` jump (which only ever knows
+  // the bare id) share the exact same fetch/error-branching logic — never
+  // two copies of the 404/409/other-error handling below.
+  const fetchRoundDetail = useCallback(
+    (roundId: string) => {
+      setPastDetailState({ phase: 'loading' });
 
-    fetchClosedRoundLeaderboard(accessToken, round.roundId)
-      .then((response) => {
-        setPastDetailState({
-          phase: 'ready',
-          pages: [response.rows],
-          requestingUserRow: response.requestingUserRow,
-          nextCursor: response.nextCursor,
-          hasMore: response.hasMore,
-          loadingMore: false,
-          loadMoreError: null,
+      fetchClosedRoundLeaderboard(accessToken, roundId)
+        .then((response) => {
+          setPastDetailState({
+            phase: 'ready',
+            pages: [response.rows],
+            requestingUserRow: response.requestingUserRow,
+            nextCursor: response.nextCursor,
+            hasMore: response.hasMore,
+            loadingMore: false,
+            loadMoreError: null,
+          });
+        })
+        .catch((error: unknown) => {
+          if (handleAuthError(error)) return;
+          // REQ-408: "not found" (404) and "not closed yet" (409) are two
+          // distinct, real states — never squashed into one generic error.
+          if (error instanceof ApiError && error.status === 404) {
+            setPastDetailState({ phase: 'not-found' });
+            return;
+          }
+          if (error instanceof ApiError && error.status === 409) {
+            setPastDetailState({ phase: 'not-closed' });
+            return;
+          }
+          setPastDetailState({ phase: 'error', message: describeError(error) });
         });
-      })
-      .catch((error: unknown) => {
-        if (handleAuthError(error)) return;
-        // REQ-408: "not found" (404) and "not closed yet" (409) are two
-        // distinct, real states — never squashed into one generic error.
-        if (error instanceof ApiError && error.status === 404) {
-          setPastDetailState({ phase: 'not-found' });
-          return;
-        }
-        if (error instanceof ApiError && error.status === 409) {
-          setPastDetailState({ phase: 'not-closed' });
-          return;
-        }
-        setPastDetailState({ phase: 'error', message: describeError(error) });
-      });
+    },
+    [accessToken, handleAuthError],
+  );
+
+  function handleSelectRound(round: ClosedRoundSummary) {
+    setSelectedRoundId(round.roundId);
+    setSelectedRoundSummary(round);
+    fetchRoundDetail(round.roundId);
   }
 
+  // REQ-1210/ADR-0082: the `initialRoundId` jump itself — fires once this
+  // scope first becomes active with a still-unconsumed `initialRoundId`,
+  // mirroring a real `handleSelectRound` click but with no known
+  // `ClosedRoundSummary` (see `selectedRoundSummary`'s own doc comment
+  // above). Guarded by a ref, not a plain "already selected" check, so it
+  // still fires correctly even if `initialRoundId` happens to be the same
+  // id a player had already manually selected before this seed arrived.
+  const hasConsumedInitialRoundIdRef = useRef(false);
+  useEffect(() => {
+    if (!active || !initialRoundId || hasConsumedInitialRoundIdRef.current) return;
+    hasConsumedInitialRoundIdRef.current = true;
+    setSelectedRoundId(initialRoundId);
+    setSelectedRoundSummary(null);
+    fetchRoundDetail(initialRoundId);
+  }, [active, initialRoundId, fetchRoundDetail]);
+
   function handleBackToRoundList() {
-    setSelectedRound(null);
+    setSelectedRoundId(null);
+    setSelectedRoundSummary(null);
     setPastDetailState(null);
   }
 
   async function handleLoadMoreRoundDetail() {
     if (
-      !selectedRound ||
+      !selectedRoundId ||
       !pastDetailState ||
       pastDetailState.phase !== 'ready' ||
       pastDetailState.nextCursor == null ||
@@ -213,7 +277,7 @@ export function PastRoundsLeaderboard({ accessToken, gameKey, onAuthError, activ
     );
 
     try {
-      const response = await fetchClosedRoundLeaderboard(accessToken, selectedRound.roundId, cursor);
+      const response = await fetchClosedRoundLeaderboard(accessToken, selectedRoundId, cursor);
       setPastDetailState((prev) => {
         if (!prev || prev.phase !== 'ready') return prev;
         return {
@@ -236,14 +300,21 @@ export function PastRoundsLeaderboard({ accessToken, gameKey, onAuthError, activ
 
   if (!active) return null;
 
-  if (selectedRound && pastDetailState) {
+  if (selectedRoundId && pastDetailState) {
     return (
       <>
         <div className="leaderboard-screen__past-detail-header">
           <button type="button" className="leaderboard-screen__back" onClick={handleBackToRoundList}>
             Back to previous rounds
           </button>
-          <p className="leaderboard-screen__scope-note">Closed {selectedRound.closedAt}</p>
+          {/* REQ-1210/ADR-0082: `closedAt` is only known when this round was
+              reached by picking it from the list below (handleSelectRound) —
+              an externally-seeded `initialRoundId` jump (the completion
+              banner's link) never had it to begin with, so this line is
+              simply omitted rather than showing a fabricated date. */}
+          {selectedRoundSummary && (
+            <p className="leaderboard-screen__scope-note">Closed {selectedRoundSummary.closedAt}</p>
+          )}
         </div>
         {pastDetailState.phase === 'loading' && (
           <p className="leaderboard-screen__status">Loading this round’s leaderboard…</p>

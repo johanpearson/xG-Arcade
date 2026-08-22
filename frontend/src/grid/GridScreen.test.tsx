@@ -743,4 +743,217 @@ describe('GridScreen', () => {
       expect(indicator).toHaveAttribute('tabIndex', '0');
     });
   });
+
+  // REQ-1210/ADR-0082: the round-completion banner — see
+  // lib/roundCompletion.test.ts for the shared trigger/points-sum logic
+  // itself; these tests only cover GridScreen's own wiring (mapping cells
+  // into the shared shape, the "~N pts estimated" wording, and the
+  // live-vs-past leaderboard-target resolution).
+  describe('REQ-1210: round-completion banner', () => {
+    function singleCellRound(guess: unknown) {
+      return {
+        roundId: 'round-1',
+        startTime: '2026-07-10T00:00:00Z',
+        endTime: '2026-07-11T00:00:00Z',
+        allowGuessChange: false,
+        cells: [
+          {
+            cellId: 'cell-1',
+            row: 0,
+            col: 0,
+            rowCategoryType: 'country',
+            rowCategoryValue: 'France',
+            colCategoryType: 'club',
+            colCategoryValue: 'Arsenal',
+            guess,
+          },
+        ],
+      };
+    }
+
+    it('shows the banner after an in-session guess locks the last cell, with the "~N pts estimated" wording', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/rounds/current')) {
+          return jsonResponse(singleCellRound(null));
+        }
+        if (String(url).includes('/guesses') && init?.method === 'POST') {
+          return jsonResponse({
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            resolvedPlayerName: 'Thierry Henry',
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const onViewRoundLeaderboard = vi.fn();
+      render(
+        <GridScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={onViewRoundLeaderboard} />,
+      );
+
+      const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+      await user.click(cellButton);
+      await user.type(screen.getByLabelText('Player name'), 'thierry henry');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      expect(await screen.findByText('Round complete')).toBeInTheDocument();
+      // livePoints isn't in the submit response (see GridScreen's own
+      // comment on applyScoredGuess) — the authoritative total at this
+      // exact instant is genuinely 0-known, same value the header's own
+      // running-total line would show.
+      expect(screen.getByText('~0 pts estimated')).toBeInTheDocument();
+    });
+
+    it('does not show the banner on an initial load of an already-complete round (REQ-1210 §7 — no replay)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse(
+            singleCellRound({
+              isCorrect: true,
+              attemptCount: 1,
+              locked: true,
+              submittedName: 'Thierry Henry',
+              resolvedPlayerName: 'Thierry Henry',
+              uniquePercent: 100,
+              livePoints: 12,
+            }),
+          ),
+        ),
+      );
+
+      render(<GridScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText('1/1 answered')).toBeInTheDocument());
+      expect(screen.queryByText('Round complete')).not.toBeInTheDocument();
+    });
+
+    it('activating "View leaderboard" re-checks GET /rounds/current and reports the \'live\' scope when this round is still the active one', async () => {
+      const user = userEvent.setup();
+      // First `/rounds/current` call (initial load) must return the cell
+      // unguessed, same as the "shows the banner..." test above — otherwise
+      // the round is already complete on mount and there's no "Guess
+      // France × Arsenal" button to click. The later call (triggered by
+      // "View leaderboard" itself, via handleViewCompletedRoundLeaderboard's
+      // re-check) is what needs to report this round still active — its
+      // guess payload doesn't matter for that check, only that `roundId`
+      // still matches.
+      let currentRoundCallCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/rounds/current')) {
+          currentRoundCallCount += 1;
+          if (currentRoundCallCount === 1) {
+            return jsonResponse(singleCellRound(null));
+          }
+          return jsonResponse(
+            singleCellRound({
+              isCorrect: true,
+              attemptCount: 1,
+              locked: true,
+              submittedName: 'Thierry Henry',
+              resolvedPlayerName: 'Thierry Henry',
+              uniquePercent: 100,
+              livePoints: 12,
+            }),
+          );
+        }
+        if (String(url).includes('/guesses') && init?.method === 'POST') {
+          return jsonResponse({ isCorrect: true, attemptCount: 1, locked: true, resolvedPlayerName: 'Thierry Henry' });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const onViewRoundLeaderboard = vi.fn();
+      render(
+        <GridScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={onViewRoundLeaderboard} />,
+      );
+
+      const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+      await user.click(cellButton);
+      await user.type(screen.getByLabelText('Player name'), 'thierry henry');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await user.click(await screen.findByRole('button', { name: 'View leaderboard' }));
+
+      await waitFor(() =>
+        expect(onViewRoundLeaderboard).toHaveBeenCalledWith({
+          gameKey: 'xg-grid',
+          scope: 'live',
+          roundId: 'round-1',
+        }),
+      );
+    });
+
+    it('reports the \'past\' scope once GET /rounds/current no longer returns this round (it has closed)', async () => {
+      const user = userEvent.setup();
+      let currentRoundCallCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/rounds/current')) {
+          currentRoundCallCount += 1;
+          if (currentRoundCallCount === 1) {
+            return jsonResponse(singleCellRound(null));
+          }
+          // REQ-806-style force-close: the round no longer comes back as
+          // the active one on this later re-check.
+          return jsonResponse({ title: 'No active round' }, 404);
+        }
+        if (String(url).includes('/guesses') && init?.method === 'POST') {
+          return jsonResponse({ isCorrect: true, attemptCount: 1, locked: true, resolvedPlayerName: 'Thierry Henry' });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const onViewRoundLeaderboard = vi.fn();
+      render(
+        <GridScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={onViewRoundLeaderboard} />,
+      );
+
+      const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+      await user.click(cellButton);
+      await user.type(screen.getByLabelText('Player name'), 'thierry henry');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await user.click(await screen.findByRole('button', { name: 'View leaderboard' }));
+
+      await waitFor(() =>
+        expect(onViewRoundLeaderboard).toHaveBeenCalledWith({
+          gameKey: 'xg-grid',
+          scope: 'past',
+          roundId: 'round-1',
+        }),
+      );
+    });
+
+    it('dismissing the banner hides it without affecting the grid underneath', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/rounds/current')) {
+          return jsonResponse(singleCellRound(null));
+        }
+        if (String(url).includes('/guesses') && init?.method === 'POST') {
+          return jsonResponse({ isCorrect: true, attemptCount: 1, locked: true, resolvedPlayerName: 'Thierry Henry' });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<GridScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={vi.fn()} />);
+
+      const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+      await user.click(cellButton);
+      await user.type(screen.getByLabelText('Player name'), 'thierry henry');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await screen.findByText('Round complete');
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+      expect(screen.queryByText('Round complete')).not.toBeInTheDocument();
+      expect(screen.getByText('1/1 answered')).toBeInTheDocument();
+    });
+  });
 });

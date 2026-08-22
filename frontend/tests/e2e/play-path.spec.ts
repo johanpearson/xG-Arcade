@@ -290,7 +290,12 @@ test.describe('REQ-1201/1202/1203/1204/1205/1206/410/408: play a full xG Path ro
     // own text: "every player who solves a given puzzle names the same
     // target player, so there is no 'how unique was your correct answer'
     // signal for this game").
-    await page.getByRole('button', { name: 'Leaderboard' }).click()
+    // REQ-1210/ADR-0082: this puzzle's completion now also renders a
+    // round-completion banner with its own "View leaderboard" button
+    // (accessible name contains "leaderboard" too) — `exact: true` keeps
+    // this locator pinned to the header nav's own "Leaderboard" entry
+    // point specifically, not a strict-mode ambiguity between the two.
+    await page.getByRole('button', { name: 'Leaderboard', exact: true }).click()
 
     // LeaderboardScreen.tsx defaults to the "xG Grid" game tab and
     // "All-time" scope on mount -- switch to "xG Path" first. Using the

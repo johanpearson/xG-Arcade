@@ -85,7 +85,18 @@ export function LiveLeaderboard({ accessToken, gameKey, onAuthError, active }: L
   // time against the previous `gameKey`, so a game switch re-triggers the
   // fetch exactly like a fresh tab entry would, without requiring the
   // player to leave and re-enter the "live" scope tab first.
-  const prevActiveRef = useRef(active);
+  // REQ-1210/ADR-0082 fix: initialized to `false` (not `active`) so a
+  // mount that starts *already* active (LeaderboardScreen's new
+  // `initialScope: 'live'`, from the round-completion banner's leaderboard
+  // link) still counts as "entering" this scope and fires the fetch below —
+  // before this fix, `useRef(active)` captured the initial `active` value
+  // as its own "previous" baseline, so `isEnteringLive` was always `false`
+  // on a mount that started active, and the fetch never fired. Every
+  // existing caller (which only ever mounts this with `active: false`,
+  // since `scope` always defaulted to `'all-time'`) is unaffected — the
+  // `active &&` guard below still means this only fires while genuinely
+  // active, this only changes what counts as "just entered."
+  const prevActiveRef = useRef(false);
   const prevGameKeyForLiveRef = useRef<GameKey>(gameKey);
   useEffect(() => {
     const isEnteringLive = active && !prevActiveRef.current;

@@ -33,6 +33,22 @@ import './LeaderboardScreen.css';
 export interface LeaderboardScreenProps {
   accessToken: string;
   onAuthError: () => void;
+  // REQ-1210/ADR-0082: optional seed state for jumping straight into a
+  // specific round+game's leaderboard, e.g. from the round-completion
+  // banner's "View leaderboard" link (GridScreen.tsx/PathScreen.tsx). This
+  // is in-memory initial state threaded through the existing screen-switch
+  // mechanism (App.tsx), not a URL parameter — see ADR-0082 for why that
+  // doesn't trigger ADR-0039's "add react-router" follow-up. All three are
+  // read only once, via useState's lazy initializer, at this component's
+  // own mount — a prop change on an already-mounted instance has no effect,
+  // matching the "initial" naming; every existing call site (which omits
+  // all three) behaves exactly as before. `initialRoundId` is only
+  // meaningful alongside `initialScope: 'past'` (pre-drilled round detail,
+  // handled by PastRoundsLeaderboard below) — passing it with any other
+  // scope is simply ignored.
+  initialGameKey?: GameKey;
+  initialScope?: Scope;
+  initialRoundId?: string;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027): a new, separate scope selector on
@@ -56,7 +72,9 @@ export interface LeaderboardScreenProps {
 // doc comment for why) — `scope` here only controls which one renders
 // non-null output, mirroring exactly what the single pre-split component
 // used to do by only calling one `render*()` function per render.
-type Scope = 'all-time' | 'live' | 'past' | 'window';
+// Exported (REQ-1210/ADR-0082) so App.tsx can type the `initialScope` it
+// passes down without redefining this union.
+export type Scope = 'all-time' | 'live' | 'past' | 'window';
 
 // REQ-410/ADR-0043 (S-087): once a second game exists, "the" leaderboard
 // can no longer mean one thing — every scope's read is now scoped to one
@@ -67,6 +85,21 @@ type Scope = 'all-time' | 'live' | 'past' | 'window';
 // components can type their own `gameKey` prop against the same type
 // rather than redefining it.
 export type GameKey = typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY;
+
+// REQ-1210/ADR-0082: the shape GridScreen.tsx/PathScreen.tsx's round-
+// completion banner hands to App.tsx to describe exactly one round's
+// leaderboard — 'live' when the completed round hadn't closed as of the
+// moment the link was activated (REQ-407, no roundId needed there: a game
+// has exactly one active round at a time), 'past' when it had already
+// closed by then (REQ-408, pre-drilled into `roundId` via
+// PastRoundsLeaderboard's own `initialRoundId` prop below). Exported from
+// here (not a separate lib module) since it's defined entirely in terms of
+// this file's own `GameKey`/`Scope`.
+export interface LeaderboardRoundTarget {
+  gameKey: GameKey;
+  scope: 'live' | 'past';
+  roundId: string;
+}
 
 const GAME_TABS: Array<{ value: GameKey; label: string }> = [
   { value: XG_GRID_GAME_KEY, label: 'xG Grid' },
@@ -79,15 +112,25 @@ const GAME_TABS: Array<{ value: GameKey; label: string }> = [
 // leaderboard reads here remain unbuilt (LeaguesScreen only lists a
 // player's own leagues by name/code, no leaderboard rendering). REQ-406/
 // 407/408 (S-053/S-054) add the scope selector above instead.
-export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScreenProps) {
-  const [scope, setScope] = useState<Scope>('all-time');
+export function LeaderboardScreen({
+  accessToken,
+  onAuthError,
+  initialGameKey,
+  initialScope,
+  initialRoundId,
+}: LeaderboardScreenProps) {
+  // REQ-1210/ADR-0082: `initialScope`/`initialGameKey` seed this screen's
+  // own scope/game-tab state exactly once, at mount — every existing call
+  // site (which passes neither) is unaffected, still defaulting to
+  // 'all-time'/xG Grid.
+  const [scope, setScope] = useState<Scope>(initialScope ?? 'all-time');
   // REQ-410/ADR-0043 (S-087): which game every scope below reads. Switching
   // this must re-fetch whichever scope is currently selected, scoped to the
   // new game — it must NOT reset `scope` itself back to 'all-time' (that
   // would silently discard the player's chosen view, and defeats the
   // purpose of the switcher sitting *above* the scope row rather than
   // resetting it).
-  const [gameKey, setGameKey] = useState<GameKey>(XG_GRID_GAME_KEY);
+  const [gameKey, setGameKey] = useState<GameKey>(initialGameKey ?? XG_GRID_GAME_KEY);
   // REQ-213 (S-068): independent of `scope`/every scope's own load state on
   // purpose — same reasoning as GridScreen.tsx's `explainerOpen` being
   // independent of `activeCell` (SCREEN-06's "doesn't discard in-progress
@@ -234,6 +277,12 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
         gameKey={gameKey}
         onAuthError={onAuthError}
         active={scope === 'past'}
+        // REQ-1210/ADR-0082: only meaningful the first time this scope
+        // becomes active — PastRoundsLeaderboard consumes it once (its own
+        // ref-guarded effect) and ignores it on any later, ordinary
+        // re-entry, so this can safely stay set for the lifetime of this
+        // component without re-triggering the jump.
+        initialRoundId={initialRoundId}
       />
       <WindowedLeaderboard
         accessToken={accessToken}

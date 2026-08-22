@@ -13,7 +13,7 @@ import { GridScreen } from './grid/GridScreen';
 import { IncidentReportDialog } from './incidents/IncidentReportDialog';
 import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
 import { HeaderNav } from './nav/HeaderNav';
-import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
+import { LeaderboardScreen, type LeaderboardRoundTarget } from './leaderboard/LeaderboardScreen';
 import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { PathScreen } from './path/PathScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
@@ -142,6 +142,15 @@ function App() {
   // the same value before this component ever mounted, so this isn't the
   // first paint of the theme — it's what keeps it in sync after that.
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
+  // REQ-1210/ADR-0082: seeds LeaderboardScreen's own `initial*` props the
+  // one time it's set here (by handleViewRoundLeaderboard below, called
+  // from GridScreen/PathScreen's round-completion banner) — read only at
+  // LeaderboardScreen's own mount (its useState initializer), so this is
+  // safe to leave set afterward without re-triggering anything on that
+  // already-mounted instance. Explicitly cleared by the header nav's own
+  // "Leaderboard" entry point (onSelectLeaderboard below) so a later,
+  // ordinary manual visit never silently re-jumps to a stale round.
+  const [leaderboardInitial, setLeaderboardInitial] = useState<LeaderboardRoundTarget | null>(null);
 
   // REQ-721/ADR-0039: keeps location.hash matching `screen` from the very
   // first render, not only from the next explicit navigateTo() call —
@@ -195,6 +204,19 @@ function App() {
   function navigateTo(next: Screen) {
     setScreen(next);
     window.location.hash = SCREEN_HASHES[next];
+  }
+
+  // REQ-1210/ADR-0082: GridScreen/PathScreen's round-completion banner
+  // calls this with the specific round+game+scope it already resolved
+  // (see either screen's own handleViewCompletedRoundLeaderboard) — this
+  // seeds `leaderboardInitial` and navigates in the same update, so the
+  // freshly-mounted LeaderboardScreen (grid/path and leaderboard are
+  // mutually exclusive Screen branches, so this is always a real
+  // mount, never a same-instance prop update) reads the target on its own
+  // first render.
+  function handleViewRoundLeaderboard(target: LeaderboardRoundTarget) {
+    setLeaderboardInitial(target);
+    navigateTo('leaderboard');
   }
 
   // REQ-715: refreshToken may be null (Supabase can decline to issue one) —
@@ -408,7 +430,16 @@ function App() {
             isSettingsCurrent={screen === 'settings'}
             isGridCurrent={screen === 'grid'}
             isPathCurrent={screen === 'path'}
-            onSelectLeaderboard={() => navigateTo('leaderboard')}
+            onSelectLeaderboard={() => {
+              // REQ-1210/ADR-0082: a normal, explicit nav-menu visit always
+              // clears any completion-banner-seeded target — otherwise a
+              // player who later revisits the leaderboard via this button
+              // would silently be re-jumped into a stale round/scope
+              // instead of the plain 'all-time' default this entry point
+              // has always shown.
+              setLeaderboardInitial(null);
+              navigateTo('leaderboard');
+            }}
             onSelectLeagues={() => navigateTo('leagues')}
             onSelectSettings={() => navigateTo('settings')}
             onSelectGrid={() => navigateTo('grid')}
@@ -491,14 +522,29 @@ function App() {
               }}
             />
           ) : screen === 'grid' ? (
-            <GridScreen accessToken={accessToken} onAuthError={handleLogout} isGuest={isGuest} />
+            <GridScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              isGuest={isGuest}
+              onViewRoundLeaderboard={handleViewRoundLeaderboard}
+            />
           ) : screen === 'path' ? (
             // S-086: the real SCREEN-10 clue-reveal UI — replaces S-085's
             // "coming soon" placeholder now that it's built. No isGuest prop
             // (see PathScreenProps' own doc comment for why).
-            <PathScreen accessToken={accessToken} onAuthError={handleLogout} />
+            <PathScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              onViewRoundLeaderboard={handleViewRoundLeaderboard}
+            />
           ) : screen === 'leaderboard' ? (
-            <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
+            <LeaderboardScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              initialGameKey={leaderboardInitial?.gameKey}
+              initialScope={leaderboardInitial?.scope}
+              initialRoundId={leaderboardInitial?.roundId}
+            />
           ) : screen === 'admin' ? (
             <AdminScreen
               accessToken={accessToken}

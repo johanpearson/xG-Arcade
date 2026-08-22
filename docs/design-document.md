@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.72"
+version: "0.73"
 status: draft
-last_updated: 2026-08-17
+last_updated: 2026-08-22
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -277,6 +277,27 @@ and never touches the badge-dock elements or its keyframes. Fires on
 every rejected guess (whether or not an attempt remains afterward), never
 on a page load that shows a cell already incorrect. Respects
 `prefers-reduced-motion`: flash only, no shake.
+
+**Round-completion settle-in (REQ-1210, ADR-0082, SCREEN-12).** When a
+player finishes a round of any game (xG Grid or xG Path today), the
+completion banner enters with the same fade-plus-rise "settle" character
+already established elsewhere in this app (the badge dock's own arrival
+above, and SCREEN-10's clue-node reveal) — a brief upward slide combined
+with a fade from transparent, never a bounce, spin, or anything more
+attention-grabbing than those two precedents. Deliberately reuses that
+existing motion character rather than introducing a new signature
+animation: this is a generic, cross-game moment (ADR-0082), not a
+game-specific flourish, so it shouldn't visually compete with either
+game's own signature motion (badge dock for xG Grid, clue-node reveal for
+xG Path). Fires once, on the in-session moment of completing a round
+(never automatically on loading or revisiting an already-finished round —
+see SCREEN-12's own note on REQ-1210 §7's open "replay?" question).
+Respects `prefers-reduced-motion`: the banner, its points value, and its
+leaderboard link all still appear immediately, with the motion itself
+(not the content) removed — same fallback pattern as the badge dock and
+rejected-guess cue above, and REQ-1210's own explicit acceptance
+criterion that neither the points value nor the link may ever be gated
+behind the animation actually playing.
 
 **Brand mark (2026-07-26, revised same day).** A small icon/logo pair
 replaces the plain "xG Arcade" text on `SplashScreen` (REQ-719 shipped
@@ -2579,6 +2600,67 @@ shape, added the same day as the footer relocation above:
   forms already used before this moved, no new value introduced by either
   pass. The Title input and Screen `<select>` reuse the identical
   bordered-field treatment the Description textarea already had.
+
+### SCREEN-12: Round-completion banner (REQ-1210, ADR-0082)
+
+New for this story — no prior SCREEN entry covered this. Generic across
+every game xG Arcade hosts (xG Grid, xG Path today, any game added
+later) — one component, `RoundCompletionBanner.tsx`, rendered by both
+`GridScreen.tsx` and `PathScreen.tsx` from the same shared trigger
+(`lib/roundCompletion.ts`, ADR-0082), never a per-game copy.
+
+```
+Inline banner, in normal document flow above the grid/puzzle timeline —
+NOT a modal, NOT a backdrop, cannot intercept a click meant for the
+header nav or any other on-screen control:
+
+┌─────────────────────────────────────────────────┐
+│ Round complete                                   │
+│ ~42 pts estimated              [View leaderboard] × │
+└─────────────────────────────────────────────────┘
+```
+
+- **Placement and interaction model.** Sits inline, in normal flow, at the
+  top of the screen's own content area — directly above `Grid`
+  (xG Grid) or the puzzle timeline (xG Path). Deliberately not a modal:
+  REQ-1210 asks for "immediate feedback," not an interruption that blocks
+  the player from continuing to look at the board they just finished. A
+  small "×" dismiss control hides it without discarding anything
+  underneath (the grid/timeline is completely unaffected either way).
+- **Points value wording — each game keeps its own existing convention,
+  never a third one.** xG Grid shows "~N pts estimated" (REQ-204/213's
+  existing provisional framing — another player's still-open guess on a
+  shared cell can still change this total until the round actually
+  closes, REQ-205). xG Path shows plain "N pts" (REQ-1206 — a locked xG
+  Path puzzle's points are already final and never change). The banner
+  component itself is agnostic to which wording it's showing — each
+  screen formats its own points text and hands it down as a prop, so
+  `RoundCompletionBanner.tsx` never has to know which game it's serving.
+- **Leaderboard link.** "View leaderboard" takes the player straight to
+  that specific round's leaderboard for that specific game — REQ-407's
+  live view if the round hasn't closed yet, REQ-408's closed view,
+  pre-drilled into that round (bypassing the closed-round list), if it
+  has. See ADR-0082 for why this is in-memory navigation state through
+  the existing screen-switch mechanism, not a URL route. The button
+  briefly disables (never hides) while that live-vs-closed check
+  resolves, so a fast double-click can't fire two navigations at once.
+- **When it appears — REQ-1210 §7's open question, resolved
+  conservatively.** Fires once, on the in-session transition from
+  "not every cell/puzzle locked yet" to "every one now locked" — never on
+  loading or navigating into an already-finished round (a page reload,
+  or revisiting the screen later in the same or a later session, shows no
+  banner). Whether it should ever replay on a later revisit is left
+  genuinely open in `requirements-document.md`'s REQ-1210 §7 note — no
+  per-player-per-round "have they seen this" state exists anywhere today,
+  and this in-session-only default needs none.
+- **Tokens only** — same card shell (`--color-surface-card`,
+  `--color-border-hairline`) every other card in this app already uses,
+  `--color-accent-green-text` for the heading and the primary button
+  (the same treatment `GuessInput`'s submit button already established),
+  `--color-text-primary`/`--color-text-muted` for body text, existing
+  spacing scale (`--space-*`) and the shared `--touch-target-min` sizing —
+  no new color or typeface. See §2 above for the settle-in animation
+  itself and its `prefers-reduced-motion` fallback.
 
 ## 4. Responsive strategy
 
