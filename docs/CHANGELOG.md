@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `docs/backlog.md` (S-155 marked SHIPPED) — `WikidataClient.cs`
+  (backend/src/XGArcade.DataSync/Wikidata/) split from 1,775 to 782 lines
+  (a 993-line/56% reduction), a pure refactor with zero behavior change.
+  Every `Build*Query` static helper moved to new file
+  `SparqlQueryBuilders.cs` (456 lines, plus the three builder-only
+  constants `MaleWikidataQid`/`DateOfBirthCutoff`/
+  `NationalTeamClassWikidataQid` as `internal const`); every
+  `Parse*Bindings`/`ParseBindings` static helper moved to new file
+  `SparqlResponseParsers.cs` (592 lines, including the
+  `SparqlResponse`/`SparqlResults`/`SparqlValue` JSON-shape records).
+  `WikidataClient.cs` now holds only its constructor/fields, the two
+  `Run*` drivers (`RunIntersectionQueryAsync`/`RunThrowingQueryAsync`),
+  the private `QueryIntersectionAsync` dispatcher, and its public
+  `IWikidataClient` methods as thin wrappers delegating to the moved
+  helpers. No `WikidataClientTests.cs` changes needed — every case passes
+  through the same unchanged public surface. Both new files land flat in
+  the existing `XGArcade.DataSync/Wikidata/` folder (not a new
+  `Wikidata/Sparql/` subfolder) — `architecture-reviewer` resolved the
+  story's own flagged judgment call in favor of flat, matching the
+  `IntersectionQuerySpecs.cs` precedent already in that folder from
+  S-100/S-101, with no other DataSync subfolder convention to justify a
+  new one; this is file organization, not a structural/boundary decision,
+  so no new ADR was scaffolded. `docs/requirements-document.md` and
+  `docs/architecture-document.md` were checked and need no change: no
+  REQ's behavior or acceptance criteria changed, and no COMP's
+  responsibility/boundary/data-flow changed — this is a pure internal
+  file-organization refactor entirely within already-documented COMP-07
+  (`XGArcade.DataSync`), confirmed not to touch ADR-0003's Core/game
+  boundary or any other architectural boundary. No `dotnet` SDK available
+  in this development sandbox, so `WikidataClientTests.cs` and the full
+  solution could not be run locally — must be verified green in CI before
+  merge, per this repo's normal constraint.
 - 2026-08-19 — `docs/requirements-document.md` (v1.92, REQ-1201 dated status
   note + new acceptance-criteria bullet + updated test-level paragraph),
   `docs/decisions/0079-xg-path-position-eligibility-floor.md` (new),
