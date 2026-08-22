@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PathScreen } from './PathScreen';
@@ -664,6 +664,159 @@ describe('PathScreen', () => {
 
       const indicator = document.querySelector('.path-screen__end-time');
       expect(indicator).toHaveAttribute('tabIndex', '0');
+    });
+  });
+
+  // REQ-1210/ADR-0083: the round-completion banner — see
+  // lib/roundCompletion.test.ts for the shared trigger/points-sum logic
+  // itself; these tests only cover PathScreen's own wiring (mapping puzzles
+  // into the shared shape, the plain "N pts" wording, and the
+  // live-vs-past leaderboard-target resolution).
+  describe('REQ-1210: round-completion banner', () => {
+    it('shows the banner once the round\'s only puzzle locks solved, with plain "N pts" (never "estimated")', async () => {
+      const user = userEvent.setup();
+      let pathFetchCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/path/current')) {
+          pathFetchCount += 1;
+          if (pathFetchCount === 1) return jsonResponse(roundResponse());
+          return jsonResponse(
+            roundResponse([
+              {
+                ...basePuzzle,
+                guess: {
+                  isCorrect: true,
+                  attemptCount: 1,
+                  locked: true,
+                  submittedName: 'Zlatan Ibrahimović',
+                  resolvedPlayerName: 'Zlatan Ibrahimović',
+                  resolvedPlayerPhotoUrl: null,
+                  points: 14,
+                },
+              },
+            ]),
+          );
+        }
+        if (String(url).includes('/guesses') && init?.method === 'POST') {
+          return jsonResponse({
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            resolvedPlayerName: 'Zlatan Ibrahimović',
+            resolvedPlayerPhotoUrl: null,
+            candidates: null,
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const onViewRoundLeaderboard = vi.fn();
+      render(
+        <PathScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={onViewRoundLeaderboard} />,
+      );
+
+      await user.type(await screen.findByLabelText('Player name'), 'Zlatan Ibrahimović');
+      await user.click(screen.getByRole('button', { name: 'Guess' }));
+
+      expect(await screen.findByText('Round complete')).toBeInTheDocument();
+      // PathTimeline's own per-puzzle points display also renders "14 pts"
+      // for the just-solved puzzle — scope this query to the banner itself
+      // (role="status", RoundCompletionBanner.tsx) so it isn't ambiguous.
+      const banner = screen.getByRole('status');
+      expect(within(banner).getByText('14 pts')).toBeInTheDocument();
+      expect(within(banner).queryByText(/estimated/)).not.toBeInTheDocument();
+    });
+
+    it('does not show the banner on an initial load of an already-complete round (REQ-1210 §7 — no replay)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/path/current')) {
+            return jsonResponse(
+              roundResponse([
+                {
+                  ...basePuzzle,
+                  guess: {
+                    isCorrect: true,
+                    attemptCount: 1,
+                    locked: true,
+                    submittedName: 'Zlatan Ibrahimović',
+                    resolvedPlayerName: 'Zlatan Ibrahimović',
+                    resolvedPlayerPhotoUrl: null,
+                    points: 14,
+                  },
+                },
+              ]),
+            );
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={vi.fn()} />);
+
+      await screen.findByText("You’ve completed every puzzle in this round.");
+      expect(screen.queryByText('Round complete')).not.toBeInTheDocument();
+    });
+
+    it('activating "View leaderboard" reports the game\'s own key (xg-path), not xG Grid\'s', async () => {
+      const user = userEvent.setup();
+      let pathFetchCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/path/current')) {
+          pathFetchCount += 1;
+          const solvedResponse = roundResponse([
+            {
+              ...basePuzzle,
+              guess: {
+                isCorrect: true,
+                attemptCount: 1,
+                locked: true,
+                submittedName: 'Zlatan Ibrahimović',
+                resolvedPlayerName: 'Zlatan Ibrahimović',
+                resolvedPlayerPhotoUrl: null,
+                points: 14,
+              },
+            },
+          ]);
+          if (pathFetchCount === 1) return jsonResponse(roundResponse());
+          // Every re-fetch after the first (the post-guess pickup, and this
+          // screen's own live-vs-past check) still reports the same round
+          // as active.
+          return jsonResponse(solvedResponse);
+        }
+        if (String(url).includes('/guesses') && init?.method === 'POST') {
+          return jsonResponse({
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            resolvedPlayerName: 'Zlatan Ibrahimović',
+            resolvedPlayerPhotoUrl: null,
+            candidates: null,
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const onViewRoundLeaderboard = vi.fn();
+      render(
+        <PathScreen accessToken="token" onAuthError={vi.fn()} onViewRoundLeaderboard={onViewRoundLeaderboard} />,
+      );
+
+      await user.type(await screen.findByLabelText('Player name'), 'Zlatan Ibrahimović');
+      await user.click(screen.getByRole('button', { name: 'Guess' }));
+
+      await user.click(await screen.findByRole('button', { name: 'View leaderboard' }));
+
+      await waitFor(() =>
+        expect(onViewRoundLeaderboard).toHaveBeenCalledWith({
+          gameKey: 'xg-path',
+          scope: 'live',
+          roundId: 'round-1',
+        }),
+      );
     });
   });
 });

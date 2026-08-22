@@ -7085,3 +7085,45 @@ same style as the national-team/B-team ones already in that REQ).
 `PathEndpoints.cs`) and frontend (`types.ts`/`PathTimeline.tsx`) can be
 built in parallel against the interface contract above without waiting on
 each other.
+
+## Epic 20 — Cross-game player experience
+
+**S-164 · REQ-1210: round-completion animation with current points and a leaderboard link — SHIPPED, 2026-08-22**
+A completion animation, generic across every game xG Arcade hosts (xG
+Grid, xG Path today, and any future game — written against the shared
+`Round`/cell model, ADR-0003, not either game's own internals), shown
+once a player's own guessing activity locks the last cell available to
+them in a round: shows a current-points value for that round (xG Grid's
+existing "~N pts estimated" provisional wording, REQ-204/213; xG Path's
+plain, non-provisional "N pts" wording, REQ-1206 — no new scoring path,
+no new wording convention) and a link straight to that round's
+leaderboard for that specific game, live-scoped (REQ-407) if the round
+hasn't closed yet at the moment the link is activated or closed-scoped
+(REQ-408) if it has. Frontend-only, no backend/`IGameModule` change: a
+new game-agnostic `frontend/src/lib/roundCompletion.ts`
+(`computeRoundCompletion`/`useCompletionTransition`, the latter firing
+only on an in-session `false → true` transition — deliberately never on
+first mount, so reloading or re-navigating into an already-complete round
+does not replay it) and `frontend/src/components/RoundCompletionBanner.tsx`,
+each consumed by `GridScreen.tsx`/`PathScreen.tsx` via a small
+per-game `toCompletableItem` mapping function. The leaderboard link is
+threaded as in-memory navigation state through `App.tsx`'s existing
+hash-based screen-switch mechanism (new `leaderboardInitial` state +
+`handleViewRoundLeaderboard`) into new optional `initial*` props on
+`LeaderboardScreen`/`PastRoundsLeaderboard` — not a URL route; see
+ADR-0083 for why this doesn't trigger ADR-0039's own "add react-router"
+follow-up. *Accept:* `roundCompletion.test.ts` (completion/points-sum
+logic and the transition hook in isolation), `RoundCompletionBanner.test.tsx`,
+`GridScreen.test.tsx`/`PathScreen.test.tsx` (banner appears only once
+every available cell/puzzle is locked, shows the correct
+game-appropriate wording and points, "View leaderboard" navigates with
+the correct target), `LeaderboardScreen.test.tsx`/`PastRoundsLeaderboard.test.tsx`
+(seeded `initial*` props land the screen directly on the right
+game/scope/round), `play-path.spec.ts` (E2E, updated for the new banner
+in the completion flow). *Deps:* none — REQ-204/205/206, REQ-1206,
+REQ-407/408 are all pre-existing. **Open product question, not yet
+resolved:** whether the animation should replay on every subsequent
+revisit of an already-complete round rather than only the first time —
+recorded in `requirements-document.md` §7 pending a product decision;
+`useCompletionTransition`'s in-session-only behavior is ADR-0083's
+conservative default, not a resolution of that question.

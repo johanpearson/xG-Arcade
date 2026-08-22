@@ -326,4 +326,72 @@ describe('PastRoundsLeaderboard', () => {
     expect(detailCalls).toHaveLength(2);
     expect(String(detailCalls[1][0])).toContain('cursor=50');
   });
+
+  // REQ-1210/ADR-0083: the round-completion banner's leaderboard link, once
+  // it has resolved the completed round has already closed, jumps straight
+  // into that round's detail — bypassing the round-selection list entirely,
+  // and with no `closedAt` known up front (the banner's link only ever
+  // knew `roundId`).
+  describe('REQ-1210: initialRoundId jumps straight into a round\'s detail', () => {
+    it('fetches and shows the round detail directly, with no "Closed {date}" line since the summary was never known', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds/round-9',
+          () => jsonResponse({ rows: [row(1, 'user-1', 'Alex', 29)], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () => jsonResponse({ rounds: [], nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(
+        <LeaderboardScreen
+          accessToken="token"
+          onAuthError={vi.fn()}
+          initialScope="past"
+          initialRoundId="round-9"
+        />,
+      );
+
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+      expect(screen.getByText('29 pts')).toBeInTheDocument();
+      expect(screen.queryByText(/^Closed /)).not.toBeInTheDocument();
+
+      // "Back to previous rounds" still works afterward, and the round list
+      // underneath it was fetched too (the mount-already-active fix) —
+      // it's just empty here.
+      fireEvent.click(screen.getByRole('button', { name: 'Back to previous rounds' }));
+      await waitFor(() => expect(screen.getByText('No rounds have closed yet.')).toBeInTheDocument());
+    });
+
+    it('a "not closed yet" response for the seeded roundId shows the distinct, honest message, not a fabricated round view', async () => {
+      const fetchMock = routedFetch([
+        ['/leagues/global/leaderboard/closed-rounds/round-9', () => jsonResponse({ title: 'Round not closed yet' }, 409)],
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () => jsonResponse({ rounds: [], nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(
+        <LeaderboardScreen
+          accessToken="token"
+          onAuthError={vi.fn()}
+          initialScope="past"
+          initialRoundId="round-9"
+        />,
+      );
+
+      await waitFor(() =>
+        expect(
+          screen.getByText('This round hasn’t closed yet — its live leaderboard is under “Current Round.”'),
+        ).toBeInTheDocument(),
+      );
+    });
+  });
 });

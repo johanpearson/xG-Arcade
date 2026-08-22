@@ -467,4 +467,39 @@ describe('LeaderboardScreen', () => {
       expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'false');
     });
   });
+
+  // REQ-1210/ADR-0083: `initial*` props seed this screen's own scope/game
+  // state at mount, for the round-completion banner's leaderboard link —
+  // see PastRoundsLeaderboard.test.tsx for the "past" + initialRoundId
+  // drill-in case specifically.
+  describe('REQ-1210: initialGameKey/initialScope/initialRoundId seed the screen at mount', () => {
+    it('initialScope "live" starts on the "Current Round" tab already selected and fetches it without any click', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => jsonResponse({ rows: [row(1, 'user-1', 'Alex', 12)], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(
+        <LeaderboardScreen accessToken="token" onAuthError={vi.fn()} initialScope="live" initialGameKey="xg-path" />,
+      );
+
+      expect(screen.getByRole('tab', { name: 'Current Round' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true');
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+    });
+
+    it('a normal manual visit (no initial* props) still defaults exactly as before — xG Grid, All-time', async () => {
+      const fetchMock = routedFetch([defaultAllTimeRoute]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      expect(screen.getByRole('tab', { name: 'All-time' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'true');
+    });
+  });
 });

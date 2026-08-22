@@ -3,11 +3,16 @@ import { ApiError, describeError } from '../lib/apiClient';
 import { fetchCurrentRound, submitGuess, warmUpAutocomplete } from '../lib/rounds';
 import type {
   CurrentRoundCell,
+  CurrentRoundGuess,
   CurrentRoundResponse,
   SubmitGuessResponse,
 } from '../lib/types';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
+import { computeRoundCompletion, useCompletionTransition, type CompletableItem } from '../lib/roundCompletion';
+import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
+import type { LeaderboardRoundTarget } from '../leaderboard/LeaderboardScreen';
+import { RoundCompletionBanner } from '../components/RoundCompletionBanner';
 import { Grid } from './Grid';
 import { GuessInput } from './GuessInput';
 import { ScoringExplainer } from './ScoringExplainer';
@@ -24,6 +29,31 @@ export interface GridScreenProps {
   // sites that don't exercise guest gating (GridScreen.test.tsx) don't need
   // updating just to satisfy this prop.
   isGuest?: boolean;
+  // REQ-1210/ADR-0083: called when the round-completion banner's "View
+  // leaderboard" link is activated — App.tsx owns the actual navigation
+  // (threading the target through to LeaderboardScreen's `initial*` props,
+  // ADR-0083). Optional so existing test call sites that never complete a
+  // full round (every current GridScreen.test.tsx case) don't need
+  // updating just to satisfy this prop — a real, un-guarded App.tsx render
+  // always supplies it.
+  onViewRoundLeaderboard?: (target: LeaderboardRoundTarget) => void;
+}
+
+// REQ-1210/ADR-0083: maps one cell's guess into the generic
+// `{ locked, points }` shape `lib/roundCompletion.ts`'s shared
+// computation understands — this is the one place xG Grid's own
+// scoring fields (isCorrect/livePoints/locked, REQ-204/205/206) get
+// translated into that generic shape, so the shared util itself never
+// needs to know anything game-specific. `points` here reproduces exactly
+// the same per-cell contribution GridScreen's own pre-existing
+// `totalKnownPoints` calculation already used (S-033's bugfix: a
+// locked-incorrect cell counts at MAX_POINTS_PER_CELL, a correct cell
+// counts its livePoints only once known, everything else counts as
+// "not yet known").
+function toCompletableItem(guess: CurrentRoundGuess | null): CompletableItem {
+  if (!guess) return { locked: false, points: null };
+  if (guess.isCorrect) return { locked: guess.locked, points: guess.livePoints };
+  return { locked: guess.locked, points: guess.locked ? MAX_POINTS_PER_CELL : null };
 }
 
 type LoadState =
@@ -42,7 +72,12 @@ type LoadState =
 // "closed" state is exercised via CellState's own props/test instead.
 const ROUND_STATUS = 'active' as const;
 
-export function GridScreen({ accessToken, onAuthError, isGuest = false }: GridScreenProps) {
+export function GridScreen({
+  accessToken,
+  onAuthError,
+  isGuest = false,
+  onViewRoundLeaderboard,
+}: GridScreenProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [activeCell, setActiveCell] = useState<CurrentRoundCell | null>(null);
   // REQ-213 (S-041): independent of activeCell/GuessInput on purpose — an
@@ -56,6 +91,51 @@ export function GridScreen({ accessToken, onAuthError, isGuest = false }: GridSc
   // name cache needed for that), so this set exists only to distinguish
   // "just submitted" from "loaded via page reload" for the shake cue.
   const [submittedThisSessionCellIds, setSubmittedThisSessionCellIds] = useState<ReadonlySet<string>>(new Set());
+
+  // REQ-1210/ADR-0083: the generic completion signal, computed from cells
+  // already fetched above (see toCompletableItem's own doc comment) — null
+  // while the round hasn't loaded yet, so useCompletionTransition can tell
+  // "no data yet" apart from "data loaded, not complete" (see that hook's
+  // own doc comment on why that distinction matters for never replaying on
+  // an already-finished round's initial load).
+  const completion =
+    state.phase === 'ready' ? computeRoundCompletion(state.round.cells.map((cell) => toCompletableItem(cell.guess))) : null;
+  const justCompletedRound = useCompletionTransition(completion ? completion.isComplete : null);
+  const [completionBannerDismissed, setCompletionBannerDismissed] = useState(false);
+  // REQ-1210: brief, disables-the-button-only window while confirming
+  // whether the just-completed round has since closed (see
+  // handleViewCompletedRoundLeaderboard below) — never gates the banner's
+  // points value or the link's presence itself.
+  const [checkingLeaderboardTarget, setCheckingLeaderboardTarget] = useState(false);
+
+  // REQ-1210: resolves whether this round is still active (REQ-407's
+  // 'live' scope, no roundId needed — a game has exactly one active round
+  // at a time) or has already closed (REQ-408's 'past' scope, pre-drilled
+  // into this exact roundId) by re-asking the same GET /rounds/current
+  // endpoint this screen already calls on mount — never a fresh, dedicated
+  // endpoint (ADR-0083's "no backend change" scoping). On any failure to
+  // confirm, falls through to 'past': PastRoundsLeaderboard's own
+  // "not closed yet" state gives a clear, honest message if that guess
+  // turns out wrong, whereas guessing 'live' on an actually-closed round
+  // would silently show whatever round is *newly* active instead (an
+  // unmarked wrong answer, not a real error state) — see ADR-0083's
+  // Consequences for the narrow race this still doesn't fully close.
+  const handleViewCompletedRoundLeaderboard = useCallback(async () => {
+    if (state.phase !== 'ready' || !onViewRoundLeaderboard) return;
+    const roundId = state.round.roundId;
+    setCheckingLeaderboardTarget(true);
+    let scope: 'live' | 'past' = 'past';
+    try {
+      const current = await fetchCurrentRound(accessToken);
+      if (current && current.roundId === roundId) {
+        scope = 'live';
+      }
+    } catch {
+      // Falls through to 'past' — see this function's own doc comment.
+    }
+    setCheckingLeaderboardTarget(false);
+    onViewRoundLeaderboard({ gameKey: XG_GRID_GAME_KEY, scope, roundId });
+  }, [accessToken, state, onViewRoundLeaderboard]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,11 +289,12 @@ export function GridScreen({ accessToken, onAuthError, isGuest = false }: GridSc
   // left it incomplete. A correct guess without livePoints yet (submitted
   // this instant, GET /rounds/current not yet re-fetched) is still
   // genuinely unknown and stays excluded, same as before.
-  const totalKnownPoints = state.round.cells.reduce((sum, cell) => {
-    if (!cell.guess) return sum;
-    if (cell.guess.isCorrect) return cell.guess.livePoints != null ? sum + cell.guess.livePoints : sum;
-    return cell.guess.locked ? sum + MAX_POINTS_PER_CELL : sum;
-  }, 0);
+  // REQ-1210/ADR-0083: reuses `completion.currentPoints` (computed above,
+  // guaranteed non-null here since state.phase === 'ready') rather than a
+  // second, separately-maintained sum — see toCompletableItem's own doc
+  // comment for why this is numerically identical to the calculation this
+  // line replaced.
+  const totalKnownPoints = completion ? completion.currentPoints : 0;
   const anyPointsKnown = state.round.cells.some(
     (cell) => cell.guess != null && (cell.guess.isCorrect ? cell.guess.livePoints != null : cell.guess.locked),
   );
@@ -261,6 +342,20 @@ export function GridScreen({ accessToken, onAuthError, isGuest = false }: GridSc
           )}
         </div>
       </div>
+      {/* REQ-1210/ADR-0083/design-document.md SCREEN-12: an inline banner,
+          not a blocking modal — sits in normal flow above the grid so it
+          can never intercept a click meant for the header nav or any other
+          on-screen control. `justCompletedRound` only ever fires once per
+          mount (useCompletionTransition), so this never reappears on a
+          later re-render unless the player dismisses it. */}
+      {justCompletedRound && !completionBannerDismissed && completion && onViewRoundLeaderboard && (
+        <RoundCompletionBanner
+          pointsText={`~${completion.currentPoints} pts estimated`}
+          onViewLeaderboard={handleViewCompletedRoundLeaderboard}
+          viewLeaderboardDisabled={checkingLeaderboardTarget}
+          onDismiss={() => setCompletionBannerDismissed(true)}
+        />
+      )}
       <Grid
         cells={state.round.cells}
         roundStatus={ROUND_STATUS}

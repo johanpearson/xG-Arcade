@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
 import { fetchCurrentPath } from '../lib/path';
 import { submitGuess, warmUpAutocomplete } from '../lib/rounds';
-import type { CurrentPathResponse } from '../lib/types';
+import type { CurrentPathGuess, CurrentPathResponse } from '../lib/types';
 import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
+import { computeRoundCompletion, useCompletionTransition, type CompletableItem } from '../lib/roundCompletion';
+import { XG_PATH_GAME_KEY } from '../games/GameSelectScreen';
+import type { LeaderboardRoundTarget } from '../leaderboard/LeaderboardScreen';
+import { RoundCompletionBanner } from '../components/RoundCompletionBanner';
 import { PathGuessInput } from './PathGuessInput';
 import { PathScoringExplainer } from './PathScoringExplainer';
 import { PathTimeline } from './PathTimeline';
@@ -19,6 +23,23 @@ export interface PathScreenProps {
   // guest-gated — SCREEN-10 has no REQ-215 suggestion entry point (out of
   // this story's scope, see PathGuessInput.tsx's own comment) and no other
   // guest-specific behavior, so there's nothing here for it to control.
+  // REQ-1210/ADR-0083: same contract as GridScreenProps.onViewRoundLeaderboard
+  // — see that prop's own doc comment. Optional so existing test call sites
+  // that never complete a full round don't need updating just to satisfy
+  // this prop.
+  onViewRoundLeaderboard?: (target: LeaderboardRoundTarget) => void;
+}
+
+// REQ-1210/ADR-0083: maps one puzzle's guess into the generic
+// `{ locked, points }` shape `lib/roundCompletion.ts`'s shared computation
+// understands — mirrors GridScreen.tsx's own toCompletableItem, but for xG
+// Path's own scoring shape (REQ-1206): a locked puzzle's `points` is
+// already the final, authoritative value (never a live estimate the way
+// xG Grid's `livePoints` is), so this mapping is simpler than xG Grid's own
+// — no correctness branch needed, `guess.points` is only ever non-null once
+// `guess.locked` is true (see CurrentPathGuess.points's own doc comment).
+function toCompletableItem(guess: CurrentPathGuess | null): CompletableItem {
+  return { locked: guess?.locked ?? false, points: guess?.points ?? null };
 }
 
 type LoadState =
@@ -31,7 +52,7 @@ type LoadState =
   // recomputed on a later render/timer.
   | { phase: 'ready'; round: CurrentPathResponse; roundEndTime: RoundEndTimeDisplay };
 
-export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
+export function PathScreen({ accessToken, onAuthError, onViewRoundLeaderboard }: PathScreenProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   // S-086: which of the round's puzzles is currently shown — purely
   // client-side, per SCREEN-10's "'Next puzzle' is an explicit action,
@@ -52,6 +73,40 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
   // that picks up the newly revealed clue failed — so the player must never
   // be told their guess failed here, only that the screen couldn't refresh.
   const [refetchWarning, setRefetchWarning] = useState<string | null>(null);
+
+  // REQ-1210/ADR-0083: the generic completion signal — reads every puzzle
+  // in the round (not just the currently-shown `puzzleIndex`), since
+  // "complete" means every puzzle available to this player is locked, not
+  // just the one on screen. Same null-while-not-loaded-yet contract as
+  // GridScreen.tsx's own `completion` (see toCompletableItem/
+  // useCompletionTransition's own doc comments).
+  const completion =
+    state.phase === 'ready' ? computeRoundCompletion(state.round.puzzles.map((puzzle) => toCompletableItem(puzzle.guess))) : null;
+  const justCompletedRound = useCompletionTransition(completion ? completion.isComplete : null);
+  const [completionBannerDismissed, setCompletionBannerDismissed] = useState(false);
+  const [checkingLeaderboardTarget, setCheckingLeaderboardTarget] = useState(false);
+
+  // REQ-1210: mirrors GridScreen.tsx's handleViewCompletedRoundLeaderboard
+  // exactly (see that function's own doc comment for the full reasoning) —
+  // re-asks GET /path/current (already used by this screen) rather than a
+  // new endpoint to decide 'live' vs 'past'.
+  const handleViewCompletedRoundLeaderboard = useCallback(async () => {
+    if (state.phase !== 'ready' || !onViewRoundLeaderboard) return;
+    const roundId = state.round.roundId;
+    setCheckingLeaderboardTarget(true);
+    let scope: 'live' | 'past' = 'past';
+    try {
+      const current = await fetchCurrentPath(accessToken);
+      if (current && current.roundId === roundId) {
+        scope = 'live';
+      }
+    } catch {
+      // Falls through to 'past' — see GridScreen.tsx's equivalent handler
+      // for the full reasoning.
+    }
+    setCheckingLeaderboardTarget(false);
+    onViewRoundLeaderboard({ gameKey: XG_PATH_GAME_KEY, scope, roundId });
+  }, [accessToken, state, onViewRoundLeaderboard]);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,6 +278,20 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
           Puzzle {clampedPuzzleIndex + 1} of {puzzles.length}
         </p>
       </div>
+
+      {/* REQ-1210/ADR-0083/design-document.md SCREEN-12: same inline,
+          non-blocking banner GridScreen.tsx renders — see that file's own
+          comment for why it deliberately never backdrops the rest of the
+          screen. xG Path's own plain "N pts" wording (REQ-1206), never
+          "estimated" (that's xG Grid's own provisional-value wording). */}
+      {justCompletedRound && !completionBannerDismissed && completion && onViewRoundLeaderboard && (
+        <RoundCompletionBanner
+          pointsText={`${completion.currentPoints} pts`}
+          onViewLeaderboard={handleViewCompletedRoundLeaderboard}
+          viewLeaderboardDisabled={checkingLeaderboardTarget}
+          onDismiss={() => setCompletionBannerDismissed(true)}
+        />
+      )}
 
       {/* key={`${puzzle.puzzleId}-...`}: forces a clean remount on every
           puzzle switch — both components carry their own local state
