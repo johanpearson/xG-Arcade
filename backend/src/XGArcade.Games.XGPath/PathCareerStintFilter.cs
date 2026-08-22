@@ -396,4 +396,149 @@ public static class PathCareerStintFilter
             other.ClubName != stint.ClubName &&
             other.StartYear <= stint.StartYear &&
             (other.EndYear is null || other.EndYear >= stint.EndYear));
+
+    // S-162 (Epic 19, 2026-08-19), REQ-1203/ADR-0081: a read-time,
+    // DISPLAY-ONLY collapse of ADJACENT PlayerCareerStint rows that share the
+    // identical ClubName, so a puzzle never renders duplicate-looking club
+    // entries back to back. Bug report this closes: a puzzle matching Divock
+    // Origi's real career shape rendered three consecutive "Lille" entries
+    // back to back — three separate rows for the same club, adjacent in
+    // chronological sequence, with different AppearanceCount values (e.g.
+    // 40/33/unknown) — which reads as broken/duplicated data regardless of
+    // the administrative reason (squad-list renewal, sell-then-loan-back,
+    // etc.) behind the split.
+    //
+    // See ADR-0081 for the full decision record, including why this is NOT
+    // DuplicateCareerStintCleaner/ADR-0063's job. That class PROVES two DB
+    // rows are the SAME real-world stint (matching QID/dates) and deletes
+    // one, permanently, at write time — a real, irreversible DB write, which
+    // is exactly why ADR-0063 refuses to merge two rows with different,
+    // both-populated AppearanceCount values (they could be a genuine
+    // loan-and-return, and a wrong delete can't be undone). This method never
+    // writes anything and never claims two rows ARE the same stint — it
+    // asserts something weaker, and always true regardless of why Wikidata
+    // recorded separate statements: if nothing else happened chronologically
+    // between two same-club rows, displaying them as one continuous club
+    // chapter cannot be "wrong" the way a DB merge could be. Reversible by
+    // construction (the underlying rows are never touched), so a bad merge
+    // here costs nothing more than one puzzle's display looking slightly off.
+    //
+    // PRECONDITION, matching PathClueSequenceBuilder.BuildSequence's own
+    // documented precondition for its input: `stintsChronological` must
+    // already be sorted ascending by chronological order (SequenceOrder, or
+    // equivalently StartYear/EndYear) before calling this method.
+    // "Adjacent" is defined purely as "next to each other in this list" — a
+    // caller that passes an unsorted list will get merges (or missed merges)
+    // that don't correspond to real chronological adjacency. This method does
+    // not re-sort its input; see both call sites
+    // (XGPathGameModule.GetEligiblePlayerIdsAsync, PathEndpoints.cs's
+    // GET /path/current handler) for how each guarantees this precondition.
+    //
+    // Merge rule, per field, applied to every maximal RUN of consecutive
+    // same-ClubName rows:
+    //   - ClubName: unchanged — the name every row in the run shares.
+    //   - PlayerId: taken from any row in the run — every row is the same
+    //     player's data by construction (this is always called with one
+    //     player's own stint list).
+    //   - Id: a freshly generated Guid. The merged record is a synthesized,
+    //     NEVER-persisted display value with no real row identity of its
+    //     own — reusing a real row's Id here would misleadingly imply the
+    //     merged entry IS that specific real row.
+    //   - StartYear: the FIRST row in the run's StartYear (earliest) — the
+    //     merged chapter starts when its first constituent row does.
+    //   - EndYear: the LAST row in the run's EndYear (latest) — including
+    //     staying null if the last row in the run is itself still ongoing,
+    //     since an open-ended final segment means the whole merged chapter
+    //     reads as still ongoing too.
+    //   - SequenceOrder: the FIRST row in the run's SequenceOrder — this was
+    //     already the earliest position among the run's rows, so it remains
+    //     a valid, still-correctly-ordered position for the merged entry as
+    //     a whole if anything re-sorts by this value later.
+    //   - AppearanceCount: the SUM of every row's AppearanceCount in the run,
+    //     but ONLY if every row in the run has a non-null value. If ANY row
+    //     in the run has a null AppearanceCount, the merged result is null —
+    //     NOT the sum of the known ones, and NOT the known value alone.
+    //     DELIBERATELY DIFFERENT from DuplicateCareerStintCleaner's
+    //     null-tolerant single-value-propagation rule (ADR-0063): that class
+    //     is proving two rows are the literal SAME real stint, where "one
+    //     side unknown" plausibly means "the other side's row already told
+    //     us the true count for this one stint" — propagating the known
+    //     value loses nothing there. This method's rows are explicitly NOT
+    //     claimed to be the same stint; they may be genuinely separate real
+    //     registrations for one continuous, uninterrupted club chapter,
+    //     where appearance counts are ADDITIVE across the chapter, not
+    //     duplicative of one another. If one segment's count is unknown,
+    //     silently treating it as contributing zero — by showing only the
+    //     known segment's count as if it were the whole chapter's total —
+    //     would UNDERSTATE a real total that could be meaningfully larger.
+    //     Showing no count at all for the merged entry is the honest choice
+    //     instead — exactly how any other single stint with an unrecorded
+    //     AppearanceCount already renders today (REQ-1201-REQ-1206's "count
+    //     unknown" convention, see PlayerCareerStint.AppearanceCount's own
+    //     doc comment).
+    //
+    // A run of length 1 (no adjacent same-club neighbor on either side)
+    // still goes through the same "construct a new record" path below,
+    // rather than being special-cased, for one simpler implementation — but
+    // its OUTPUT values are identical to its single input row in every field
+    // except Id (see the Id bullet above: even an unmerged row gets a fresh
+    // synthesized Id, since a caller must never rely on a collapsed result's
+    // Id matching any real persisted row's Id).
+    //
+    // A same-club PAIR with something else — even one row at a DIFFERENT
+    // club — chronologically between them does NOT merge: only rows that are
+    // STRICTLY ADJACENT in `stintsChronological` (nothing else in the list
+    // between them) sharing an identical ClubName are ever merged into the
+    // same run.
+    public static IReadOnlyList<PlayerCareerStint> CollapseAdjacentSameClub(
+        IReadOnlyList<PlayerCareerStint> stintsChronological)
+    {
+        var collapsed = new List<PlayerCareerStint>();
+
+        var runStart = 0;
+        while (runStart < stintsChronological.Count)
+        {
+            var runEnd = runStart;
+            while (runEnd + 1 < stintsChronological.Count &&
+                   stintsChronological[runEnd + 1].ClubName == stintsChronological[runStart].ClubName)
+            {
+                runEnd++;
+            }
+
+            collapsed.Add(MergeRun(stintsChronological, runStart, runEnd));
+            runStart = runEnd + 1;
+        }
+
+        return collapsed;
+    }
+
+    // Merges stintsChronological[runStartIndex..runEndIndex] (inclusive)
+    // into one synthesized PlayerCareerStint — see
+    // CollapseAdjacentSameClub's own doc comment for the exact per-field
+    // rule this implements.
+    private static PlayerCareerStint MergeRun(
+        IReadOnlyList<PlayerCareerStint> stintsChronological, int runStartIndex, int runEndIndex)
+    {
+        var first = stintsChronological[runStartIndex];
+        var last = stintsChronological[runEndIndex];
+
+        var runAppearanceCounts = new List<int?>();
+        for (var i = runStartIndex; i <= runEndIndex; i++)
+            runAppearanceCounts.Add(stintsChronological[i].AppearanceCount);
+
+        var appearanceCount = runAppearanceCounts.Any(c => c is null)
+            ? null
+            : (int?)runAppearanceCounts.Sum(c => c!.Value);
+
+        return new PlayerCareerStint
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = first.PlayerId,
+            ClubName = first.ClubName,
+            StartYear = first.StartYear,
+            EndYear = last.EndYear,
+            SequenceOrder = first.SequenceOrder,
+            AppearanceCount = appearanceCount,
+        };
+    }
 }

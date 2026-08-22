@@ -50,6 +50,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   COMP-11 (Games.XGPath), with no new component, boundary, data flow, or
   data-model field — `PathClubClue`/`PathClubClueResponse` are existing
   DTOs gaining one field.
+- 2026-08-19 — `docs/decisions/0081-xg-path-collapse-adjacent-same-club-stints.md`
+  (new) — closes a real reported bug: a puzzle matching Divock Origi's real
+  career rendered three consecutive "Lille" club-reveal entries back to
+  back (three `PlayerCareerStint` rows for the same club, adjacent in
+  chronological sequence, with different `AppearanceCount` values).
+  `PathCareerStintFilter.CollapseAdjacentSameClub` is a new, read-time,
+  DISPLAY-ONLY collapse of strictly-adjacent same-`ClubName` stint rows
+  (earliest `StartYear`, latest `EndYear`, summed `AppearanceCount` ONLY if
+  every row in the run is known, `null` otherwise) — deliberately NOT
+  `DuplicateCareerStintCleaner`/ADR-0063's job, since that class proves two
+  rows are the same real stint before a permanent DB delete, which isn't
+  provable here. Chained identically, in the identical position, at both
+  `XGPathGameModule.GetEligiblePlayerIdsAsync` (so `IsEligible`'s
+  `MinDocumentedStintCount >= 3` check sees the post-collapse row count)
+  and `PathEndpoints.cs`'s `GET /path/current` handler — see ADR-0081's
+  invariant-risk reasoning for why both must move together. Also documents
+  an intentional, positive side effect: a player whose true seeded-club
+  appearance total was split across two adjacent sub-threshold rows now
+  correctly qualifies post-collapse. `docs/requirements-document.md`
+  (v1.94) gains a matching REQ-1203 dated status note, a new
+  acceptance-criteria bullet, and an updated test-level paragraph;
+  `docs/backlog.md`'s S-162 entry is now marked SHIPPED.
+  `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and need no change: this
+  is a runtime-filter addition inside the already-documented COMP-11
+  (Games.XGPath), no new component/boundary/data flow/data-model field.
 - 2026-08-18 — `.github/workflows/backfill-player-photos.yml` (re-added),
   `docs/implementation-document.md` (v1.04) — re-created the
   `backfill-player-photos` workflow wrapper S-132 deleted (2026-08-17) as a

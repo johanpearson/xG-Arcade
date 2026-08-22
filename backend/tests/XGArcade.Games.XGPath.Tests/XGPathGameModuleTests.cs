@@ -179,6 +179,38 @@ public class XGPathGameModuleTests
         _dbContext.SaveChanges();
     }
 
+    // S-162/ADR-0081: same shape as SeedStints above, but with explicit,
+    // caller-controlled SequenceOrder values (0, 1, 2, ... matching each
+    // tuple's position in the params array) rather than SeedStints' fixed
+    // SequenceOrder=0 for every row. PathCareerStintFilter.CollapseAdjacentSameClub
+    // defines "adjacent" purely as "next to each other after sorting by
+    // SequenceOrder" (its own doc comment's precondition) — the plain
+    // SeedStints helper's "SequenceOrder is irrelevant to eligibility" claim
+    // stopped being true the moment collapse joined
+    // GetEligiblePlayerIdsAsync's filter chain, so collapse-specific
+    // fixtures need real, distinct SequenceOrder values to make "adjacent in
+    // this array" and "adjacent after the module's own OrderBy(SequenceOrder)"
+    // the same thing, rather than relying on the InMemory provider's
+    // undocumented (and previously irrelevant) row-return order.
+    private void SeedStintsOrdered(Guid playerId, params (int StartYear, int? EndYear, string ClubName, int? AppearanceCount)[] stints)
+    {
+        for (var i = 0; i < stints.Length; i++)
+        {
+            var (startYear, endYear, clubName, appearanceCount) = stints[i];
+            _dbContext.PlayerCareerStints.Add(new PlayerCareerStint
+            {
+                Id = Guid.NewGuid(),
+                PlayerId = playerId,
+                ClubName = clubName,
+                StartYear = startYear,
+                EndYear = endYear,
+                SequenceOrder = i,
+                AppearanceCount = appearanceCount,
+            });
+        }
+        _dbContext.SaveChanges();
+    }
+
     // Baseline "definitely eligible" fixture (REQ-1201/ADR-0074/S-138): 3
     // well-ordered stints, at 2 DISTINCT seeded clubs (seededClubName and a
     // second club derived from it, "{seededClubName} 2") plus 1 unseeded
@@ -409,6 +441,79 @@ public class XGPathGameModuleTests
 
         Assert.That(targets, Has.Count.EqualTo(3));
         Assert.That(targets, Does.Contain(withJunk.Id));
+    }
+
+    // ==== S-162/ADR-0081: PathCareerStintFilter.CollapseAdjacentSameClub ===
+    // ==== joins the same GetEligiblePlayerIdsAsync filter chain as ========
+    // ==== ExcludeNationalTeams/ExcludeBTeams above, applied AFTER both — ===
+    // ==== same "baseline + 1 violating candidate" rejection-test technique
+    // ==== as the youth-national-team/B-team junk-row tests just above =====
+
+    // Same bug class as PaddedByYouthNationalTeamJunkRows/PaddedByBTeamJunkRows
+    // above, but the OPPOSITE direction of risk: here the candidate's RAW row
+    // count (3) meets MinDocumentedStintCount on its own, but two of those
+    // three rows are an ADJACENT same-club run ("Seeded FC" then "Seeded FC"
+    // again, nothing else between them) that collapses to ONE displayed
+    // entry — so the POST-COLLAPSE distinct-chapter count is only 2, below
+    // MinDocumentedStintCount. If collapse were applied only at the display
+    // call site (PathEndpoints.cs) and not here, this candidate would be
+    // wrongly accepted as eligible with too few real post-collapse stints for
+    // PathClueSequenceBuilder.SplitIntoTurns to split across its 3 fixed
+    // club-reveal turns — exactly the "empty clue" bug class ADR-0074 already
+    // fixed once for a different cause (see GetEligiblePlayerIdsAsync's own
+    // INVARIANT comment).
+    [Test]
+    public void REQ1203_GenerateInstanceAsync_CandidateWithThreeRawStintsButTwoPostCollapse_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var collapsesTooFar = SeedPlayer("CollapsesTooFar");
+        SeedStintsOrdered(collapsesTooFar.Id,
+            (2010, 2012, "Seeded FC", (int?)null),
+            (2012, 2015, "Seeded FC", (int?)null), // adjacent, same club as the row above -> collapses into ONE row with it
+            (2015, null, "Seeded FC 2", (int?)null));
+        // Raw row count: 3 (meets MinDocumentedStintCount on its own).
+        // Post-collapse row count: 2 (the two "Seeded FC" rows merge) -> below
+        // MinDocumentedStintCount, so this candidate must still be rejected.
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Positive control for the fix above: a genuinely eligible candidate
+    // whose real career happens to include an adjacent same-club pair (e.g.
+    // Origi's real "Lille" shape) must still be selected — collapsing must
+    // not shrink an otherwise-eligible candidate's pool membership below what
+    // it should be. Post-collapse this candidate has exactly 3 distinct
+    // chapters (Seeded FC merged, Seeded FC 2, Unseeded Club Two) at 2
+    // distinct qualifying seeded clubs — genuinely eligible.
+    [Test]
+    public async Task REQ1203_GenerateInstanceAsync_CandidateWithAdjacentSameClubPair_StillEligible_PoolDoesNotShrinkBelowPuzzleCount()
+    {
+        SeedClub("Seeded FC");
+        SeedClub("Seeded FC 2");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var adjacentPair = SeedPlayer("AdjacentSameClubPair");
+        SeedStintsOrdered(adjacentPair.Id,
+            (2005, 2008, "Seeded FC", (int?)null),
+            (2008, 2010, "Seeded FC", (int?)null), // adjacent, same club -> collapses with the row above into one "Seeded FC" chapter
+            (2010, 2013, "Seeded FC 2", (int?)null),
+            (2013, null, "Unseeded Club Two", (int?)null));
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(adjacentPair.Id));
     }
 
     [Test]

@@ -6919,7 +6919,7 @@ dated note is appended, same as those two stories did).
 `IsEligible`" pattern ADR-0073 already established, applied to a second
 field.
 
-**S-162 · xG Path: collapse adjacent same-club `PlayerCareerStint` rows for clue display**
+**S-162 · xG Path: collapse adjacent same-club `PlayerCareerStint` rows for clue display — SHIPPED**
 A puzzle for a target matching Divock Origi's real career shape rendered
 three consecutive "Lille" entries back to back — `PlayerClueSequenceBuilder`
 renders every stint row it's given with no notion that two (or three)
@@ -6960,9 +6960,21 @@ turn" bug class S-138's quality-gate review already found and fixed once
 ADR-0075's B-team pattern) plus test coverage in BOTH
 `PathCareerStintFilterTests.cs` (the collapse function in isolation:
 2 adjacent same-club rows merge, 3 adjacent same-club rows merge, a
-same-club pair with something else in between does NOT merge, an unknown
-`AppearanceCount` on one side propagates the known value same as
-`DuplicateCareerStintCleaner`'s own null-tolerant rule) AND
+same-club pair with something else in between does NOT merge, all-known
+`AppearanceCount`s sum, and — CORRECTED, this earlier draft of this entry
+contradicted itself here — an unknown `AppearanceCount` on ANY merged
+segment makes the merged total `null`, NOT the known value alone.
+Deliberately NOT `DuplicateCareerStintCleaner`'s null-tolerant
+single-value-propagation rule (ADR-0063): that class is proving two rows
+are the literal same real stint, where "unknown" plausibly means "the
+other row already told us the true count." This collapse is different —
+it's merging rows that may be genuinely separate real registrations for
+one continuous, uninterrupted club chapter, where appearance counts are
+additive; silently treating an unknown segment as contributing zero
+(by only showing the known segment's count) would understate a real
+total, so the honest choice is to show no count at all for the merged
+entry, same as any other stint with an unrecorded `AppearanceCount`
+already renders today — not to fabricate a partial sum) AND
 `XGPathGameModuleTests.cs` (a candidate whose raw row count is >= 3 but
 whose POST-COLLAPSE distinct-chapter count is < 3 must be excluded, not
 just displayed differently) — i.e. real invariant-preserving work, not a

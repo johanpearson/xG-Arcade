@@ -347,4 +347,52 @@ public class PathClueSequenceBuilderTests
         Assert.That(allClubClues.Single(c => c.ClubName == "Preston North End").IsLoan, Is.True);
         Assert.That(allClubClues.Single(c => c.ClubName == "LA Galaxy").IsLoan, Is.False);
     }
+
+    // ---- S-162/ADR-0081: PathCareerStintFilter.CollapseAdjacentSameClub ----
+    // BuildSequence itself does NOT call CollapseAdjacentSameClub — like
+    // ExcludeNationalTeams/ExcludeBTeams, collapse is applied by the two real
+    // callers (XGPathGameModule.GetEligiblePlayerIdsAsync, PathEndpoints.cs)
+    // BEFORE BuildSequence ever sees a stint list, matching this class's own
+    // header comment ("the caller ... is responsible for fetching the
+    // PlayerCareerStint list" — BuildSequence stays a pure turn-splitter/
+    // formatter with no filter-chain knowledge of its own). None of this
+    // file's own fixtures above happen to contain an adjacent-same-club pair
+    // (every stint list above uses distinct club names — "Club A"/"Club
+    // B"/"Club {i}"/etc. — with no repeats), so no existing BuildSequence
+    // test needed a collapse-specific case added to it.
+    //
+    // This one test is the exception: a small, still DB-free (both
+    // CollapseAdjacentSameClub and BuildSequence are pure functions —
+    // neither needs a repository or DbContext) wiring check that the two
+    // functions compose correctly end-to-end, the same shape the real call
+    // sites use (Collapse's output feeding directly into BuildSequence's
+    // input) — living here rather than in XGPathGameModuleTests.cs because
+    // it needs no DB/eligibility machinery at all, only the two pure
+    // functions themselves.
+    [Test]
+    public void REQ1203_CollapseThenBuildSequence_AdjacentSameClubPair_RendersAsOneClubRevealEntry()
+    {
+        // Origi/Lille-shaped: two adjacent same-club rows with different,
+        // both-known AppearanceCounts, plus one more stint elsewhere.
+        var rawStints = new[]
+        {
+            Stint("Lille", 2015, 2017, appearanceCount: 40),
+            Stint("Lille", 2017, 2020, appearanceCount: 33),
+            Stint("Liverpool", 2020, null),
+        };
+
+        var collapsed = PathCareerStintFilter.CollapseAdjacentSameClub(rawStints);
+        var turns = PathClueSequenceBuilder.BuildSequence(collapsed, null, null, null);
+
+        var allClubClues = turns
+            .Where(t => t.Kind == PathClueKind.ClubReveal)
+            .SelectMany(t => t.Clubs!)
+            .ToList();
+
+        // One "Lille" entry, not two — the merged AppearanceCount is the sum
+        // (73), and the total club count across all 3 club-reveal turns is 2
+        // (Lille, Liverpool), not the raw 3 rows.
+        Assert.That(allClubClues.Select(c => c.ClubName), Is.EqualTo(new[] { "Lille", "Liverpool" }));
+        Assert.That(allClubClues.Single(c => c.ClubName == "Lille").AppearanceCount, Is.EqualTo(73));
+    }
 }

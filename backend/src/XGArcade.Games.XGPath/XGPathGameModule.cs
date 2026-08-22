@@ -421,11 +421,14 @@ public class XGPathGameModule(
         // B-team/reserve-team row (e.g. "Real Madrid Castilla") is not
         // itself a seeded club either, but can still collide on dates the
         // same way a national-team row can.
-        // INVARIANT (S-139 fast-follow hardening, 2026-08-18/REQ-1203): the
-        // order of operations here — fetch raw stints, THEN sanitize via
+        // INVARIANT (S-139 fast-follow hardening, 2026-08-18/REQ-1203;
+        // extended S-162/ADR-0081, 2026-08-19): the order of operations here
+        // — fetch raw stints, THEN sanitize via
         // PathCareerStintFilter.ExcludeBTeams(ExcludeNationalTeams(...)),
-        // THEN check IsEligible — must NEVER change, and must NEVER be
-        // computed against unsanitized stint data. This is what guarantees
+        // THEN COLLAPSE adjacent same-club rows via
+        // PathCareerStintFilter.CollapseAdjacentSameClub(...), THEN check
+        // IsEligible — must NEVER change, and must NEVER be computed against
+        // unsanitized/uncollapsed stint data. This is what guarantees
         // "always PuzzleCount puzzles per round, never an empty club-reveal
         // turn" as a structural property of every puzzle this method ever
         // selects a target for, not a display-time patch: IsEligible's own
@@ -433,19 +436,42 @@ public class XGPathGameModule(
         // PathClueSequenceBuilder.SplitIntoTurns always has >= 3 stints to
         // split across its 3 fixed club-reveal turns, and that guarantee
         // only holds if "eligible" is judged AFTER the same national-team/
-        // B-team rows PathEndpoints.cs strips before ever building the clue
-        // sequence are already excluded from the count — never before.
-        // GET /path/current applies the identical filter chain
-        // (ExcludeBTeams(ExcludeNationalTeams(...))) to the same persisted
-        // stints, so its view can never diverge from what this method
-        // already verified. Any future refactor of this method must
-        // preserve this fetch->sanitize->eligible-check ordering exactly —
-        // reordering it (or checking IsEligible before sanitizing) silently
-        // reopens the exact "empty clue" bug class this invariant exists to
-        // close.
+        // B-team rows AND the same adjacent-same-club collapse
+        // PathEndpoints.cs applies before ever building the clue sequence
+        // are already reflected in the count — never before. GET
+        // /path/current applies the identical three-deep filter chain
+        // (CollapseAdjacentSameClub(ExcludeBTeams(ExcludeNationalTeams(...))))
+        // to the same persisted stints, so its view can never diverge from
+        // what this method already verified. Any future refactor of this
+        // method must preserve this fetch->sanitize->collapse->eligible-check
+        // ordering exactly — reordering it (or checking IsEligible before
+        // sanitizing/collapsing) silently reopens the exact "empty clue" bug
+        // class this invariant exists to close (see ADR-0074 for the
+        // original bug this pattern fixed, and ADR-0081 for why collapse
+        // joins the chain the same way the two Exclude filters did).
+        //
+        // CollapseAdjacentSameClub also requires its input sorted ascending
+        // by chronological order (its own doc comment) — kvp.Value's row
+        // order is not otherwise guaranteed by
+        // GetCareerStintsByPlayerIdsAsync (no ORDER BY in that query), so an
+        // explicit OrderBy(SequenceOrder) is inserted here, after the two
+        // Excludes and before Collapse, mirroring PathEndpoints.cs's own
+        // pre-existing OrderBy at the equivalent position in its chain.
+        //
+        // A documented, INTENTIONAL side effect of collapsing before
+        // IsEligible's seeded-club appearance-count check
+        // (MinAppearancesAtSeededClub, ADR-0047): a player whose true
+        // single-club appearance total was split across two adjacent
+        // sub-threshold rows (e.g. 15 + 15 = 30) now correctly counts as
+        // qualifying, where before the split understated it. This is a GOOD
+        // consequence of merging consistently, not a bug to guard against —
+        // see ADR-0081's Consequences section.
         var structurallyEligibleIds = stintsByPlayer
             .Where(kvp => IsEligible(
-                PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(kvp.Value)),
+                PathCareerStintFilter.CollapseAdjacentSameClub(
+                    PathCareerStintFilter.ExcludeBTeams(PathCareerStintFilter.ExcludeNationalTeams(kvp.Value))
+                        .OrderBy(s => s.SequenceOrder)
+                        .ToList()),
                 seededClubNames))
             .Select(kvp => kvp.Key)
             .ToList();
