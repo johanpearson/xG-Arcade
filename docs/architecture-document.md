@@ -1208,6 +1208,7 @@ new ADR that references the old one.
 | ADR-0070 | REQ-211's guess-time live-lookup fallback (`GridGameModule.ScoreSubmissionAsync`) is now gated by a config-driven `GridLiveLookupOptions.Enabled` flag (default `true`), so it can be operationally disabled to validate S-127's proactively-built cache without a code change — REQ-103's grid-generation-time live lookup is a separate call path, deliberately untouched | Accepted |
 | ADR-0071 | `Round.SequenceNumber` (REQ-304) is a plain `int`, `MAX+1` per `GameKey`, guarded by a `(GameKey, SequenceNumber)` unique index rather than an explicit transaction — a display-only label, never a routing/FK identifier | Accepted |
 | ADR-0076 | REQ-215's `PlayerSuggestion` submission context is generalized off xG Grid: adds `GameKey` + nullable per-game opaque context (`CellId`/`RowCategoryType`/`ColCategoryType` for `xg-grid`, `PathPuzzleId` for `xg-path`), mirroring ADR-0003's `Round.GameKey`/`GameInstanceId` pattern; also widens the submission route to `POST /rounds/{roundId}/suggestions`, branching on `GameKey`, and confirms `XGPathGameModule.GetCellCategoryTypesAsync`'s `NotSupportedException` stays in place, unused by the new route | Accepted |
+| ADR-0082 | `XGPathGameModule`'s eligibility pipeline (`GetEligiblePlayerIdsAsync`/`IsEligible`) is extracted into `IPathEligibilityService`/`PathEligibilityService`, mirroring ADR-0068's `GridGameModule` split exactly — no facade, `IGameModule` stays implemented directly on `XGPathGameModule` | Accepted |
 
 ## 11. Glossary
 
