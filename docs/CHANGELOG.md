@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `docs/backlog.md` (S-156 marked SHIPPED) — implemented
+  S-156 (Epic 17): backfilled dedicated test files for the 4 remaining
+  `AdminScreen.tsx` subcomponents S-108/S-109 left covered only
+  indirectly (`GuestClearSection.test.tsx`, `RoundControlSection.test.tsx`,
+  `UnverifiedDataSection.test.tsx`, `UserDeletionSection.test.tsx`), each
+  rendering its component directly and stubbing only the routes that
+  component itself calls, mirroring the S-108 batch-1 shape.
+  `AdminScreen.test.tsx` was trimmed of the now-redundant per-subcomponent
+  cases (unlike S-108's "left unchanged" choice) but keeps its own
+  composition/wiring coverage — fetch-on-mount, a real (not mocked)
+  `onRefresh` round-tripping through `UnverifiedDataSection` and
+  `RoundControlSection`, and the activeRound-gated show/hide of
+  `RoundControlSection`+`UserDeletionSection` — with one composition case
+  (`RoundControlSection`'s real-`onRefresh` coverage) restored in a
+  follow-up commit after a `quality-architect` review found it had been
+  dropped rather than migrated. Pure test-coverage addition — no
+  production code, REQ, component boundary, or data-model change; full
+  frontend suite went 613 → 646 tests (44 files), all passing, `tsc -b`/
+  `oxlint` clean. `docs/requirements-document.md`,
+  `docs/architecture-document.md`, and `docs/implementation-document.md`
+  were all checked against their `update_when` triggers and need no
+  change — no ADR needed either (test-infrastructure addition, not a
+  structural decision).
 - 2026-08-22 — `docs/requirements-document.md` (v1.94 → v1.95, new §4.13
   "Cross-game player experience" with REQ-1210 + an unresolved §7 product
   question on replay-on-revisit), `docs/design-document.md` (v0.72 →

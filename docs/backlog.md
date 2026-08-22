@@ -6731,7 +6731,7 @@ SDK available in the sandbox that built this; the test suite could not be
 run locally and must be verified green in CI before merge.
 *Deps:* none.
 
-**S-156 · Add direct tests for `AdminScreen.tsx`'s remaining untested subcomponents**
+**S-156 · Add direct tests for `AdminScreen.tsx`'s remaining untested subcomponents — SHIPPED, 2026-08-22**
 `CODEBASE_ANALYSIS.md`'s 2026-08-11 revision (#2, P2) flagged 9 extracted
 `AdminScreen.tsx` subcomponents with zero dedicated tests. Since then,
 5 gained their own test file (`AccountMetricsSection`, `AnnouncementBannerSection`,
@@ -6746,6 +6746,24 @@ files use); `AdminScreen.test.tsx` is trimmed of any case now redundant
 with the new dedicated files (not left duplicated); full `npm run test`
 suite passes with the same or greater total assertion count, not fewer.
 *Deps:* none.
+**Built as:** matches the plan — added `GuestClearSection.test.tsx`,
+`RoundControlSection.test.tsx`, `UnverifiedDataSection.test.tsx`, and
+`UserDeletionSection.test.tsx`, each rendering its component directly
+(not through `AdminScreen`) and stubbing only the fetch routes that
+component itself calls, mirroring the S-108 batch-1 shape.
+`AdminScreen.test.tsx` was trimmed of the now-redundant per-subcomponent
+render/interaction/error-path cases the new files own, but keeps its own
+composition/wiring coverage (fetch-on-mount, real — not mocked —
+`onRefresh` round-tripping through `UnverifiedDataSection` and
+`RoundControlSection`, and the activeRound-gated show/hide of
+`RoundControlSection`+`UserDeletionSection`); a quality-architect review
+of the first pass found one composition case (`RoundControlSection`'s
+real-`onRefresh` coverage) had been dropped rather than migrated, fixed in
+a follow-up commit restoring it. Full frontend suite (`npm run test`):
+613 → 646 tests (44 files), all passing; `tsc -b`/`oxlint` clean. Pure
+test-coverage addition — no production code, REQ, component boundary, or
+data-model change; `architecture-reviewer` and `quality-architect` both
+reviewed and passed the diff.
 
 **S-157 · Continue `useAuthedFetch` migration to `GridScreen.tsx`/`PathScreen.tsx`/`AdminScreen.tsx`**
 S-120 (Epic 9) added the shared hook and migrated one screen
