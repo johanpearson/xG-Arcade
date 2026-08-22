@@ -1232,3 +1232,178 @@ describe('App (REQ-903: footer incident-report entry point)', () => {
     );
   });
 });
+
+// REQ-1210/ADR-0082: App.tsx's own wiring for the round-completion banner's
+// "View leaderboard" link — handleViewRoundLeaderboard (seeds
+// leaderboardInitial + navigates) and the header nav's onSelectLeaderboard
+// (explicitly clears leaderboardInitial first). GridScreen.test.tsx/
+// PathScreen.test.tsx already prove each screen calls onViewRoundLeaderboard
+// with the right LeaderboardRoundTarget; LeaderboardScreen.test.tsx already
+// proves initialGameKey/initialScope/initialRoundId are consumed correctly
+// when passed directly. Neither covers what App.tsx does with the callback
+// in between — that's this describe block's only job. Goes through xG
+// Path (not xG Grid) so the seeded gameKey is provably different from
+// LeaderboardScreen's own xG Grid default, and forces the 'past' scope (the
+// round has since closed) so initialRoundId's "drill straight into round
+// detail" behavior is exercised too, not just the 'live' scope GridScreen's
+// own REQ-1210 tests already cover more directly.
+describe('App (REQ-1210: round-completion banner "View leaderboard" wiring)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  const pathBasePuzzle = {
+    puzzleId: 'puzzle-1',
+    clues: [
+      {
+        turnNumber: 1,
+        kind: 'ClubReveal',
+        clubs: [{ clubName: 'Ajax', appearanceCount: 74 }],
+        yearRanges: null,
+        textValue: null,
+      },
+    ],
+    guess: null,
+  };
+
+  function pathRoundResponse(puzzles: unknown[] = [pathBasePuzzle]) {
+    return {
+      roundId: 'round-1',
+      startTime: '2026-07-10T00:00:00Z',
+      endTime: '2026-07-11T00:00:00Z',
+      allowGuessChange: false,
+      puzzles,
+    };
+  }
+
+  const solvedPathPuzzle = {
+    ...pathBasePuzzle,
+    guess: {
+      isCorrect: true,
+      attemptCount: 1,
+      locked: true,
+      submittedName: 'Zlatan Ibrahimović',
+      resolvedPlayerName: 'Zlatan Ibrahimović',
+      resolvedPlayerPhotoUrl: null,
+      points: 14,
+    },
+  };
+
+  // Mirrors GridScreen.test.tsx's "reports the 'past' scope..." fixture:
+  // call 1 (mount) unsolved, call 2 (post-guess refetch) solved, call 3+
+  // (the "View leaderboard" live-vs-past re-check, PathScreen.tsx's own
+  // handleViewCompletedRoundLeaderboard) reports no active round at all —
+  // i.e. this round has since closed, forcing the 'past' scope.
+  function stubFetchForPathCompletion() {
+    let pathFetchCount = 0;
+    return vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.endsWith('/path/current')) {
+        pathFetchCount += 1;
+        if (pathFetchCount === 1) return jsonResponse(pathRoundResponse());
+        if (pathFetchCount === 2) return jsonResponse(pathRoundResponse([solvedPathPuzzle]));
+        return jsonResponse({ title: 'No active round' }, 404);
+      }
+      if (url.includes('/guesses') && init?.method === 'POST') {
+        return jsonResponse({
+          isCorrect: true,
+          attemptCount: 1,
+          locked: true,
+          resolvedPlayerName: 'Zlatan Ibrahimović',
+          resolvedPlayerPhotoUrl: null,
+          candidates: null,
+        });
+      }
+      // LeaderboardScreen's four always-mounted scope components — only the
+      // ones this test's target scope ('past') actually activates fetch for
+      // real data; the rest (all-time's background poll) just need a benign
+      // empty response, same shape the existing REQ-721/REQ-903 leaderboard
+      // tests above already use.
+      if (url.includes('/leagues/global/leaderboard/closed-rounds/round-1')) {
+        return jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false });
+      }
+      if (url.includes('/leagues/global/leaderboard/closed-rounds')) {
+        return jsonResponse({ rounds: [], nextCursor: null, hasMore: false });
+      }
+      if (url.includes('/leagues/global/leaderboard')) {
+        return jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  async function completeXgPathRoundAndViewLeaderboard(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    await user.click(within(nav).getByRole('button', { name: 'xG Path' }));
+
+    await user.type(await screen.findByLabelText('Player name'), 'Zlatan Ibrahimović');
+    await user.click(screen.getByRole('button', { name: 'Guess' }));
+
+    await user.click(await screen.findByRole('button', { name: 'View leaderboard' }));
+  }
+
+  it('REQ-1210: activating "View leaderboard" mounts LeaderboardScreen seeded with that round\'s game, scope, and round id', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForPathCompletion());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await completeXgPathRoundAndViewLeaderboard(user);
+
+    expect(await screen.findByRole('heading', { name: 'Global leaderboard' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/leaderboard');
+
+    // initialGameKey: 'xg-path' — provably not LeaderboardScreen's own
+    // xG Grid default.
+    expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'false');
+    // initialScope: 'past' — provably not LeaderboardScreen's own 'all-time'
+    // default.
+    expect(screen.getByRole('tab', { name: 'Previous Rounds' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'All-time' })).toHaveAttribute('aria-selected', 'false');
+    // initialRoundId: 'round-1' — drilled straight into that round's own
+    // detail view (PastRoundsLeaderboard's own consumption of the prop),
+    // bypassing the closed-round list entirely.
+    expect(await screen.findByRole('button', { name: 'Back to previous rounds' })).toBeInTheDocument();
+  });
+
+  it('REQ-1210: revisiting the leaderboard via the header nav\'s own entry point after a completion-banner visit clears the seeded round', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForPathCompletion());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await completeXgPathRoundAndViewLeaderboard(user);
+    await screen.findByRole('button', { name: 'Back to previous rounds' });
+
+    // Navigate away from 'leaderboard' entirely first — the header nav's
+    // "Leaderboard" click below must be a genuine fresh mount of
+    // LeaderboardScreen, not a same-instance re-render. leaderboardInitial's
+    // own doc comment in App.tsx: initial* props are read once via
+    // LeaderboardScreen's useState lazy initializer, so a prop change on an
+    // already-mounted instance (which is what re-clicking "Leaderboard"
+    // while already on that screen would be) has no effect either way and
+    // wouldn't actually exercise onSelectLeaderboard's setLeaderboardInitial
+    // (null) clear.
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Leaderboard' }));
+
+    expect(await screen.findByRole('heading', { name: 'Global leaderboard' })).toBeInTheDocument();
+    // Plain defaults, not the stale xg-path/past/round-1 target seeded by
+    // the earlier completion-banner visit — proving onSelectLeaderboard's
+    // setLeaderboardInitial(null) actually took effect before this mount.
+    expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'All-time' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('button', { name: 'Back to previous rounds' })).not.toBeInTheDocument();
+  });
+});
