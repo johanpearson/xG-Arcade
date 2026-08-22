@@ -1,6 +1,6 @@
 import './RoundCompletionBanner.css';
 
-// REQ-1210/ADR-0082/design-document.md SCREEN-12: the generic round-
+// REQ-1210/ADR-0083/design-document.md SCREEN-12: the generic round-
 // completion banner shown by both GridScreen.tsx and PathScreen.tsx once
 // `useCompletionTransition` (lib/roundCompletion.ts) reports a genuine
 // in-session completion. Deliberately game-agnostic — it renders whatever

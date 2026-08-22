@@ -7164,7 +7164,7 @@ not a claim about current behavior.
 - **Status note (2026-08-02, bug-bundle fix): familiarity filter added
   (ADR-0056).** Real player feedback: a structurally eligible target can
   still be an obscure, unrecognizable career journeyman, since none of the
-  three checks above say anything about fame. `XGPathGameModule.
+  three checks above say anything about fame. `PathEligibilityService.
   GetEligiblePlayerIdsAsync` now runs a familiarity filter
   (`IPlayerFamiliarityService`/`PlayerFamiliarityService`, Wikipedia sitelink
   count via the new `IWikidataClient.QuerySitelinkCountsByQidsAsync`) on top
@@ -7178,7 +7178,7 @@ not a claim about current behavior.
   a candidate with fewer than 3 REAL club stints could still pass this
   check purely because leftover junk rows (e.g. "Spain national under-16
   association football team") padded the row count past 3.
-  `XGPathGameModule.GetEligiblePlayerIdsAsync` now filters via the new
+  `PathEligibilityService.GetEligiblePlayerIdsAsync` now filters via the new
   `PathCareerStintFilter.ExcludeNationalTeams` (named `ExcludeYouthNationalTeams`
   at the time of this note; renamed 2026-08-10 — see below) immediately
   before `IsEligible` runs. This REQ's own acceptance criteria below are
@@ -7194,7 +7194,7 @@ not a claim about current behavior.
   on this one point): xG Path now additionally requires
   `Player.BirthYear >= 1975`, a second, xG-Path-only eligibility floor
   layered on top of (not replacing) REQ-112's own 1939 floor.**
-  `XGPathGameModule.GetEligiblePlayerIdsAsync` checks `Player.BirthYear`
+  `PathEligibilityService.GetEligiblePlayerIdsAsync` checks `Player.BirthYear`
   directly, once per candidate — a player-level fact, evaluated alongside
   `IsEligible`, not inside `PathCareerStintFilter`, since it is not a
   stint-level fact. This is deliberately independent of REQ-112's 1939
@@ -7225,7 +7225,7 @@ not a claim about current behavior.
   REQ-1203's `PathClueSequenceBuilder`, which divides a target's stint
   count across exactly 3 fixed club-reveal turns and assumes ≥3 (for
   `N=2` it produces turn sizes `[0, 1, 1]` — an empty first clue turn).
-  `XGPathGameModule.IsEligible` therefore keeps the row-count floor,
+  `PathEligibilityService.IsEligible` therefore keeps the row-count floor,
   renamed `MinDocumentedStintCount` (same value, 3; the old name
   `MinStintCount` and its original ADR-0045-textual-reading justification
   are gone, not the check itself) — see this REQ's own corrected bullet
@@ -7265,7 +7265,7 @@ not a claim about current behavior.
   ADR-0073 on this REQ, not a supersession of it): xG Path now additionally
   requires `Player.Position` to be non-null and non-empty, a second,
   independent field-level eligibility floor alongside the `BirthYear >=
-  1975` floor above (2026-08-17, S-137, ADR-0073).** `XGPathGameModule.
+  1975` floor above (2026-08-17, S-137, ADR-0073).** `PathEligibilityService.
   GetEligiblePlayerIdsAsync` checks `Player.Position` directly, once per
   candidate, at the same call site and in the same manner as the
   `BirthYear` check above — a player-level fact, evaluated alongside
@@ -7344,19 +7344,19 @@ since `Player` has no field that could represent "outside the pool"; see
 `Player.BirthYear` is a real field this eligibility check reads directly,
 so its boundary is covered by runtime fixtures, not inspection —
 `BirthYear == 1975` (included, boundary), `BirthYear == 1974` (excluded),
-and `BirthYear == null` (excluded, fail-closed) in `XGPathGameModuleTests.cs`
+and `BirthYear == null` (excluded, fail-closed) in `PathEligibilityServiceTests.cs`
 only, per the backlog story's own acceptance criteria — this check lives in
-`XGPathGameModule.GetEligiblePlayerIdsAsync`, not `PathCareerStintFilter`,
+`PathEligibilityService.GetEligiblePlayerIdsAsync`, not `PathCareerStintFilter`,
 so `PathCareerStintFilterTests.cs` carries only an explanatory comment
 noting why this rule has no stint-level surface to test, not a fixture
 case. `Player.Position` eligibility floor (2026-08-18, S-161): same shape
 as the `BirthYear` boundary immediately above — `Position == null`
 (excluded, fail-closed) and a non-null `Position` (e.g. `"Forward"`,
 included, positive control) are covered by fixtures in
-`XGPathGameModuleTests.cs` only, this check likewise living in
-`XGPathGameModule.GetEligiblePlayerIdsAsync` rather than
+`PathEligibilityServiceTests.cs` only, this check likewise living in
+`PathEligibilityService.GetEligiblePlayerIdsAsync` rather than
 `PathCareerStintFilter`, for the same reason. ADR-0056's familiarity
-filter: `XGPathGameModuleTests` covers the game-module-level wiring — below
+filter: `PathEligibilityServiceTests` covers the eligibility-pipeline-level wiring — below
 threshold, at/above threshold, structural-ineligibility candidates never
 even reaching the filter — via `FakePlayerFamiliarityService`;
 `PlayerFamiliarityServiceTests` (`XGArcade.DataSync.Tests`) covers the real
@@ -7365,10 +7365,10 @@ fail-open on a Wikidata failure, fail-open when nobody in the pool can be
 checked, and batching above `PlayerFamiliarityService.BatchSize`.
 `WikidataClientTests` covers `QuerySitelinkCountsByQidsAsync`'s own query
 shape and error contract. Youth-national-team junk-row exclusion
-(2026-08-08 bug fix): `XGPathGameModuleTests.
-REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
+(2026-08-08 bug fix): `PathEligibilityServiceTests.
+REQ1203_GetEligiblePlayerIdsAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
 and its positive-control sibling
-`REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteYouthNationalTeamJunkRows`
+`REQ1203_GetEligiblePlayerIdsAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteYouthNationalTeamJunkRows`
 (renamed 2026-08-17, S-138, from `...CandidateWithThreeRealStints_StillEligible...`
 to match the current 2-club fixture shape; behavior covered is unchanged)
 cover this eligibility-check-level fix directly; `PathCareerStintFilterTests`
@@ -7592,7 +7592,7 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   (`XGArcade.Games.XGPath`), a pure, read-time filter applied at both
   places `PlayerCareerStint` rows are read for xG Path: `GET /path/current`
   (`PathEndpoints.cs`, immediately before the stint list reaches
-  `PathClueSequenceBuilder.BuildSequence`) and `XGPathGameModule.
+  `PathClueSequenceBuilder.BuildSequence`) and `PathEligibilityService.
   GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check (immediately
   before `IsEligible` counts a candidate's stints) — without the latter, a
   player with fewer than 3 REAL documented club stints could still pass
@@ -7671,7 +7671,7 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   mechanism (a conservative, hand-verified, read-time label-matching
   regex), not an expansion of this REQ's own wording. `ExcludeBTeams` is
   chained alongside (never instead of) `ExcludeNationalTeams` at both of
-  that filter's existing call sites — `XGPathGameModule.
+  that filter's existing call sites — `PathEligibilityService.
   GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check and `GET
   /path/current`'s (`PathEndpoints.cs`) clue-reveal path — since the two
   filters exclude disjoint categories and both must run. See ADR-0075 for
@@ -7683,14 +7683,14 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   the 33 currently-seeded clubs. Covered by `PathCareerStintFilterTests.cs`
   (including a parametrized `REQ1203_IsBTeam_CurrentSeededClubNames_
   ReturnsFalse` false-positive check against all 33 seeded clubs),
-  `XGPathGameModuleTests.cs`, and `PathEndpointTests.cs`.
+  `PathEligibilityServiceTests.cs`, and `PathEndpointTests.cs`.
 - **Status note (2026-08-18, S-139 fast-follow): confirmed "always
   `PuzzleCount` puzzles per round, never an empty club-reveal turn" already
   holds as a structural guarantee — no runtime code change needed.**
   Product concern raised: could a player ever be shown a puzzle whose
   club-reveal turns are empty (`PathClueSequenceBuilder.SplitIntoTurns`
   produces a zero-sized turn only when the sanitized stint count is
-  `< 3`)? Traced end to end: `XGPathGameModule.
+  `< 3`)? Traced end to end: `PathEligibilityService.
   GetEligiblePlayerIdsAsync` only ever selects a target after checking
   `IsEligible` against the **sanitized** stint list (fetch raw stints →
   `ExcludeBTeams(ExcludeNationalTeams(...))` → `IsEligible`, never the
@@ -7764,7 +7764,7 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   IsLoan` → `PathClubClueResponse.IsLoan` (`PathEndpoints.cs`) →
   `PathClubClue.isLoan` (frontend `lib/types.ts`), rendered by
   `PathTimeline.tsx` as a "(loan)" text qualifier next to the club name.
-  **This is presentation-only and does NOT affect `XGPathGameModule`'s
+  **This is presentation-only and does NOT affect `PathEligibilityService`'s
   eligibility logic in any way** — unlike the `BirthYear >= 1975`/`Position`
   floors documented under REQ-1201, which gate whether a player can be
   SELECTED as a target at all, `IsInferredLoan` only annotates a clue that
@@ -7810,7 +7810,7 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   list looks like at the two places that turn it into eligibility/clue
   content. Applied identically, in the identical chain position (after
   `ExcludeNationalTeams`/`ExcludeBTeams`), at BOTH
-  `XGPathGameModule.GetEligiblePlayerIdsAsync` (so
+  `PathEligibilityService.GetEligiblePlayerIdsAsync` (so
   REQ-1201's `MinDocumentedStintCount >= 3` floor is judged against the
   POST-collapse count, not the raw row count — a candidate whose real
   stints collapse to fewer than 3 chapters is correctly excluded, the same
@@ -7918,12 +7918,12 @@ mocked response. Leftover-junk-row filtering (2026-08-08 bug fix):
 `PathCareerStintFilterTests` covers `PathCareerStintFilter` directly and
 purely (reported youth-national-team labels excluded; the senior team and
 a non-FIFA regional side NOT excluded; a mixed real+junk stint list
-filtered correctly; an all-junk list returns empty). `XGPathGameModuleTests`
-adds `REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
+filtered correctly; an all-junk list returns empty). `PathEligibilityServiceTests`
+adds `REQ1203_GetEligiblePlayerIdsAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
 (a candidate with only 2 real stints must not become eligible just because
 junk rows pad the row count past `MinDocumentedStintCount`, renamed
 2026-08-17/S-138 from `MinStintCount`, same value) and
-`REQ1203_GenerateInstanceAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteYouthNationalTeamJunkRows`
+`REQ1203_GetEligiblePlayerIdsAsync_CandidateWithTwoQualifyingSeededClubStints_StillEligible_DespiteYouthNationalTeamJunkRows`
 (renamed 2026-08-17/S-138 from `...CandidateWithThreeRealStints_StillEligible...`;
 a genuinely eligible candidate must not be wrongly rejected just because
 junk rows are also present). `PathEndpointTests` adds
@@ -7943,7 +7943,7 @@ ReturnsFalse`, a parametrized case per one of the 33 currently-seeded clubs
 in `ReferenceDataSeeder.cs` proving none false-positive-match `BTeamPattern`
 (including the two closest near-misses, "RB Leipzig" and "Atletico
 Madrid"), alongside direct positive-match coverage for the known
-reserve-side label shapes. `XGPathGameModuleTests` and `PathEndpointTests`
+reserve-side label shapes. `PathEligibilityServiceTests` and `PathEndpointTests`
 mirror the same "chained alongside `ExcludeNationalTeams`, at both call
 sites" shape the 2026-08-08/2026-08-10 national-team tests above already
 established, adapted to B-team rows.
@@ -7971,8 +7971,8 @@ two), a same-club pair with a different club in between (does NOT merge),
 one known + one unknown `AppearanceCount` in a run (merged result is
 `null`, not the known value alone), an all-unknown run (`null`), an
 ongoing last stint in a run (`EndYear` stays `null`, count still sums), a
-single-stint passthrough, and an empty-input no-op. `XGPathGameModuleTests`
-adds `REQ1203_GenerateInstanceAsync_CandidateWithThreeRawStintsButTwoPostCollapse_NeverSelected`
+single-stint passthrough, and an empty-input no-op. `PathEligibilityServiceTests`
+adds `REQ1203_GetEligiblePlayerIdsAsync_CandidateWithThreeRawStintsButTwoPostCollapse_NeverSelected`
 (a candidate whose raw row count meets `MinDocumentedStintCount` but whose
 post-collapse chapter count does not must still be rejected) and its
 positive-control sibling

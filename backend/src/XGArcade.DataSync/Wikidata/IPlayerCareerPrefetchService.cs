@@ -5,7 +5,7 @@ namespace XGArcade.DataSync.Wikidata;
 // targets, this sweeps every seeded CountryDefinition's full eligible player
 // pool and writes their careers directly, independent of whatever xG Grid's
 // own lookups have ever queried. This is what actually widens xG Path's
-// candidate pool (XGPathGameModule.GetEligiblePlayerIdsAsync), not just
+// candidate pool (PathEligibilityService.GetEligiblePlayerIdsAsync), not just
 // enriches an already-chosen target — see ADR-0055's own scope note.
 // ADR-0069: also sweeps every seeded ClubDefinition's full eligible player
 // pool (P54), independent of nationality — see that ADR for why the

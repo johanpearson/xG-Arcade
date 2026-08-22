@@ -468,7 +468,7 @@ describe('LeaderboardScreen', () => {
     });
   });
 
-  // REQ-1210/ADR-0082: `initial*` props seed this screen's own scope/game
+  // REQ-1210/ADR-0083: `initial*` props seed this screen's own scope/game
   // state at mount, for the round-completion banner's leaderboard link —
   // see PastRoundsLeaderboard.test.tsx for the "past" + initialRoundId
   // drill-in case specifically.

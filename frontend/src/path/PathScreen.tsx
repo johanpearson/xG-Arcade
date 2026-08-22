@@ -23,14 +23,14 @@ export interface PathScreenProps {
   // guest-gated — SCREEN-10 has no REQ-215 suggestion entry point (out of
   // this story's scope, see PathGuessInput.tsx's own comment) and no other
   // guest-specific behavior, so there's nothing here for it to control.
-  // REQ-1210/ADR-0082: same contract as GridScreenProps.onViewRoundLeaderboard
+  // REQ-1210/ADR-0083: same contract as GridScreenProps.onViewRoundLeaderboard
   // — see that prop's own doc comment. Optional so existing test call sites
   // that never complete a full round don't need updating just to satisfy
   // this prop.
   onViewRoundLeaderboard?: (target: LeaderboardRoundTarget) => void;
 }
 
-// REQ-1210/ADR-0082: maps one puzzle's guess into the generic
+// REQ-1210/ADR-0083: maps one puzzle's guess into the generic
 // `{ locked, points }` shape `lib/roundCompletion.ts`'s shared computation
 // understands — mirrors GridScreen.tsx's own toCompletableItem, but for xG
 // Path's own scoring shape (REQ-1206): a locked puzzle's `points` is
@@ -74,7 +74,7 @@ export function PathScreen({ accessToken, onAuthError, onViewRoundLeaderboard }:
   // be told their guess failed here, only that the screen couldn't refresh.
   const [refetchWarning, setRefetchWarning] = useState<string | null>(null);
 
-  // REQ-1210/ADR-0082: the generic completion signal — reads every puzzle
+  // REQ-1210/ADR-0083: the generic completion signal — reads every puzzle
   // in the round (not just the currently-shown `puzzleIndex`), since
   // "complete" means every puzzle available to this player is locked, not
   // just the one on screen. Same null-while-not-loaded-yet contract as
@@ -279,7 +279,7 @@ export function PathScreen({ accessToken, onAuthError, onViewRoundLeaderboard }:
         </p>
       </div>
 
-      {/* REQ-1210/ADR-0082/design-document.md SCREEN-12: same inline,
+      {/* REQ-1210/ADR-0083/design-document.md SCREEN-12: same inline,
           non-blocking banner GridScreen.tsx renders — see that file's own
           comment for why it deliberately never backdrops the rest of the
           screen. xG Path's own plain "N pts" wording (REQ-1206), never

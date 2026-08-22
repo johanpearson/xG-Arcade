@@ -667,7 +667,7 @@ describe('PathScreen', () => {
     });
   });
 
-  // REQ-1210/ADR-0082: the round-completion banner — see
+  // REQ-1210/ADR-0083: the round-completion banner — see
   // lib/roundCompletion.test.ts for the shared trigger/points-sum logic
   // itself; these tests only cover PathScreen's own wiring (mapping puzzles
   // into the shared shape, the plain "N pts" wording, and the

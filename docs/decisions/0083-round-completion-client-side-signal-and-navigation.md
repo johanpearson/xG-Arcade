@@ -1,4 +1,4 @@
-# ADR-0082: Round-completion signal computed client-side; leaderboard link via in-memory navigation, not a URL route
+# ADR-0083: Round-completion signal computed client-side; leaderboard link via in-memory navigation, not a URL route
 
 - **Status:** Accepted
 - **Date:** 2026-08-22

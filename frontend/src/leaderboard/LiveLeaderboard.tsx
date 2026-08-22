@@ -85,7 +85,7 @@ export function LiveLeaderboard({ accessToken, gameKey, onAuthError, active }: L
   // time against the previous `gameKey`, so a game switch re-triggers the
   // fetch exactly like a fresh tab entry would, without requiring the
   // player to leave and re-enter the "live" scope tab first.
-  // REQ-1210/ADR-0082 fix: initialized to `false` (not `active`) so a
+  // REQ-1210/ADR-0083 fix: initialized to `false` (not `active`) so a
   // mount that starts *already* active (LeaderboardScreen's new
   // `initialScope: 'live'`, from the round-completion banner's leaderboard
   // link) still counts as "entering" this scope and fires the fetch below —

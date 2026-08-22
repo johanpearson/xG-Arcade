@@ -744,7 +744,7 @@ describe('GridScreen', () => {
     });
   });
 
-  // REQ-1210/ADR-0082: the round-completion banner — see
+  // REQ-1210/ADR-0083: the round-completion banner — see
   // lib/roundCompletion.test.ts for the shared trigger/points-sum logic
   // itself; these tests only cover GridScreen's own wiring (mapping cells
   // into the shared shape, the "~N pts estimated" wording, and the

@@ -43,7 +43,7 @@ export interface PastRoundsLeaderboardProps {
   // switch away and back — `active` (rather than unmount/remount) is what
   // drives the "fetch on entry, refetch on every re-entry" effect below.
   active: boolean;
-  // REQ-1210/ADR-0082: seeds a direct jump straight into this specific
+  // REQ-1210/ADR-0083: seeds a direct jump straight into this specific
   // round's detail the first time this scope becomes active, bypassing the
   // round-selection list entirely — used by the round-completion banner's
   // leaderboard link once the completed round has already closed (see
@@ -64,13 +64,13 @@ export function PastRoundsLeaderboard({
   initialRoundId,
 }: PastRoundsLeaderboardProps) {
   const [pastListState, setPastListState] = useState<PastListState>({ phase: 'idle' });
-  // REQ-1210/ADR-0082: split from a single `selectedRound: ClosedRoundSummary
+  // REQ-1210/ADR-0083: split from a single `selectedRound: ClosedRoundSummary
   // | null` into an always-known id plus an optionally-known summary —
   // picking a round from the list (handleSelectRound below) has the full
   // summary (including `closedAt`, shown in the detail header) up front;
   // jumping in externally via `initialRoundId` only ever has the bare id
   // (the completion banner's link only knows `roundId`, per REQ-1210's own
-  // "no backend change" scoping — see ADR-0082). The detail header below
+  // "no backend change" scoping — see ADR-0083). The detail header below
   // simply omits the "Closed {date}" line when the summary isn't known.
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedRoundSummary, setSelectedRoundSummary] = useState<ClosedRoundSummary | null>(null);
@@ -121,7 +121,7 @@ export function PastRoundsLeaderboard({
   // LiveLeaderboard's own effect. REQ-410 (S-087): also re-fetched on a game
   // switch while already active, same reasoning as LiveLeaderboard's
   // `isSwitchingGameWhileLive`.
-  // REQ-1210/ADR-0082 fix: initialized to `false`, not `active` — same fix
+  // REQ-1210/ADR-0083 fix: initialized to `false`, not `active` — same fix
   // and same reasoning as LiveLeaderboard.tsx's own `prevActiveRef` (see
   // that file's comment): a mount that starts already active
   // (LeaderboardScreen's new `initialScope: 'past'`) must still count as
@@ -193,7 +193,7 @@ export function PastRoundsLeaderboard({
     }
   }
 
-  // REQ-1210/ADR-0082: extracted out of the former handleSelectRound so
+  // REQ-1210/ADR-0083: extracted out of the former handleSelectRound so
   // both a real list click (which also knows the full `ClosedRoundSummary`)
   // and an externally-seeded `initialRoundId` jump (which only ever knows
   // the bare id) share the exact same fetch/error-branching logic — never
@@ -238,7 +238,7 @@ export function PastRoundsLeaderboard({
     fetchRoundDetail(round.roundId);
   }
 
-  // REQ-1210/ADR-0082: the `initialRoundId` jump itself — fires once this
+  // REQ-1210/ADR-0083: the `initialRoundId` jump itself — fires once this
   // scope first becomes active with a still-unconsumed `initialRoundId`,
   // mirroring a real `handleSelectRound` click but with no known
   // `ClosedRoundSummary` (see `selectedRoundSummary`'s own doc comment
@@ -307,7 +307,7 @@ export function PastRoundsLeaderboard({
           <button type="button" className="leaderboard-screen__back" onClick={handleBackToRoundList}>
             Back to previous rounds
           </button>
-          {/* REQ-1210/ADR-0082: `closedAt` is only known when this round was
+          {/* REQ-1210/ADR-0083: `closedAt` is only known when this round was
               reached by picking it from the list below (handleSelectRound) —
               an externally-seeded `initialRoundId` jump (the completion
               banner's link) never had it to begin with, so this line is

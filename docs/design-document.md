@@ -278,7 +278,7 @@ every rejected guess (whether or not an attempt remains afterward), never
 on a page load that shows a cell already incorrect. Respects
 `prefers-reduced-motion`: flash only, no shake.
 
-**Round-completion settle-in (REQ-1210, ADR-0082, SCREEN-12).** When a
+**Round-completion settle-in (REQ-1210, ADR-0083, SCREEN-12).** When a
 player finishes a round of any game (xG Grid or xG Path today), the
 completion banner enters with the same fade-plus-rise "settle" character
 already established elsewhere in this app (the badge dock's own arrival
@@ -286,7 +286,7 @@ above, and SCREEN-10's clue-node reveal) — a brief upward slide combined
 with a fade from transparent, never a bounce, spin, or anything more
 attention-grabbing than those two precedents. Deliberately reuses that
 existing motion character rather than introducing a new signature
-animation: this is a generic, cross-game moment (ADR-0082), not a
+animation: this is a generic, cross-game moment (ADR-0083), not a
 game-specific flourish, so it shouldn't visually compete with either
 game's own signature motion (badge dock for xG Grid, clue-node reveal for
 xG Path). Fires once, on the in-session moment of completing a round
@@ -2601,13 +2601,13 @@ shape, added the same day as the footer relocation above:
   pass. The Title input and Screen `<select>` reuse the identical
   bordered-field treatment the Description textarea already had.
 
-### SCREEN-12: Round-completion banner (REQ-1210, ADR-0082)
+### SCREEN-12: Round-completion banner (REQ-1210, ADR-0083)
 
 New for this story — no prior SCREEN entry covered this. Generic across
 every game xG Arcade hosts (xG Grid, xG Path today, any game added
 later) — one component, `RoundCompletionBanner.tsx`, rendered by both
 `GridScreen.tsx` and `PathScreen.tsx` from the same shared trigger
-(`lib/roundCompletion.ts`, ADR-0082), never a per-game copy.
+(`lib/roundCompletion.ts`, ADR-0083), never a per-game copy.
 
 ```
 Inline banner, in normal document flow above the grid/puzzle timeline —
@@ -2640,7 +2640,7 @@ header nav or any other on-screen control:
   that specific round's leaderboard for that specific game — REQ-407's
   live view if the round hasn't closed yet, REQ-408's closed view,
   pre-drilled into that round (bypassing the closed-round list), if it
-  has. See ADR-0082 for why this is in-memory navigation state through
+  has. See ADR-0083 for why this is in-memory navigation state through
   the existing screen-switch mechanism, not a URL route. The button
   briefly disables (never hides) while that live-vs-closed check
   resolves, so a fast double-click can't fire two navigations at once.

@@ -1233,7 +1233,7 @@ describe('App (REQ-903: footer incident-report entry point)', () => {
   });
 });
 
-// REQ-1210/ADR-0082: App.tsx's own wiring for the round-completion banner's
+// REQ-1210/ADR-0083: App.tsx's own wiring for the round-completion banner's
 // "View leaderboard" link — handleViewRoundLeaderboard (seeds
 // leaderboardInitial + navigates) and the header nav's onSelectLeaderboard
 // (explicitly clears leaderboardInitial first). GridScreen.test.tsx/

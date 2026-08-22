@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-// REQ-1210/ADR-0082: a generic, cross-game "has this player finished every
+// REQ-1210/ADR-0083: a generic, cross-game "has this player finished every
 // cell available to them in this round" signal, computed entirely
 // client-side from data both games' current-round responses already
 // return (`CurrentRoundResponse.cells[].guess` for xG Grid,
@@ -47,7 +47,7 @@ export function computeRoundCompletion(items: readonly CompletableItem[]): Round
 }
 
 // REQ-1210 §7 (open question, resolved conservatively — see
-// `requirements-document.md`'s 2026-08-22 entry and ADR-0082's "For AI
+// `requirements-document.md`'s 2026-08-22 entry and ADR-0083's "For AI
 // agents" note): whether the completion animation should replay on every
 // later view of an already-complete round is explicitly left open, since
 // resolving it "properly" would need a new piece of persisted

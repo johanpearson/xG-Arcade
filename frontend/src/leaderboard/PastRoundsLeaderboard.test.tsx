@@ -327,7 +327,7 @@ describe('PastRoundsLeaderboard', () => {
     expect(String(detailCalls[1][0])).toContain('cursor=50');
   });
 
-  // REQ-1210/ADR-0082: the round-completion banner's leaderboard link, once
+  // REQ-1210/ADR-0083: the round-completion banner's leaderboard link, once
   // it has resolved the completed round has already closed, jumps straight
   // into that round's detail — bypassing the round-selection list entirely,
   // and with no `closedAt` known up front (the banner's link only ever

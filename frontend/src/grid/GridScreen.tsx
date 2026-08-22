@@ -29,17 +29,17 @@ export interface GridScreenProps {
   // sites that don't exercise guest gating (GridScreen.test.tsx) don't need
   // updating just to satisfy this prop.
   isGuest?: boolean;
-  // REQ-1210/ADR-0082: called when the round-completion banner's "View
+  // REQ-1210/ADR-0083: called when the round-completion banner's "View
   // leaderboard" link is activated — App.tsx owns the actual navigation
   // (threading the target through to LeaderboardScreen's `initial*` props,
-  // ADR-0082). Optional so existing test call sites that never complete a
+  // ADR-0083). Optional so existing test call sites that never complete a
   // full round (every current GridScreen.test.tsx case) don't need
   // updating just to satisfy this prop — a real, un-guarded App.tsx render
   // always supplies it.
   onViewRoundLeaderboard?: (target: LeaderboardRoundTarget) => void;
 }
 
-// REQ-1210/ADR-0082: maps one cell's guess into the generic
+// REQ-1210/ADR-0083: maps one cell's guess into the generic
 // `{ locked, points }` shape `lib/roundCompletion.ts`'s shared
 // computation understands — this is the one place xG Grid's own
 // scoring fields (isCorrect/livePoints/locked, REQ-204/205/206) get
@@ -92,7 +92,7 @@ export function GridScreen({
   // "just submitted" from "loaded via page reload" for the shake cue.
   const [submittedThisSessionCellIds, setSubmittedThisSessionCellIds] = useState<ReadonlySet<string>>(new Set());
 
-  // REQ-1210/ADR-0082: the generic completion signal, computed from cells
+  // REQ-1210/ADR-0083: the generic completion signal, computed from cells
   // already fetched above (see toCompletableItem's own doc comment) — null
   // while the round hasn't loaded yet, so useCompletionTransition can tell
   // "no data yet" apart from "data loaded, not complete" (see that hook's
@@ -113,12 +113,12 @@ export function GridScreen({
   // at a time) or has already closed (REQ-408's 'past' scope, pre-drilled
   // into this exact roundId) by re-asking the same GET /rounds/current
   // endpoint this screen already calls on mount — never a fresh, dedicated
-  // endpoint (ADR-0082's "no backend change" scoping). On any failure to
+  // endpoint (ADR-0083's "no backend change" scoping). On any failure to
   // confirm, falls through to 'past': PastRoundsLeaderboard's own
   // "not closed yet" state gives a clear, honest message if that guess
   // turns out wrong, whereas guessing 'live' on an actually-closed round
   // would silently show whatever round is *newly* active instead (an
-  // unmarked wrong answer, not a real error state) — see ADR-0082's
+  // unmarked wrong answer, not a real error state) — see ADR-0083's
   // Consequences for the narrow race this still doesn't fully close.
   const handleViewCompletedRoundLeaderboard = useCallback(async () => {
     if (state.phase !== 'ready' || !onViewRoundLeaderboard) return;
@@ -289,7 +289,7 @@ export function GridScreen({
   // left it incomplete. A correct guess without livePoints yet (submitted
   // this instant, GET /rounds/current not yet re-fetched) is still
   // genuinely unknown and stays excluded, same as before.
-  // REQ-1210/ADR-0082: reuses `completion.currentPoints` (computed above,
+  // REQ-1210/ADR-0083: reuses `completion.currentPoints` (computed above,
   // guaranteed non-null here since state.phase === 'ready') rather than a
   // second, separately-maintained sum — see toCompletableItem's own doc
   // comment for why this is numerically identical to the calculation this
@@ -342,7 +342,7 @@ export function GridScreen({
           )}
         </div>
       </div>
-      {/* REQ-1210/ADR-0082/design-document.md SCREEN-12: an inline banner,
+      {/* REQ-1210/ADR-0083/design-document.md SCREEN-12: an inline banner,
           not a blocking modal — sits in normal flow above the grid so it
           can never intercept a click meant for the header nav or any other
           on-screen control. `justCompletedRound` only ever fires once per

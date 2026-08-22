@@ -142,7 +142,7 @@ function App() {
   // the same value before this component ever mounted, so this isn't the
   // first paint of the theme — it's what keeps it in sync after that.
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
-  // REQ-1210/ADR-0082: seeds LeaderboardScreen's own `initial*` props the
+  // REQ-1210/ADR-0083: seeds LeaderboardScreen's own `initial*` props the
   // one time it's set here (by handleViewRoundLeaderboard below, called
   // from GridScreen/PathScreen's round-completion banner) — read only at
   // LeaderboardScreen's own mount (its useState initializer), so this is
@@ -206,7 +206,7 @@ function App() {
     window.location.hash = SCREEN_HASHES[next];
   }
 
-  // REQ-1210/ADR-0082: GridScreen/PathScreen's round-completion banner
+  // REQ-1210/ADR-0083: GridScreen/PathScreen's round-completion banner
   // calls this with the specific round+game+scope it already resolved
   // (see either screen's own handleViewCompletedRoundLeaderboard) — this
   // seeds `leaderboardInitial` and navigates in the same update, so the
@@ -431,7 +431,7 @@ function App() {
             isGridCurrent={screen === 'grid'}
             isPathCurrent={screen === 'path'}
             onSelectLeaderboard={() => {
-              // REQ-1210/ADR-0082: a normal, explicit nav-menu visit always
+              // REQ-1210/ADR-0083: a normal, explicit nav-menu visit always
               // clears any completion-banner-seeded target — otherwise a
               // player who later revisits the leaderboard via this button
               // would silently be re-jumped into a stale round/scope
