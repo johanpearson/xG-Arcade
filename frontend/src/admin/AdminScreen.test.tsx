@@ -13,10 +13,13 @@ import { AdminScreen } from './AdminScreen';
 // AccountMetricsSection/AnnouncementBannerSection/IncidentReportsEntry/
 // PlayerSuggestionsEntry/XGPathCycleSection. What remains here is scoped to
 // AdminScreen's own composition/wiring: fetching on mount and passing real
-// data down, refetching via a real (not mocked) onRefresh, and the
-// activeRound-gated show/hide of RoundControlSection+UserDeletionSection
-// together — not each subcomponent's own internal render/interaction/error
-// branches, which the dedicated files now own.
+// data down, refetching via a real (not mocked) onRefresh — exercised for
+// both UnverifiedDataSection (the "Correct… refetches the list" test) and
+// RoundControlSection (the "End round now… refetches the active round"
+// test) — and the activeRound-gated show/hide of
+// RoundControlSection+UserDeletionSection together — not each subcomponent's
+// own internal render/interaction/error branches, which the dedicated files
+// now own.
 
 function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve({
@@ -154,6 +157,35 @@ describe('AdminScreen', () => {
     expect(screen.getByText('Grid Round #12 · ends 2026-07-20T00:00:00Z')).toBeInTheDocument();
     expect(screen.queryByText(/round-1/)).not.toBeInTheDocument();
     expect(screen.getByText('Delete a user')).toBeInTheDocument();
+  });
+
+  it('REQ-505: "End round now" refetches the active round via AdminScreen\'s real (not mocked) onRefresh', async () => {
+    // Mirrors the "Correct… refetches the list" composition test above for
+    // UnverifiedDataSection: the second /active probe response differs from
+    // the first, so a passing assertion only follows from RoundControlSection's
+    // onRefresh prop actually being AdminScreen's real refreshActiveRound
+    // callback (not a mocked no-op) round-tripping through the network.
+    let activeRoundCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/close')) return jsonResponse(activeRound.round);
+      if (path.includes('/admin/rounds/xg-grid/active')) {
+        activeRoundCallCount += 1;
+        return jsonResponse(activeRoundCallCount === 1 ? activeRound : { hasActiveRound: false, round: null });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('Grid Round #12 · ends 2026-07-20T00:00:00Z');
+
+    await user.click(screen.getByRole('button', { name: 'End round now' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, end round now' }));
+
+    expect(await screen.findByText('No active round right now.')).toBeInTheDocument();
   });
 
   it('REQ-504: a 403 from the unverified-data fetch shows only an access-denied message for the whole page', async () => {
