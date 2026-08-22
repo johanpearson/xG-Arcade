@@ -6800,6 +6800,30 @@ useSession` returns nothing in `App.tsx`).
 passes unchanged — pure extraction, no behavior change; `App.tsx`'s line
 count reduction reported in the PR description.
 *Deps:* none.
+**Built as (2026-08-22):** extracted verbatim into `frontend/src/lib/
+useSession.ts` — `accessToken`/`currentUser` state, `isGuest`,
+`handleAuthenticated`, `handleLogout`, `attemptSilentRefresh`, and the
+`fetchMe` effect, mirroring `useThemePreference`'s (`frontend/src/lib/
+theme.ts`) hook-module style. `App.tsx` (649 → 529 lines) keeps only
+routing/dialog state; `handleLogout`'s three inline routing side effects
+(reset `screen`, hide `AuthScreen`, clear the hash) became an `onLoggedOut`
+callback `useSession` invokes at the same point in its own sequence.
+`handleAuthenticated`'s `navigateTo('game-select')` call similarly stayed
+in App.tsx (routing, not session state) — `useSession`'s own
+`handleAuthenticated` now only does the token-storage/state half, and
+App.tsx's `AuthScreen onAuthenticated` prop calls it followed by
+`navigateTo('game-select')`, same order as before. One real bug caught by
+the test suite during this extraction, not present in the final code: the
+first version passed `onLoggedOut` as an unmemoized inline closure, which
+gave `useSession`'s `handleLogout` (and, through its dependency array, the
+`fetchMe` effect) a new identity on every `App` render — re-fetching
+`/auth/me` far more often than intended and clobbering local `currentUser`
+updates like the account-claim flow's `onAccountClaimed`. Fixed by wrapping
+that callback in `useCallback([])` in `App.tsx`. `ACCESS_TOKEN_STORAGE_KEY`
+is now exported from `useSession.ts` (App.tsx still reads it directly for
+the `screen` initializer and the mount-only hash-sync effect, both routing
+concerns). Full frontend suite (647/647, including `tests/unit/
+App.test.tsx`'s 12) passes unchanged; `oxlint`/`tsc -b` both clean.
 
 **Watch-only (no story, low churn/not yet a problem):**
 - `frontend/src/admin/SuggestionsScreen.tsx` (697 lines, now the largest

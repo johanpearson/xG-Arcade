@@ -2,9 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AdminScreen } from './admin/AdminScreen';
 import { SuggestionsScreen } from './admin/SuggestionsScreen';
-import { ApiError } from './lib/apiClient';
-import { fetchMe, logout, refreshAccessToken } from './lib/auth';
-import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Logo } from './components/Logo';
@@ -20,6 +17,7 @@ import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
 import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 import { useThemePreference } from './lib/theme';
+import { ACCESS_TOKEN_STORAGE_KEY, useSession } from './lib/useSession';
 
 type HealthState =
   | { phase: 'loading' }
@@ -27,11 +25,6 @@ type HealthState =
   | { phase: 'error'; message: string };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
-const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
-// REQ-715/ADR-0033: same localStorage mechanism as the access token above,
-// under its own key — see that ADR for why localStorage (not a cookie) was
-// chosen and the XSS trade-off that decision accepts.
-const REFRESH_TOKEN_STORAGE_KEY = 'xg-arcade-refresh-token';
 
 // REQ-303 (S-021): 'game-select' is the landing screen shown after login,
 // before any game's own screen — see docs/backlog.md S-021. 'settings'
@@ -90,15 +83,13 @@ function screenForHash(hash: string): Screen | null {
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
-  const [accessToken, setAccessToken] = useState<string | null>(() =>
-    window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
-  );
   const [screen, setScreen] = useState<Screen>(() => {
     // REQ-721/ADR-0039: URL restoration applies only to a reload of an
     // already-authenticated, already-valid session — never to an
     // unauthenticated visitor (must never bypass REQ-719's splash gate) and
-    // never to a fresh login/signup (handleAuthenticated below always
-    // navigates to 'game-select' unconditionally, regardless of the hash).
+    // never to a fresh login/signup (the AuthScreen onAuthenticated handler
+    // below always navigates to 'game-select' unconditionally, regardless of
+    // the hash).
     // A stored access token at mount is the same "authenticated" signal the
     // rest of this component already renders on optimistically, with no
     // separate loading state — if that token later turns out to be
@@ -114,17 +105,37 @@ function App() {
   // whenever there's no accessToken, until this flips true — starts false
   // on every mount (no persisted "already seen it" flag, deliberately —
   // see requirements-document.md REQ-719 §5) and is reset back to false by
-  // handleLogout below, which is also what fires on account deletion and a
-  // failed/absent silent-refresh outcome (see that handler's own
-  // reasoning) — so every one of those returns to the splash screen, never
-  // straight to AuthScreen.
+  // the useSession() onLoggedOut callback below, which is also what fires
+  // on account deletion and a failed/absent silent-refresh outcome (see
+  // useSession's own handleLogout for why) — so every one of those returns
+  // to the splash screen, never straight to AuthScreen.
   const [showAuthScreen, setShowAuthScreen] = useState(false);
-  // REQ-504/REQ-713: the only signal for whether SettingsScreen shows its
-  // admin-only link onward to AdminScreen — a non-admin must see no trace
-  // of it anywhere (nav menu or Settings screen), regardless of state.
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  // REQ-717/ADR-0036: mirrors User.IsGuest via MeResponse's isGuest field.
-  const isGuest = currentUser?.isGuest ?? false;
+  // S-158: the auth-session lifecycle (access/refresh token, currentUser,
+  // silent refresh, logout) lives in useSession (frontend/src/lib/
+  // useSession.ts) — this component only supplies the routing/dialog
+  // reaction to a logout: resetting `screen` back to 'game-select', hiding
+  // AuthScreen (back to the splash screen — see showAuthScreen's own
+  // declaration above for why), and clearing the URL hash (REQ-721/
+  // ADR-0039: the screen shown next is the splash screen, not part of the
+  // Screen/SCREEN_HASHES mapping, so a lingering authenticated screen's hash
+  // would otherwise misdescribe what's on screen). This same handoff covers
+  // every path that ends in a logout — an explicit "Log out" click, account
+  // deletion, and a failed/absent silent-refresh outcome — since all three
+  // funnel through useSession's single handleLogout.
+  // useCallback (stable identity across renders, not just useState setters'
+  // own already-stable identities) matters here: useSession's handleLogout
+  // depends on this callback, and the fetchMe effect in turn depends on
+  // handleLogout — an unmemoized inline function here would give
+  // handleLogout a new identity on every App render, re-running that effect
+  // (and re-fetching /auth/me, clobbering any local currentUser update such
+  // as SettingsScreen's onAccountClaimed) far more often than intended.
+  const handleLoggedOut = useCallback(() => {
+    setScreen('game-select');
+    setShowAuthScreen(false);
+    window.location.hash = '';
+  }, []);
+  const { accessToken, currentUser, setCurrentUser, isGuest, handleAuthenticated, handleLogout } =
+    useSession(handleLoggedOut);
   // REQ-718 UI addendum (rule 4, 2026-08-01): true only while the
   // confirmation prompt gating a guest's "Log out" click is open — see
   // handleLogoutClick below. Never true for a non-guest account, since
@@ -219,65 +230,6 @@ function App() {
     navigateTo('leaderboard');
   }
 
-  // REQ-715: refreshToken may be null (Supabase can decline to issue one) —
-  // that's a real, valid case, not an error; a null just means there's
-  // nothing to persist for silent recovery later.
-  function handleAuthenticated(token: string, refreshToken: string | null) {
-    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
-    if (refreshToken) {
-      window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
-    } else {
-      window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-    }
-    setAccessToken(token);
-    // REQ-303/S-021, unchanged by REQ-721: a fresh login/signup always
-    // lands on game-select, regardless of whatever hash was present
-    // beforehand.
-    navigateTo('game-select');
-  }
-
-  // REQ-715: logout (and, via the same handler, DeleteAccountScreen's
-  // onAccountDeleted below) clears the refresh token too, not only the
-  // access token — a stale refresh token must never outlive an explicit
-  // logout.
-  //
-  // REQ-718/ADR-0038: also fires a best-effort POST /auth/logout so an
-  // unclaimed guest account gets deleted server-side. Deliberately not
-  // awaited — the local clear-and-reset below (REQ-715's existing, instant
-  // logout UX for every account, guest or not) must never be delayed or
-  // blocked by that network call being slow or failing; any failure is
-  // caught and logged rather than surfaced, since rule 3's 7-day inactivity
-  // purge independently catches this account if the call never completes.
-  // The token is captured before state is cleared since accessToken becomes
-  // null immediately below.
-  const handleLogout = useCallback(() => {
-    const tokenToLogOut = accessToken;
-
-    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-    window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-    setAccessToken(null);
-    setCurrentUser(null);
-    setScreen('game-select');
-    // REQ-719: back to the splash screen, not straight to AuthScreen — the
-    // same single unauthenticated entry point a first-time visitor sees.
-    // This handler is also what account deletion (onAccountDeleted) and a
-    // failed/absent silent-refresh outcome (the effect below) both funnel
-    // through, so this one reset covers all three cases REQ-719 requires.
-    setShowAuthScreen(false);
-    // REQ-721/ADR-0039: clear the hash rather than writing 'game-select's —
-    // the screen actually shown next is the splash screen (not part of the
-    // Screen/SCREEN_HASHES mapping at all), so a lingering authenticated
-    // screen's hash would otherwise misdescribe what's on screen and could
-    // be misread as a valid restore target on a later, separate load.
-    window.location.hash = '';
-
-    if (tokenToLogOut) {
-      logout(tokenToLogOut).catch((error: unknown) => {
-        console.error('Best-effort backend logout call failed:', error);
-      });
-    }
-  }, [accessToken]);
-
   // REQ-718 UI addendum (rule 4, 2026-08-01): the actual onClick handler
   // wired to HeaderNav's "Log out" button — gates *when* handleLogout above
   // fires, without changing anything about handleLogout itself. A guest
@@ -292,88 +244,6 @@ function App() {
     }
     handleLogout();
   }
-
-  // REQ-715/ADR-0033: the one place a stored refresh token is exchanged for
-  // a new access token — mediated through POST /auth/refresh exactly like
-  // login/signup (ADR-0013), never a direct frontend-to-Supabase call. On
-  // success, stores the new access token (and, if Supabase's rotation
-  // returned one, a new refresh token — otherwise the existing stored
-  // refresh token is left untouched rather than assumed dead) and returns
-  // it; on any failure (including "no stored refresh token to try")
-  // resolves to null so callers can fall through to a full logout without
-  // an infinite retry.
-  const attemptSilentRefresh = useCallback(async (): Promise<string | null> => {
-    const storedRefreshToken = window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
-    if (!storedRefreshToken) return null;
-
-    try {
-      const refreshed = await refreshAccessToken(storedRefreshToken);
-      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, refreshed.accessToken);
-      if (refreshed.refreshToken) {
-        window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshed.refreshToken);
-      }
-      setAccessToken(refreshed.accessToken);
-      return refreshed.accessToken;
-    } catch {
-      // Invalid/expired/revoked — the caller falls through to handleLogout,
-      // which clears the now-dead refresh token too.
-      return null;
-    }
-  }, []);
-
-  // REQ-504/REQ-715: fetched on a fresh login/signup (accessToken just set
-  // by handleAuthenticated), on restoring a token already in localStorage on
-  // initial load, and — new for REQ-715 — this is also where a missing or
-  // 401'd access token triggers a silent refresh attempt before falling
-  // back to a full logout, rather than logging out unconditionally.
-  //
-  // Both branches below funnel through the same attemptSilentRefresh: on
-  // success it calls setAccessToken with the new token, which changes this
-  // effect's own dependency and re-runs it — that re-run *is* the retry
-  // (fetchMe naturally gets called again with the new token), so there's no
-  // separate manual retry path to maintain here.
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!accessToken) {
-      setCurrentUser(null);
-
-      if (!window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)) {
-        return;
-      }
-
-      attemptSilentRefresh().then((refreshed) => {
-        if (!cancelled && !refreshed) {
-          handleLogout();
-        }
-      });
-
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    fetchMe(accessToken)
-      .then((user) => {
-        if (!cancelled) setCurrentUser(user);
-      })
-      .catch(async (error: unknown) => {
-        if (cancelled) return;
-        if (error instanceof ApiError && error.status === 401) {
-          const refreshed = await attemptSilentRefresh();
-          if (cancelled) return;
-          if (!refreshed) {
-            handleLogout();
-          }
-        }
-        // Any other failure here just leaves currentUser null — the admin
-        // nav link stays hidden, but the rest of the app is unaffected.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, handleLogout, attemptSilentRefresh]);
 
   return (
     <div className="app">
@@ -589,7 +459,17 @@ function App() {
             />
           )
         ) : showAuthScreen ? (
-          <AuthScreen onAuthenticated={handleAuthenticated} />
+          <AuthScreen
+            onAuthenticated={(token, refreshToken) => {
+              handleAuthenticated(token, refreshToken);
+              // REQ-303/S-021, unchanged by REQ-721: a fresh login/signup
+              // always lands on game-select, regardless of whatever hash was
+              // present beforehand. Routing, so it stays here (S-158) rather
+              // than inside useSession's own handleAuthenticated, which only
+              // owns the token-storage/currentUser half of this.
+              navigateTo('game-select');
+            }}
+          />
         ) : (
           // REQ-719: shown before AuthScreen for every unauthenticated
           // render — see showAuthScreen's own declaration above for why
