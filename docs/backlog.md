@@ -6677,7 +6677,7 @@ an ADR per `CLAUDE.md`'s own "could reasonably have gone another way"
 test, same bar ADR-0068 already applied to the equivalent xG Grid split.
 *Deps:* none.
 
-**S-155 · `WikidataClient.cs`: split query-building/parsing helpers out of the client class**
+**S-155 · `WikidataClient.cs`: split query-building/parsing helpers out of the client class — SHIPPED**
 `CODE_HEALTH_ASSESSMENT.md`'s 2026-08-11 revision scored this file 2.5/10
 and recommended splitting into `SparqlQueryBuilder`/`SparqlQueryRunner`/
 `SparqlResponseParsers`. S-118/S-124 (Epic 9, both complete as of this
@@ -6705,6 +6705,30 @@ reported in the PR description. Judgment call, flag for
 `XGArcade.DataSync/Wikidata/` folder as new files or a `Wikidata/Sparql/`
 subfolder — this story doesn't decide that, since it "could reasonably go
 another way" and isn't load-bearing for the refactor's value.
+**Built as:** `WikidataClient.cs` 1,775 → 782 lines (a 993-line/56%
+reduction). Two new files, both landing flat in the existing
+`XGArcade.DataSync/Wikidata/` folder rather than a new `Wikidata/Sparql/`
+subfolder — `architecture-reviewer` resolved the judgment call above in
+favor of flat, matching the `IntersectionQuerySpecs.cs` precedent already
+in that same folder from S-100/S-101, with no other DataSync subfolder
+convention to justify a new one: `SparqlQueryBuilders.cs` (456 lines,
+every `Build*Query` static helper, plus the three builder-only constants
+`MaleWikidataQid`/`DateOfBirthCutoff`/`NationalTeamClassWikidataQid` moved
+as `internal const`) and `SparqlResponseParsers.cs` (592 lines, every
+`Parse*Bindings`/`ParseBindings` static helper plus the
+`SparqlResponse`/`SparqlResults`/`SparqlValue` JSON-shape records).
+`WikidataClient.cs` now holds only its constructor/fields, the two `Run*`
+drivers (`RunIntersectionQueryAsync`/`RunThrowingQueryAsync`), the private
+`QueryIntersectionAsync` dispatcher, and its public `IWikidataClient`
+methods as thin wrappers delegating to the moved helpers — a pure move,
+zero behavior change. No `WikidataClientTests.cs` changes needed; every
+case passes through the same unchanged public surface.
+`architecture-reviewer` confirmed no boundary violations (entirely
+internal to COMP-07/`XGArcade.DataSync`, doesn't touch ADR-0003's
+Core/game boundary or any other architectural boundary) and that this is
+file organization, not a structural decision — no ADR needed. No `dotnet`
+SDK available in the sandbox that built this; the test suite could not be
+run locally and must be verified green in CI before merge.
 *Deps:* none.
 
 **S-156 · Add direct tests for `AdminScreen.tsx`'s remaining untested subcomponents**
