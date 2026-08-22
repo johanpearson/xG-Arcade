@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `docs/backlog.md` (S-158 "Built as" note added) — extracted
+  `frontend/src/App.tsx`'s self-contained auth-session lifecycle
+  (`accessToken`/`currentUser` state, `isGuest`, `handleAuthenticated`,
+  `handleLogout`, `attemptSilentRefresh`, the `fetchMe` effect) into a new
+  `useSession()` hook (`frontend/src/lib/useSession.ts`), mirroring
+  `useThemePreference`'s (`frontend/src/lib/theme.ts`) hook-module style.
+  Pure extraction, no behavior change: `App.tsx` shrank from 649 to 529
+  lines and keeps only routing/dialog state, calling `useSession()` once at
+  the top and passing it an `onLoggedOut` callback for the three
+  routing-specific side effects `handleLogout` used to do inline (reset
+  `screen`, hide `AuthScreen`, clear the URL hash). Full frontend suite
+  (647/647) passes unchanged; `oxlint`/`tsc -b` both clean. No REQ/ADR
+  changed — this is an internal refactor of already-documented behavior
+  (REQ-504/715/718/719/721).
 - 2026-08-22 — `docs/backlog.md` (S-157 "Built as" note added) — migrated
   `frontend/src/admin/AdminScreen.tsx` off its hand-rolled
   `Promise.allSettled` fetch-on-mount effect onto two independent instances
