@@ -4,7 +4,7 @@ name: prefetch-player-careers
 # country's full eligible player pool, independent of whatever xG Grid's own
 # country/club lookups have happened to query so far (ADR-0042's byproduct
 # model) — this is what actually widens xG Path's target-player pool
-# (XGPathGameModule.GetEligiblePlayerIdsAsync), not just enriches an
+# (PathEligibilityService.GetEligiblePlayerIdsAsync), not just enriches an
 # already-selected target the way PlayerCareerStintRefreshService (ADR-0054)
 # does.
 #
