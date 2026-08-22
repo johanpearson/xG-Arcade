@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `docs/backlog.md` (S-157 "Built as" note added) — migrated
+  `frontend/src/admin/AdminScreen.tsx` off its hand-rolled
+  `Promise.allSettled` fetch-on-mount effect onto two independent instances
+  of the shared `useAuthedFetch` hook (`frontend/src/lib/useAuthedFetch.ts`,
+  S-120), one per endpoint (unverified player data; the active-round
+  probe), mirroring the pattern already used by sibling admin
+  subcomponents (`AccountMetricsSection.tsx`, `XGPathCycleSection.tsx`,
+  etc.). Refetch granularity was preserved (each endpoint still refetches
+  independently via its own `refetch`), and the pre-existing page-wide
+  403 → "You don't have access to this page." behavior (REQ-504/505,
+  SCREEN-04) and the active-round probe's swallow-non-401/403/404-to-null
+  behavior (REQ-505/506) were both carried over unchanged. One new test
+  was added to `frontend/src/admin/AdminScreen.test.tsx` closing a
+  coverage gap found in review: the active-round probe's "swallow any
+  non-401/403/404 failure (e.g. a 500) to null rather than escalating to a
+  page-wide error" boundary had no direct test before this. `GridScreen.tsx`
+  and `PathScreen.tsx` — the other two candidates S-157 named — were
+  evaluated and deliberately left out of scope: both need to mutate their
+  fetched state after a guess submission, which `useAuthedFetch` doesn't
+  support (it exposes no setter), so migrating them isn't a drop-in change
+  like `AdminScreen.tsx` was. No behavior changed: all 38 pre-existing
+  `AdminScreen.test.tsx` tests pass unchanged plus the 1 new test (39/39);
+  full frontend suite 647/647 passing; `oxlint`/`tsc -b` clean.
+  `docs/requirements-document.md`, `docs/architecture-document.md`, and
+  `docs/implementation-document.md` were all checked against their
+  `update_when` triggers and need no change (internal refactor of
+  already-documented behavior, REQ-504/505/506, SCREEN-04, not new/changed
+  behavior) — no ADR needed either (sixth consumer of the already-established
+  S-120 pattern, not a new structural decision); `architecture-reviewer` and
+  `quality-architect` both reviewed and passed the diff.
 - 2026-08-22 — `docs/backlog.md` (S-156 marked SHIPPED) — implemented
   S-156 (Epic 17): backfilled dedicated test files for the 4 remaining
   `AdminScreen.tsx` subcomponents S-108/S-109 left covered only

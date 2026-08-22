@@ -6778,6 +6778,16 @@ doesn't mandate all three in one PR, following S-120's own precedent.
 *Accept:* each migrated screen's existing tests pass unchanged (no
 visual/behavior change); `oxlint`/`tsc -b`/`vitest` clean.
 *Deps:* S-120 (already complete).
+**Built as (2026-08-22):** migrated `AdminScreen.tsx` only, onto two
+independent `useAuthedFetch` instances (one per endpoint), preserving each
+endpoint's own refetch granularity and the pre-existing page-wide-403 and
+probe-swallows-to-null behaviors unchanged. `GridScreen.tsx`/`PathScreen.tsx`
+were evaluated and ruled out for this pass: both need to mutate their
+fetched state after a guess submission, which `useAuthedFetch` doesn't
+support since it exposes no setter. One test-coverage gap found and closed
+along the way (the active-round probe's swallow-non-401/403/404-to-null
+boundary was previously untested). Full detail: `docs/CHANGELOG.md`,
+2026-08-22 entry (S-157).
 
 **S-158 · Extract `App.tsx`'s auth-session lifecycle into a `useSession()` hook**
 Carried over from `CODEBASE_ANALYSIS.md`'s original (2026-08-10) Quick Win

@@ -143,6 +143,24 @@ describe('AdminScreen', () => {
     expect(screen.queryByText('Delete a user')).not.toBeInTheDocument();
   });
 
+  it("REQ-505/506: a non-401/403/404 failure from the active-round probe (500) is also swallowed to 'no active round', not escalated to a page-wide error", async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': () =>
+        jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('No unverified data to review.');
+
+    expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Delete a user')).not.toBeInTheDocument();
+    expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
+    expect(screen.queryByText('Something broke.')).not.toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
   it('REQ-505/506: the round-control and user-deletion sections render when the active-round probe succeeds', async () => {
     stubFetch({
       '/admin/player-data/unverified': () => jsonResponse([]),
