@@ -161,7 +161,7 @@ public static class PathCareerStintFilter
     // already-fetched stint list — used at every read site that turns
     // PlayerCareerStint rows into either a puzzle's clue content
     // (PathEndpoints.cs) or an eligibility decision
-    // (XGPathGameModule.GetEligiblePlayerIdsAsync), so the filter lives in
+    // (PathEligibilityService.GetEligiblePlayerIdsAsync), so the filter lives in
     // exactly one place rather than being copy-pasted at each call site.
     public static IReadOnlyList<PlayerCareerStint> ExcludeNationalTeams(
         IReadOnlyList<PlayerCareerStint> stints) =>
@@ -284,7 +284,7 @@ public static class PathCareerStintFilter
     // Excludes B-team/reserve-team rows from an already-fetched stint list —
     // same two read sites as ExcludeNationalTeams above
     // (PathEndpoints.cs's clue-reveal path and
-    // XGPathGameModule.GetEligiblePlayerIdsAsync's eligibility check), and
+    // PathEligibilityService.GetEligiblePlayerIdsAsync's eligibility check), and
     // deliberately called ALONGSIDE ExcludeNationalTeams at both sites, not
     // as a replacement for it — the two filters exclude different, disjoint
     // categories of non-answer-worthy "club" rows (national/representative
@@ -321,7 +321,7 @@ public static class PathCareerStintFilter
     // Preston loan (1994-95), which is exactly the shape this catches.
     //
     // This is DISPLAY-ONLY (see ADR-0080's "For AI agents" section) — it has
-    // no effect on eligibility (XGPathGameModule.GetEligiblePlayerIdsAsync
+    // no effect on eligibility (PathEligibilityService.GetEligiblePlayerIdsAsync
     // never calls this) or on which clubs get revealed at all (both stints
     // still surface as their own PathClubClue; this only adds a qualifier to
     // the contained one). A false positive/negative here just mislabels one
@@ -431,7 +431,7 @@ public static class PathCareerStintFilter
     // caller that passes an unsorted list will get merges (or missed merges)
     // that don't correspond to real chronological adjacency. This method does
     // not re-sort its input; see both call sites
-    // (XGPathGameModule.GetEligiblePlayerIdsAsync, PathEndpoints.cs's
+    // (PathEligibilityService.GetEligiblePlayerIdsAsync, PathEndpoints.cs's
     // GET /path/current handler) for how each guarantees this precondition.
     //
     // Merge rule, per field, applied to every maximal RUN of consecutive

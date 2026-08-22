@@ -148,7 +148,7 @@ public static class PathEndpoints
                 // name either.
                 // S-162 (2026-08-19, REQ-1203/ADR-0081): CollapseAdjacentSameClub
                 // now runs after the two Excludes (identical chain and
-                // ordering to XGPathGameModule.GetEligiblePlayerIdsAsync's own
+                // ordering to PathEligibilityService.GetEligiblePlayerIdsAsync's own
                 // eligibility check — see that method's INVARIANT comment),
                 // so a target whose real career has adjacent same-club rows
                 // (e.g. three consecutive "Lille" rows) renders as ONE

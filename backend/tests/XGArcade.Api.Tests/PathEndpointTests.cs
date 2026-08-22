@@ -435,7 +435,7 @@ public class PathEndpointTests
         // is leftover youth-national-team junk (no real club ever
         // documented) — an edge case that can only exist for an
         // already-generated puzzle from before this fix, since
-        // XGPathGameModule.GetEligiblePlayerIdsAsync's own REQ-1201 filter
+        // PathEligibilityService.GetEligiblePlayerIdsAsync's own REQ-1201 filter
         // (also fixed by this change) would never select such a player as a
         // NEW target going forward. The read path must still degrade
         // gracefully rather than throwing.

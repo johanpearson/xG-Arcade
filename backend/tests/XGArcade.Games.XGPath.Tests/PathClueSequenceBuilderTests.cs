@@ -351,7 +351,7 @@ public class PathClueSequenceBuilderTests
     // ---- S-162/ADR-0081: PathCareerStintFilter.CollapseAdjacentSameClub ----
     // BuildSequence itself does NOT call CollapseAdjacentSameClub — like
     // ExcludeNationalTeams/ExcludeBTeams, collapse is applied by the two real
-    // callers (XGPathGameModule.GetEligiblePlayerIdsAsync, PathEndpoints.cs)
+    // callers (PathEligibilityService.GetEligiblePlayerIdsAsync, PathEndpoints.cs)
     // BEFORE BuildSequence ever sees a stint list, matching this class's own
     // header comment ("the caller ... is responsible for fetching the
     // PlayerCareerStint list" — BuildSequence stays a pure turn-splitter/

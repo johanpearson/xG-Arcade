@@ -483,7 +483,7 @@ public interface IWikidataClient
     // QueryPlayerPositionsAndBirthYearsByQidsAsync/
     // QueryPlayerCareerStintsByQidsAsync (throw WikidataQueryException on
     // timeout/HTTP/parse failure): the caller
-    // (XGPathGameModule.GetEligiblePlayerIdsAsync) is responsible for
+    // (PathEligibilityService.GetEligiblePlayerIdsAsync) is responsible for
     // deciding that a failed familiarity check must never block round
     // generation (REQ-103's established reasoning) — this client method must
     // not silently conflate "the query failed" with "this player has 0

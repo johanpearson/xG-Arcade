@@ -16,7 +16,7 @@ namespace XGArcade.Games.XGPath.Tests;
 //
 // S-137/ADR-0073 note: the new BirthYear >= 1975 eligibility floor has no
 // case here. Despite docs/backlog.md's S-137 entry naming this file, the
-// actual implementation lives in XGPathGameModule.GetEligiblePlayerIdsAsync
+// actual implementation lives in PathEligibilityService.GetEligiblePlayerIdsAsync
 // as a Player-level check (Player.BirthYear is a fact about the PLAYER, not
 // about any individual PlayerCareerStint row), not inside
 // PathCareerStintFilter — there is no stint-level concept for this rule to
