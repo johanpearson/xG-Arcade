@@ -6676,6 +6676,35 @@ behaviorally — that comment block moves with the code it documents. Add
 an ADR per `CLAUDE.md`'s own "could reasonably have gone another way"
 test, same bar ADR-0068 already applied to the equivalent xG Grid split.
 *Deps:* none.
+**Built as (2026-08-22):** matches the plan exactly — `GetEligiblePlayerIdsAsync`/
+`IsEligible` and their four supporting constants extracted verbatim into
+new `IPathEligibilityService`/`PathEligibilityService.cs` (363 lines),
+registered independently (`AddScoped`, `ServiceRegistration.cs`,
+immediately before `AddScoped<IGameModule, XGPathGameModule>()`).
+`XGPathGameModule.cs` went from 632 → 291 lines; it keeps implementing
+`IGameModule` directly (no facade) and still owns target-selection/cycling,
+clue reveal, and scoring. `IPlayerRepository` is now injected on both
+classes — a small, deliberate duplication accepted for the same reason
+ADR-0068 accepted it for `IGridInstanceRepository` (see ADR-0082's
+Consequences section). `XGPathGameModuleTests.cs` (1,493 lines/50 methods)
+split 1:1: 26 eligibility-rule tests moved/renamed into new
+`PathEligibilityServiceTests.cs` (reshaped to assert directly on the
+returned id list rather than the original's indirect
+`PathGenerationException` proxy, the same allowance ADR-0068 used for its
+own REQ-211 tests); the remaining 24 adapter-orchestration tests stayed in
+`XGPathGameModuleTests.cs`, whose `BuildModule` now composes a real
+`PathEligibilityService`. The REQ-1203 fetch→sanitize→collapse→eligible-check
+ordering invariant comment moved byte-for-byte, verified by diff against
+the pre-refactor file. New ADR-0082 records the decision (including the
+two alternatives considered and rejected: leaving it as one class, and
+splitting the Player-level floors out further). `docs/architecture-document.md`
+(v1.10, COMP-11 row) and `docs/requirements-document.md` (v1.95, REQ-1201/
+1203 test-level references) synced in the same iteration — see
+`docs/CHANGELOG.md`'s 2026-08-22 entry for the full doc-sync detail.
+Reviewed by `architecture-reviewer`/`quality-architect` before the ADR was
+written (commit `490186a`); no `dotnet` SDK available in this sandbox, so
+the split was verified by direct diff/hand-trace, not a local test run —
+must be (and was) verified green in CI before merge.
 
 **S-155 · `WikidataClient.cs`: split query-building/parsing helpers out of the client class — SHIPPED**
 `CODE_HEALTH_ASSESSMENT.md`'s 2026-08-11 revision scored this file 2.5/10
@@ -7179,3 +7208,96 @@ revisit of an already-complete round rather than only the first time —
 recorded in `requirements-document.md` §7 pending a product decision;
 `useCompletionTransition`'s in-session-only behavior is ADR-0083's
 conservative default, not a resolution of that question.
+
+## Epic 21 — Technical debt remediation, round 5 (`CODE_HEALTH_ASSESSMENT.md`/`CODEBASE_ANALYSIS.md` follow-up, 2026-08-22 sweep)
+
+Source: `CODEBASE_ANALYSIS.md` and `CODE_HEALTH_ASSESSMENT.md` (both
+2026-08-22 revision), the `code-health-auditor` agent's periodic sweep.
+Same house rules as Epics 7/9/17: independent of the Tier 0 build
+sequence, **every story here is a pure refactor/doc-sync — no behavior
+change, no new REQ IDs**. Before writing this epic, every Epic 17 story
+(S-154–S-158) was verified actually shipped against `git log`/current code
+(all 5 confirmed merged — `IPathEligibilityService`/`PathEligibilityService`,
+`SparqlQueryBuilders`/`SparqlResponseParsers`, the 4 `AdminScreen.tsx`
+subcomponent test files, `AdminScreen.tsx`'s `useAuthedFetch` migration,
+and `useSession.ts`), closing out Epic 17 entirely. One doc-drift found and
+fixed directly in this sweep (not re-proposed as a story): S-154's own
+backlog entry was missing its "Built as" note despite the work having
+fully shipped (ADR-0082, CHANGELOG, architecture/requirements docs all
+already synced) — backfilled above from those existing sources. This
+sweep's one new finding, below, was identified by cross-referencing git
+churn against every backend/frontend module, per this agent's own
+complexity × churn mandate.
+
+**S-165 · `PlayerCareerPrefetchService.cs`: extract the shared country/club sweep shape**
+`PlayerCareerPrefetchService.cs` (408 lines) is the highest-churn file in
+`XGArcade.DataSync` (8 commits since 2026-08-11 — S-127 added the club
+sweep loop as a deliberate mirror of the pre-existing country loop per
+ADR-0069, and every subsequent xG data-quality story, REQ-110/ADR-0077/
+ADR-0078/S-159/S-160, touched both loops symmetrically, growing the
+duplication each time rather than shrinking it). The two `foreach` loops in
+`PrefetchAsync` (country loop, lines ~125-192; club loop, lines ~198-279)
+are ~90 lines each and near-identical in shape: skip on null QID, fetch a
+pool with a try/catch that logs-and-continues on `WikidataQueryException`,
+mark the row "swept" via `UpdateCountrySweptAtAsync`/`UpdateClubSweptAtAsync`
+(ADR-0078), skip an empty pool, look up already-known attribute-holder
+player ids, chunk the pool into `FetchAndPersistBatchAsync` calls, and log
+a running-totals line — the same shape this repo has already flagged and
+fixed twice before at this size (`WikidataClient.cs`'s per-query-method
+HTTP duplication, Epic 7; `GridGameModule.cs`'s multi-concern methods,
+Epic 9). Extract a shared private helper (e.g.
+`SweepPoolAsync(IReadOnlyList<CategoryValueDefinition> rows, Func<Guid,DateTime,CancellationToken,Task> markSweptAsync, Func<CategoryValueDefinition,CancellationToken,Task<IReadOnlyList<WikidataNameIndexEntry>>> fetchPoolAsync, string attributeType, Func<CategoryValueDefinition,string> attributeValueSelector, string logLabel, ...)` or an equivalent small delegate/record-based parameterization) that both loops call, preserving every existing behavioral nuance verbatim — in particular the club loop's deliberate `club.Name` (not `clubNameByClubQid`) sourcing for its attribute value (see the existing 2026-08-18 quality-gate-fix comment on that loop for why the two loops are NOT simply interchangeable on this one point) and each loop's own distinct log-message wording/failure-list variable. This is exactly the kind of "duplicated shape repeated per near-identical block" pattern this agent's own mandate calls out explicitly — not just large-file busywork.
+*Accept:* `PlayerCareerPrefetchServiceTests.cs` (563 lines) passes
+unchanged — pure structural refactor, no behavior change; both loops'
+existing per-nuance test coverage (the `club.Name`-vs-`clubNameByClubQid`
+distinction in particular) still passes without modification, confirming
+the extraction preserved it; net line-count reduction reported in the PR
+description. Flag for `architecture-reviewer`/`quality-architect`: whether
+the shared helper takes a small parameter record/delegate bundle or is
+instead expressed as two thin wrapper methods calling one shared private
+core — this "could reasonably go another way" the same way S-155's
+flat-vs-subfolder judgment call did; this story doesn't decide it. No
+`dotnet` SDK in this sandbox — implement and verify in a session with real
+`dotnet test` access, per this repo's standing constraint for
+`XGArcade.DataSync` changes.
+*Deps:* none.
+
+**Watch-only (no story, low churn or not yet a problem):**
+- `backend/src/XGArcade.Games.XGPath/PathCareerStintFilter.cs` (544 lines,
+  7 commits): grew from S-138 through S-163 as each new xG Path
+  data-quality bug (national-team leakage, B-team leakage, adjacent-same-club
+  duplication, inferred loans) added its own independently-testable static
+  method. Inspected this sweep and found genuinely cohesive — one
+  responsibility ("read-time filters/transforms over an already-fetched
+  `PlayerCareerStint` list"), four short methods (the actual code is well
+  under 100 lines; the rest is this codebase's established
+  heavy-inline-rationale documentation style, the same convention
+  `IWikidataClient.cs`/`NationalTeamPattern` already established and this
+  sweep re-confirmed is deliberate, not noise). Each method already has its
+  own dedicated, narrow test coverage in `PathCareerStintFilterTests.cs`.
+  Not the same accretion failure mode as pre-split `XGPathGameModule.cs` —
+  no single method is doing multiple things, and splitting the file further
+  (one file per filter) would fragment a concern nobody actually changes
+  independently, the same reasoning ADR-0082 gave for not splitting
+  `PathEligibilityService` further. Re-check if it keeps growing at this
+  rate — the next 1-2 xG Path data-quality bugs are the point to
+  reconsider, not now.
+- `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs` (782 lines,
+  post-S-155 split): defect-risk driver resolved (Epic 9) and breadth
+  driver resolved (S-155) — now holds only its constructor/fields, the two
+  `Run*` drivers, and ~15 thin `IWikidataClient` wrapper methods delegating
+  to `SparqlQueryBuilders`/`SparqlResponseParsers`. No action.
+- `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`
+  (3,973 lines): unchanged this sweep, same judgment as Epic 17 — growing
+  for legitimate regression-proof reasons, navigability-only concern.
+- `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs` (769
+  lines): unchanged since the 2026-08-18 revision (confirmed via
+  `git log --since`) — the verb-registry pattern is still holding with zero
+  new duplication. No action.
+- `nanoid@<3.3.18` (`npm audit`, dev-dependency-only, transitive via
+  `vite`): unchanged since 2026-08-18 — still a real advisory, still
+  dev-tooling-only (never bundled into the shipped frontend), still
+  Dependabot's routine-drift lane per `CLAUDE.md`, not fixed directly here.
+- `docs/backlog.md`/`docs/CHANGELOG.md`: unchanged reasoning from Epic 17
+  — both are append-only-by-design working logs, not the accretion failure
+  mode this agent watches for. No action.

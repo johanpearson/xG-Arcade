@@ -13,6 +13,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-22 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md`,
+  `docs/backlog.md` (S-154 "Built as" note backfilled; new Epic 21, S-165)
+  — periodic whole-codebase health sweep (`code-health-auditor`). Verified
+  Epic 17's actual completion state against `git log`/direct file
+  inspection before scoring anything: all 5 stories (S-154–S-158) confirmed
+  shipped. Found and fixed one doc-drift directly: S-154's own
+  `docs/backlog.md` entry was missing its "Built as" note despite the
+  `IPathEligibilityService`/`PathEligibilityService` extraction, ADR-0082,
+  and the architecture/requirements doc-sync having all genuinely landed
+  (2026-08-22, earlier in this file) — backfilled from those existing
+  sources rather than re-investigated from scratch. One new finding this
+  pass: `backend/src/XGArcade.DataSync/Wikidata/PlayerCareerPrefetchService.cs`'s
+  country-sweep and club-sweep loops (highest churn in `XGArcade.DataSync`,
+  8 commits since 2026-08-11) have grown into a near-identical ~90-line
+  duplicated shape since S-127 added the club loop as a deliberate mirror
+  of the original (ADR-0069) — the same "duplicated block repeated per
+  near-identical case" pattern this sweep lineage already fixed in
+  `WikidataClient.cs` (Epic 7) and `GridGameModule.cs` (Epic 9). Filed as
+  `docs/backlog.md` Epic 21 S-165 (extract a shared sweep helper,
+  preserving each loop's real behavioral nuance verbatim) rather than fixed
+  directly — nontrivial, and this sandbox has no `dotnet` SDK to verify a
+  backend refactor against. No mechanical fixes applied to application code
+  this pass (only documentation). Checked `docs/architecture-document.md`/
+  `docs/requirements-document.md` for the dated-narrative accretion pattern
+  again (`awk '{print length, NR}'`) and found both still clean — longest
+  `architecture-document.md` cell is now COMP-01 at 2,002 characters,
+  proportional to that component's genuine scope, not runaway narrative.
+  Overall system health score: 7.6/10 → 8.1/10 (see
+  `CODE_HEALTH_ASSESSMENT.md`'s own revision history for the full
+  per-module/component breakdown). All frontend tooling ran live and clean
+  after a fresh `npm install`: `npm run test` 647/647 (44 files, up from
+  584/584), `tsc -b` clean, `oxlint` clean. `npm audit` re-run: the
+  `nanoid@<3.3.18` dev-only advisory first seen 2026-08-18 is unchanged,
+  still Dependabot's routine-drift lane. No `dotnet` SDK available in this
+  sandbox, confirmed again — no backend build/test run. No boundary
+  violations found; no new ADR needed by this sweep itself.
 - 2026-08-22 — `docs/backlog.md` (S-158 "Built as" note added) — extracted
   `frontend/src/App.tsx`'s self-contained auth-session lifecycle
   (`accessToken`/`currentUser` state, `isGuest`, `handleAuthenticated`,
