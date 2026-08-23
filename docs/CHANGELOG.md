@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` — S-174 follow-up: the Azure AD
+  federated-credential gap flagged earlier the same day is resolved. Root
+  cause of the persistent `AADSTS700213` failure (it didn't clear after
+  the user first added a credential, ruling out propagation delay) was
+  that Azure's "Add credential" wizard auto-generates an ID-qualified
+  subject (embedding the org/repo numeric IDs) rather than the plain
+  name-based subject GitHub's OIDC token actually presents for this repo
+  — fixed by manually overriding the Subject identifier to the plain
+  form. Verified via a second scratch PR (#258, closed without merging):
+  `az bicep build`, `Azure login (OIDC)`, and `az deployment group
+  validate` all green. S-174 is now fully verified end-to-end against
+  real Azure. Updated S-174's "Built as" note with the resolution and a
+  general note for future federated-credential setups.
 - 2026-08-23 — `docs/decisions/0085-run-cli-verb-composite-action.md` (new),
   `docs/backlog.md` — S-175: extracted
   `.github/actions/run-cli-verb/action.yml`, a composite action (not a
