@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using XGArcade.Core.Games;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -12,8 +11,7 @@ namespace XGArcade.Games.XGGrid;
 public class GridLiveLookupDispatcher(
     ICategoryValueRepository categoryValueRepository,
     IWikidataLookupService wikidataLookupService,
-    IPlayerDataQualityRepository playerDataQualityRepository,
-    ILogger<GridLiveLookupDispatcher> logger) : IGridLiveLookupDispatcher
+    IPlayerDataQualityRepository playerDataQualityRepository) : IGridLiveLookupDispatcher
 {
     // REQ-211's Tier 0 fallback (ADR-0018) knows how to refresh a
     // Country x Club cell, a Club x Club cell (S-030), and, as of S-031, a

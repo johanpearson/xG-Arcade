@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` — S-171: backfilled the missing "Built as"
+  notes for S-168 (`frontend/src/lib/apiClient.ts`'s shared `apiRequest<T>`
+  helper) and S-169 (`frontend/src/lib/useRoundFetch.ts`'s shared
+  `useRoundFetch`/`useAutocompleteWarmup` hook), both confirmed shipped and
+  already fully documented in this file's own 2026-08-23 entries but never
+  given a "Built as" note in `docs/backlog.md` itself. Sourced from those
+  existing CHANGELOG entries and current code (file paths, line counts
+  re-verified: `apiClient.ts` 102 lines, `useRoundFetch.ts` 138 lines), not
+  re-investigated from scratch. Doc-only change, no code touched, no tests
+  to run.
+- 2026-08-23 — `docs/backlog.md` — S-170: removed the two unused
+  `ILogger<T>` constructor parameters left over from S-119's split
+  (`GridGameModule.cs`, `GridLiveLookupDispatcher.cs`), fixing both
+  `CS9113` warnings; added S-170's "Built as" note. Pure structural
+  removal, no behavior/requirement change, so no REQ/ADR/architecture doc
+  update needed.
 - 2026-08-23 — `docs/backlog.md` — filed Epic 24 (S-172–S-176), a
   deliberately deeper `code-health-auditor` sweep beyond the usual
   duplicated-block/god-file/churn cadence, in two parts. Part 1 dug into
