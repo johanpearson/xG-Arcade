@@ -21,6 +21,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   "does not exist yet" wording is now accurate and needed no change; added
   S-173's "Built as" note recording the `architecture-reviewer` decision
   and reasoning.
+- 2026-08-23 — `docs/architecture-document.md`, `docs/backlog.md` — S-172:
+  fixed the stale COMP-07 row claim that the by-QID/by-nationality/by-club/
+  familiarity Wikidata query methods "still hand-roll their own HTTP
+  handling" with an open pointer to Epic 9. Verified against current
+  `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs` that every one
+  of those methods is a thin wrapper over the shared `RunThrowingQueryAsync`
+  driver (S-118/S-124/S-155), same as the 9 intersection queries' own
+  `RunIntersectionQueryAsync` path, both built on
+  `SparqlQueryBuilders.cs`/`SparqlResponseParsers.cs`; Epic 9 is fully
+  closed. Rewrote the sentence to describe the current fully-centralized
+  state and dropped the stale Epic 9 pointer; added S-172's "Built as" note.
+  Doc-only change, no REQ/ADR/code touched.
 - 2026-08-23 — `docs/backlog.md` — S-171: backfilled the missing "Built as"
   notes for S-168 (`frontend/src/lib/apiClient.ts`'s shared `apiRequest<T>`
   helper) and S-169 (`frontend/src/lib/useRoundFetch.ts`'s shared
