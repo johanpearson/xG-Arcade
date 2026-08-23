@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/decisions/0086-admin-player-wikidata-refresh-narrow-exception.md`
+  (new) — fixed GitHub issue #239 (a garbled player name, frozen in at
+  creation from a bad Wikidata snapshot, was shown to a player as the
+  "correct answer" on a locked xG Path puzzle, with no way to correct it).
+  Added REQ-513: an admin-only `POST /admin/players/{id}/refresh-from-wikidata`
+  that re-queries Wikidata by a `Player`'s existing `WikidataQid` and
+  updates `FullName`/`Position`/`BirthYear`/`PhotoUrl` per-field where the
+  fresh value differs (a missing/null fetched value never overwrites).
+  This is the first-ever exception to REQ-1207's "these four fields are
+  set once at creation, never re-synced" rule, so it's deliberately narrow
+  (admin-triggered only, one player per call, no admin-supplied
+  name/QID) and recorded in ADR-0086 — re-applies ADR-0032's existing
+  "Wikidata trusted by default" model rather than adding a review step,
+  since the goal is closing the "no correction path" gap, not reopening
+  that trust decision. `architecture-document.md` §5/§10 updated (COMP-06
+  row, new ADR-0086 table row).
 - 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
   change — this is CI-only and doesn't touch a component boundary) — Added
   path filtering to `ci.yml`/`deploy.yml` so doc-only changes
