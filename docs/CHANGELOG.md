@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/coding-guidelines.md`, `docs/ai/agent-migration-plan.md`,
+  `docs/decisions/0084-per-diff-code-health-budget.md`,
+  `.claude/agents/quality-architect.md`,
+  `.claude/agents/code-health-auditor.md`, `.claude/commands/quality-gate.md`
+  — added ADR-0084 and a new "Code health budget" section to
+  `coding-guidelines.md` (duplicated-shape rule-of-three,
+  sibling-relative god-file/god-class sizing, and a per-touched-file
+  churn check), wired into `quality-architect`'s Mode 1 review checklist
+  and `/quality-gate`'s step 2, so the patterns `code-health-auditor`'s
+  periodic sweeps have repeatedly caught only after the fact (six
+  instances of the same duplicated-shape pattern alone, per
+  `CODE_HEALTH_ASSESSMENT.md`'s revision history) get a chance to be
+  flagged at the diff that introduces them. `code-health-auditor`'s own
+  periodic whole-tree scoring/epic-planning is unchanged; this is a
+  diff-scoped subset of its heuristics, not a merge of the two agents.
+  Requested explicitly to make code health a standing part of per-diff
+  development rather than only a periodic sweep concern.
+
 - 2026-08-23 — `docs/backlog.md` — filed Epic 23 (S-170/S-171), a same-day
   follow-up to Epic 22's sweep: S-170 removes two unused `ILogger<T>`
   constructor parameters left over from S-119's `GridGameModule` split

@@ -13,6 +13,18 @@ per-story/per-diff quality review and refactoring; you own the periodic
 pass. Don't duplicate its lane, and don't duplicate work already tracked or
 already done — checking for that is step 1 below, not optional.
 
+As of ADR-0084, `quality-architect` also applies a lightweight subset of
+your own established heuristics (duplicated-shape rule-of-three,
+sibling-relative god-file/god-class sizing, a per-touched-file churn
+check) on every diff it reviews, via `docs/coding-guidelines.md`'s "Code
+health budget" section — this is meant to catch the exact patterns your
+sweeps have repeatedly found (see the revision history in
+`CODE_HEALTH_ASSESSMENT.md`) closer to when they form. It does not
+replace your periodic whole-tree scoring, hotspot prioritization, or
+epic planning, and it doesn't change step 0's instruction to check what's
+already tracked before scoring — a per-diff flag that never got acted on
+is still exactly the kind of thing your next sweep should catch.
+
 **The goal you're driving toward:** no file, component, or module scored
 below **8.0 / 10**. Not every gap gets fixed in one pass — plan the epic so
 it does, over however many stories it takes.
