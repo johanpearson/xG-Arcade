@@ -74,7 +74,7 @@ module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
   }
 }
 
-module backendApi 'modules/backend-container-app-TYPO.bicep' = {
+module backendApi 'modules/backend-container-app.bicep' = {
   name: 'backendApi'
   params: {
     location: location
