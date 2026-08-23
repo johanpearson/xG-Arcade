@@ -7383,6 +7383,24 @@ reported in the PR description. No `dotnet` SDK in this sandbox — implement
 and verify in a session with real `dotnet test` access.
 *Deps:* none (may be sequenced alongside S-165 since both touch the same
 duplication pattern, but neither blocks the other).
+**Built as (2026-08-23):** matches the plan, with the "flag for
+architecture-reviewer/quality-architect" judgment call resolved the same
+way S-165 resolved its own: two thin wrapper methods
+(`SweepCountryClubPairsAsync`/`SweepClubClubPairsAsync`) over one shared
+private generic `SweepPairsAsync<TLeft, TRight>`, each supplying its own
+attribute-type/name selectors, `IWikidataLookupService` method, and log
+wording via delegates — not a delegate/record bundle passed directly to
+callers. Checked S-165's landed code first, per this story's own flag;
+`PlayerCareerPrefetchService.cs` turned out to live in a different
+project (`XGArcade.DataSync`, not "one directory over" as this story's
+text put it — a `quality-architect` correction, no effect on the fix).
+`PlayerCacheWarmingService.cs` 388 → 367 lines; `PlayerCacheWarmingServiceTests.cs`
+unchanged, full backend suite (1,616 tests) green. `architecture-reviewer`/
+`quality-architect` both passed with zero blocking findings; two
+non-blocking nits applied (a stale comment reference, `new
+SweepPairsOutcome()` over a bare `default`). No ADR — same private-method-
+shape reasoning as S-165. Full detail: `docs/CHANGELOG.md`, 2026-08-23
+entry (S-166).
 
 **S-167 · `CliVerbDispatcher.cs`: extract the shared Wikidata-client bootstrap**
 `CliVerbDispatcher.cs` (769 lines) is the single highest-churn file in the

@@ -39,7 +39,7 @@ namespace XGArcade.Games.XGGrid;
 // Wikidata for data that can't have changed. A pair cached BELOW
 // MinValidAnswers is, as of the 2026-07-28 "persisted confirmed-low
 // signal" extension below, ALSO skipped once a prior run has confirmed it
-// — see the ConfirmedLowMatchPair check in each loop below and that
+// — see the ConfirmedLowMatchPair check in SweepPairsAsync below and that
 // entity's own doc comment for the full "why" (this was an accepted gap
 // in REQ-110's first pass, no longer true).
 //
@@ -157,200 +157,16 @@ public class PlayerCacheWarmingService(
             "plus {ClubClubPairCount} unique Club x Club pairs ({TotalPairs} total), MinValidAnswers={MinValidAnswers}.",
             countries.Count, clubs.Count, countryClubPairCount, clubClubPairCount, totalPairs, options.MinValidAnswers);
 
-        var pairsQueriedLive = 0;
-        var pairsAlreadyValid = 0;
-        var pairsSkippedConfirmedLow = 0;
-        var pairsSkippedPersistentFailure = 0;
-        var pairsConfirmedLowFromSweep = 0;
-        var pairsProcessed = 0;
-        var pairsWithTechnicalFailure = 0;
         var failingPairs = new List<string>();
 
-        foreach (var country in countries)
-        {
-            foreach (var club in clubs)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                pairsProcessed++;
-
-                var cachedCount = await playerAttributeRepository.CountPlayersWithBothAttributesAsync(
-                    NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
-                if (cachedCount >= options.MinValidAnswers)
-                {
-                    pairsAlreadyValid++;
-                }
-                // REQ-110/ADR-0078/S-160: checked before IsConfirmedLowAsync/
-                // IsPersistentTechnicalFailureAsync/the live-query chain
-                // below — once BOTH sides' pool sweeps have completed
-                // (PlayerCareerPrefetchService's own countriesProcessed++/
-                // clubsProcessed++ success path), cachedCount is not a
-                // partial cache hint, it's the true, final count for this
-                // pair (see that service's own doc comment for the full
-                // "why"). Confirmed directly from the local count, with zero
-                // Wikidata round-trip. Both sides must be swept — a partial
-                // pool on either side means the true count is still
-                // unknown; do not widen this to fire on only one side (see
-                // ADR-0078's "For AI agents" section).
-                else if (country.PlayerPoolSweptAt is not null && club.PlayerPoolSweptAt is not null)
-                {
-                    pairsConfirmedLowFromSweep++;
-                    await playerDataQualityRepository.RecordConfirmedLowAsync(
-                        NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cachedCount, cancellationToken);
-                    logger.LogDebug(
-                        "{Country} x {Club}: confirmed low from sweep — both sides fully swept, cached count ({CachedCount}) is final, no live query needed.",
-                        country.Name, club.Name, cachedCount);
-                }
-                // REQ-110 (2026-07-28 "persisted confirmed-low signal"
-                // extension): checked only once cachedCount has already
-                // shown this pair is below threshold THIS run (a real,
-                // freshly-computed count, not a stale one) — so this check
-                // is safe even if MinValidAnswers itself has changed since
-                // the pair was marked (see ConfirmedLowMatchPair's own doc
-                // comment for why that ordering matters).
-                else if (await playerDataQualityRepository.IsConfirmedLowAsync(
-                    NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken))
-                {
-                    pairsSkippedConfirmedLow++;
-                    logger.LogDebug("{Country} x {Club}: skipped — previously confirmed below MinValidAnswers.",
-                        country.Name, club.Name);
-                }
-                // REQ-110 (2026-08-01 "persistent technical-failure
-                // tracking" extension): checked only once the pair is
-                // neither already-valid nor confirmed-low — see
-                // PairLookupFailure's own doc comment and
-                // PersistentFailureThreshold's own comment for the full
-                // "why 2 consecutive runs, not 1" reasoning.
-                else if (await playerDataQualityRepository.IsPersistentTechnicalFailureAsync(
-                    NationalityAttributeType, country.Name, ClubAttributeType, club.Name, PersistentFailureThreshold, cancellationToken))
-                {
-                    pairsSkippedPersistentFailure++;
-                    logger.LogDebug("{Country} x {Club}: skipped — {Threshold}+ consecutive run failures, treated as a structural query failure.",
-                        country.Name, club.Name, PersistentFailureThreshold);
-                }
-                else
-                {
-                    var hadTechnicalFailure = false;
-                    var matches = await wikidataLookupService.LookupAndPersistAsync(
-                        country, club, WikidataLookupOrigin.Sync, cancellationToken,
-                        onTechnicalFailure: () => hadTechnicalFailure = true, timeoutTier: WikidataQueryTimeoutTier.CacheWarming);
-                    pairsQueriedLive++;
-                    if (hadTechnicalFailure)
-                    {
-                        pairsWithTechnicalFailure++;
-                        failingPairs.Add($"{country.Name} x {club.Name}");
-                        await playerDataQualityRepository.RecordTechnicalFailureAsync(
-                            NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
-                    }
-                    else
-                    {
-                        // REQ-110: a real (possibly zero-match) answer — not
-                        // a swallowed technical failure — so clear any prior
-                        // run's failure marker (a no-op if this pair never
-                        // failed before) and, if it's still below threshold,
-                        // persist the confirmed-low marker for next run.
-                        // matches.Count is the query's complete, un-LIMITed
-                        // result set (implementation-document.md §6a), so
-                        // it's the true current match count, not just
-                        // "however many were new."
-                        await playerDataQualityRepository.ClearTechnicalFailureAsync(
-                            NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
-                        if (matches.Count < options.MinValidAnswers)
-                        {
-                            await playerDataQualityRepository.RecordConfirmedLowAsync(
-                                NationalityAttributeType, country.Name, ClubAttributeType, club.Name, matches.Count, cancellationToken);
-                        }
-                    }
-                    logger.LogDebug("{Country} x {Club}: {MatchCount} matches (was {CachedCount} cached).",
-                        country.Name, club.Name, matches.Count, cachedCount);
-                }
-
-                LogProgressCheckpoint(pairsProcessed, totalPairs, pairsWithTechnicalFailure);
-            }
-        }
-
-        for (var i = 0; i < clubs.Count; i++)
-        {
-            for (var j = i + 1; j < clubs.Count; j++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                pairsProcessed++;
-
-                var cachedCount = await playerAttributeRepository.CountPlayersWithBothAttributesAsync(
-                    ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
-                if (cachedCount >= options.MinValidAnswers)
-                {
-                    pairsAlreadyValid++;
-                }
-                // REQ-110/ADR-0078/S-160: see the Country x Club loop's own
-                // comment above — same reasoning here, both ClubDefinition
-                // rows' own PlayerPoolSweptAt.
-                else if (clubs[i].PlayerPoolSweptAt is not null && clubs[j].PlayerPoolSweptAt is not null)
-                {
-                    pairsConfirmedLowFromSweep++;
-                    await playerDataQualityRepository.RecordConfirmedLowAsync(
-                        ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cachedCount, cancellationToken);
-                    logger.LogDebug(
-                        "{ClubA} x {ClubB}: confirmed low from sweep — both sides fully swept, cached count ({CachedCount}) is final, no live query needed.",
-                        clubs[i].Name, clubs[j].Name, cachedCount);
-                }
-                // REQ-110: see the Country x Club loop's own comment above
-                // — same reasoning here.
-                else if (await playerDataQualityRepository.IsConfirmedLowAsync(
-                    ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken))
-                {
-                    pairsSkippedConfirmedLow++;
-                    logger.LogDebug("{ClubA} x {ClubB}: skipped — previously confirmed below MinValidAnswers.",
-                        clubs[i].Name, clubs[j].Name);
-                }
-                // REQ-110 (2026-08-01): see the Country x Club loop's own
-                // comment above — same reasoning here. This is the loop
-                // that actually needed this extension in practice — see
-                // WikidataClient.BuildClubClubIntersectionQuery's own
-                // comment for the specific club-club query-shape incident.
-                else if (await playerDataQualityRepository.IsPersistentTechnicalFailureAsync(
-                    ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, PersistentFailureThreshold, cancellationToken))
-                {
-                    pairsSkippedPersistentFailure++;
-                    logger.LogDebug("{ClubA} x {ClubB}: skipped — {Threshold}+ consecutive run failures, treated as a structural query failure.",
-                        clubs[i].Name, clubs[j].Name, PersistentFailureThreshold);
-                }
-                else
-                {
-                    var hadTechnicalFailure = false;
-                    var matches = await wikidataLookupService.LookupAndPersistClubClubAsync(
-                        clubs[i], clubs[j], WikidataLookupOrigin.Sync, cancellationToken,
-                        onTechnicalFailure: () => hadTechnicalFailure = true, timeoutTier: WikidataQueryTimeoutTier.CacheWarming);
-                    pairsQueriedLive++;
-                    if (hadTechnicalFailure)
-                    {
-                        pairsWithTechnicalFailure++;
-                        failingPairs.Add($"{clubs[i].Name} x {clubs[j].Name}");
-                        await playerDataQualityRepository.RecordTechnicalFailureAsync(
-                            ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
-                    }
-                    else
-                    {
-                        // REQ-110: see the Country x Club loop's own comment
-                        // above — same reasoning here.
-                        await playerDataQualityRepository.ClearTechnicalFailureAsync(
-                            ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
-                        if (matches.Count < options.MinValidAnswers)
-                        {
-                            await playerDataQualityRepository.RecordConfirmedLowAsync(
-                                ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, matches.Count, cancellationToken);
-                        }
-                    }
-                    logger.LogDebug("{ClubA} x {ClubB}: {MatchCount} matches (was {CachedCount} cached).",
-                        clubs[i].Name, clubs[j].Name, matches.Count, cachedCount);
-                }
-
-                LogProgressCheckpoint(pairsProcessed, totalPairs, pairsWithTechnicalFailure);
-            }
-        }
+        var countryClubOutcome = await SweepCountryClubPairsAsync(
+            countries, clubs, new SweepPairsOutcome(), failingPairs, totalPairs, cancellationToken);
+        var clubClubOutcome = await SweepClubClubPairsAsync(
+            clubs, countryClubOutcome, failingPairs, totalPairs, cancellationToken);
 
         var result = new CacheWarmingResult(
-            totalPairs, pairsQueriedLive, pairsAlreadyValid, pairsWithTechnicalFailure, failingPairs,
-            pairsSkippedConfirmedLow, pairsSkippedPersistentFailure, pairsConfirmedLowFromSweep);
+            totalPairs, clubClubOutcome.PairsQueriedLive, clubClubOutcome.PairsAlreadyValid, clubClubOutcome.PairsWithTechnicalFailure, failingPairs,
+            clubClubOutcome.PairsSkippedConfirmedLow, clubClubOutcome.PairsSkippedPersistentFailure, clubClubOutcome.PairsConfirmedLowFromSweep);
 
         // REQ-110: the failing-pairs list is logged in full here, at
         // Information level, exactly once per run — not per-pair (each
@@ -371,6 +187,169 @@ public class PlayerCacheWarmingService(
             result.FailingPairs.Count > 0 ? $" Failing pairs: {string.Join(", ", result.FailingPairs)}." : string.Empty);
 
         return result;
+    }
+
+    // S-166: running totals threaded through both SweepPairsAsync calls
+    // below (same "starting totals continue across sweeps" shape as S-165's
+    // SweepOutcome) — WarmAsync's summary and LogProgressCheckpoint need
+    // cumulative totals across both sweeps, not two separate counts.
+    private readonly record struct SweepPairsOutcome(
+        int PairsProcessed, int PairsQueriedLive, int PairsAlreadyValid, int PairsSkippedConfirmedLow,
+        int PairsSkippedPersistentFailure, int PairsConfirmedLowFromSweep, int PairsWithTechnicalFailure);
+
+    // S-166: supplies what genuinely differs from the Club x Club sweep
+    // below to shared SweepPairsAsync. SelectMany matches the original
+    // nested foreach's country-outer/club-inner pair order.
+    private Task<SweepPairsOutcome> SweepCountryClubPairsAsync(
+        IReadOnlyList<CountryDefinition> countries, IReadOnlyList<ClubDefinition> clubs,
+        SweepPairsOutcome starting, List<string> failingPairs, int totalPairs, CancellationToken cancellationToken) =>
+        SweepPairsAsync(
+            countries.SelectMany(country => clubs.Select(club => (country, club))),
+            NationalityAttributeType, (CountryDefinition c) => c.Name, (CountryDefinition c) => c.PlayerPoolSweptAt,
+            ClubAttributeType, (ClubDefinition c) => c.Name, (ClubDefinition c) => c.PlayerPoolSweptAt,
+            lookupAsync: (country, club, onTechnicalFailure, ct) => wikidataLookupService.LookupAndPersistAsync(
+                country, club, WikidataLookupOrigin.Sync, ct,
+                onTechnicalFailure: onTechnicalFailure, timeoutTier: WikidataQueryTimeoutTier.CacheWarming),
+            logConfirmedLowFromSweep: (country, club, cachedCount) => logger.LogDebug(
+                "{Country} x {Club}: confirmed low from sweep — both sides fully swept, cached count ({CachedCount}) is final, no live query needed.",
+                country.Name, club.Name, cachedCount),
+            logSkippedConfirmedLow: (country, club) => logger.LogDebug(
+                "{Country} x {Club}: skipped — previously confirmed below MinValidAnswers.",
+                country.Name, club.Name),
+            logSkippedPersistentFailure: (country, club) => logger.LogDebug(
+                "{Country} x {Club}: skipped — {Threshold}+ consecutive run failures, treated as a structural query failure.",
+                country.Name, club.Name, PersistentFailureThreshold),
+            logQueriedLive: (country, club, matchCount, cachedCount) => logger.LogDebug(
+                "{Country} x {Club}: {MatchCount} matches (was {CachedCount} cached).",
+                country.Name, club.Name, matchCount, cachedCount),
+            failingPairLabel: (country, club) => $"{country.Name} x {club.Name}",
+            failingPairs, totalPairs, starting, cancellationToken);
+
+    // S-166: mirrors SweepCountryClubPairsAsync above. Builds unique
+    // (clubs[i], clubs[j]) pairs with j > i, matching the original nested
+    // for-loop's pair order; `starting` continues the running totals.
+    private Task<SweepPairsOutcome> SweepClubClubPairsAsync(
+        IReadOnlyList<ClubDefinition> clubs, SweepPairsOutcome starting,
+        List<string> failingPairs, int totalPairs, CancellationToken cancellationToken) =>
+        SweepPairsAsync(
+            clubs.SelectMany((clubA, i) => clubs.Skip(i + 1).Select(clubB => (clubA, clubB))),
+            ClubAttributeType, (ClubDefinition c) => c.Name, (ClubDefinition c) => c.PlayerPoolSweptAt,
+            ClubAttributeType, (ClubDefinition c) => c.Name, (ClubDefinition c) => c.PlayerPoolSweptAt,
+            lookupAsync: (clubA, clubB, onTechnicalFailure, ct) => wikidataLookupService.LookupAndPersistClubClubAsync(
+                clubA, clubB, WikidataLookupOrigin.Sync, ct,
+                onTechnicalFailure: onTechnicalFailure, timeoutTier: WikidataQueryTimeoutTier.CacheWarming),
+            logConfirmedLowFromSweep: (clubA, clubB, cachedCount) => logger.LogDebug(
+                "{ClubA} x {ClubB}: confirmed low from sweep — both sides fully swept, cached count ({CachedCount}) is final, no live query needed.",
+                clubA.Name, clubB.Name, cachedCount),
+            logSkippedConfirmedLow: (clubA, clubB) => logger.LogDebug(
+                "{ClubA} x {ClubB}: skipped — previously confirmed below MinValidAnswers.",
+                clubA.Name, clubB.Name),
+            logSkippedPersistentFailure: (clubA, clubB) => logger.LogDebug(
+                "{ClubA} x {ClubB}: skipped — {Threshold}+ consecutive run failures, treated as a structural query failure.",
+                clubA.Name, clubB.Name, PersistentFailureThreshold),
+            logQueriedLive: (clubA, clubB, matchCount, cachedCount) => logger.LogDebug(
+                "{ClubA} x {ClubB}: {MatchCount} matches (was {CachedCount} cached).",
+                clubA.Name, clubB.Name, matchCount, cachedCount),
+            failingPairLabel: (clubA, clubB) => $"{clubA.Name} x {clubB.Name}",
+            failingPairs, totalPairs, starting, cancellationToken);
+
+    // S-166: shared "check cache -> confirmed-low-from-sweep -> confirmed-low
+    // -> persistent-failure -> live lookup" decision tree both loops in
+    // WarmAsync used to duplicate end to end. The delegate params are
+    // exactly the genuine per-sweep differences (which two AttributeType/
+    // name pairs, which LookupAndPersist* method, each log line's wording).
+    private async Task<SweepPairsOutcome> SweepPairsAsync<TLeft, TRight>(
+        IEnumerable<(TLeft Left, TRight Right)> pairs,
+        string attributeTypeA, Func<TLeft, string> nameA, Func<TLeft, DateTime?> sweptAtA,
+        string attributeTypeB, Func<TRight, string> nameB, Func<TRight, DateTime?> sweptAtB,
+        Func<TLeft, TRight, Action, CancellationToken, Task<IReadOnlyList<Player>>> lookupAsync,
+        Action<TLeft, TRight, int> logConfirmedLowFromSweep,
+        Action<TLeft, TRight> logSkippedConfirmedLow,
+        Action<TLeft, TRight> logSkippedPersistentFailure,
+        Action<TLeft, TRight, int, int> logQueriedLive,
+        Func<TLeft, TRight, string> failingPairLabel,
+        List<string> failingPairs, int totalPairs, SweepPairsOutcome starting, CancellationToken cancellationToken)
+    {
+        var pairsProcessed = starting.PairsProcessed;
+        var pairsQueriedLive = starting.PairsQueriedLive;
+        var pairsAlreadyValid = starting.PairsAlreadyValid;
+        var pairsSkippedConfirmedLow = starting.PairsSkippedConfirmedLow;
+        var pairsSkippedPersistentFailure = starting.PairsSkippedPersistentFailure;
+        var pairsConfirmedLowFromSweep = starting.PairsConfirmedLowFromSweep;
+        var pairsWithTechnicalFailure = starting.PairsWithTechnicalFailure;
+
+        foreach (var (left, right) in pairs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            pairsProcessed++;
+
+            var cachedCount = await playerAttributeRepository.CountPlayersWithBothAttributesAsync(
+                attributeTypeA, nameA(left), attributeTypeB, nameB(right), cancellationToken);
+            if (cachedCount >= options.MinValidAnswers)
+            {
+                pairsAlreadyValid++;
+            }
+            // REQ-110/ADR-0078/S-160: both sides fully swept -> cachedCount
+            // is final, zero Wikidata round-trip. See this class's own top
+            // comment for the full "why" (ADR-0078's "For AI agents"
+            // section in particular).
+            else if (sweptAtA(left) is not null && sweptAtB(right) is not null)
+            {
+                pairsConfirmedLowFromSweep++;
+                await playerDataQualityRepository.RecordConfirmedLowAsync(
+                    attributeTypeA, nameA(left), attributeTypeB, nameB(right), cachedCount, cancellationToken);
+                logConfirmedLowFromSweep(left, right, cachedCount);
+            }
+            // REQ-110 (2026-07-28): a prior run already confirmed this pair
+            // below threshold — see ConfirmedLowMatchPair's own doc comment.
+            else if (await playerDataQualityRepository.IsConfirmedLowAsync(
+                attributeTypeA, nameA(left), attributeTypeB, nameB(right), cancellationToken))
+            {
+                pairsSkippedConfirmedLow++;
+                logSkippedConfirmedLow(left, right);
+            }
+            // REQ-110 (2026-08-01, ADR-0052): see PersistentFailureThreshold's
+            // own comment for the full "why 2 consecutive runs, not 1" reasoning.
+            else if (await playerDataQualityRepository.IsPersistentTechnicalFailureAsync(
+                attributeTypeA, nameA(left), attributeTypeB, nameB(right), PersistentFailureThreshold, cancellationToken))
+            {
+                pairsSkippedPersistentFailure++;
+                logSkippedPersistentFailure(left, right);
+            }
+            else
+            {
+                var hadTechnicalFailure = false;
+                var matches = await lookupAsync(left, right, () => hadTechnicalFailure = true, cancellationToken);
+                pairsQueriedLive++;
+                if (hadTechnicalFailure)
+                {
+                    pairsWithTechnicalFailure++;
+                    failingPairs.Add(failingPairLabel(left, right));
+                    await playerDataQualityRepository.RecordTechnicalFailureAsync(
+                        attributeTypeA, nameA(left), attributeTypeB, nameB(right), cancellationToken);
+                }
+                else
+                {
+                    // REQ-110: a real (possibly zero-match) answer — clear
+                    // any prior failure marker and, if still below
+                    // threshold, persist a fresh confirmed-low marker.
+                    await playerDataQualityRepository.ClearTechnicalFailureAsync(
+                        attributeTypeA, nameA(left), attributeTypeB, nameB(right), cancellationToken);
+                    if (matches.Count < options.MinValidAnswers)
+                    {
+                        await playerDataQualityRepository.RecordConfirmedLowAsync(
+                            attributeTypeA, nameA(left), attributeTypeB, nameB(right), matches.Count, cancellationToken);
+                    }
+                }
+                logQueriedLive(left, right, matches.Count, cachedCount);
+            }
+
+            LogProgressCheckpoint(pairsProcessed, totalPairs, pairsWithTechnicalFailure);
+        }
+
+        return new SweepPairsOutcome(
+            pairsProcessed, pairsQueriedLive, pairsAlreadyValid, pairsSkippedConfirmedLow,
+            pairsSkippedPersistentFailure, pairsConfirmedLowFromSweep, pairsWithTechnicalFailure);
     }
 
     // REQ-110 (2026-08-01): includes the running technical-failure count so
