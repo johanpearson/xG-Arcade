@@ -29,40 +29,40 @@ param registryPassword string
 @secure()
 param databaseConnectionString string
 
-@description('Supabase project URL — see modules/backend-container-app.bicep for guidance.')
+@description('Supabase project URL — see modules/backend-container-app-TYPO.bicep for guidance.')
 param supabaseUrl string
 
-@description('Supabase JWKS path override (ADR-0017) — see modules/backend-container-app.bicep for guidance.')
+@description('Supabase JWKS path override (ADR-0017) — see modules/backend-container-app-TYPO.bicep for guidance.')
 param supabaseJwksPath string = '/auth/v1/.well-known/jwks.json'
 
 @secure()
 param supabaseAnonKey string
 
 @secure()
-@description('Supabase service_role API key (REQ-710, ADR-0026) — see modules/backend-container-app.bicep for guidance.')
+@description('Supabase service_role API key (REQ-710, ADR-0026) — see modules/backend-container-app-TYPO.bicep for guidance.')
 param supabaseServiceRoleKey string
 
 @secure()
-@description('Shared bearer token authorizing calls to /internal/* endpoints. See modules/backend-container-app.bicep for guidance.')
+@description('Shared bearer token authorizing calls to /internal/* endpoints. See modules/backend-container-app-TYPO.bicep for guidance.')
 param internalJobToken string
 
 @secure()
-@description('Fine-grained GitHub PAT (Issues:write, REQ-903/ADR-0064). See modules/backend-container-app.bicep for guidance. Optional/defaults to empty.')
+@description('Fine-grained GitHub PAT (Issues:write, REQ-903/ADR-0064). See modules/backend-container-app-TYPO.bicep for guidance. Optional/defaults to empty.')
 param githubIncidentReportToken string = ''
 
-@description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
+@description('Frontend origin allowed by CORS. See modules/backend-container-app-TYPO.bicep for guidance.')
 param corsAllowedOrigin string = ''
 
-@description('Comma-separated admin Supabase auth user ids (S-012). See modules/backend-container-app.bicep for guidance.')
+@description('Comma-separated admin Supabase auth user ids (S-012). See modules/backend-container-app-TYPO.bicep for guidance.')
 param adminUserIds string = ''
 
-@description('Minimum backend replica count. See modules/backend-container-app.bicep for guidance.')
+@description('Minimum backend replica count. See modules/backend-container-app-TYPO.bicep for guidance.')
 param minReplicas int = 0
 
-@description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027). See modules/backend-container-app.bicep for guidance.')
+@description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027). See modules/backend-container-app-TYPO.bicep for guidance.')
 param roundDurationHours int = 48
 
-@description('GridLiveLookupOptions.Enabled — REQ-211\'s guess-time live-lookup fallback (ADR-0070). See modules/backend-container-app.bicep for guidance.')
+@description('GridLiveLookupOptions.Enabled — REQ-211\'s guess-time live-lookup fallback (ADR-0070). See modules/backend-container-app-TYPO.bicep for guidance.')
 param gridLiveLookupEnabled bool = false
 
 module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
@@ -74,7 +74,7 @@ module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
   }
 }
 
-module backendApi 'modules/backend-container-app.bicep' = {
+module backendApi 'modules/backend-container-app-TYPO.bicep' = {
   name: 'backendApi'
   params: {
     location: location
