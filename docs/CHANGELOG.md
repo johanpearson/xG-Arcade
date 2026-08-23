@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `infra/bicep/main.parameters.json`, `docs/backlog.md` —
+  S-173: deleted the unreferenced, generic-template
+  `infra/bicep/main.parameters.json` (`environmentTag: "prod"`), matching
+  Epic 10/S-130's "delete now, cheap to re-add at Tier 1" precedent for the
+  same leftover-Tier-1-scaffold shape. `infra/README.md`'s and `SETUP.md`'s
+  "does not exist yet" wording is now accurate and needed no change; added
+  S-173's "Built as" note recording the `architecture-reviewer` decision
+  and reasoning.
 - 2026-08-23 — `docs/backlog.md` — S-171: backfilled the missing "Built as"
   notes for S-168 (`frontend/src/lib/apiClient.ts`'s shared `apiRequest<T>`
   helper) and S-169 (`frontend/src/lib/useRoundFetch.ts`'s shared

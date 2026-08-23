@@ -7949,6 +7949,20 @@ yet" claim and the actual repo state agree afterward; `SETUP.md`'s §7
 prod-deploy snippet (which already correctly says "Tier 1 — skip for
 MVP") is unaffected either way.
 *Deps:* none.
+*Built as:* Option (a) — deleted `infra/bicep/main.parameters.json`
+(`architecture-reviewer` call, 2026-08-23). Reasoning: it's unreferenced
+dead config, the exact same shape as the five Tier 1 workflow files Epic
+10/S-130 already decided to delete rather than patch, and keeping a
+generic-template file with real-looking values (`environmentTag: "prod"`)
+sitting around unreferenced risks someone assuming it's live/authoritative
+and deploying against it by hand. Re-adding it at Tier 1's bright line is
+cheap, same as the deleted workflows. With the file gone,
+`infra/README.md`'s and `SETUP.md`'s existing "does not exist yet" wording
+is now simply true — no doc wording change was needed. Verified
+`SETUP.md`'s §7 prod-deploy snippet (already labeled "Tier 1 — skip for
+MVP") is untouched; it still names `main.parameters.json` as the file to
+create when Tier 1 starts, which is correct forward-looking guidance, not
+a claim about current repo state.
 
 **S-174 · Add a Bicep template-validation step to CI, before the real `deploy.yml` deployment**
 `deploy.yml`'s only interaction with `infra/bicep/main.bicep` is the real
