@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Threading;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +12,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Api.Guesses;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 
@@ -222,6 +224,32 @@ public class AdminEndpointTests
         loggerProvider = provider;
         var factory = _factory.WithWebHostBuilder(builder =>
             builder.ConfigureLogging(logging => logging.AddProvider(provider)));
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(AdminAuthProviderUserId));
+        return client;
+    }
+
+    // quality-architect follow-up (issue #239 review): same "swap in a
+    // capturing/counting collaborator, create a client off that factory"
+    // shape as CreateAdminClientWithLogging above, but wrapping the REAL
+    // PlayerRepository (still backed by this test's own in-memory
+    // XGArcadeDbContext — never a hand-rolled fake repository, so the actual
+    // EF read/write path under test is unchanged) in a thin call-counting
+    // decorator, so a test can observe whether UpdatePlayerAsync was
+    // actually invoked rather than only re-reading the final stored value
+    // (which a same-value rewrite would also produce unchanged).
+    private HttpClient CreateAdminClientWithUpdatePlayerCallCounter(out UpdatePlayerCallCounter counter)
+    {
+        var counterInstance = new UpdatePlayerCallCounter();
+        counter = counterInstance;
+        var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IPlayerRepository>();
+                services.AddScoped<IPlayerRepository>(sp =>
+                    new CallCountingPlayerRepository(
+                        new PlayerRepository(sp.GetRequiredService<XGArcadeDbContext>()), counterInstance));
+            }));
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(AdminAuthProviderUserId));
         return client;
@@ -771,6 +799,15 @@ public class AdminEndpointTests
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         var player = await dbContext.Players.AsNoTracking().SingleAsync(p => p.Id == playerId);
         Assert.That(player.FullName, Is.EqualTo("Clarence Seedorf"), "the corrected name must actually be persisted, not just reported");
+        // quality-architect follow-up (issue #239): the whole point of this
+        // refresh action is fixing a garbled name that makes guess-matching
+        // fail (REQ-208 queries NormalizedFullName, never FullName directly —
+        // GridNameMatcher/XGPathGameModule). Player.FullName's setter
+        // re-derives NormalizedFullName (Player.cs), so persisting through
+        // that setter (rather than a raw column write) must leave it in sync
+        // with the corrected name, not stale from the garbled one.
+        Assert.That(player.NormalizedFullName, Is.EqualTo("clarence seedorf"),
+            "NormalizedFullName must be re-derived from the corrected FullName — this is the column guess-matching actually queries (REQ-208), so a stale value here would mean the refresh fixed the display name but not the underlying bug issue #239 was filed for");
     }
 
     [Test]
@@ -800,7 +837,7 @@ public class AdminEndpointTests
     }
 
     [Test]
-    public async Task REQ513_RefreshFromWikidata_FetchedValueIdenticalToStored_ReportsUnchanged_AndIsAGenuineNoOp()
+    public async Task REQ513_RefreshFromWikidata_FetchedValueIdenticalToStored_ReportsUnchanged_AndValueRemainsUnchangedInStorage()
     {
         var playerId = await SeedPlayerForRefreshAsync(
             wikidataQid: "Q188207", fullName: "Clarence Seedorf", position: "midfielder", birthYear: 1976, photoUrl: "https://example.com/old-photo.jpg");
@@ -827,8 +864,56 @@ public class AdminEndpointTests
         Assert.That(player.FullName, Is.EqualTo("Clarence Seedorf"));
         Assert.That(player.Position, Is.EqualTo("midfielder"));
         Assert.That(player.BirthYear, Is.EqualTo(1976));
+        // quality-architect follow-up (issue #239 review): this only proves
+        // the stored VALUE is unchanged after the fact — a same-value
+        // rewrite (read, then write back the identical value) would produce
+        // an identical read-back too, so this assertion alone can't claim
+        // "no write occurred". See the dedicated
+        // REQ513_RefreshFromWikidata_FetchedValueIdenticalToStored_NeverInvokesUpdatePlayerAsync
+        // test below for the actual write-behavior claim, verified via a
+        // call-counting IPlayerRepository decorator.
         Assert.That(player.PhotoUrl, Is.EqualTo("https://example.com/old-photo.jpg"),
-            "a full no-op refresh must leave every stored value exactly as it was, confirming this is a genuine no-op rather than a same-value rewrite");
+            "a full no-op refresh must leave every stored value exactly as it was");
+    }
+
+    // quality-architect follow-up (issue #239 review): REQ-513's response
+    // contract explicitly promises "only changed fields are written" — a
+    // claim about WRITE BEHAVIOR, not just final stored value (which a
+    // same-value rewrite would also leave looking unchanged, as the test
+    // above's own softened assertion message now says explicitly). This
+    // test observes UpdatePlayerAsync invocations directly via a thin
+    // call-counting decorator wrapped around the real PlayerRepository
+    // (CreateAdminClientWithUpdatePlayerCallCounter) — same "swap a
+    // purpose-built collaborator into DI for one test" shape as
+    // CreateAdminClientWithLogging's CapturingLoggerProvider above, applied
+    // to IPlayerRepository instead of ILoggerProvider.
+    [Test]
+    public async Task REQ513_RefreshFromWikidata_FetchedValueIdenticalToStored_NeverInvokesUpdatePlayerAsync()
+    {
+        var playerId = await SeedPlayerForRefreshAsync(
+            wikidataQid: "Q188207", fullName: "Clarnce Seedorf", position: "midfielder", birthYear: 1976, photoUrl: "https://example.com/old-photo.jpg");
+        var client = CreateAdminClientWithUpdatePlayerCallCounter(out var counter);
+
+        // Phase 1: a genuinely DIFFERENT fetched value. This proves the
+        // counter itself actually observes a real UpdatePlayerAsync call
+        // (i.e. it isn't just stuck reporting 0 regardless of what happens
+        // underneath) before phase 2 below relies on it staying at 0 to mean
+        // something.
+        _fakeWikidataClient.SetRefreshData("Q188207", new WikidataPlayerRefreshData("Clarence Seedorf", "midfielder", 1976, "https://example.com/old-photo.jpg"));
+        var changedResponse = await client.PostAsync($"/admin/players/{playerId}/refresh-from-wikidata", null);
+        Assert.That(changedResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(counter.Count, Is.EqualTo(1),
+            "sanity check that the call-counting decorator is wired correctly: a genuinely different fetched value must invoke UpdatePlayerAsync exactly once");
+
+        // Phase 2: refresh again, with Wikidata now reporting the SAME value
+        // phase 1 just persisted — this is the actual no-op case.
+        var noOpResponse = await client.PostAsync($"/admin/players/{playerId}/refresh-from-wikidata", null);
+
+        Assert.That(noOpResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await noOpResponse.Content.ReadFromJsonAsync<RefreshPlayerFromWikidataResponse>();
+        Assert.That(body!.Fields, Has.All.Matches<PlayerRefreshFieldResult>(f => !f.Changed));
+        Assert.That(counter.Count, Is.EqualTo(1),
+            "REQ-513's 'only changed fields are written' promise is about write behavior: an identical-value refresh must not invoke UpdatePlayerAsync a second time at all — not merely leave the final stored value looking unchanged, which a same-value rewrite would also do");
     }
 
     [Test]
@@ -1083,5 +1168,58 @@ public class AdminEndpointTests
         public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
             string playerName, CancellationToken cancellationToken = default) =>
             Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
+    }
+
+    // ---- Test double for IPlayerRepository (call-counting decorator) ------
+    // quality-architect follow-up (issue #239 review): a spy over the REAL
+    // PlayerRepository, not a hand-rolled fake repository — every read/write
+    // still goes through the actual EF Core path against this test's own
+    // in-memory XGArcadeDbContext, this decorator only observes whether
+    // UpdatePlayerAsync was invoked. Thread-safety (Interlocked.Increment)
+    // is not load-bearing for these single-request tests but costs nothing
+    // and avoids being a footgun if a future test parallelizes calls through
+    // the same counter.
+    private sealed class UpdatePlayerCallCounter
+    {
+        private int _count;
+        public int Count => _count;
+        public void Increment() => Interlocked.Increment(ref _count);
+    }
+
+    // Delegates every member to `inner` unchanged except UpdatePlayerAsync,
+    // which increments `counter` before delegating — deliberately NOT a
+    // reimplementation of PlayerRepository's own logic (that would test the
+    // decorator instead of the real repository).
+    private sealed class CallCountingPlayerRepository(IPlayerRepository inner, UpdatePlayerCallCounter counter) : IPlayerRepository
+    {
+        public Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerByWikidataQidAsync(wikidataQid, cancellationToken);
+
+        public Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerByIdAsync(id, cancellationToken);
+
+        public Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
+            IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersByIdsAsync(ids, cancellationToken);
+
+        public Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAsync(player, cancellationToken);
+
+        public Task<IReadOnlyDictionary<string, PlayerCreationResult>> GetOrCreatePlayersByWikidataQidAsync(
+            IReadOnlyList<PlayerCreationRequest> requests, CancellationToken cancellationToken = default) =>
+            inner.GetOrCreatePlayersByWikidataQidAsync(requests, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
+            string normalizedFullName, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersByNormalizedFullNameAsync(normalizedFullName, cancellationToken);
+
+        public Task<Player?> GetPlayerForRefreshAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerForRefreshAsync(id, cancellationToken);
+
+        public Task UpdatePlayerAsync(Player player, CancellationToken cancellationToken = default)
+        {
+            counter.Increment();
+            return inner.UpdatePlayerAsync(player, cancellationToken);
+        }
     }
 }
