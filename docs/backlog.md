@@ -7913,6 +7913,21 @@ current `WikidataClient.cs`'s actual method list before being written
 memory); no REQ/ADR reference is dropped, only the stale "open item"
 framing.
 *Deps:* none.
+*Built as:* `docs/architecture-document.md`'s COMP-07 row rewritten
+(2026-08-23) — verified every by-QID/by-nationality/by-club/familiarity
+method in `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`
+(`QueryPlayerPoolByNationalityAsync`, `QueryPlayerPoolByClubAsync`,
+`QueryPlayerPhotosByQidsAsync`,
+`QueryPlayerPositionsAndBirthYearsByQidsAsync`,
+`QuerySitelinkCountsByQidsAsync`, etc.) is a thin wrapper over
+`RunThrowingQueryAsync`, alongside the 9 intersection queries' own
+`RunIntersectionQueryAsync` path, both driven by
+`SparqlQueryBuilders.cs`/`SparqlResponseParsers.cs`. Replaced the stale
+"still hand-roll their own HTTP handling ... Epic 9" sentence with a
+description of the current fully-centralized state; checked §3's ADR
+cross-reference table (COMP-07 row) and the rest of the COMP-07 row for
+anything else depending on the old phrasing — nothing else referenced it.
+No REQ/ADR/code change; frontmatter `version`/`last_updated` bumped.
 
 **S-173 · Reconcile `infra/bicep/main.parameters.json` with `infra/README.md`/`SETUP.md`'s "does not exist yet" claim**
 `infra/README.md` states, explicitly and twice-reinforced ("**Prod**:
