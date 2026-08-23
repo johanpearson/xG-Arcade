@@ -7500,6 +7500,29 @@ also confirm each of the 47 call sites' specific status-code special-casing
 through whatever shared helper is chosen, never silently routed through
 `throwApiError`).
 *Deps:* none.
+**Built as (2026-08-23):** matches the plan, with the "flag for
+ui-implementer/quality-architect" judgment call resolved as a thin
+`fetch` wrapper taking a raw `RequestInit` — `apiRequest<T>(accessToken:
+string | null, path: string, init?: RequestInit): Promise<T>` — not a
+discriminated `'GET'|'POST'|'PUT'|'DELETE'`-plus-body shape. All 47 call
+sites' status-code special-casing, including the 404-as-data idioms in
+`fetchActiveAdminRound`/`deleteUserByEmail`/`fetchCurrentRound`/
+`fetchAdminAnnouncementBanner`/`fetchCurrentPath`, is preserved verbatim
+via a catch-and-branch-on-`error.status` wrapper around `apiRequest`
+rather than a status-code allowlist inside the helper itself.
+`useAuthedFetch.ts` and `rounds.ts`'s `warmUpAutocomplete` were left on
+their existing abstractions per the story's own scoping. One fix-now
+issue caught mid-pass by `quality-architect`: an earlier draft's blanket
+try/catch around `response.json()` would have swallowed real parse
+failures on all ~40 typed call sites, not just the 4 genuinely-204 ones —
+corrected to an explicit `response.status === 204` check before parsing.
+`frontend/src/lib/apiClient.ts` is now 102 lines; `npm run test -- --run`
+647/647 across 44 files, `npx tsc -b` clean, `npm run lint` (oxlint)
+clean; no test files added or changed, matching the story's own
+acceptance criteria. `architecture-reviewer` found no module-boundary
+violation and no ADR warranted (equivalent in kind to S-111's original
+`apiClient.ts` split, which also had no ADR). Full detail:
+`docs/CHANGELOG.md`, 2026-08-23 entry (S-168).
 
 **S-169 · `GridScreen.tsx`/`PathScreen.tsx`: extract the shared round-fetch/load-state hook**
 `GridScreen.tsx` and `PathScreen.tsx` (529/357 lines, 5 commits each) both
@@ -7540,6 +7563,33 @@ genuinely different guess-submission flows.
 `GridScreen.test.tsx`/`PathScreen.test.tsx` unchanged), `tsc -b`, and
 `oxlint` all pass unchanged — pure structural refactor, no behavior change.
 *Deps:* none.
+**Built as (2026-08-23):** matches the plan, with the "how much to fold
+into the shared hook vs. leave screen-specific" judgment call resolved as:
+folded in `checkRoundStillLive(roundId)` (the shared re-fetch-and-compare
+core of `handleViewCompletedRoundLeaderboard`'s live-vs-past check,
+REQ-1210/ADR-0083) since it reuses the exact same fetch shape as the mount
+effect — but kept it read-only, deliberately never calling `setState`,
+matching the pre-extraction code exactly (`GridScreen.test.tsx`'s "past"-
+scope 404 re-check would otherwise blank out the just-completed round
+mid-click). Left `warmUpAutocomplete` out of the hook entirely — it's a
+separate, unrelated `useAutocompleteWarmup(accessToken)` export in the
+same new file rather than folded into `useRoundFetch` itself, since it
+never touches `TRound`/`state`. Each screen keeps its own thin
+`handleViewCompletedRoundLeaderboard` wrapper owning
+`checkingLeaderboardTarget` and its own `gameKey`; `GridScreen.tsx`'s
+`applyScoredGuess`/`handleSubmitGuess`/`handleResolveDisambiguation` and
+`PathScreen.tsx`'s `puzzleIndex`/`refetchWarning` were untouched beyond
+reading `state`/`setState` from the hook. One incidental fix needed to
+land the extraction: two new `react-hooks/exhaustive-deps` warnings
+appeared once `setState` came from a custom hook instead of a literal
+`useState` call (oxlint no longer recognized it as stable) — fixed by
+adding `setState` to the affected `useCallback` dependency arrays.
+New `frontend/src/lib/useRoundFetch.ts` is 138 lines; `npm run test`
+647/647 across 44 files (including `GridScreen.test.tsx`/
+`PathScreen.test.tsx` unchanged), `npx tsc -b` clean, `npm run lint`
+(oxlint) clean. No dedicated `useRoundFetch.test.ts` added, matching
+`useAuthedFetch.ts`'s own precedent of no dedicated lib-hook test file.
+Full detail: `docs/CHANGELOG.md`, 2026-08-23 entry (S-169).
 
 **Watch-only (no story, low churn or not yet a problem):**
 - `infra/scripts/sync-prod-to-dev.sh`/`promote-dev-to-prod.sh` (83/85
