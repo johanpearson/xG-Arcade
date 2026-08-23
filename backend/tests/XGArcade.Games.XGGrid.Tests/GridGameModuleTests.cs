@@ -85,7 +85,7 @@ public class GridGameModuleTests
         IGridLiveLookupDispatcher? liveLookupDispatcherOverride = null)
     {
         var dispatcher = liveLookupDispatcherOverride ?? new GridLiveLookupDispatcher(
-            _categoryValueRepository, _wikidataLookupService, _playerDataQualityRepository, NullLogger<GridLiveLookupDispatcher>.Instance);
+            _categoryValueRepository, _wikidataLookupService, _playerDataQualityRepository);
         var generationService = new GridGenerationService(
             _gridInstanceRepository, _categoryValueRepository, _playerAttributeRepository, dispatcher,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = TimeSpan.FromMinutes(10) },
@@ -96,7 +96,7 @@ public class GridGameModuleTests
 
         return new GridGameModule(
             _gridInstanceRepository, playerNameIndexRepositoryOverride ?? _playerNameIndexRepository, generationService, nameMatcher, dispatcher,
-            liveLookupOptions ?? new GridLiveLookupOptions(), NullLogger<GridGameModule>.Instance);
+            liveLookupOptions ?? new GridLiveLookupOptions());
     }
 
     // ADR-0070/S-128: wraps a real IPlayerNameIndexRepository, counting calls
@@ -661,7 +661,7 @@ public class GridGameModuleTests
         var nameIndexSpy = new CallCountingPlayerNameIndexRepository(_playerNameIndexRepository);
         var dispatcherSpy = new CallCountingGridLiveLookupDispatcher(
             new GridLiveLookupDispatcher(
-                _categoryValueRepository, _wikidataLookupService, _playerDataQualityRepository, NullLogger<GridLiveLookupDispatcher>.Instance));
+                _categoryValueRepository, _wikidataLookupService, _playerDataQualityRepository));
         var module = BuildModule(
             minValidAnswers: 1, maxAttempts: 5,
             liveLookupOptions: new GridLiveLookupOptions { Enabled = false },

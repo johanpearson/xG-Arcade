@@ -86,8 +86,7 @@ public class GridGenerationServiceTests
         IWikidataLookupService? wikidataLookupService = null)
     {
         var dispatcher = new GridLiveLookupDispatcher(
-            _categoryValueRepository, wikidataLookupService ?? _wikidataLookupService, _playerDataQualityRepository,
-            NullLogger<GridLiveLookupDispatcher>.Instance);
+            _categoryValueRepository, wikidataLookupService ?? _wikidataLookupService, _playerDataQualityRepository);
         return new GridGenerationService(
             _gridInstanceRepository, _categoryValueRepository, _playerAttributeRepository, dispatcher,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },

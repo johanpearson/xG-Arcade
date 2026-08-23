@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
@@ -47,8 +46,7 @@ public class GridLiveLookupDispatcherTests
     public void TearDown() => _dbContext.Dispose();
 
     private GridLiveLookupDispatcher BuildDispatcher(IWikidataLookupService? wikidataLookupService = null) =>
-        new(_categoryValueRepository, wikidataLookupService ?? _wikidataLookupService, _playerDataQualityRepository,
-            NullLogger<GridLiveLookupDispatcher>.Instance);
+        new(_categoryValueRepository, wikidataLookupService ?? _wikidataLookupService, _playerDataQualityRepository);
 
     private CountryDefinition SeedCountry(string name, string? wikidataQid = "unset", bool usesCountryForSportProperty = false)
     {

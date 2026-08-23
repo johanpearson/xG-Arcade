@@ -7625,6 +7625,28 @@ neither parameter was ever read. No `dotnet` SDK in this sandbox —
 implement and verify in a session with real `dotnet build`/`dotnet test`
 access.
 *Deps:* none.
+**Built as:** matches the plan exactly. Removed the unused `ILogger<GridGameModule> logger`
+and `ILogger<GridLiveLookupDispatcher> logger` primary-constructor
+parameters (and the now-unused `Microsoft.Extensions.Logging` `using` in
+both files — neither class references `Microsoft.Extensions.Logging`
+anywhere else). Neither call site needed a DI registration change: both
+are registered via `builder.Services.AddScoped<...>()` in
+`ServiceRegistration.cs`, which resolves constructor arguments
+automatically. Three test files construct these classes directly and
+needed the trailing `NullLogger<...>.Instance` argument dropped:
+`GridGameModuleTests.cs` (two call sites), `GridGenerationServiceTests.cs`,
+and `GridLiveLookupDispatcherTests.cs` — the last of these also lost its
+now-unused `using Microsoft.Extensions.Logging.Abstractions;`, since
+`GridLiveLookupDispatcher` was the only class it built with a logger
+in that file; `GridGameModuleTests.cs`/`GridGenerationServiceTests.cs` kept
+theirs, since both still build `GridGenerationService`/`GridNameMatcher`
+with a `NullLogger` there. This sandbox still has no `dotnet` SDK and no
+network path to install one (the egress proxy denies
+`builds.dotnet.microsoft.com`), so the `CS9113`-gone/full-suite-green
+acceptance criteria above are unverified by this session — confirmed
+instead by a full-file grep of both changed source files (the `logger`
+identifier no longer appears at all) and by re-reading every call site
+this change touched.
 
 **S-171 · Backfill missing "Built as" notes for S-168/S-169 in `docs/backlog.md`**
 S-168 (`frontend/src/lib/*.ts`'s shared `apiRequest<T>` helper) and S-169
