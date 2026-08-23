@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — no docs changed beyond this entry — S-167 (`docs/backlog.md`
+  Epic 22, direct follow-up to S-114's own `BuildDbContext()`/
+  `BuildLoggerFactory()` extraction): extracted the Wikidata-client bootstrap
+  five of `CliVerbDispatcher.cs`'s handlers repeated inline — `new
+  HttpClient()` → `WikidataHttpClientConfiguration.Configure(...)` → `new
+  WikidataClient(...)` — into a single private static
+  `BuildWikidataClient(ILoggerFactory loggerFactory, TimeSpan? queryTimeout =
+  null)` helper, called from `HandleWarmPlayerCacheAsync`,
+  `HandleImportPlayerNameIndexAsync`, `HandleBackfillPlayerPhotosAsync`,
+  `HandleBackfillPlayerPositionBirthYearAsync`, and
+  `HandlePrefetchPlayerCareersAsync`. The two explicit `queryTimeout:
+  TimeSpan.FromSeconds(60)` overrides (import-player-name-index,
+  prefetch-player-careers) and their original multi-paragraph justification
+  comments are preserved verbatim. `HandleAuditClubGapsAsync`/
+  `HandleVerifyWikidataPlayerDataAsync` and the rest, which never construct a
+  `WikidataClient`, are untouched. Pure structural refactor — no behavior
+  change, no ADR (same "no new boundary crossed" reasoning as S-114,
+  confirmed by `architecture-reviewer`). Added one doc-comment sentence on
+  the new helper explaining the deliberately-undisposed `HttpClient` is safe
+  because every caller is a one-shot CLI verb process (`quality-architect`
+  review finding). Verified with a real `dotnet` SDK in this session (10.0.111,
+  installed via apt — the repo targets `net10.0`): full backend suite green,
+  1616/1616 across all 6 test projects (`XGArcade.Core.Tests` 205,
+  `XGArcade.Data.Tests` 302, `XGArcade.DataSync.Tests` 370,
+  `XGArcade.Games.XGGrid.Tests` 129, `XGArcade.Games.XGPath.Tests` 223,
+  `XGArcade.Api.Tests` 387), plus a hand-traced check (independently
+  cross-checked by both `architecture-reviewer` and `quality-architect`)
+  confirming each of the 5 call sites reproduces its original
+  `loggerFactory`/`queryTimeout` arguments exactly. No dedicated
+  `CliVerbDispatcherTests.cs` — deliberate per S-113, not a coverage gap.
 - 2026-08-23 — `docs/backlog.md` (S-165 "Built as" note) — implemented
   Epic 21's S-165: extracted the shared "fetch pool -> mark swept ->
   skip-empty -> dedup+chunk" shape out of `PlayerCareerPrefetchService
