@@ -99,6 +99,27 @@ public static class CliVerbDispatcher
             .AddConsole()
             .SetMinimumLevel(LogLevel.Information));
 
+    // S-167 (docs/backlog.md, follow-up to S-114's own BuildDbContext/
+    // BuildLoggerFactory extraction): the shared Wikidata-client bootstrap five
+    // of this file's handlers used to repeat inline — construct a bare
+    // HttpClient, configure it via WikidataHttpClientConfiguration.Configure,
+    // then wrap it in a WikidataClient using the given ILoggerFactory (and,
+    // optionally, an explicit queryTimeout override — see each caller's own
+    // comment for why it passes one). One shared place instead of five copies.
+    // The HttpClient is deliberately never exposed for disposal (WikidataClient
+    // itself isn't IDisposable, matching its normal AddHttpClient<> DI
+    // registration in ServiceRegistration.cs, where the factory owns the
+    // handler): every caller here is a one-shot CLI verb process that exits
+    // immediately after, so relying on OS-level teardown instead of an
+    // explicit `using` is safe — don't "fix" this by making WikidataClient
+    // IDisposable without also accounting for the DI-managed instance.
+    private static WikidataClient BuildWikidataClient(ILoggerFactory loggerFactory, TimeSpan? queryTimeout = null)
+    {
+        var httpClient = new HttpClient();
+        WikidataHttpClientConfiguration.Configure(httpClient);
+        return new WikidataClient(httpClient, queryTimeout: queryTimeout, logger: loggerFactory.CreateLogger<WikidataClient>());
+    }
+
     // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
     // server start) used by ci.yml's local E2E stack. Applies pending EF Core
     // migrations against ConnectionStrings:Database, then seeds Tier 0's
@@ -171,9 +192,7 @@ public static class CliVerbDispatcher
         var warmingPlayerAliasRepository = new PlayerAliasRepository(warmingDbContext);
         var warmingPlayerDataRepository = new PlayerDataRepository(warmingDbContext);
 
-        using var warmingHttpClient = new HttpClient();
-        WikidataHttpClientConfiguration.Configure(warmingHttpClient);
-        var warmingWikidataClient = new WikidataClient(warmingHttpClient, logger: warmingLoggerFactory.CreateLogger<WikidataClient>());
+        var warmingWikidataClient = BuildWikidataClient(warmingLoggerFactory);
         var warmingWikidataLookupService = new WikidataLookupService(
             warmingWikidataClient, warmingPlayerCareerStintRepository,
             warmingPlayerRepository, warmingPlayerAttributeRepository, warmingPlayerAliasRepository, warmingPlayerDataRepository);
@@ -207,8 +226,6 @@ public static class CliVerbDispatcher
         await using var importDbContext = BuildDbContext();
         var importRepository = new PlayerNameIndexRepository(importDbContext);
 
-        using var importHttpClient = new HttpClient();
-        WikidataHttpClientConfiguration.Configure(importHttpClient);
         // 60s, deliberately kept after the 2026-07-18 birth-year-slicing fix
         // (NOTES.md): WDQS enforces its own hard ~60s SERVER-side timeout, so a
         // client timeout above 60s can never help — 60s means this client only
@@ -222,10 +239,7 @@ public static class CliVerbDispatcher
         // still going to answer. Do NOT raise this above 60s: the server cap
         // binds first, so a larger number is pure self-deception (that mistake
         // was already made once — see NOTES.md's 2026-07-17/18 entries).
-        var importWikidataClient = new WikidataClient(
-            importHttpClient,
-            queryTimeout: TimeSpan.FromSeconds(60),
-            logger: importLoggerFactory.CreateLogger<WikidataClient>());
+        var importWikidataClient = BuildWikidataClient(importLoggerFactory, queryTimeout: TimeSpan.FromSeconds(60));
 
         // No timeProvider/retryBackoff overrides: TimeProvider.System bounds the
         // year range (fine for a CLI job) and the default retry backoff applies.
@@ -261,10 +275,7 @@ public static class CliVerbDispatcher
         await using var backfillDbContext = BuildDbContext();
         var backfillPlayerBackfillRepository = new PlayerBackfillRepository(backfillDbContext);
 
-        using var backfillHttpClient = new HttpClient();
-        WikidataHttpClientConfiguration.Configure(backfillHttpClient);
-        var backfillWikidataClient = new WikidataClient(
-            backfillHttpClient, logger: backfillLoggerFactory.CreateLogger<WikidataClient>());
+        var backfillWikidataClient = BuildWikidataClient(backfillLoggerFactory);
 
         var backfillService = new PlayerPhotoBackfillService(
             backfillPlayerBackfillRepository, backfillWikidataClient,
@@ -298,10 +309,7 @@ public static class CliVerbDispatcher
         await using var positionBirthYearBackfillDbContext = BuildDbContext();
         var positionBirthYearBackfillPlayerBackfillRepository = new PlayerBackfillRepository(positionBirthYearBackfillDbContext);
 
-        using var positionBirthYearBackfillHttpClient = new HttpClient();
-        WikidataHttpClientConfiguration.Configure(positionBirthYearBackfillHttpClient);
-        var positionBirthYearBackfillWikidataClient = new WikidataClient(
-            positionBirthYearBackfillHttpClient, logger: positionBirthYearBackfillLoggerFactory.CreateLogger<WikidataClient>());
+        var positionBirthYearBackfillWikidataClient = BuildWikidataClient(positionBirthYearBackfillLoggerFactory);
 
         var positionBirthYearBackfillService = new PlayerPositionBirthYearBackfillService(
             positionBirthYearBackfillPlayerBackfillRepository, positionBirthYearBackfillWikidataClient,
@@ -354,8 +362,6 @@ public static class CliVerbDispatcher
         var prefetchPlayerAttributeRepository = new PlayerAttributeRepository(prefetchDbContext);
         var prefetchPlayerDataRepository = new PlayerDataRepository(prefetchDbContext);
 
-        using var prefetchHttpClient = new HttpClient();
-        WikidataHttpClientConfiguration.Configure(prefetchHttpClient);
         // 60s, same reasoning as import-player-name-index's own standalone
         // client override just above: WikidataClient's 15s default is tuned
         // (ADR-0011) for the narrow per-cell intersection queries, not this
@@ -369,9 +375,7 @@ public static class CliVerbDispatcher
         // different failure mode from this one — don't conflate the two next
         // time this job's log is read). 60s is still the right ceiling per
         // that same server-cap lesson: no reason to guess higher.
-        var prefetchWikidataClient = new WikidataClient(
-            prefetchHttpClient, queryTimeout: TimeSpan.FromSeconds(60),
-            logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
+        var prefetchWikidataClient = BuildWikidataClient(prefetchLoggerFactory, queryTimeout: TimeSpan.FromSeconds(60));
 
         var prefetchService = new PlayerCareerPrefetchService(
             prefetchCategoryValueRepository, prefetchPlayerCareerStintRepository, prefetchPlayerRepository,
