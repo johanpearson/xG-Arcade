@@ -7261,6 +7261,21 @@ flat-vs-subfolder judgment call did; this story doesn't decide it. No
 `dotnet test` access, per this repo's standing constraint for
 `XGArcade.DataSync` changes.
 *Deps:* none.
+**Built as (2026-08-23):** matches the plan, with the "flag for
+architecture-reviewer/quality-architect" judgment call resolved as two thin
+wrapper methods over one shared core, not a delegate/record bundle passed
+directly to callers — `SweepCountriesAsync`/`SweepClubsAsync` each supply
+their own fetch call, mark-swept write, and log wording to a shared private
+generic `SweepAsync<TRow>`, which itself delegates the byte-identical
+fetch-batch/dedup tail to `SweepPoolAsync`. The club sweep's `club.Name`
+(never `clubNameByClubQid`) attribute-value sourcing carried over verbatim
+via `SweepClubsAsync`'s own `getName` selector. `PlayerCareerPrefetchService.cs`
+408 → 404 lines; `PlayerCareerPrefetchServiceTests.cs` byte-unchanged, full
+backend suite (1,616 tests) green. `architecture-reviewer`/`quality-architect`
+both passed with zero findings; per `architecture-reviewer` the
+wrapper-vs-bundle choice is private-method-shape territory below ADR
+granularity, so no ADR. Full detail: `docs/CHANGELOG.md`, 2026-08-23 entry
+(S-165).
 
 **Watch-only (no story, low churn or not yet a problem):**
 - `backend/src/XGArcade.Games.XGPath/PathCareerStintFilter.cs` (544 lines,
