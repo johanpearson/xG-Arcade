@@ -19,10 +19,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   errors with no Azure login needed) followed by `az deployment group
   validate` against the real dev resource group (dev's real secrets, no
   mutation). `deploy.yml`'s actual `az deployment group create` deploy step
-  is unchanged. Verified via real GitHub Actions runs on a scratch branch
-  (this sandbox has no `az` CLI) — one red on a deliberately-typo'd module
-  path, one green after reverting it; see the PR description for run links.
-  Added S-174's "Built as" note.
+  is unchanged. Verified via real GitHub Actions runs on a scratch PR
+  against `main` after merge (this sandbox has no `az` CLI): the `az bicep
+  build` layer is fully verified both ways (red on a deliberately-typo'd
+  module path, green once fixed). The `az deployment group validate` layer
+  is implemented correctly but currently blocked by an Azure AD federated-
+  credential gap — the `AZURE_CLIENT_ID` app registration doesn't yet trust
+  the `pull_request` OIDC subject, only `deploy.yml`'s push-to-`main`
+  subject — a one-time Azure Portal fix, not a code change; see S-174's
+  "Built as" note for the exact steps. Also updated PR #253's description
+  with both run links once verified.
 - 2026-08-23 — `infra/bicep/main.parameters.json`, `docs/backlog.md` —
   S-173: deleted the unreferenced, generic-template
   `infra/bicep/main.parameters.json` (`environmentTag: "prod"`), matching

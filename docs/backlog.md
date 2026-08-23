@@ -8018,12 +8018,35 @@ and anything only visible once Azure actually looks at the template —
 `containerImage`/`registryUsername` use inert placeholders since ARM
 validation never pulls the image. `deploy.yml`'s `deploy-infra` job is
 byte-for-byte unchanged. This investigation's own sandbox still has no
-`az` CLI (confirmed: `az: command not found`), so the deliberately-broken-
-module-path proof this story's *Accept* line requires ran as real GitHub
-Actions runs (which do have Azure CLI preinstalled) on a scratch branch
-rather than locally — see the PR description for the two run links (one
-red on the broken path, one green after reverting it) confirmed before
-opening the real PR for this branch.
+`az` CLI (confirmed: `az: command not found`), and GitHub doesn't register
+a brand-new `pull_request`-triggered workflow until it exists on the
+default branch (confirmed directly: a scratch PR opened before merging
+produced zero workflow runs) — so verification happened via a scratch PR
+(#254) against `main`, immediately after PR #253 merged this workflow.
+Results: layer (1) fully verified working both ways — [a run with a
+deliberately typo'd module path](https://github.com/johanpearson/xG-Arcade/actions/runs/32648442659)
+failed with the expected `BCP091: Could not find file` before ever
+reaching Azure login, and [a run with the path fixed](https://github.com/johanpearson/xG-Arcade/actions/runs/32648861622)
+passed the compile step. Layer (2) is implemented correctly but is
+currently blocked by an Azure AD (Entra ID) configuration gap, not a code
+bug: that second run's Azure OIDC login itself failed with `AADSTS700213:
+No matching federated identity record found for presented assertion
+subject 'repo:johanpearson/xG-Arcade:pull_request'` — the federated
+credential on the `AZURE_CLIENT_ID` app registration only trusts
+`deploy.yml`'s push-to-`main` OIDC subject, not the `pull_request` subject
+a PR-triggered OIDC login presents. **Follow-up action needed (Azure
+Portal, one-time, outside this repo, not something a code change can
+fix):** on that app registration, add a federated credential — scenario
+"GitHub Actions deploying Azure resources", entity type **Pull request**
+(or manually: issuer `https://token.actions.githubusercontent.com`,
+subject `repo:johanpearson/xG-Arcade:pull_request`, audience
+`api://AzureADTokenExchange`). Once added, layer (2) will run for real on
+the next PR touching `infra/bicep/**`, no code change needed. Also
+discovered along the way: GitHub silently skips a paths-filtered
+`pull_request` check on a push that makes the watched path byte-identical
+to the base branch again (a plain revert produced zero runs) — worth
+knowing if a future "why didn't this check re-run" investigation hits the
+same thing.
 
 **S-175 · Extract a shared composite GitHub Action for the repeated "checkout, setup-dotnet, run a CLI verb, connect to dev DB" workflow shape**
 Six standalone `workflow_dispatch`(-plus-cron) workflow files
