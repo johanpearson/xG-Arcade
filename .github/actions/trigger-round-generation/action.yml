@@ -1,0 +1,93 @@
+name: 'Trigger round generation'
+description: >
+  POSTs to /internal/generate-round for a single GameKey with a 3-attempt,
+  30s/60s-backoff retry loop and `::warning`/`::error` annotations
+  (S-176) — the shared body of `generate-grid-round.yml`'s and
+  `generate-path-round.yml`'s "Trigger round generation" step, extracted
+  because it was byte-for-byte identical in both files. This action has no
+  `on:` trigger surface of its own (composite actions can't define one) —
+  each caller keeps its own independent `on.schedule` cron and
+  `workflow_dispatch.round_duration_hours` input untouched, per ADR-0072's
+  decoupling intent (confirmed compatible by architecture-reviewer before
+  this action was added: a composite action shares only the retry-loop
+  body, not any trigger/schedule/dispatch-input surface, so the two games'
+  cron cadence and per-GameKey dispatch overrides stay fully independent
+  and the workflow_dispatch coupling bug ADR-0072 fixed cannot reappear).
+  Callers must `actions/checkout` first: a workflow step referencing a
+  local composite action (`uses: ./...`) needs the repo already checked
+  out to resolve this action's own action.yml, so checkout can't be
+  folded in here without becoming circular (same constraint noted in
+  `.github/actions/run-cli-verb/action.yml`, S-175).
+
+inputs:
+  game-key:
+    description: 'GameKey to generate a round for, e.g. "xg-grid" or "xg-path"'
+    required: true
+  round-duration-hours:
+    description: >
+      One-off RoundDuration override (hours), passed through as
+      /internal/generate-round's roundDurationHours query param. Leave
+      unset to use this GameKey's own configured default.
+    required: false
+    default: ''
+  backend-hostname:
+    description: 'Value for the ${{ secrets.DEV_BACKEND_HOSTNAME }} used to build the request URL'
+    required: true
+  internal-job-token:
+    description: 'Bearer token for the ${{ secrets.INTERNAL_JOB_TOKEN }} sent as the Authorization header'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # Bug-bundle follow-up (2026-07-27): a single failed attempt (e.g. a
+    # transient Wikidata hiccup during header-picking, ADR-0023) previously
+    # meant waiting for tomorrow's cron — REQ-301's "one round ahead" design
+    # tolerates that gap without players noticing, but there's no reason to
+    # accept it when a same-run retry is free and safe: RoundGenerationService
+    # is idempotent and ADR-0023's MaxDuration abort happens before a Round
+    # is ever persisted, so a retried call can never create a duplicate or
+    # partial round. 3 attempts, 30s/60s backoff — generous relative to
+    # ADR-0023's own 90s per-attempt budget, cheap relative to a whole day's
+    # wait.
+    - name: Trigger round generation
+      shell: bash
+      run: |
+        generate_round() {
+          local game_key="$1"
+          local url="https://${BACKEND_HOSTNAME}/internal/generate-round?gameKey=${game_key}"
+          if [ -n "${ROUND_DURATION_HOURS}" ]; then
+            url="${url}&roundDurationHours=${ROUND_DURATION_HOURS}"
+          fi
+
+          local max_attempts=3
+          local http_status=""
+          for attempt in $(seq 1 "$max_attempts"); do
+            http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+              "$url" \
+              -H "Authorization: Bearer ${INTERNAL_JOB_TOKEN}")
+
+            echo "[$game_key] Attempt $attempt/$max_attempts — response body:"
+            cat response.json
+
+            if [ "$http_status" -lt 400 ]; then
+              return 0
+            fi
+
+            echo "::warning::[$game_key] /internal/generate-round returned HTTP $http_status (attempt $attempt/$max_attempts)"
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep $((attempt * 30))
+            fi
+          done
+
+          echo "::error::[$game_key] /internal/generate-round failed after $max_attempts attempts (last status: $http_status)"
+          return 1
+        }
+
+        generate_round "${GAME_KEY}"
+      env:
+        GAME_KEY: ${{ inputs.game-key }}
+        ROUND_DURATION_HOURS: ${{ inputs.round-duration-hours }}
+        BACKEND_HOSTNAME: ${{ inputs.backend-hostname }}
+        INTERNAL_JOB_TOKEN: ${{ inputs.internal-job-token }}

@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`,
+  `docs/backlog.md` — S-176: extracted the byte-identical `generate_round()`
+  retry-with-backoff bash function (3 attempts, 30s/60s backoff,
+  `::warning`/`::error` annotations), previously duplicated in
+  `generate-grid-round.yml` and `generate-path-round.yml`, into a
+  composite action (`.github/actions/trigger-round-generation/action.yml`).
+  `architecture-reviewer` confirmed this is compatible with ADR-0072's
+  decoupling intent before implementation: a composite action has no
+  `on:`/trigger surface of its own, so each workflow's cron and
+  `workflow_dispatch.round_duration_hours` input stay fully independent —
+  only the retry-loop bash body is shared, mirroring ADR-0085's
+  composite-action-vs-reusable-workflow reasoning for S-175's sibling
+  problem. Updated ADR-0072's "Consequences"/"For AI agents" sections to
+  record the resolved duplication trade-off and to carve composite actions
+  out of its "no shared/reusable workflow or matrix" prohibition. Not
+  verified against real GitHub Actions in this sandbox — see S-176's
+  "Built as" note.
 - 2026-08-23 — `docs/backlog.md` — S-174 follow-up: the Azure AD
   federated-credential gap flagged earlier the same day is resolved. Root
   cause of the persistent `AADSTS700213` failure (it didn't clear after

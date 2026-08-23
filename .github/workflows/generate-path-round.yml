@@ -40,6 +40,14 @@ name: generate-path-round
 # RoundScheduling:XGPath:RoundDurationHours — or the deployed Container
 # App's matching RoundScheduling__XGPath__RoundDurationHours env var —
 # changed instead.
+#
+# S-176: the retry-loop body itself (previously an inline `generate_round()`
+# bash function, byte-identical to generate-grid-round.yml's copy) now lives
+# in .github/actions/trigger-round-generation — only the retry logic is
+# shared; this workflow's own `on:` block above (cron + workflow_dispatch
+# input) stays fully independent, per architecture-reviewer's confirmation
+# that a composite action (no trigger surface of its own) doesn't
+# reintroduce the coupling ADR-0072 deliberately split apart.
 
 on:
   schedule:
@@ -55,48 +63,11 @@ jobs:
   generate-path-round:
     runs-on: ubuntu-latest
     steps:
-      # Bug-bundle follow-up (2026-07-27): a single failed attempt (e.g. a
-      # transient Wikidata hiccup during header-picking, ADR-0023) previously
-      # meant waiting for tomorrow's cron — REQ-301's "one round ahead" design
-      # tolerates that gap without players noticing, but there's no reason to
-      # accept it when a same-run retry is free and safe: RoundGenerationService
-      # is idempotent (this workflow's own top comment) and ADR-0023's
-      # MaxDuration abort happens before a Round is ever persisted, so a
-      # retried call can never create a duplicate or partial round. 3 attempts,
-      # 30s/60s backoff — generous relative to ADR-0023's own 90s per-attempt
-      # budget, cheap relative to a whole day's wait.
+      - uses: actions/checkout@v7
       - name: Trigger round generation
-        run: |
-          generate_round() {
-            local game_key="$1"
-            local url="https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round?gameKey=${game_key}"
-            if [ -n "${{ inputs.round_duration_hours }}" ]; then
-              url="${url}&roundDurationHours=${{ inputs.round_duration_hours }}"
-            fi
-
-            local max_attempts=3
-            local http_status=""
-            for attempt in $(seq 1 "$max_attempts"); do
-              http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
-                "$url" \
-                -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
-
-              echo "[$game_key] Attempt $attempt/$max_attempts — response body:"
-              cat response.json
-
-              if [ "$http_status" -lt 400 ]; then
-                return 0
-              fi
-
-              echo "::warning::[$game_key] /internal/generate-round returned HTTP $http_status (attempt $attempt/$max_attempts)"
-
-              if [ "$attempt" -lt "$max_attempts" ]; then
-                sleep $((attempt * 30))
-              fi
-            done
-
-            echo "::error::[$game_key] /internal/generate-round failed after $max_attempts attempts (last status: $http_status)"
-            return 1
-          }
-
-          generate_round "xg-path"
+        uses: ./.github/actions/trigger-round-generation
+        with:
+          game-key: xg-path
+          round-duration-hours: ${{ inputs.round_duration_hours }}
+          backend-hostname: ${{ secrets.DEV_BACKEND_HOSTNAME }}
+          internal-job-token: ${{ secrets.INTERNAL_JOB_TOKEN }}

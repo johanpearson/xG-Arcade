@@ -8157,6 +8157,40 @@ with real GitHub Actions access — not verifiable in this investigation's
 own sandbox.
 *Deps:* none (may be sequenced with S-175, neither blocks the other).
 
+*Built as (2026-08-23):* extracted a **composite action**
+(`.github/actions/trigger-round-generation/action.yml`, `game-key`
+(required), `round-duration-hours`/`backend-hostname`/`internal-job-token`
+inputs), reproducing the original `generate_round()` function's retry loop
+byte-for-byte (3 attempts, 30s/60s backoff via `sleep $((attempt * 30))`,
+identical `[$game_key] Attempt $attempt/$max_attempts` and
+`::warning`/`::error` annotation wording — confirmed by diffing the old
+inline function bodies against the new action's `run:` block, only
+variable names changed from `${{ inputs.* }}`/`${{ secrets.* }}`
+interpolation to `env:`-mapped shell variables, which composite actions
+require since they can't read the calling workflow's own `inputs`/
+`secrets` context directly). `architecture-reviewer` confirmed this
+reading before implementation (see prompt/response captured in this
+session): a composite action defines no `on:`/trigger surface of its own,
+so it cannot reintroduce the `workflow_dispatch` coupling ADR-0072 fixed —
+each workflow file's `on.schedule` cron and its own
+`workflow_dispatch.round_duration_hours` input definition are completely
+untouched, only the retry-loop bash body is now shared. Both
+`generate-grid-round.yml` and `generate-path-round.yml` gained one
+`actions/checkout@v7` step before the composite-action call (same
+GitHub Actions constraint as S-175/ADR-0085: a local composite action's
+own `action.yml` must be resolvable from a checked-out workspace).
+Updated ADR-0072's "Consequences" and "For AI agents" sections to record
+that the duplication trade-off it originally accepted is now resolved by
+this composite action, and to note that composite actions are explicitly
+outside its "no shared/reusable workflow or matrix" prohibition — see
+ADR-0085 for the general composite-action-vs-reusable-workflow reasoning
+this mirrors. **Not verified in this sandbox:** the *Accept* criterion's
+manual `workflow_dispatch` smoke-test against real GitHub Actions — this
+sandbox has no path to trigger a real dispatch; needs a human or a session
+with real GitHub Actions access to dispatch both workflows and confirm the
+Actions-tab run (steps, annotation wording, attempt/backoff timing) is
+unchanged from before this refactor.
+
 **Watch-only / declined (no story):**
 - `purge-guest-accounts.yml`'s single-attempt curl+status-check shape is a
   simpler cousin of S-176's `generate_round` retry function (no backoff
