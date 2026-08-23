@@ -26,6 +26,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   S-175's "Built as" note for why). Each caller keeps its own
   `actions/checkout@v7` step (a GitHub Actions constraint, not leftover
   duplication) and its own `on:`/cron/`timeout-minutes`.
+- 2026-08-23 — `.github/workflows/validate-bicep.yml` (new), `docs/backlog.md`
+  — S-174: added a CI-only Bicep validation gate on every PR touching
+  `infra/bicep/**` — `az bicep build` (catches broken module paths/syntax
+  errors with no Azure login needed) followed by `az deployment group
+  validate` against the real dev resource group (dev's real secrets, no
+  mutation). `deploy.yml`'s actual `az deployment group create` deploy step
+  is unchanged. Verified via real GitHub Actions runs on a scratch branch
+  (this sandbox has no `az` CLI) — one red on a deliberately-typo'd module
+  path, one green after reverting it; see the PR description for run links.
+  Added S-174's "Built as" note.
 - 2026-08-23 — `infra/bicep/main.parameters.json`, `docs/backlog.md` —
   S-173: deleted the unreferenced, generic-template
   `infra/bicep/main.parameters.json` (`environmentTag: "prod"`), matching

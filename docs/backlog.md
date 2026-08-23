@@ -8004,6 +8004,26 @@ this investigation's own sandbox — implement and verify in a session with
 real Azure CLI/credentials access, per this file's own operational
 nature.
 *Deps:* none.
+*Built as:* new dedicated `.github/workflows/validate-bicep.yml`, triggered
+on `pull_request` scoped to `paths: infra/bicep/**` (rather than a
+conditional step bolted onto `ci.yml`/`deploy.yml`), so it only ever runs
+when there's actually Bicep to check and never touches the real deploy
+job. Two layers: (1) `az bicep build --file infra/bicep/main.bicep` — a
+pure local compile needing no Azure login at all, which directly catches
+the "typo'd module path" failure mode named in this story's own
+description; (2) `az deployment group validate` against the real dev
+resource group (dev's actual secrets, same parameter shape as
+`deploy.yml`'s `deploy-infra` step) to also catch parameter-name mismatches
+and anything only visible once Azure actually looks at the template —
+`containerImage`/`registryUsername` use inert placeholders since ARM
+validation never pulls the image. `deploy.yml`'s `deploy-infra` job is
+byte-for-byte unchanged. This investigation's own sandbox still has no
+`az` CLI (confirmed: `az: command not found`), so the deliberately-broken-
+module-path proof this story's *Accept* line requires ran as real GitHub
+Actions runs (which do have Azure CLI preinstalled) on a scratch branch
+rather than locally — see the PR description for the two run links (one
+red on the broken path, one green after reverting it) confirmed before
+opening the real PR for this branch.
 
 **S-175 · Extract a shared composite GitHub Action for the repeated "checkout, setup-dotnet, run a CLI verb, connect to dev DB" workflow shape**
 Six standalone `workflow_dispatch`(-plus-cron) workflow files
