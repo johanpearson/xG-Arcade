@@ -7784,3 +7784,281 @@ consistency before being written.
   pass (out of this pass's scope — see this session's own task framing);
   flagged here so the next full sweep picks it up rather than re-derives
   it as a "new" finding.
+
+---
+
+## Epic 24 — Technical debt remediation, round 8 (deep two-part sweep: module-deepening past the duplicated-block/god-file/churn lens, plus a first dead-code hunt)
+
+Source: a deliberately deeper, two-part `code-health-auditor` investigation
+(2026-08-23, same day as Epic 22/23 but a separate, wider-scoped pass),
+explicitly going past the duplicated-shape/god-file/churn heuristics
+already applied five times over (Epics 7/9/17/21/22) and past ADR-0084's
+new per-diff subset of the same heuristics. Part 1 looked for genuinely
+new dimensions (test depth, error-handling quality, naming, doc accuracy,
+infra fragility) in the four modules `CODE_HEALTH_ASSESSMENT.md`'s
+2026-08-23 revision tied at 8.0/10 (`XGArcade.DataSync`,
+`XGArcade.Games.XGGrid`, `infra/`, `docs/` — note that revision itself
+predates Epic 22/23's five merged stories and is now stale, a known,
+already-flagged gap, see Epic 23's own watch-only list; not re-derived
+here). Part 2 hunted for genuinely dead/unused code — a lens no prior
+sweep in this lineage has applied. Before writing anything below, every
+Epic 22/23 story was re-verified against current `git log`/code
+(S-166/S-167/S-168/S-169 all confirmed merged and matching their own
+"Built as" notes; S-170/S-171 confirmed still open/unimplemented at the
+time this investigation ran, exactly as Epic 23 left them — not touched
+here, per this pass's explicit instruction). A live `dotnet build`
+(dotnet 10.0.111 available in this session) reproduced only the two
+already-tracked `CS9113` warnings (S-170) and nothing new. **Both S-170
+and S-171 have since merged** (PRs #247/#248, same day) — Epic 23 is now
+fully closed; this note is left as-is rather than rewritten, since it
+accurately describes this investigation's own starting state.
+
+**Findings that turned out clean — recorded so the next sweep doesn't
+re-derive them:**
+- `XGArcade.DataSync`'s error-handling (`PlayerCareerPrefetchService.cs`,
+  `PlayerPhotoBackfillService.cs`, `PlayerPositionBirthYearBackfillService.cs`,
+  `PlayerFamiliarityService.cs`, `WikidataClient.cs`): every `catch` is
+  narrow (`WikidataQueryException`, or `Exception ex when (ex is
+  HttpRequestException or JsonException)`), logged with context, and each
+  swallow-vs-throw choice is justified inline against
+  `coding-guidelines.md`'s own "external-client error contracts" rule — no
+  broad `catch (Exception)` swallow found anywhere in the module. Test
+  depth spot-checked on the two files this pass's own git-log/churn lens
+  would flag first (`PlayerCareerPrefetchServiceTests.cs`,
+  `PlayerCacheWarmingServiceTests.cs`): both have dedicated cases for the
+  swallow/throw/technical-failure branches, not just the happy path.
+- `docs/architecture-document.md`'s COMP-07 claim that "the later
+  by-QID/by-nationality/by-club/familiarity query methods... still
+  hand-roll their own HTTP handling" is now **false** — verified against
+  current `WikidataClient.cs`: every one of those methods
+  (`QueryPlayerPoolByNationalityAsync`, `QueryPlayerPoolByClubAsync`,
+  `QueryPlayerPhotosByQidsAsync`, `QueryPlayerPositionsAndBirthYearsByQidsAsync`,
+  `QuerySitelinkCountsByQidsAsync`, etc.) is already a thin wrapper over
+  the shared `RunThrowingQueryAsync` driver plus `SparqlQueryBuilders`/
+  `SparqlResponseParsers` (S-118/S-124/S-155) — this is a genuine doc-drift
+  finding, not a code finding; see S-172 below.
+- `frontend/src/lib/*.ts` post-S-168 split: every exported symbol across
+  all 27 `lib/*.ts` files was grepped for import sites elsewhere in the
+  tree. The handful with zero external references (`DeleteUserResult`,
+  `RoundCompletionResult`, `ResolvedTheme`, `CategoryType`,
+  `PlayerDataApprovalResult`, `PlayerDataRemovalResult`,
+  `ClearGuestAccountOutcome`, `AdminIncidentReportIssue`,
+  `CurrentPathPuzzle`, `UseAuthedFetchOptions`, `UseAuthedFetchResult`,
+  `UseRoundFetchResult`, `UseSessionResult`) all turned out to be exported
+  types used only as an inferred return/parameter type of an exported
+  function or hook in the same file — normal TypeScript practice, not dead
+  code. No orphaned export, no orphaned component/screen found (every
+  `.tsx` file under `frontend/src` is imported from at least one other
+  file besides its own test).
+- CLI verbs with no GitHub Actions trigger (`audit-club-gaps`,
+  `backfill-player-position-birthyear`, `clean-duplicate-career-stints`,
+  `clean-stale-club-attributes`, `clear-pair-lookup-failures`,
+  `reset-path-target-cycle`, `verify-wikidata-player-data`): all seven
+  are deliberately manual, workflow-wrapper-removed-but-verb-kept per
+  S-132's own explicit "may legitimately be needed again" reasoning — not
+  dead code, re-confirmed against each handler's own doc comment.
+- `HandleVerifyWikidataPlayerDataAsync`'s bare `ExecuteUpdateAsync` (a
+  `coding-guidelines.md` EF Core exception on its face): already carries
+  its own inline justification citing the exact same established
+  exception `purge-player-pool`'s `ExecuteDeleteAsync` uses (standalone
+  operational CLI verb, never exercised by the InMemory-provider unit
+  tests that rule protects) — not a violation, already documented.
+- REQ-211's live-lookup gate: `CLAUDE.md`'s standing rule ("only trigger a
+  live lookup when the guess matched a real `PlayerNameIndex` candidate")
+  looked, on a first read of `GridLiveLookupDispatcher.cs` alone, like it
+  might not be implemented — the gate actually lives one layer up, in
+  `GridGameModule.cs`'s own `ScoreSubmissionAsync`
+  (`playerNameIndexRepository.ExistsByNormalizedNameAsync` check, S-032,
+  2026-07-17), whose own comment notes explicitly that "the 'Tier 1, not
+  built' gap this comment used to describe is closed." False alarm,
+  recorded so a future sweep doesn't re-open it without checking the
+  caller first.
+- No orphaned Tier 1 API-Football/`ExternalApiUsage` scaffolding exists in
+  `backend/src` — every reference is a comment describing the deferred
+  Tier 1 plan, not dead placeholder code.
+- ADR-0032's supersession of ADR-0029's fallback-specific carve-out is
+  fully landed in code (`WikidataLookupService.ConfidenceFor` maps both
+  `WikidataLookupOrigin` values to `"verified"`) — no dead branch left
+  behind.
+- `docs/`'s own accretion (bloat) lens was already checked and cleared by
+  the 2026-08-23 `CODE_HEALTH_ASSESSMENT.md` revision (`design-document.md`'s
+  largest cells judged proportionate WCAG-math, not narrated history) —
+  not re-litigated here per this pass's own explicit "don't relitigate a
+  settled design point" instruction; Part 1 of this pass looked for
+  *accuracy* drift instead (see S-172), a different question.
+
+**S-172 · `docs/architecture-document.md` COMP-07: fix the stale "still hand-roll their own HTTP handling" claim**
+The COMP-07 row's last sentence ("The 9 `CategoryType`-intersection
+queries route through one shared spec-table-driven HTTP/timeout/retry
+path (S-100/S-101); the later by-QID/by-nationality/by-club/familiarity
+query methods above were added afterward and still hand-roll their own
+HTTP handling — an open item, see `docs/backlog.md` Epic 9.") describes a
+state that stopped being true across three separate stories
+(S-118/S-124/Epic 9, then S-155/Epic 17) — every one of those methods is
+now a thin wrapper over the shared `RunThrowingQueryAsync` driver plus
+`SparqlQueryBuilders.cs`/`SparqlResponseParsers.cs`, confirmed by direct
+read of current `WikidataClient.cs`. Rewrite the sentence to describe the
+current, fully-centralized state (all query methods, both the 9
+intersection queries and the by-QID/nationality/club/familiarity ones,
+share one HTTP/timeout/retry path via `RunIntersectionQueryAsync`/
+`RunThrowingQueryAsync`) and drop the stale `docs/backlog.md` Epic 9
+pointer (Epic 9 is fully closed, confirmed via `CODEBASE_ANALYSIS.md`'s
+own closeout note). Grep the surrounding COMP-07 row and §3's ADR-cross-
+reference table (COMP-07 row) for anything else the old sentence's pointer
+protected before rewriting, so nothing else depending on that phrasing
+goes dangling.
+*Accept:* doc-only change — the corrected sentence is checked against
+current `WikidataClient.cs`'s actual method list before being written
+(every `Query*Async` method traced to a shared driver, not asserted from
+memory); no REQ/ADR reference is dropped, only the stale "open item"
+framing.
+*Deps:* none.
+
+**S-173 · Reconcile `infra/bicep/main.parameters.json` with `infra/README.md`/`SETUP.md`'s "does not exist yet" claim**
+`infra/README.md` states, explicitly and twice-reinforced ("**Prod**:
+`main.parameters.json`. **Does not exist yet.** Created at Tier 1's bright
+line (a real user besides you)..."), that this file doesn't exist in Tier
+0. It does — `infra/bicep/main.parameters.json` is present on disk right
+now, with real (if generic-template) content (`environmentTag: "prod"`,
+`location: "swedencentral"`, `minReplicas: 0`), and is referenced by
+nothing: not `deploy.yml` (confirmed by grep — only
+`main.parameters.dev.json` is ever passed to `az deployment group
+create`), not any other workflow, not any script. `docs/review-2026-07-07.md`'s
+own history shows a `main.parameters.json`/`main.parameters.nonprod.json`
+pair existed side-by-side from the very first scaffold, before the
+nonprod→dev rename (`docs/CHANGELOG.md`, 2026-07-07) and before Epic 10's
+2026-08-17 "clean slate" product decision (S-130) that explicitly deleted
+five other never-triggered/always-red Tier 1 prod-facing workflow files
+(`backup-database.yml`, `promote-dev-to-prod.yml`, `sync-players.yml`,
+`sync-prod-to-dev.yml`, `promote-dev-to-prod-dry-run.yml`) on the
+reasoning "if a Tier 1 workflow has zero runs... delete it outright...
+re-adding a thin wrapper later is cheap." This parameters file is the same
+shape of leftover Epic 10 already decided the "delete now, cheap to re-add
+at Tier 1" pattern for — it just wasn't caught in that pass because it's a
+config file, not a workflow. This is a **"could reasonably have gone
+another way" call, not decided here**: either (a) delete the file now, to
+match `infra/README.md`'s own stated Tier 0 reality and Epic 10's
+precedent, re-added trivially at Tier 1's bright line same as the deleted
+workflows; or (b) keep it as a harmless pre-scaffolded template and fix
+`infra/README.md`/`SETUP.md`'s wording instead. Flag for
+`architecture-reviewer` to pick one; `doc-sync` executes whichever is
+chosen (file deletion, or doc wording fix — either is a same-session,
+low-risk change once decided).
+*Accept:* whichever option is chosen, `infra/README.md`'s "does not exist
+yet" claim and the actual repo state agree afterward; `SETUP.md`'s §7
+prod-deploy snippet (which already correctly says "Tier 1 — skip for
+MVP") is unaffected either way.
+*Deps:* none.
+
+**S-174 · Add a Bicep template-validation step to CI, before the real `deploy.yml` deployment**
+`deploy.yml`'s only interaction with `infra/bicep/main.bicep` is the real
+`az deployment group create` call against the live dev resource group
+(line ~99) — grepped `ci.yml`/`deploy.yml` directly: no `az bicep build`,
+no `az deployment group validate`, no `what-if` step exists anywhere in
+either workflow. A syntax error, a broken module reference, or a
+parameter-name mismatch between `main.bicep` and its two `.parameters*.json`
+files is therefore only ever caught at actual deploy time against the
+live dev Container App/Static Web App — the same class of "verified only
+when it's expensive to fail" gap `CLAUDE.md`'s own "Getting started" §
+step 4 warns about for the *initial* deploy pipeline, just resurfaced for
+every *subsequent* change to `infra/bicep/`. Add a validation step (`az
+deployment group validate` or `--what-if`, whichever this repo's existing
+`az` CLI usage in `deploy.yml` already assumes is available) that runs
+against every PR touching `infra/bicep/**`, before merge — not as part of
+the real deploy job itself, so a validation failure blocks the PR rather
+than red-lighting a live deploy run.
+*Accept:* a deliberately-broken test Bicep file (e.g. a typo'd module
+path) is confirmed to fail the new validation step locally/in a scratch
+branch before this lands for real; the real `deploy.yml` deploy step
+itself is unchanged, still the actual source of truth. No `az` CLI in
+this investigation's own sandbox — implement and verify in a session with
+real Azure CLI/credentials access, per this file's own operational
+nature.
+*Deps:* none.
+
+**S-175 · Extract a shared composite GitHub Action for the repeated "checkout, setup-dotnet, run a CLI verb, connect to dev DB" workflow shape**
+Six standalone `workflow_dispatch`(-plus-cron) workflow files
+(`backfill-player-photos.yml`, `import-player-name-index.yml`,
+`prefetch-player-careers.yml`, `purge-game-history.yml`,
+`purge-player-pool.yml`, `warm-grid-cache.yml`) plus two jobs inside
+`ci.yml` and `deploy.yml` (`migrate-and-seed`) — 8 sites total, confirmed
+by direct grep of `actions/checkout@v7`/`actions/setup-dotnet@v6`
+(`dotnet-version: "10.0.x"`)/`dotnet run --project backend/src/XGArcade.Api
+-- <verb>`/`ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}`
+— all repeat the identical 4-step shape, differing only in which CLI verb
+runs and each workflow's own `timeout-minutes` value. This is the same
+"duplicated shape repeated per near-identical block" pattern this lineage
+has now caught seven times across backend/frontend (see
+`CODE_HEALTH_ASSESSMENT.md`'s revision history) — never previously looked
+for in `infra/`, which per this pass's own brief had "the least deep
+scrutiny of any so far." Extract a composite action (e.g.
+`.github/actions/run-cli-verb/action.yml`, taking `verb` as a required
+input) that each of the 8 call sites invokes instead of hand-rolling the
+4 steps. Flag for `architecture-reviewer`: composite action vs. a
+`workflow_call` reusable workflow is a "could reasonably have gone another
+way" call (a composite action keeps each `.yml` file's own `on:`/cron/
+`timeout-minutes` fully independent, matching ADR-0072's own per-workflow-
+independence reasoning; a reusable workflow would centralize more but
+needs explicit secrets-passing, a bigger behavioral surface to get exactly
+right) — this story doesn't decide it.
+*Accept:* every one of the 8 call sites produces an identical Actions-tab
+run (same steps, same env, same secret) before and after, confirmed by a
+manual `workflow_dispatch` smoke-test run of at least one converted
+workflow (e.g. `purge-player-pool.yml`, the smallest) in a session with
+real GitHub Actions access — not verifiable in this investigation's own
+sandbox.
+*Deps:* none (may be sequenced with S-176 below, since both touch
+`.github/workflows/`, but neither blocks the other).
+
+**S-176 · Deduplicate the byte-identical `generate_round` retry-with-backoff bash function in `generate-grid-round.yml`/`generate-path-round.yml`**
+S-136/ADR-0072 deliberately split a single shared `generate-round.yml`
+into two independent per-`GameKey` workflow files so their cron/
+`RoundDurationHours` coupling could diverge — a real, already-decided
+structural call, not being relitigated here. What that split did *not* do
+is dedupe the actual bash logic each file's "Trigger round generation"
+step runs: the entire `generate_round()` function (URL construction,
+3-attempt/30s-60s-backoff retry loop, `::warning`/`::error` annotations)
+is byte-for-byte identical in both files (confirmed via direct diff),
+differing only in the final `generate_round "xg-grid"` vs.
+`generate_round "xg-path"` call. ~35 lines of real retry/backoff logic,
+not boilerplate — a bug fixed in one file's copy (the kind of fix this
+function has already needed once, per its own "Bug-bundle follow-up
+(2026-07-27)" comment) has no mechanism to keep the other file's copy in
+sync. Extract into a composite action (e.g.
+`.github/actions/trigger-round-generation/action.yml`, taking `game-key`
+and `round-duration-hours` as inputs) both workflows call — this is
+compatible with ADR-0072's own decoupling intent (each workflow's `on:`
+trigger, cron, and `round_duration_hours` input stay fully independent;
+only the executed retry-loop body is shared) not a re-coupling of the two
+games' scheduling. Flag for `architecture-reviewer` to confirm that
+reading before implementation, since ADR-0072 is the ADR this story's fix
+sits right next to.
+*Accept:* both `generate-grid-round.yml` and `generate-path-round.yml`
+produce identical retry/backoff behavior (3 attempts, 30s/60s backoff,
+same `::warning`/`::error` annotation wording) before and after, confirmed
+by a manual `workflow_dispatch` smoke-test of at least one in a session
+with real GitHub Actions access — not verifiable in this investigation's
+own sandbox.
+*Deps:* none (may be sequenced with S-175, neither blocks the other).
+
+**Watch-only / declined (no story):**
+- `purge-guest-accounts.yml`'s single-attempt curl+status-check shape is a
+  simpler cousin of S-176's `generate_round` retry function (no backoff
+  loop, no multi-attempt logic) — genuinely a different, smaller shape,
+  not the same duplicated block. Left out of S-176's scope deliberately;
+  revisit only if a third near-identical retry-loop workflow appears.
+- `infra/scripts/sync-prod-to-dev.sh`/`promote-dev-to-prod.sh`: re-confirmed
+  unchanged from every prior sweep's watch-only verdict — not
+  re-investigated beyond that confirmation, per this lineage's own
+  standing "don't relitigate a settled finding" discipline.
+- `LeaderboardScreen.tsx`'s documented line count in
+  `docs/implementation-document.md` (261 lines, from S-121) is now stale
+  (actual: 310 lines, +19% via untracked incremental growth) — but the
+  file's described role ("thin orchestrator: header, game-key switcher,
+  scope tab bar, the scoring explainer modal") still matches current code
+  on inspection; this is stale-number drift, not a factual error the way
+  S-172's COMP-07 claim was. Not written up as a story — busywork against
+  an already-accurate description; revisit only if the file's actual
+  responsibilities drift, not just its line count.
+- `docs/`'s own accretion/bloat lens: re-confirmed clean, not re-litigated
+  (see "Findings that turned out clean" above).
