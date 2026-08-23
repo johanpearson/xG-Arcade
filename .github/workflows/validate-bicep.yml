@@ -1,0 +1,78 @@
+name: validate-bicep
+
+# S-174 (docs/backlog.md): deploy.yml's only interaction with
+# infra/bicep/main.bicep was the real `az deployment group create` call
+# against the live dev resource group — no compile check or dry-run existed
+# anywhere, so a syntax error, a broken module reference, or a
+# parameter-name mismatch was only ever caught at actual deploy time.
+# This workflow is a CI-only gate: it never deploys anything and deploy.yml
+# itself is unchanged, still the actual source of truth for the real deploy.
+#
+# Two layers, cheapest first:
+#   1. `az bicep build` — pure local compile (no Azure login needed at all)
+#      catches exactly the "typo'd module path" class of failure the
+#      backlog entry calls out.
+#   2. `az deployment group validate` — a real (but non-mutating) ARM
+#      validation call against the actual dev resource group, using dev's
+#      real secrets, catching parameter-name mismatches and anything the
+#      offline compile step can't see (e.g. a param that's valid Bicep but
+#      invalid for the actual resource).
+#
+# Scoped to PRs that touch infra/bicep/** via `paths:` below, rather than
+# a step-level condition in ci.yml/deploy.yml, so it stays a fully separate
+# check that only ever runs when there's actually Bicep to validate.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/bicep/**"
+
+permissions:
+  id-token: write # for Azure OIDC login (azure/login@v3)
+  contents: read
+
+jobs:
+  validate-bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compile Bicep (catches syntax errors / broken module paths)
+        run: az bicep build --file infra/bicep/main.bicep --stdout > /dev/null
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate against dev resource group (no deploy)
+        # Same template/parameters shape as deploy.yml's real deploy-infra
+        # step, but `validate` instead of `create` — checks the template
+        # would actually deploy cleanly against dev's real resource group
+        # without changing anything. containerImage/registryUsername use
+        # placeholders: ARM validation never pulls the image, so the real
+        # value built by deploy.yml's build-and-push-backend job isn't
+        # needed here.
+        run: |
+          CORS_ORIGIN=""
+          if [ -n "${{ secrets.DEV_FRONTEND_HOSTNAME }}" ]; then
+            CORS_ORIGIN="https://${{ secrets.DEV_FRONTEND_HOSTNAME }}"
+          fi
+          az deployment group validate \
+            --resource-group "${{ secrets.DEV_AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/bicep/main.parameters.dev.json \
+            --parameters containerImage="ghcr.io/placeholder/validate-only:latest" \
+                         registryUsername="validate-only" \
+                         registryPassword="${{ secrets.GHCR_TOKEN }}" \
+                         databaseConnectionString="${{ secrets.DEV_DATABASE_CONNECTION_STRING }}" \
+                         supabaseUrl="${{ secrets.DEV_SUPABASE_URL }}" \
+                         supabaseAnonKey="${{ secrets.DEV_SUPABASE_ANON_KEY }}" \
+                         supabaseServiceRoleKey="${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}" \
+                         internalJobToken="${{ secrets.INTERNAL_JOB_TOKEN }}" \
+                         githubIncidentReportToken="${{ secrets.INCIDENT_REPORT_PAT }}" \
+                         corsAllowedOrigin="$CORS_ORIGIN" \
+                         adminUserIds="${{ secrets.DEV_ADMIN_USER_IDS }}"
