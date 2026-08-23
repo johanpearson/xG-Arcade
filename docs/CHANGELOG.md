@@ -13,6 +13,46 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` — filed Epic 24 (S-172–S-176), a
+  deliberately deeper `code-health-auditor` sweep beyond the usual
+  duplicated-block/god-file/churn cadence, in two parts. Part 1 dug into
+  the four modules `CODE_HEALTH_ASSESSMENT.md`'s 2026-08-23 revision tied
+  at 8.0/10 (`XGArcade.DataSync`, `XGArcade.Games.XGGrid`, `infra/`,
+  `docs/`) along new dimensions (test-depth spot-checks, error-handling
+  review, doc accuracy, infra fragility) rather than re-running the same
+  heuristics; Part 2 was a first-ever dead/unused-code hunt across
+  backend, frontend, and infra. Concrete findings: (1) S-172 —
+  `docs/architecture-document.md`'s COMP-07 row still claims the
+  by-QID/nationality/club/familiarity Wikidata query methods "hand-roll
+  their own HTTP handling," which stopped being true across S-118/S-124/
+  S-155 (verified directly against current `WikidataClient.cs` — every one
+  is now a thin wrapper over the shared `RunThrowingQueryAsync` driver);
+  (2) S-173 — `infra/README.md`/`SETUP.md` state
+  `infra/bicep/main.parameters.json` ("prod") "does not exist yet," but it
+  is present on disk, referenced by nothing (`deploy.yml` only ever uses
+  `main.parameters.dev.json`), and matches the exact leftover-Tier-1-
+  scaffold shape Epic 10/S-130 already decided to delete-not-patch for five
+  sibling workflow files; (3) S-174 — no Bicep validation step
+  (`az deployment group validate`/`what-if`) exists anywhere in CI, so a
+  broken template is only ever caught at the real `deploy.yml` deploy
+  against live dev infra; (4) S-175/S-176 — two genuinely new instances of
+  this lineage's recurring "duplicated shape repeated per near-identical
+  block" pattern, never previously looked for in `infra/`: the
+  checkout+setup-dotnet+dotnet-run-verb+env boilerplate repeated across 8
+  CLI-verb-triggering workflow/job sites, and the byte-identical
+  `generate_round` retry-with-backoff bash function duplicated verbatim in
+  `generate-grid-round.yml`/`generate-path-round.yml`. Everything else
+  investigated (DataSync/XGGrid error-handling and test depth,
+  `frontend/src/lib/*.ts`'s post-S-168 exports, orphaned CLI verbs/
+  workflows, ADR-0029→ADR-0032 supersession completeness, REQ-211's
+  `PlayerNameIndex` gate, Tier 1 API-Football scaffolding, `docs/`'s own
+  accretion) came back clean and is recorded in Epic 24's own "Findings
+  that turned out clean" / "Watch-only" sections rather than turned into
+  busywork stories. Epic 22's four merged stories (S-166–S-169) and Epic
+  23's status (S-170/S-171 both confirmed still open/unimplemented) were
+  re-verified first, neither epic touched by this pass. Read-only
+  investigation session — no code changed, no commit made.
+
 - 2026-08-23 — `docs/coding-guidelines.md`, `docs/ai/agent-migration-plan.md`,
   `docs/decisions/0084-per-diff-code-health-budget.md`,
   `.claude/agents/quality-architect.md`,
