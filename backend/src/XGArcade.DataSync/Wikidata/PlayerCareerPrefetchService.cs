@@ -26,10 +26,10 @@ namespace XGArcade.DataSync.Wikidata;
 // fresh product decision that extends (not supersedes) ADR-0055's original
 // nationality-only scope, so a player from an unseeded country who played
 // for a seeded club is no longer invisible to this sweep. Symmetric to the
-// country loop in every way: its own counters (clubsProcessed/clubsFailed),
-// its own "no QID yet is a skip, not a failure" precedent, its own
-// per-club try/catch isolating one club's failure from the rest — see the
-// club loop below for the concrete mirror.
+// country sweep in every way (S-165: both sweeps share the "fetch -> mark
+// swept -> skip-empty -> dedup+chunk" shape via SweepCountriesAsync/
+// SweepClubsAsync/SweepAsync/SweepPoolAsync below — see their own doc
+// comments).
 // S-106/S-107 (pure refactor): playerRepository carries
 // GetOrCreatePlayersByWikidataQidAsync (split out of the original, now-
 // deleted IPlayerStoreRepository); playerCareerStintRepository carries
@@ -40,25 +40,21 @@ namespace XGArcade.DataSync.Wikidata;
 // PlayerAttribute row (paired with a PlayerData row, same as every other
 // Wikidata-derived attribute write in this codebase — REQ-502's admin view
 // needs PlayerData's Source/Confidence for every data point) per pooled
-// player (nationality for the country loop, club for the club loop), not
-// just the Player/PlayerCareerStint rows they always wrote. Every player in
-// a given country's/club's pool satisfies that attribute BY CONSTRUCTION of
-// the pool query's own WHERE clause (QueryPlayerPoolByNationalityAsync/
-// QueryPlayerPoolByClubAsync) — no separate Wikidata read-back is needed to
-// know this. This is what lets PlayerCacheWarmingService's existing
+// player, not just the Player/PlayerCareerStint rows they always wrote.
+// Every player in a pool satisfies that attribute BY CONSTRUCTION of the
+// pool query's own WHERE clause — no separate Wikidata read-back needed.
+// This is what lets PlayerCacheWarmingService's existing
 // CountPlayersWithBothAttributesAsync pre-check
 // (backend/src/XGArcade.Games.XGGrid/PlayerCacheWarmingService.cs) become
 // the complete answer for a country/club pair once both sides have been
-// swept, eliminating the live pairwise SPARQL intersection queries that
-// otherwise time out on big-club combinations. PlayerCacheWarmingService
-// itself is unchanged — its skip-logic just starts being right more often.
+// swept, eliminating live pairwise SPARQL intersection queries that
+// otherwise time out on big-club combinations.
 //
 // REQ-110/ADR-0078/S-160 (2026-08-18): also stamps
 // CountryDefinition/ClubDefinition.PlayerPoolSweptAt = DateTime.UtcNow the
-// moment a given country's/club's pool sweep completes successfully —
-// inside the countriesProcessed++/clubsProcessed++ success path ONLY,
-// never on the null-QID skip or a caught WikidataQueryException. This is
-// the signal PlayerCacheWarmingService now checks (alongside its own
+// moment a given country's/club's pool sweep completes successfully (see
+// SweepAsync's own comment for exactly when). This is the signal
+// PlayerCacheWarmingService now checks (alongside its own
 // CountPlayersWithBothAttributesAsync count) to know a pair's local count
 // is not just a cache hint but the true, final answer — see
 // PlayerCacheWarmingService.WarmAsync's own comment for the read side of
@@ -111,202 +107,202 @@ public class PlayerCareerPrefetchService(
         // comment for what this map is used for.
         var clubNameByClubQid = await PlayerCareerStintRefreshService.BuildClubNameByClubQidAsync(categoryValueRepository, cancellationToken);
 
-        var countriesProcessed = 0;
-        var countriesFailed = 0;
-        var clubsProcessed = 0;
-        var clubsFailed = 0;
-        var careerBatchesFailed = 0;
-        var playersTouched = 0;
-        var stintsAdded = 0;
-        var attributesAdded = 0;
-        var failedCountryNames = new List<string>();
-        var failedClubNames = new List<string>();
+        var countryOutcome = await SweepCountriesAsync(countries, clubNameByClubQid, cancellationToken);
 
-        foreach (var country in countries)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+        // ADR-0069: symmetric to the country sweep above (see SweepClubsAsync).
+        // Running totals continue from where the country sweep left off.
+        var clubOutcome = await SweepClubsAsync(
+            clubs, clubNameByClubQid, countryOutcome.PlayersTouched, countryOutcome.StintsAdded, countryOutcome.AttributesAdded, cancellationToken);
 
-            // REQ-109's "an unresolved QID isn't an error" reasoning — a
-            // seeded country with no QID yet is simply skipped, not a
-            // failure.
-            if (country.WikidataQid is null)
-                continue;
-
-            IReadOnlyList<WikidataNameIndexEntry> pool;
-            try
-            {
-                pool = await wikidataClient.QueryPlayerPoolByNationalityAsync(
-                    country.WikidataQid, country.UsesCountryForSportProperty, cancellationToken);
-            }
-            catch (WikidataQueryException ex)
-            {
-                countriesFailed++;
-                failedCountryNames.Add(country.Name);
-                logger.LogWarning(ex,
-                    "prefetch-player-careers: {Country} failed; continuing with the remaining countries. " +
-                    "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed countries.",
-                    country.Name);
-                continue;
-            }
-
-            countriesProcessed++;
-            // REQ-110/ADR-0078/S-160: only reached once this country's pool
-            // fetch has actually succeeded (past the try/catch above) —
-            // never on the null-QID skip or a caught WikidataQueryException.
-            // A genuinely empty pool (pool.Count == 0, handled just below)
-            // is still a complete, successful sweep — the country simply
-            // has no eligible players — so it's marked swept too, before
-            // the empty-pool `continue`.
-            await categoryValueRepository.UpdateCountrySweptAtAsync(country.Id, DateTime.UtcNow, cancellationToken);
-            if (pool.Count == 0)
-                continue;
-
-            // REQ-110 follow-up: fetched once per country (not per batch/
-            // player) — every player in `pool` satisfies this exact
-            // nationality attribute by construction of the pool query's own
-            // WHERE clause above, so the only remaining question is dedup
-            // against what's already stored. Same "fetch once, HashSet.Add
-            // as the dedup gate" pattern as WikidataLookupService.
-            // PersistMatchesAsync's playerIdsWithAttributeA/B.
-            var playerIdsWithNationality = (await playerAttributeRepository.GetPlayerAttributesAsync(
-                    NationalityAttributeType, country.Name, cancellationToken))
-                .Select(a => a.PlayerId)
-                .ToHashSet();
-
-            foreach (var batch in pool.Chunk(CareerBatchSize))
-            {
-                var (touched, added, attrsAdded, batchFailed) = await FetchAndPersistBatchAsync(
-                    batch, clubNameByClubQid, NationalityAttributeType, country.Name, playerIdsWithNationality, cancellationToken);
-                playersTouched += touched;
-                stintsAdded += added;
-                attributesAdded += attrsAdded;
-                if (batchFailed)
-                    careerBatchesFailed++;
-            }
-
-            logger.LogInformation(
-                "prefetch-player-careers: {Country} done — pool of {PoolSize} player(s) processed " +
-                "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added, " +
-                "{AttributesAdded} attribute(s) added).",
-                country.Name, pool.Count, playersTouched, stintsAdded, attributesAdded);
-        }
-
-        // ADR-0069: symmetric to the country loop above — same
-        // skip-if-no-QID, try/catch-isolate-one-failure, and running-totals
-        // logging shape, just sourced from GetClubsAsync/QueryPlayerPoolByClubAsync
-        // instead of GetCountriesAsync/QueryPlayerPoolByNationalityAsync.
-        foreach (var club in clubs)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Same REQ-109 "an unresolved QID isn't an error" precedent as
-            // the country loop's own null-QID skip above.
-            if (club.WikidataQid is null)
-                continue;
-
-            IReadOnlyList<WikidataNameIndexEntry> pool;
-            try
-            {
-                pool = await wikidataClient.QueryPlayerPoolByClubAsync(club.WikidataQid, cancellationToken);
-            }
-            catch (WikidataQueryException ex)
-            {
-                clubsFailed++;
-                failedClubNames.Add(club.Name);
-                logger.LogWarning(ex,
-                    "prefetch-player-careers: {Club} failed; continuing with the remaining clubs. " +
-                    "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed clubs.",
-                    club.Name);
-                continue;
-            }
-
-            clubsProcessed++;
-            // REQ-110/ADR-0078/S-160: mirrors the country loop's own comment
-            // above — this club's pool sweep genuinely succeeded (including
-            // a genuinely empty pool), so mark it swept before the
-            // empty-pool `continue`.
-            await categoryValueRepository.UpdateClubSweptAtAsync(club.Id, DateTime.UtcNow, cancellationToken);
-            if (pool.Count == 0)
-                continue;
-
-            // Quality-gate fix (2026-08-18), corrected after a follow-up
-            // architecture-review pass caught a mistake in the FIRST fix
-            // attempt here: this deliberately uses club.Name (the current
-            // ClubDefinition row's own name), NOT clubNameByClubQid — the
-            // opposite of PlayerCareerStint.ClubName's own sourcing a few
-            // lines below, and for a real reason, not an oversight.
-            // clubNameByClubQid resolves an ARBITRARY QID pulled out of a
-            // player's Wikidata career-stint response (any club they've
-            // ever played for, not necessarily this loop's club) — for that
-            // case a QID→name map is the only option, and "last club wins
-            // on a QID collision" (PlayerCareerStintRefreshService
-            // .BuildClubNameByClubQidAsync's own comment) is an accepted,
-            // unavoidable approximation there. Here there is no such
-            // ambiguity to resolve: `club` IS the exact ClubDefinition row
-            // this iteration is sweeping, so club.Name is already the
-            // correct, unambiguous identity for it — routing it through
-            // clubNameByClubQid instead would, on an actual QID collision
-            // between two ClubDefinition rows, silently mislabel one of
-            // them with the OTHER colliding club's "winning" name. What
-            // actually matters for correctness here is matching
-            // PlayerCacheWarmingService's own join key exactly
-            // (CountPlayersWithBothAttributesAsync's ClubAttributeType/
-            // club.Name — PlayerCacheWarmingService.cs), which is itself
-            // sourced the same way, directly off each ClubDefinition row's
-            // own Name, never through a QID map. See ADR-0077's own
-            // correction note.
-            var playerIdsWithClub = (await playerAttributeRepository.GetPlayerAttributesAsync(
-                    ClubAttributeType, club.Name, cancellationToken))
-                .Select(a => a.PlayerId)
-                .ToHashSet();
-
-            foreach (var batch in pool.Chunk(CareerBatchSize))
-            {
-                var (touched, added, attrsAdded, batchFailed) = await FetchAndPersistBatchAsync(
-                    batch, clubNameByClubQid, ClubAttributeType, club.Name, playerIdsWithClub, cancellationToken);
-                playersTouched += touched;
-                stintsAdded += added;
-                attributesAdded += attrsAdded;
-                if (batchFailed)
-                    careerBatchesFailed++;
-            }
-
-            logger.LogInformation(
-                "prefetch-player-careers: {Club} done — pool of {PoolSize} player(s) processed " +
-                "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added, " +
-                "{AttributesAdded} attribute(s) added).",
-                club.Name, pool.Count, playersTouched, stintsAdded, attributesAdded);
-        }
-
-        if (countriesFailed > 0 || clubsFailed > 0 || careerBatchesFailed > 0)
+        var careerBatchesFailed = countryOutcome.CareerBatchesFailed + clubOutcome.CareerBatchesFailed;
+        if (countryOutcome.Failed > 0 || clubOutcome.Failed > 0 || careerBatchesFailed > 0)
         {
             throw new InvalidOperationException(
-                $"prefetch-player-careers: {countriesFailed} countr{(countriesFailed == 1 ? "y" : "ies")} " +
-                $"failed to fetch their player pool ({string.Join(", ", failedCountryNames)}), " +
-                $"{clubsFailed} club(s) failed to fetch their player pool ({string.Join(", ", failedClubNames)}), and " +
-                $"{careerBatchesFailed} career-fetch batch(es) failed. {playersTouched} player(s) were still " +
-                "touched and " + $"{stintsAdded} stint(s) added and {attributesAdded} attribute(s) added " +
+                $"prefetch-player-careers: {countryOutcome.Failed} countr{(countryOutcome.Failed == 1 ? "y" : "ies")} " +
+                $"failed to fetch their player pool ({string.Join(", ", countryOutcome.FailedNames)}), " +
+                $"{clubOutcome.Failed} club(s) failed to fetch their player pool ({string.Join(", ", clubOutcome.FailedNames)}), and " +
+                $"{careerBatchesFailed} career-fetch batch(es) failed. {clubOutcome.PlayersTouched} player(s) were still " +
+                "touched and " + $"{clubOutcome.StintsAdded} stint(s) added and {clubOutcome.AttributesAdded} attribute(s) added " +
                 "from what succeeded; the job is idempotent — re-run it to retry what failed.");
         }
 
         return new PlayerCareerPrefetchResult(
-            countriesProcessed, playersTouched, stintsAdded, countriesFailed, careerBatchesFailed, clubsProcessed, clubsFailed, attributesAdded);
+            countryOutcome.Processed, clubOutcome.PlayersTouched, clubOutcome.StintsAdded, countryOutcome.Failed,
+            careerBatchesFailed, clubOutcome.Processed, clubOutcome.Failed, clubOutcome.AttributesAdded);
+    }
+
+    // S-165: supplies what genuinely differs from the club sweep below
+    // (fetch call, mark-swept write, own log wording) to shared SweepAsync.
+    private Task<SweepOutcome> SweepCountriesAsync(
+        IReadOnlyList<CountryDefinition> countries, IReadOnlyDictionary<string, string> clubNameByClubQid,
+        CancellationToken cancellationToken) =>
+        SweepAsync(
+            countries, getWikidataQid: c => c.WikidataQid, getName: c => c.Name,
+            fetchPoolAsync: (c, ct) => wikidataClient.QueryPlayerPoolByNationalityAsync(c.WikidataQid!, c.UsesCountryForSportProperty, ct),
+            logFetchFailed: (c, ex) => logger.LogWarning(ex,
+                "prefetch-player-careers: {Country} failed; continuing with the remaining countries. " +
+                "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed countries.",
+                c.Name),
+            markSweptAsync: (c, ct) => categoryValueRepository.UpdateCountrySweptAtAsync(c.Id, DateTime.UtcNow, ct),
+            attributeType: NationalityAttributeType, clubNameByClubQid: clubNameByClubQid,
+            startingPlayersTouched: 0, startingStintsAdded: 0, startingAttributesAdded: 0,
+            logDone: (c, poolSize, touched, added, attrsAdded) => logger.LogInformation(
+                "prefetch-player-careers: {Country} done — pool of {PoolSize} player(s) processed " +
+                "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added, " +
+                "{AttributesAdded} attribute(s) added).",
+                c.Name, poolSize, touched, added, attrsAdded), cancellationToken);
+
+    // Mirrors SweepCountriesAsync above. starting* seeds running totals from
+    // the country sweep's own final totals, so they stay cumulative overall.
+    private Task<SweepOutcome> SweepClubsAsync(
+        IReadOnlyList<ClubDefinition> clubs, IReadOnlyDictionary<string, string> clubNameByClubQid,
+        int startingPlayersTouched, int startingStintsAdded, int startingAttributesAdded,
+        CancellationToken cancellationToken) =>
+        SweepAsync(
+            clubs, getWikidataQid: c => c.WikidataQid,
+            // Quality-gate fix (2026-08-18): deliberately uses club.Name
+            // (this exact ClubDefinition row's own name), NOT
+            // clubNameByClubQid — the opposite of PlayerCareerStint.ClubName's
+            // sourcing inside FetchAndPersistBatchAsync. clubNameByClubQid
+            // resolves an ARBITRARY QID off a player's Wikidata career-stint
+            // response (any club ever played for, not necessarily this one),
+            // where "last club wins on a QID collision" is an accepted
+            // approximation (PlayerCareerStintRefreshService
+            // .BuildClubNameByClubQidAsync's own comment). Here `c` IS the
+            // exact row being swept, so c.Name is unambiguous — going
+            // through clubNameByClubQid instead risks mislabeling on a QID
+            // collision and would no longer match PlayerCacheWarmingService's
+            // own join key (ClubAttributeType/club.Name, itself sourced off
+            // ClubDefinition.Name directly). See ADR-0077's correction note.
+            // This selector is SweepAsync's attributeValue source.
+            getName: c => c.Name,
+            fetchPoolAsync: (c, ct) => wikidataClient.QueryPlayerPoolByClubAsync(c.WikidataQid!, ct),
+            logFetchFailed: (c, ex) => logger.LogWarning(ex,
+                "prefetch-player-careers: {Club} failed; continuing with the remaining clubs. " +
+                "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed clubs.",
+                c.Name),
+            markSweptAsync: (c, ct) => categoryValueRepository.UpdateClubSweptAtAsync(c.Id, DateTime.UtcNow, ct),
+            attributeType: ClubAttributeType, clubNameByClubQid: clubNameByClubQid,
+            startingPlayersTouched: startingPlayersTouched, startingStintsAdded: startingStintsAdded, startingAttributesAdded: startingAttributesAdded,
+            logDone: (c, poolSize, touched, added, attrsAdded) => logger.LogInformation(
+                "prefetch-player-careers: {Club} done — pool of {PoolSize} player(s) processed " +
+                "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added, " +
+                "{AttributesAdded} attribute(s) added).",
+                c.Name, poolSize, touched, added, attrsAdded), cancellationToken);
+
+    private readonly record struct SweepOutcome(
+        int Processed, int Failed, IReadOnlyList<string> FailedNames,
+        int PlayersTouched, int StintsAdded, int AttributesAdded, int CareerBatchesFailed);
+
+    // S-165: shared "fetch -> mark swept -> skip-empty -> dedup+chunk" shape
+    // both sweeps use, extracted from two ~90-line near-identical foreach
+    // loops; the delegate params are the genuine per-sweep differences.
+    // REQ-109: a null QID is a skip, not a failure. REQ-110/ADR-0078/S-160:
+    // markSweptAsync only runs once fetchPoolAsync succeeds — never on the
+    // null-QID skip or a caught exception — and an empty pool still counts.
+    private async Task<SweepOutcome> SweepAsync<TRow>(
+        IReadOnlyList<TRow> rows, Func<TRow, string?> getWikidataQid, Func<TRow, string> getName,
+        Func<TRow, CancellationToken, Task<IReadOnlyList<WikidataNameIndexEntry>>> fetchPoolAsync,
+        Action<TRow, WikidataQueryException> logFetchFailed, Func<TRow, CancellationToken, Task> markSweptAsync,
+        string attributeType, IReadOnlyDictionary<string, string> clubNameByClubQid,
+        int startingPlayersTouched, int startingStintsAdded, int startingAttributesAdded,
+        Action<TRow, int, int, int, int> logDone, CancellationToken cancellationToken)
+    {
+        var processed = 0;
+        var failed = 0;
+        var failedNames = new List<string>();
+        var playersTouched = startingPlayersTouched;
+        var stintsAdded = startingStintsAdded;
+        var attributesAdded = startingAttributesAdded;
+        var careerBatchesFailed = 0;
+
+        foreach (var row in rows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (getWikidataQid(row) is null)
+                continue;
+
+            IReadOnlyList<WikidataNameIndexEntry> pool;
+            try
+            {
+                pool = await fetchPoolAsync(row, cancellationToken);
+            }
+            catch (WikidataQueryException ex)
+            {
+                failed++;
+                failedNames.Add(getName(row));
+                logFetchFailed(row, ex);
+                continue;
+            }
+
+            processed++;
+            await markSweptAsync(row, cancellationToken);
+            if (pool.Count == 0)
+                continue;
+
+            var (touched, added, attrsAdded, batchesFailed) = await SweepPoolAsync(
+                pool, clubNameByClubQid, attributeType, getName(row), cancellationToken);
+            playersTouched += touched;
+            stintsAdded += added;
+            attributesAdded += attrsAdded;
+            careerBatchesFailed += batchesFailed;
+
+            logDone(row, pool.Count, playersTouched, stintsAdded, attributesAdded);
+        }
+
+        return new SweepOutcome(processed, failed, failedNames, playersTouched, stintsAdded, attributesAdded, careerBatchesFailed);
+    }
+
+    // S-165: byte-identical tail both sweeps share once a pool is fetched and
+    // non-empty. attributeValue comes from the caller (getName), never
+    // derived here — preserves the club.Name-vs-clubNameByClubQid distinction.
+    private async Task<(int PlayersTouched, int StintsAdded, int AttributesAdded, int BatchesFailed)> SweepPoolAsync(
+        IReadOnlyList<WikidataNameIndexEntry> pool, IReadOnlyDictionary<string, string> clubNameByClubQid,
+        string attributeType, string attributeValue, CancellationToken cancellationToken)
+    {
+        // REQ-110 follow-up: fetched once per pool (not per batch/player) —
+        // every player in `pool` satisfies this attribute by construction of
+        // the pool query's own WHERE clause, so the only remaining question
+        // is dedup against what's already stored. Same "fetch once,
+        // HashSet.Add as the dedup gate" pattern as WikidataLookupService.
+        // PersistMatchesAsync's playerIdsWithAttributeA/B.
+        var playerIdsWithAttribute = (await playerAttributeRepository.GetPlayerAttributesAsync(
+                attributeType, attributeValue, cancellationToken))
+            .Select(a => a.PlayerId)
+            .ToHashSet();
+
+        var playersTouched = 0;
+        var stintsAdded = 0;
+        var attributesAdded = 0;
+        var batchesFailed = 0;
+        foreach (var batch in pool.Chunk(CareerBatchSize))
+        {
+            var (touched, added, attrsAdded, batchFailed) = await FetchAndPersistBatchAsync(
+                batch, clubNameByClubQid, attributeType, attributeValue, playerIdsWithAttribute, cancellationToken);
+            playersTouched += touched;
+            stintsAdded += added;
+            attributesAdded += attrsAdded;
+            if (batchFailed)
+                batchesFailed++;
+        }
+
+        return (playersTouched, stintsAdded, attributesAdded, batchesFailed);
     }
 
     // Returns whether the career-fetch step itself failed (distinct from
-    // "fetched but found nothing," which is a normal, non-failure outcome)
-    // so the caller's loop can keep a separate failure tally without this
-    // method needing to throw and unwind the whole country's remaining
-    // batches over one batch's failure.
+    // "fetched but found nothing," a normal, non-failure outcome) so the
+    // caller can keep a separate failure tally without this method needing
+    // to throw and unwind the whole pool's remaining batches over one
+    // batch's failure.
     //
     // REQ-110 follow-up: attributeType/attributeValue/playerIdsWithAttribute
-    // describe THIS pool's own attribute (nationality+country.Name for the
-    // country loop, club+club.Name for the club loop — see the club loop's
-    // own comment on why club.Name, not clubNameByClubQid, is correct here)
-    // — every player in `batch` gets that attribute queued, deduped against
-    // playerIdsWithAttribute, which the caller built once per country/club
-    // (not per batch) and passes by reference so dedup state accumulates
-    // correctly across a pool's multiple CareerBatchSize-sized batches.
+    // describe THIS pool's own attribute (nationality+country.Name or
+    // club+club.Name — see SweepClubsAsync's own comment on why club.Name,
+    // not clubNameByClubQid, is correct here) — every player in `batch` gets
+    // it queued, deduped against playerIdsWithAttribute, which the caller
+    // built once per pool (not per batch) and passes by reference so dedup
+    // state accumulates across a pool's CareerBatchSize-sized batches.
     private async Task<(int PlayersTouched, int StintsAdded, int AttributesAdded, bool BatchFailed)> FetchAndPersistBatchAsync(
         IReadOnlyList<WikidataNameIndexEntry> batch,
         IReadOnlyDictionary<string, string> clubNameByClubQid,
