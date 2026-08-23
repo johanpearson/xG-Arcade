@@ -3970,4 +3970,143 @@ public class WikidataClientTests
         Assert.That(ex!.Message, Is.EqualTo("Wikidata admin career/nationality-by-name query for 'Clarence Seedorf' timed out after 0s."),
             "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
+
+    // ---- QueryPlayerRefreshDataByQidAsync (REQ-513, GitHub issue #239) -----
+    // The admin single-player refresh query — a VALUES clause over exactly
+    // ONE already-known QID, fetching label/position/birth-year/photo in one
+    // request. Same throw-on-failure error contract as
+    // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync
+    // above (RunThrowingQueryAsync driver), reusing _queryTimeout (see
+    // WikidataClient.cs's own comment on this method for why not
+    // _adminLookupQueryTimeout despite an admin caller).
+
+    [Test]
+    public async Task REQ513_QueryPlayerRefreshDataByQidAsync_SentQuery_IsByteForByteIdenticalToQueryBuilderOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerRefreshDataByQidAsync("Q188207");
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?positionLabel ?dateOfBirth ?photo WHERE {
+              VALUES ?player { wd:Q188207 }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?player wdt:P569 ?dateOfBirth. }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    [Test]
+    public async Task REQ513_QueryPlayerRefreshDataByQidAsync_ParsesAllFourFields_WhenAllBound()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" }, "playerLabel": { "type": "literal", "value": "Clarence Seedorf" }, "positionLabel": { "type": "literal", "value": "midfielder" }, "dateOfBirth": { "type": "literal", "value": "1976-04-01T00:00:00Z" }, "photo": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Clarence%20Seedorf.jpg" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerRefreshDataByQidAsync("Q188207");
+
+        Assert.That(result.FullName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.Position, Is.EqualTo("midfielder"));
+        Assert.That(result.BirthYear, Is.EqualTo(1976));
+        Assert.That(result.PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Clarence%20Seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ513_QueryPlayerRefreshDataByQidAsync_ReturnsAllNullFields_WhenNoBindingsAtAll()
+    {
+        // Defensive-only path (SparqlResponseParsers.ParsePlayerRefreshDataBinding's
+        // own comment): a syntactically valid QID should never actually
+        // produce zero bindings from a VALUES-clause query, but this proves
+        // the parser degrades to all-null rather than throwing if it somehow
+        // does.
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""")));
+
+        var result = await client.QueryPlayerRefreshDataByQidAsync("Q188207");
+
+        Assert.That(result.FullName, Is.Null);
+        Assert.That(result.Position, Is.Null);
+        Assert.That(result.BirthYear, Is.Null);
+        Assert.That(result.PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ513_QueryPlayerRefreshDataByQidAsync_ReturnsNullForUnboundFields_WhenOnlyLabelBound()
+    {
+        // REQ-513's own "a missing binding is a no-answer, never wiped to
+        // null on the Player row" contract starts here: this proves the
+        // parser itself reports null (not empty string/0) for a property
+        // Wikidata currently has no statement for, one field independently
+        // of the others.
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" }, "playerLabel": { "type": "literal", "value": "Clarence Seedorf" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerRefreshDataByQidAsync("Q188207");
+
+        Assert.That(result.FullName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.Position, Is.Null);
+        Assert.That(result.BirthYear, Is.Null);
+        Assert.That(result.PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public void REQ513_QueryPlayerRefreshDataByQidAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerRefreshDataByQidAsync("Q188207"));
+    }
+
+    [Test]
+    public void REQ513_QueryPlayerRefreshDataByQidAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerRefreshDataByQidAsync("Q188207"));
+    }
+
+    [Test]
+    public void REQ513_QueryPlayerRefreshDataByQidAsync_Timeout_ThrowsWikidataQueryException_WithExpectedMessage()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerRefreshDataByQidAsync("Q188207"));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata admin refresh query for Q188207 timed out after 0s."),
+            "description + \" timed out after {N}s.\" — same shape as this file's other RunThrowingQueryAsync-driven methods");
+    }
+
+    // ADR-0046/REQ-513's own "never falls back to a name-based search"
+    // clause has nothing to do with QID format validation, but this method
+    // shares WikidataQid.IsValid's guard with every other QID-taking method
+    // in this class (e.g. REQ214_QueryPlayerPhotosByQidsAsync_RejectsNonQidValue)
+    // — proves it's enforced here too, not accidentally skipped for this one
+    // single-QID method.
+    [Test]
+    public void REQ513_QueryPlayerRefreshDataByQidAsync_RejectsNonQidValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryPlayerRefreshDataByQidAsync("Arsenal"));
+    }
 }
