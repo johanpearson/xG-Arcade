@@ -8034,19 +8034,36 @@ No matching federated identity record found for presented assertion
 subject 'repo:johanpearson/xG-Arcade:pull_request'` — the federated
 credential on the `AZURE_CLIENT_ID` app registration only trusts
 `deploy.yml`'s push-to-`main` OIDC subject, not the `pull_request` subject
-a PR-triggered OIDC login presents. **Follow-up action needed (Azure
-Portal, one-time, outside this repo, not something a code change can
-fix):** on that app registration, add a federated credential — scenario
-"GitHub Actions deploying Azure resources", entity type **Pull request**
-(or manually: issuer `https://token.actions.githubusercontent.com`,
-subject `repo:johanpearson/xG-Arcade:pull_request`, audience
-`api://AzureADTokenExchange`). Once added, layer (2) will run for real on
-the next PR touching `infra/bicep/**`, no code change needed. Also
-discovered along the way: GitHub silently skips a paths-filtered
-`pull_request` check on a push that makes the watched path byte-identical
-to the base branch again (a plain revert produced zero runs) — worth
-knowing if a future "why didn't this check re-run" investigation hits the
-same thing.
+a PR-triggered OIDC login presents. **Resolved (2026-08-23, same day, in
+the Azure Portal, outside this repo — no code change):** the user added a
+federated credential to the `AZURE_CLIENT_ID` app registration via the
+"GitHub Actions deploying Azure resources" scenario, entity type **Pull
+request**. First attempt still failed with the identical `AADSTS700213`
+error on two separate runs several minutes apart (ruling out propagation
+delay) — root cause turned out to be that Azure's wizard had
+auto-generated an **ID-qualified** subject
+(`repo:johanpearson@32451746/xG-Arcade@1293474861:pull_request`,
+embedding the numeric org/repo IDs) rather than the **plain name-based**
+subject GitHub's OIDC token actually presents
+(`repo:johanpearson/xG-Arcade:pull_request`) — the two formats don't
+match even though both are theoretically valid, and this repo's tokens use
+the plain form (confirmed: `deploy.yml`'s existing working credential is
+also plain-form). Fixed by using the Subject identifier's "Edit
+(optional)" override to set it to the plain form manually. Verified via a
+second scratch PR (#258, closed without merging):
+[this run](https://github.com/johanpearson/xG-Arcade/actions/runs/32654655099/job/97231420214)
+shows all three real steps green — `az bicep build`, `Azure login (OIDC)`,
+and `az deployment group validate`. **S-174 is now fully verified
+end-to-end against real Azure; both layers of `validate-bicep.yml` are
+confirmed working.** Also discovered along the way: GitHub silently skips
+a paths-filtered `pull_request` check on a push that makes the watched
+path byte-identical to the base branch again (a plain revert produced zero
+runs) — worth knowing if a future "why didn't this check re-run"
+investigation hits the same thing. And a general note for anyone adding a
+GitHub Actions federated credential in Azure AD in the future: always use
+"Edit (optional)" to check/set the plain name-based subject explicitly
+rather than trusting the wizard's auto-generated value, unless the repo
+has deliberately opted into GitHub's immutable-ID subject claims.
 
 **S-175 · Extract a shared composite GitHub Action for the repeated "checkout, setup-dotnet, run a CLI verb, connect to dev DB" workflow shape**
 Six standalone `workflow_dispatch`(-plus-cron) workflow files
