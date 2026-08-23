@@ -14,6 +14,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
+  change — CI-only) — Fixed the `ci.yml` `changes` job (below) added
+  earlier the same day: `dorny/paths-filter`'s default
+  `predicate-quantifier` (`'some'`) ignores `!`-negated patterns entirely
+  — a filter matches if a changed file matches *any* listed pattern,
+  negated or not — so the `!docs/**`/`!*.md`/`!.claude/**`/`!mockups/**`
+  exclusions were silently doing nothing; a live docs-only scratch PR
+  against `main` still ran the full test suite. Found via the scratch-PR
+  verification this change's own PR description promised, by reading the
+  `changes` job's actual logs rather than trusting a green checkmark.
+  Fixed by setting `predicate-quantifier: 'some-with-excludes'`, which is
+  what actually makes the action treat a file as excluded when it matches
+  a negated pattern (confirmed against the action's own README, not
+  assumed).
+- 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
   change — this is CI-only and doesn't touch a component boundary) — Added
   path filtering to `ci.yml`/`deploy.yml` so doc-only changes
   (`docs/**`, root `*.md`, `.claude/**`, `mockups/**`) skip the full

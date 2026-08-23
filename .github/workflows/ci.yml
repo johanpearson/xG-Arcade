@@ -53,6 +53,14 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          # dorny/paths-filter's default predicate-quantifier ('some') treats
+          # a file as matching if it matches ANY listed pattern, including
+          # negated ones — i.e. it ignores the '!' exclusions entirely
+          # (confirmed against the action's own docs, and the hard way: an
+          # initial version of this filter without this setting matched a
+          # docs/-only change and ran the full suite anyway). 'some-with-
+          # excludes' is what actually makes '!docs/**' etc. exclude.
+          predicate-quantifier: "some-with-excludes"
           filters: |
             code:
               - '**'
