@@ -13,6 +13,12 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` — S-170: removed the two unused
+  `ILogger<T>` constructor parameters left over from S-119's split
+  (`GridGameModule.cs`, `GridLiveLookupDispatcher.cs`), fixing both
+  `CS9113` warnings; added S-170's "Built as" note. Pure structural
+  removal, no behavior/requirement change, so no REQ/ADR/architecture doc
+  update needed.
 - 2026-08-23 — `docs/coding-guidelines.md`, `docs/ai/agent-migration-plan.md`,
   `docs/decisions/0084-per-diff-code-health-budget.md`,
   `.claude/agents/quality-architect.md`,

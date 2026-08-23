@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
@@ -22,8 +21,7 @@ public class GridGameModule(
     IGridGenerationService generationService,
     IGridNameMatcher nameMatcher,
     IGridLiveLookupDispatcher liveLookupDispatcher,
-    GridLiveLookupOptions liveLookupOptions,
-    ILogger<GridGameModule> logger) : IGameModule
+    GridLiveLookupOptions liveLookupOptions) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
 
