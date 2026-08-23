@@ -7407,6 +7407,19 @@ CLI-verb smoke-test access, per this file's own operational nature (these
 verbs back real GitHub Actions workflows — see each handler's own doc
 comment for which).
 *Deps:* none.
+**Built as:** matches the plan exactly — `BuildWikidataClient(ILoggerFactory
+loggerFactory, TimeSpan? queryTimeout = null)`, same shape/placement as
+`BuildDbContext()`/`BuildLoggerFactory()`, called from all 5 named handlers
+with the two `queryTimeout: 60s` overrides and their justification comments
+preserved verbatim. A real `dotnet` SDK was installed in-session (10.0.111
+via apt, matching this repo's `net10.0` target) rather than deferred —
+full backend suite ran green (1616/1616, 6 projects), and the hand-traced
+argument check was done twice independently (`backend-implementer` during
+implementation, `architecture-reviewer`/`quality-architect` during the
+quality gate). One small addition beyond the plan: a doc-comment sentence
+on `BuildWikidataClient` explaining why its `HttpClient` is deliberately
+left undisposed (each caller is a one-shot CLI process) — a
+`quality-architect` review finding, non-blocking, added directly.
 
 **S-168 · `frontend/src/lib/*.ts`: extract a shared authenticated-fetch helper**
 Every domain file under `frontend/src/lib/` that talks to the backend
