@@ -65,9 +65,11 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   accretion) came back clean and is recorded in Epic 24's own "Findings
   that turned out clean" / "Watch-only" sections rather than turned into
   busywork stories. Epic 22's four merged stories (S-166–S-169) and Epic
-  23's status (S-170/S-171 both confirmed still open/unimplemented) were
-  re-verified first, neither epic touched by this pass. Read-only
-  investigation session — no code changed, no commit made.
+  23's status (S-170/S-171 both confirmed still open/unimplemented at
+  investigation time) were re-verified first, neither epic touched by
+  this pass. Read-only investigation session — no code changed, no commit
+  made. (Both S-170 and S-171 merged separately the same day, PRs
+  #247/#248 — Epic 23 is now fully closed.)
 
 - 2026-08-23 — `docs/coding-guidelines.md`, `docs/ai/agent-migration-plan.md`,
   `docs/decisions/0084-per-diff-code-health-budget.md`,

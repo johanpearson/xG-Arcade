@@ -7804,11 +7804,14 @@ here). Part 2 hunted for genuinely dead/unused code — a lens no prior
 sweep in this lineage has applied. Before writing anything below, every
 Epic 22/23 story was re-verified against current `git log`/code
 (S-166/S-167/S-168/S-169 all confirmed merged and matching their own
-"Built as" notes; S-170/S-171 confirmed still open/unimplemented, exactly
-as Epic 23 left them — not touched here, per this pass's explicit
-instruction). A live `dotnet build` (dotnet 10.0.111 available in this
-session) reproduced only the two already-tracked `CS9113` warnings
-(S-170) and nothing new.
+"Built as" notes; S-170/S-171 confirmed still open/unimplemented at the
+time this investigation ran, exactly as Epic 23 left them — not touched
+here, per this pass's explicit instruction). A live `dotnet build`
+(dotnet 10.0.111 available in this session) reproduced only the two
+already-tracked `CS9113` warnings (S-170) and nothing new. **Both S-170
+and S-171 have since merged** (PRs #247/#248, same day) — Epic 23 is now
+fully closed; this note is left as-is rather than rewritten, since it
+accurately describes this investigation's own starting state.
 
 **Findings that turned out clean — recorded so the next sweep doesn't
 re-derive them:**
