@@ -141,27 +141,4 @@ public class GridEndpointTests
         await dbContext.SaveChangesAsync();
     }
 
-    // Captures log entries written through ILogger<T> during a request, so
-    // the abort-path test can assert the error was actually logged
-    // server-side (docs/coding-guidelines.md: "log the full exception
-    // server-side"), not just that the client got a Problem response.
-    private class CapturingLoggerProvider : ILoggerProvider
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-        public void Dispose() { }
-
-        private class CapturingLogger(CapturingLoggerProvider owner) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                owner.Entries.Add((logLevel, formatter(state, exception)));
-        }
-    }
 }
