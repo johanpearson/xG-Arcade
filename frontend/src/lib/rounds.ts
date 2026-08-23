@@ -4,20 +4,21 @@ import type {
   SubmitGuessResponse,
   SubmitSuggestionResponse,
 } from './types';
-import { API_BASE_URL, throwApiError } from './apiClient';
+import { API_BASE_URL, ApiError, apiRequest } from './apiClient';
 
 // Returns null for the "no active round" empty state (404) rather than
 // throwing — that's a real, expected state (design-document.md §5: "empty
-// states are invitations"), not an error.
+// states are invitations"), not an error. Catches the ApiError apiRequest
+// throws for the 404 rather than letting it surface.
 export async function fetchCurrentRound(
   accessToken: string,
 ): Promise<CurrentRoundResponse | null> {
-  const response = await fetch(`${API_BASE_URL}/rounds/current`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as CurrentRoundResponse;
+  try {
+    return await apiRequest<CurrentRoundResponse>(accessToken, '/rounds/current');
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 // REQ-209: `chosenPlayerId` is only ever sent on a resubmission answering a
@@ -40,19 +41,11 @@ export async function submitGuess(
   const body: { submittedName: string; chosenPlayerId?: string } = { submittedName };
   if (chosenPlayerId) body.chosenPlayerId = chosenPlayerId;
 
-  const response = await fetch(
-    `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/guesses`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(body),
-    },
+  return apiRequest<SubmitGuessResponse>(
+    accessToken,
+    `/rounds/${roundId}/cells/${cellId}/guesses`,
+    { method: 'POST', body: JSON.stringify(body) },
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as SubmitGuessResponse;
 }
 
 // REQ-215 (S-089): submits a player-suggested correction for a specific
@@ -77,19 +70,11 @@ export async function submitSuggestion(
   clubs: string[],
   nationality: string,
 ): Promise<SubmitSuggestionResponse> {
-  const response = await fetch(
-    `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/suggestions`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ playerName, clubs, nationality }),
-    },
+  return apiRequest<SubmitSuggestionResponse>(
+    accessToken,
+    `/rounds/${roundId}/cells/${cellId}/suggestions`,
+    { method: 'POST', body: JSON.stringify({ playerName, clubs, nationality }) },
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as SubmitSuggestionResponse;
 }
 
 // REQ-207/ADR-0007 (S-032): sourced from PlayerNameIndex only, never
@@ -108,12 +93,11 @@ export async function fetchPlayerAutocomplete(
   const params = new URLSearchParams();
   params.set('query', query);
   if (limit !== undefined) params.set('limit', String(limit));
-  const response = await fetch(
-    `${API_BASE_URL}/players/autocomplete?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` }, signal },
+  return apiRequest<PlayerAutocompleteSuggestion[]>(
+    accessToken,
+    `/players/autocomplete?${params.toString()}`,
+    { signal },
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as PlayerAutocompleteSuggestion[];
 }
 
 // S-151/REQ-207: fired best-effort from GridScreen/PathScreen on mount to
@@ -123,7 +107,12 @@ export async function fetchPlayerAutocomplete(
 // container process and never touches Postgres. Deliberately fire-and-
 // forget: never awaited by the caller, never surfaces an error, never
 // updates any component state — same "best-effort, no UI impact" contract
-// as /health's own failure handling.
+// as /health's own failure handling. Left calling `fetch` directly (not
+// `apiRequest`) rather than swallowing apiRequest's own thrown ApiError —
+// this is the one call site in `lib/` that never wants the ok-check/
+// throwApiError behavior at all, so routing it through apiRequest would
+// only add a try/catch around a throw this function is required to never
+// let happen in the first place.
 export function warmUpAutocomplete(accessToken: string): void {
   try {
     fetch(`${API_BASE_URL}/players/autocomplete/warmup`, {

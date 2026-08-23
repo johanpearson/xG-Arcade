@@ -1,5 +1,5 @@
 import type { ClosedRoundListResponse, LeaderboardResponse } from './types';
-import { API_BASE_URL, throwApiError } from './apiClient';
+import { apiRequest } from './apiClient';
 
 // REQ-401/404/607/410 (S-087): the global leaderboard (SCREEN-03) — the only
 // league Tier 0 has (custom leagues are deferred, MVP-SCOPE.md). `gameKey`
@@ -21,12 +21,10 @@ export async function fetchLeaderboard(
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
-  const response = await fetch(
-    `${API_BASE_URL}/leagues/global/leaderboard${query ? `?${query}` : ''}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+  return apiRequest<LeaderboardResponse>(
+    accessToken,
+    `/leagues/global/leaderboard${query ? `?${query}` : ''}`,
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LeaderboardResponse;
 }
 
 // REQ-407/ADR-0031 (S-053): the active round's own leaderboard (SCREEN-03's
@@ -49,12 +47,10 @@ export async function fetchActiveRoundLeaderboard(
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
-  const response = await fetch(
-    `${API_BASE_URL}/leagues/global/leaderboard/active-round${query ? `?${query}` : ''}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+  return apiRequest<LeaderboardResponse>(
+    accessToken,
+    `/leagues/global/leaderboard/active-round${query ? `?${query}` : ''}`,
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LeaderboardResponse;
 }
 
 // REQ-408 (S-054): the browsable round-selection list (SCREEN-03's "past
@@ -72,12 +68,10 @@ export async function fetchClosedRounds(
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
-  const response = await fetch(
-    `${API_BASE_URL}/leagues/global/leaderboard/closed-rounds${query ? `?${query}` : ''}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+  return apiRequest<ClosedRoundListResponse>(
+    accessToken,
+    `/leagues/global/leaderboard/closed-rounds${query ? `?${query}` : ''}`,
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as ClosedRoundListResponse;
 }
 
 // REQ-408 (S-054): one specific closed round's final, locked leaderboard
@@ -99,12 +93,10 @@ export async function fetchClosedRoundLeaderboard(
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
-  const response = await fetch(
-    `${API_BASE_URL}/leagues/global/leaderboard/closed-rounds/${roundId}${query ? `?${query}` : ''}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+  return apiRequest<LeaderboardResponse>(
+    accessToken,
+    `/leagues/global/leaderboard/closed-rounds/${roundId}${query ? `?${query}` : ''}`,
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LeaderboardResponse;
 }
 
 // REQ-405 (S-027): the four fixed, calendar-aligned window resolutions
@@ -138,10 +130,8 @@ export async function fetchWindowedLeaderboard(
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
-  const response = await fetch(
-    `${API_BASE_URL}/leagues/global/leaderboard/window/${resolution}${query ? `?${query}` : ''}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+  return apiRequest<LeaderboardResponse>(
+    accessToken,
+    `/leagues/global/leaderboard/window/${resolution}${query ? `?${query}` : ''}`,
   );
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LeaderboardResponse;
 }
