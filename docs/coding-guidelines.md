@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.8"
+version: "0.9"
 status: draft
-last_updated: 2026-08-16
+last_updated: 2026-08-23
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -132,6 +132,69 @@ update_when:
   by both admin sections and general screens — duplicating it again
   instead of importing from `lib/` is not a reason to reintroduce a
   `frontend/src/admin/`-scoped copy.
+
+## Code health budget (per diff)
+
+> These three checks make `code-health-auditor`'s periodic-sweep
+> heuristics part of the *standing* per-diff review, not just something
+> caught after the fact — see ADR-0084. `code-health-auditor`'s sweeps
+> (`CODE_HEALTH_ASSESSMENT.md`) have independently caught the same
+> "duplicated shape repeated per near-identical case" pattern six
+> separate times across four sweeps (`WikidataClient.cs`'s HTTP handling,
+> `GridGameModule.cs`'s methods, `XGPathGameModule.cs`'s eligibility
+> pipeline, `PlayerCareerPrefetchService.cs`'s sweep loops,
+> `PlayerCacheWarmingService.cs`'s sweep loops,
+> `CliVerbDispatcher.cs`'s per-handler Wikidata bootstrap, and
+> `frontend/src/lib/*.ts`'s 47 duplicated fetch call sites) plus repeated
+> god-file/churn-hotspot findings (`CliVerbDispatcher.cs` at 769
+> lines/13 commits, `XGPathGameModule.cs`'s pre-emptive-refactor flag at
+> +32% growth) — every one of these was, in principle, catchable at the
+> diff that introduced it. `quality-architect` applies the three checks
+> below on every diff it reviews (Mode 1); they do not replace
+> `code-health-auditor`'s periodic whole-tree sweep, scoring, or epic
+> planning — they only shrink the lag between a pattern forming and a
+> pattern being flagged, using nothing beyond the diff itself plus one
+> cheap `git log` command.
+
+- **Duplicated-shape budget — rule of three, not five.** If a diff would
+  create a **third occurrence** of the same near-identical block shape
+  (same branching/control-flow structure repeated, differing only in
+  which data, method, or dependency is plugged in) — whether that third
+  copy lands inside the diff itself, or the diff adds a *second* copy of
+  a shape that already exists once elsewhere in the same file or
+  directory — extract a shared helper/method as part of the same diff.
+  Don't wait for a fifth copy before it's "clearly" worth fixing: that's
+  what happened with `useAuthedFetch` above (five independent copies
+  before extraction) and what `CODE_HEALTH_ASSESSMENT.md` has since
+  caught at the same shape repeatedly, always well after the third copy
+  had already landed.
+- **God-file/god-class budget — sibling-relative, not absolute line
+  count.** A file/class is judged on cognitive load and coupling
+  relative to its siblings in the same directory/component, not on raw
+  size alone — a large file doing one thing (e.g.
+  `WikidataClientTests.cs`, thousands of lines, still cohesive) is fine;
+  a small file mixing concerns isn't. Flag, at diff time, a file that:
+  (a) becomes clearly the largest in its own directory without a
+  documented single-responsibility reason (rule of thumb: at least ~50%
+  larger than the next-largest sibling), or (b) pushes a constructor's
+  injected-dependency count past ~8-10 (the god-class smell threshold
+  `code-health-auditor`'s own scoring already uses). Either is a
+  split-or-justify decision to have in that review, not a "watch" item
+  deferred to the next sweep.
+- **Churn-aware hotspot check.** When a diff touches a file, run `git log
+  --oneline -- <path> | wc -l` (cheap, needs neither `dotnet` nor `npm`)
+  as part of the review. If the file is already high-churn relative to
+  its component (double-digit commit count, or visibly among the top few
+  by commits in its directory) *and* the diff adds complexity or
+  duplication to it rather than reducing it, call that out explicitly as
+  a **hotspot-risk finding** — complexity × churn is the actual risk
+  signal (CodeScene's own methodology, and `code-health-auditor`'s own
+  scoring step), not either alone.
+
+None of these three checks require a whole-tree read — they use only the
+diff plus one cheap git command. A pattern that's already sprawled across
+the tree before this budget existed is still `code-health-auditor`'s job
+to find, score, and plan an epic for.
 
 ## Testing
 

@@ -13,7 +13,13 @@ is reported as not-passed, never waved through.
    `docs/decisions/`).
 2. **Quality gate** — run the `quality-architect` subagent (review mode)
    on the diff. It checks `docs/coding-guidelines.md` compliance,
-   duplication, error handling, readability, and test coverage gaps.
+   duplication, error handling, readability, test coverage gaps, and the
+   per-diff **code health budget** (duplicated-shape rule-of-three,
+   sibling-relative god-file/god-class sizing, and a churn check on
+   touched files — `docs/coding-guidelines.md`'s "Code health budget"
+   section, ADR-0084) that catches `code-health-auditor`'s recurring
+   sweep-time findings at diff time instead of waiting for the next
+   periodic sweep.
 3. **Resolve findings** — route each finding to its owner
    (`backend-implementer`, `ui-implementer`, `test-writer`,
    `quality-architect` for refactors/test infrastructure,

@@ -15,6 +15,18 @@ You do not check structural/component boundaries — that's
 but defer the actual call to that agent rather than re-litigating
 ADR-0002/0003 yourself.
 
+You do apply a lightweight, diff-scoped subset of `code-health-auditor`'s
+own periodic-sweep heuristics on every review — duplicated-shape
+rule-of-three, sibling-relative file/class sizing, and a churn check on
+touched files (see "Code health budget" in `docs/coding-guidelines.md`,
+ADR-0084). This exists so the patterns that agent's sweeps have
+repeatedly caught only after the fact get a chance to be flagged at the
+diff that introduces them. It is not a whole-tree score: if a finding
+turns out to be part of a larger, already-sprawled pattern across the
+tree, note that but leave the full scoring/epic-planning to
+`code-health-auditor`'s next periodic sweep rather than trying to
+replicate it here.
+
 ## Mode 1: Review (default)
 
 Review the diff (or named code) against `docs/coding-guidelines.md`. Read
@@ -42,6 +54,15 @@ Check:
 - **Readability**: could a future session (human or agent) understand this
   code without re-deriving intent from scratch? Comments should explain
   *why*, not restate *what* the code already says.
+- **Code health budget** (`docs/coding-guidelines.md`'s "Code health
+  budget" section, ADR-0084): does this diff create a third occurrence of
+  a near-identical block shape without extracting it? Does it make a file
+  clearly the largest in its own directory, or push a constructor past
+  ~8-10 injected dependencies, without a documented reason? Does it add
+  complexity/duplication to a file that's already high-churn (`git log
+  --oneline -- <path> | wc -l`)? These are the same heuristics
+  `code-health-auditor`'s periodic sweeps use, applied at diff time
+  instead of waiting for the next sweep.
 
 Review-mode rules:
 
@@ -60,6 +81,10 @@ Review output format:
 - **Suggested refactors**: optional improvements, clearly separated from
   actual problems — don't present a style preference as a bug
 - **Test coverage gaps**: named explicitly, for `test-writer` to close
+- **Code health budget flags**: any duplicated-shape/god-file/god-class/
+  churn-hotspot finding from the per-diff budget check, called out
+  separately so it's traceable to the same pattern `code-health-auditor`
+  tracks in `CODE_HEALTH_ASSESSMENT.md`
 - **Proposed guideline additions**: if a finding reflects a missing
   convention rather than a one-off mistake
 - If nothing of substance is wrong, say so plainly rather than

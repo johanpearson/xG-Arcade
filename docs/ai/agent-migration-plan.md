@@ -1,9 +1,9 @@
 ---
 doc_id: agent-migration-plan
 title: Agent Ecosystem — Migration Plan and Organization Reference
-version: "1.1"
+version: "1.2"
 status: implemented
-last_updated: 2026-08-11
+last_updated: 2026-08-23
 owner: Johan
 related_docs:
   - ../../CLAUDE.md
@@ -200,7 +200,7 @@ CLAUDE.md's definition of done, item by item.
 | New game module scaffolding (IGameModule boundary, doc stubs, REQ-block allocation) | game-scaffolder |
 | Per-REQ test delivery (naming, one test per acceptance branch, coverage reporting) | test-writer |
 | Test architecture (fake/fixture/builder strategy, shared helpers, test-host patterns, flakiness, execution speed, E2E strategy) | quality-architect |
-| Quality review (coding-guidelines compliance, duplication, error handling, readability) | quality-architect |
+| Quality review (coding-guidelines compliance, duplication, error handling, readability, per-diff code health budget — ADR-0084) | quality-architect |
 | Refactoring (deliberate, behavior-preserving, own commits) | quality-architect |
 | Engineering standards (`docs/coding-guidelines.md` enforcement and evolution) | quality-architect |
 | Quality-gate definition and verdicts | quality-architect (definition) via `/quality-gate` (execution) |
@@ -335,3 +335,42 @@ nontrivial.
 `CLAUDE.md`'s agent table, `.claude/README.md`'s agent table and org
 description plus a new "Running a health sweep and refactoring epic"
 workflow section.
+
+## 9. 2026-08-23 addition: per-diff "code health budget" folded into `quality-architect`'s standing review
+
+**Trigger:** `code-health-auditor`'s sweeps (Epics 7-9, 17, 21, 22) had,
+across four passes, repeatedly caught the same small set of shapes —
+duplicated near-identical blocks (six separate instances by the 2026-08-23
+sweep, per `CODE_HEALTH_ASSESSMENT.md`'s own count), god-files/god-classes
+growing quietly relative to their siblings (`CliVerbDispatcher.cs`,
+`XGPathGameModule.cs`), and complexity×churn hotspots — but only ever
+*after* the pattern had already formed, because that agent is
+deliberately periodic and whole-tree, triggered by a request or a stale
+tracking doc rather than a pending change (§8 above). Nothing in the
+standing per-diff process made those same heuristics part of every
+review, so the gap between "pattern forms" and "pattern flagged" was
+consistently one full sweep cycle.
+
+**Decision: extend `quality-architect`'s existing review checklist,
+don't create a new agent or a new CI job.** `quality-architect` already
+owns `docs/coding-guidelines.md` and the per-diff review/quality-gate
+checklist, so a new "Code health budget" section was added to that
+document (three checks: duplicated-shape rule-of-three,
+sibling-relative god-file/god-class sizing, and a single `git log
+--oneline -- <path> | wc -l` churn check on touched files) and wired
+into `quality-architect`'s Mode 1 checklist and `/quality-gate`'s step 2.
+See ADR-0084 for the full reasoning and alternatives considered
+(including why a deterministic CI script and a new dedicated agent were
+both rejected for now). `code-health-auditor`'s periodic whole-tree
+scoring, hotspot prioritization, and epic planning are unchanged — this
+is a diff-scoped subset of its heuristics, not a merge of the two
+agents, and it does not retroactively touch Epic 21/22/23.
+
+**Updated in the same change:** ownership matrix (§4.3, "Quality review"
+row now references the per-diff code health budget), `docs/coding-guidelines.md`
+(new "Code health budget" section), `.claude/agents/quality-architect.md`
+(Mode 1 checklist + output format + a cross-reference to
+`code-health-auditor`'s heuristics near the top), `.claude/agents/code-health-auditor.md`
+(a cross-reference back, clarifying the periodic sweep is still the sole
+owner of full scoring/epic planning), `.claude/commands/quality-gate.md`
+(step 2 now names the budget check explicitly), and new ADR-0084.
