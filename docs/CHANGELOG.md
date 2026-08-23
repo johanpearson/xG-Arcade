@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` — filed Epic 23 (S-170/S-171), a same-day
+  follow-up to Epic 22's sweep: S-170 removes two unused `ILogger<T>`
+  constructor parameters left over from S-119's `GridGameModule` split
+  (`GridGameModule.cs`, `GridLiveLookupDispatcher.cs`, both flagged by the
+  compiler as `CS9113`); S-171 backfills the "Built as" notes S-168/S-169
+  are missing despite both being confirmed shipped and already fully
+  documented in this file's own 2026-08-23 entries. Re-investigated
+  `CliVerbDispatcher.cs`'s dispatch-logic test coverage, `AuthController.cs`'s
+  churn, and `WikidataClientTests.cs`'s size — all three re-confirmed
+  already-settled/still-low-risk and explicitly declined as stories, not
+  written up. No code changed this pass (findings/planning only).
+
 - 2026-08-23 — no docs changed beyond this entry — S-169 (`docs/backlog.md`
   Epic 22): extracted `useRoundFetch<TRound extends { roundId: string;
   endTime: string }>(accessToken, fetchFn, onAuthError): { state, setState,

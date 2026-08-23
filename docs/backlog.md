@@ -7583,3 +7583,132 @@ genuinely different guess-submission flows.
   post-S-155, `nanoid@<3.3.18`, `docs/backlog.md`/`docs/CHANGELOG.md`
   themselves) re-confirmed unchanged this pass — not repeated verbatim
   here, see Epic 21 above.
+
+---
+
+## Epic 23 — Technical debt remediation, round 7 (`CODE_HEALTH_ASSESSMENT.md`/`CODEBASE_ANALYSIS.md` follow-up, 2026-08-23 sweep)
+
+Source: a same-day follow-up to the 2026-08-23 sweep that filed Epic 22
+(S-166–S-169). Same house rules as Epics 7/9/17/21/22: independent of the
+Tier 0 build sequence, **every story here is a pure refactor/doc-sync — no
+behavior change, no new REQ IDs**. Before writing this epic, every Epic 22
+story (S-166–S-169) was re-verified against current `git log`/code: all
+four confirmed merged (`c037af8`/`ed0acf2` S-169, `359bc93`/`ae10cf3` S-168,
+`f40316c`/`72aae59` S-166, `87d44c2`/`435809c` S-167), and `PlayerCacheWarmingService.cs`
+(388→367 lines), `PlayerCareerPrefetchService.cs` (408→404 lines),
+`frontend/src/lib/apiClient.ts` (new, 102 lines)/`useRoundFetch.ts` (new,
+138 lines) all match their respective stories' plans on disk. Two findings
+from that verification pass, below (S-170/S-171); every other candidate
+this pass investigated is either already covered by an existing story or
+explicitly declined — see "Investigated and declined" below.
+
+**S-170 · Remove two unused `ILogger<T>` constructor parameters in `XGArcade.Games.XGGrid`**
+`GridGameModule.cs` (line 26, `ILogger<GridGameModule> logger`) and
+`GridLiveLookupDispatcher.cs` (line 16, `ILogger<GridLiveLookupDispatcher> logger`)
+each carry a constructor-injected `logger` parameter that is never read
+anywhere in either file (confirmed via full-file grep: the identifier
+`logger` appears exactly once in each file — the parameter declaration
+itself — and the compiler already flags both with `CS9113: Parameter
+'logger' is unread`). Both are leftovers from S-119's split of the
+original `GridGameModule` into this adapter plus
+`IGridGenerationService`/`IGridNameMatcher`/`IGridLiveLookupDispatcher` —
+whatever logging either class originally did evidently moved to one of
+the split-out classes, and the parameter was never removed from the two
+that kept it. Delete both unused parameters (and the now-unused
+`Microsoft.Extensions.Logging` `using` in each file, if nothing else in
+that file still needs it) and update each constructor's callers/DI
+registration accordingly.
+*Accept:* both `CS9113` warnings are gone from a clean build; full backend
+suite (`GridGameModuleTests.cs`/`GridLiveLookupDispatcherTests.cs`-family)
+passes unchanged — pure structural removal, no behavior change, since
+neither parameter was ever read. No `dotnet` SDK in this sandbox —
+implement and verify in a session with real `dotnet build`/`dotnet test`
+access.
+*Deps:* none.
+
+**S-171 · Backfill missing "Built as" notes for S-168/S-169 in `docs/backlog.md`**
+S-168 (`frontend/src/lib/*.ts`'s shared `apiRequest<T>` helper) and S-169
+(`GridScreen.tsx`/`PathScreen.tsx`'s shared `useRoundFetch` hook) are both
+confirmed shipped — merged (`359bc93`/`ae10cf3` and `c037af8`/`ed0acf2`
+respectively), matching their own story text on disk (`apiClient.ts`
+102 lines, `useRoundFetch.ts` 138 lines, both files present at their
+stated paths), and both already have full "what shipped" detail recorded
+in `docs/CHANGELOG.md`'s 2026-08-23 entries — but unlike S-165/S-166/S-167
+in this same epic lineage (all three of which gained a "Built as" note the
+same pass they shipped), neither S-168 nor S-169's own `docs/backlog.md`
+entry was ever updated with one. This is the same doc-drift pattern this
+lineage has caught and fixed directly on sight before (S-154 in Epic 21,
+S-165's own predecessor state) — here it's large/structured enough
+(two entries, cross-referencing specific commit shas and line-count deltas)
+to be worth a tracked story rather than an inline fix. Add a "**Built
+as:**" paragraph to each of S-168 and S-169, in this epic-lineage's
+established style (see S-165/S-166/S-167 immediately above them, or
+S-154 in Epic 21, for the shape: what matched the plan, what judgment
+call was resolved and how, final line counts, test-suite result, and a
+pointer to the `docs/CHANGELOG.md` entry for full detail) — sourced from
+the existing 2026-08-23 `docs/CHANGELOG.md` entries and current code, not
+re-investigated from scratch.
+*Accept:* doc-only change — no tests to run; `docs/backlog.md`'s two new
+notes are checked against current code (file paths, line counts, hook/
+helper signatures) and against `docs/CHANGELOG.md`'s existing entries for
+consistency before being written.
+*Deps:* none.
+
+**Investigated and declined this pass (not written up as stories):**
+- `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs`'s
+  `TryHandleAsync`/`Verbs` dispatch mechanism (still 773 lines, now 12
+  commits by `git log --follow`, still the single highest-churn file in
+  the repo): re-read specifically to check whether the dispatch logic
+  itself — not the verb-registry *shape*, already re-confirmed healthy in
+  Epic 21/22 — has direct unit coverage or only indirect coverage via full
+  CLI integration tests. It has only indirect coverage, but that is a
+  **deliberate, already-documented decision**, not a gap: `TryHandleAsync`
+  is two lines (`Verbs.TryGetValue` plus an `await`), and
+  `docs/coding-guidelines.md`'s "Composition-root testing (S-113)" section
+  states explicitly, by name, that `CliVerbDispatcher.cs`'s verb-dispatch
+  table "has no comparable logic today — don't add unit tests for them
+  speculatively," with the criterion for revisiting being real new
+  conditional logic in the dispatch path itself (the way `AuthSetup.cs`'s
+  `IsLocalE2EAuth` earned its own test file). No such logic has been added
+  since that decision — the 12 commits are all new verb *handlers* being
+  registered in the dictionary (S-114's shared bootstrap helpers, S-167's
+  `BuildWikidataClient` extraction), not changes to the two-line dispatch
+  itself. Writing `CliVerbDispatcherTests.cs` now would be exactly the
+  speculative unit test the guideline already warns against. Not a story.
+- `backend/src/XGArcade.Api/Auth/AuthController.cs` (773 lines): re-checked
+  git churn directly (`git log --oneline --follow` on this exact path) —
+  still 1 commit, matching every prior sweep's finding back to 2026-08-18.
+  High line count with churn this low is exactly this report's own
+  "watch, don't act" signal (low complexity × low churn is not a hotspot),
+  and CODEBASE_ANALYSIS.md's #9 already tracks it as such. Not a story —
+  confirming a prior finding still holds is not a new finding.
+- `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`
+  (3,973 lines, still the largest file in the repo including tests):
+  re-checked git churn — still 4 commits, unchanged since Epic 21/22.
+  Same "growing for legitimate regression-proof reasons, navigability-only
+  concern" judgment as every prior sweep. Not a story.
+- `infra/scripts/sync-prod-to-dev.sh`/`promote-dev-to-prod.sh`: not
+  re-investigated beyond confirming Epic 22's own watch-only entry is
+  unchanged — this has been explicitly and repeatedly judged NOT a
+  finding (the confirmation-phrase asymmetry is a deliberate safety
+  property per each script's own header comment), and per this sweep's own
+  standing instruction, is left alone rather than re-litigated every pass.
+
+**Watch-only (no story, low churn or not yet a problem):**
+- All of Epic 22's watch-only items (`PathCareerStintFilter.cs`,
+  `WikidataClient.cs` post-S-155, `WikidataClientTests.cs`,
+  `CliVerbDispatcher.cs`'s verb-registry shape, `nanoid@<3.3.18`,
+  `docs/backlog.md`/`docs/CHANGELOG.md` themselves) re-confirmed unchanged
+  this pass — not repeated verbatim here, see Epic 22 above. `infra/`'s
+  `sync-prod-to-dev.sh`/`promote-dev-to-prod.sh` and `docs/`'s own
+  accretion check (from `CODE_HEALTH_ASSESSMENT.md`'s 2026-08-23 revision)
+  likewise re-confirmed clean — both currently sit at 8.0/10 with nothing
+  above watch-only pulling them lower, not a backlog gap.
+- `CODE_HEALTH_ASSESSMENT.md`'s own most recent revision predates this
+  epic's S-165/S-166/S-167/S-168/S-169 (all five merged after that
+  revision was written, confirmed via `git log`) — its score table and
+  per-module notes for `XGArcade.DataSync`/`XGArcade.Games.XGGrid`/
+  `frontend/` are now stale relative to current code. Not fixed in this
+  pass (out of this pass's scope — see this session's own task framing);
+  flagged here so the next full sweep picks it up rather than re-derives
+  it as a "new" finding.
