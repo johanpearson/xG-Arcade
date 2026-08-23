@@ -2,6 +2,7 @@ using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.Wikidata;
 
 namespace XGArcade.Api.Admin;
 
@@ -232,6 +233,139 @@ public static class AdminEndpoints
             var deleted = await playerOverrideRepository.DeleteOverrideAsync(id, cancellationToken);
             return deleted ? Results.NoContent() : Results.NotFound();
         }).RequireAuthorization("Admin");
+
+        // REQ-513 (GitHub issue #239): admin re-fetch of a single Player's
+        // FullName/Position/BirthYear/PhotoUrl from Wikidata, using the
+        // player's own already-stored WikidataQid — never an admin-supplied
+        // value for any of these fields (contrast REQ-501's
+        // POST /admin/player-overrides above, which does accept an
+        // admin-typed value). Registered unconditionally, including
+        // Production, same as every other endpoint in this file (unlike
+        // REQ-505/506's non-Production-only tools, AdminManagementEndpoints.cs)
+        // — this action's whole purpose is correcting real player data that
+        // goes wrong in production, so restricting it to non-Production
+        // would defeat the requirement that prompted it (issue #239's
+        // permanently-corrupted cached name, with no way to correct it).
+        //
+        // Per-field diff, not a blanket rewrite (REQ-513's own acceptance
+        // criteria): a differing non-null/non-empty fetched value overwrites
+        // the existing Player field; a null/missing Wikidata binding for a
+        // field never overwrites (absence isn't evidence the cached value is
+        // wrong — the same "absence is not evidence of wrongness" principle
+        // ADR-0046 already establishes for a guess-time timeout); an
+        // identical value is a no-op for that field. No `reason` field —
+        // unlike REQ-501's PlayerOverride "correct" action, this re-applies
+        // data already trusted by default at sync time (ADR-0032), not a new
+        // manual admin judgment call — same "no reason needed" precedent as
+        // the "approve" action above.
+        //
+        // Audit trail: Player has no admin-audit columns of its own (unlike
+        // PlayerOverride's LockedByAdminId/LockedAt) — recorded via a
+        // structured ILogger line instead, same "no row to attach an audit
+        // trail to -> structured log line" precedent as the "remove" action
+        // above. Logged unconditionally, whether or not any field actually
+        // changed, since REQ-513's own acceptance criterion is "the action
+        // is recorded... at refresh time," not "only a refresh that changed
+        // something."
+        app.MapPost("/admin/players/{id:guid}/refresh-from-wikidata", async (
+            Guid id,
+            ClaimsPrincipal principal,
+            IPlayerRepository playerRepository,
+            IWikidataClient wikidataClient,
+            ILogger<AdminEndpointsLogCategory> logger,
+            CancellationToken cancellationToken) =>
+        {
+            // REQ-513's one deliberate, narrow exception to "Player fields
+            // are set once at creation, never touched again" — see
+            // IPlayerRepository.GetPlayerForRefreshAsync's own doc comment.
+            var player = await playerRepository.GetPlayerForRefreshAsync(id, cancellationToken);
+            if (player is null)
+                return Results.NotFound();
+
+            if (string.IsNullOrWhiteSpace(player.WikidataQid))
+            {
+                return Results.Problem(
+                    title: "No Wikidata QID to refresh from",
+                    detail: "This player has no WikidataQid on record — there is nothing to refresh from. This action never falls back to a name-based search (see REQ-510's separate standalone search-and-add path for that).",
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            // Captured into a local, non-null variable rather than relying on
+            // flow-analysis narrowing of player.WikidataQid to persist across
+            // the two `await`s below — same defensive style as this file's
+            // existing "Policy above already required..." comments.
+            var wikidataQid = player.WikidataQid;
+
+            WikidataPlayerRefreshData refreshed;
+            try
+            {
+                refreshed = await wikidataClient.QueryPlayerRefreshDataByQidAsync(wikidataQid, cancellationToken);
+            }
+            catch (WikidataQueryException ex)
+            {
+                // Same ADR-0046 timeout-vs-no-match distinction, and the same
+                // server-side-only logging, as AdminSuggestionEndpoints.cs's
+                // two /lookup endpoints — see that file's own catch block for
+                // the full reasoning. The exception's own Message is
+                // deliberately NOT surfaced to the caller (this endpoint's
+                // caller is an admin's browser, not a scheduled job's own CI
+                // log — the /internal/* Message-as-detail carve-out in
+                // docs/coding-guidelines.md doesn't apply here).
+                logger.LogWarning(
+                    ex,
+                    "Wikidata refresh failed for Player {PlayerId} (WikidataQid {WikidataQid})",
+                    id, wikidataQid);
+                return Results.Problem(
+                    title: "Live verification unavailable",
+                    detail: "We couldn't reach Wikidata to refresh this player. Please try again.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            var oldFullName = player.FullName;
+            var oldPosition = player.Position;
+            var oldBirthYear = player.BirthYear;
+            var oldPhotoUrl = player.PhotoUrl;
+
+            // Per-field diff (REQ-513): a non-null/non-empty fetched value
+            // that differs from the current value overwrites it; a null/
+            // empty fetched value (Wikidata has no current binding for that
+            // property) or an identical value never writes — see this
+            // endpoint's own header comment above for the full reasoning.
+            var fullNameChanged = !string.IsNullOrWhiteSpace(refreshed.FullName) && refreshed.FullName != oldFullName;
+            var positionChanged = !string.IsNullOrWhiteSpace(refreshed.Position) && refreshed.Position != oldPosition;
+            var birthYearChanged = refreshed.BirthYear is not null && refreshed.BirthYear != oldBirthYear;
+            var photoUrlChanged = !string.IsNullOrWhiteSpace(refreshed.PhotoUrl) && refreshed.PhotoUrl != oldPhotoUrl;
+
+            if (fullNameChanged)
+                player.FullName = refreshed.FullName!;
+            if (positionChanged)
+                player.Position = refreshed.Position;
+            if (birthYearChanged)
+                player.BirthYear = refreshed.BirthYear;
+            if (photoUrlChanged)
+                player.PhotoUrl = refreshed.PhotoUrl;
+
+            if (fullNameChanged || positionChanged || birthYearChanged || photoUrlChanged)
+                await playerRepository.UpdatePlayerAsync(player, cancellationToken);
+
+            var fieldResults = new List<PlayerRefreshFieldResult>
+            {
+                new("fullName", fullNameChanged, oldFullName, fullNameChanged ? player.FullName : null),
+                new("position", positionChanged, oldPosition, positionChanged ? player.Position : null),
+                new("birthYear", birthYearChanged, oldBirthYear?.ToString(), birthYearChanged ? player.BirthYear?.ToString() : null),
+                new("photoUrl", photoUrlChanged, oldPhotoUrl, photoUrlChanged ? player.PhotoUrl : null),
+            };
+
+            // Policy above already required a valid "sub" claim to reach here.
+            var adminId = principal.GetAuthProviderUserId()!.Value;
+            logger.LogInformation(
+                "Admin {AdminId} refreshed Player {PlayerId} (WikidataQid {WikidataQid}) from Wikidata: {FieldChanges}",
+                adminId, id, wikidataQid,
+                string.Join("; ", fieldResults.Select(f =>
+                    f.Changed ? $"{f.Field}: '{f.OldValue}' -> '{f.NewValue}'" : $"{f.Field}: unchanged")));
+
+            return Results.Ok(new RefreshPlayerFromWikidataResponse(id, wikidataQid, fieldResults));
+        }).RequireAuthorization("Admin");
     }
 
     private static PlayerOverrideResponse ToResponse(PlayerOverride playerOverride) =>
@@ -273,3 +407,17 @@ public record CreatePlayerOverrideRequest(Guid PlayerId, string Field, string Va
 public record UpdatePlayerOverrideRequest(string Value, string Reason);
 
 public record PlayerOverrideResponse(Guid Id, Guid PlayerId, string Field, string Value, string Reason, Guid LockedByAdminId, DateTime LockedAt);
+
+// REQ-513 (GitHub issue #239): one of the four scalar Player fields
+// (fullName/position/birthYear/photoUrl) this refresh action can touch.
+// OldValue is always the value BEFORE this refresh ran, regardless of
+// Changed; NewValue is populated only when Changed is true — an unchanged
+// field has nothing new to report, so this deliberately doesn't repeat
+// OldValue into NewValue for the unchanged case. birthYear's int? is
+// serialized as its string form here (same as every other field) rather
+// than adding a differently-typed sibling record just for one field —
+// this response exists purely for an admin to read, never re-parsed by any
+// other endpoint.
+public record PlayerRefreshFieldResult(string Field, bool Changed, string? OldValue, string? NewValue);
+
+public record RefreshPlayerFromWikidataResponse(Guid PlayerId, string WikidataQid, IReadOnlyList<PlayerRefreshFieldResult> Fields);

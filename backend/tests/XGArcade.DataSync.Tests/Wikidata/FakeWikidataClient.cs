@@ -364,4 +364,37 @@ internal sealed class FakeWikidataClient : IWikidataClient
         var result = _careerLookupByName.TryGetValue(playerName, out var configured) ? configured : null;
         return Task.FromResult(result);
     }
+
+    // REQ-513 (GitHub issue #239): QueryPlayerRefreshDataByQidAsync support —
+    // same "configured per-QID, plus one shared fail-next-N-calls counter"
+    // shape as every other by-QID/by-name method above. An unconfigured QID
+    // returns an all-null-fields WikidataPlayerRefreshData (the real
+    // method's own "never null, fields independently absent" contract — see
+    // IWikidataClient's own doc comment), never a thrown exception on its
+    // own.
+    private readonly Dictionary<string, WikidataPlayerRefreshData> _refreshDataByQid = new();
+    private int _remainingRefreshFailures;
+
+    public List<string> QueriedRefreshQids { get; } = [];
+
+    public void SetRefreshData(string wikidataQid, WikidataPlayerRefreshData data) => _refreshDataByQid[wikidataQid] = data;
+
+    public void FailNextRefreshCalls(int calls) => _remainingRefreshFailures = calls;
+
+    public Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
+        string wikidataQid, CancellationToken cancellationToken = default)
+    {
+        QueriedRefreshQids.Add(wikidataQid);
+
+        if (_remainingRefreshFailures > 0)
+        {
+            _remainingRefreshFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for admin refresh of '{wikidataQid}'");
+        }
+
+        var result = _refreshDataByQid.TryGetValue(wikidataQid, out var configured)
+            ? configured
+            : new WikidataPlayerRefreshData(null, null, null, null);
+        return Task.FromResult(result);
+    }
 }

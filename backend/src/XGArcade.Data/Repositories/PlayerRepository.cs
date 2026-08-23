@@ -149,4 +149,16 @@ public class PlayerRepository(XGArcadeDbContext dbContext) : IPlayerRepository
             .AsNoTracking()
             .Where(p => p.NormalizedFullName == normalizedFullName)
             .ToListAsync(cancellationToken);
+
+    // REQ-513 (GitHub issue #239): see IPlayerRepository's own doc comment
+    // for why this pair is a deliberate, narrow exception to this class's
+    // otherwise-uniform AsNoTracking read pattern above, not a reversal of
+    // it — tracked, unlike every other read in this file, because the only
+    // caller (AdminEndpoints' refresh-from-wikidata endpoint) mutates this
+    // same entity instance in place before calling UpdatePlayerAsync.
+    public async Task<Player?> GetPlayerForRefreshAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await dbContext.Players.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+
+    public async Task UpdatePlayerAsync(Player player, CancellationToken cancellationToken = default) =>
+        await dbContext.SaveChangesAsync(cancellationToken);
 }

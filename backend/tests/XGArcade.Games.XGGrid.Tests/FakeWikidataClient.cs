@@ -129,4 +129,12 @@ internal sealed class FakeWikidataClient : IWikidataClient
     public Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
         string playerName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WikidataPlayerCareerLookupResult?>(null);
+
+    // REQ-513 (GitHub issue #239): GridGameModule never calls this (it's
+    // AdminEndpoints' single-player refresh action, not part of grid
+    // generation or guess-scoring) — a trivial stub, same as every other
+    // method in this file besides QueryPlayerPhotoByNameAsync above.
+    public Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
+        string wikidataQid, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new WikidataPlayerRefreshData(null, null, null, null));
 }

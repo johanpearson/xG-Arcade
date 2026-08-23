@@ -341,6 +341,28 @@ internal static class SparqlQueryBuilders
             """;
     }
 
+    // REQ-513 (GitHub issue #239): the admin single-player refresh query —
+    // a VALUES clause over exactly ONE QID (the batch-of-one degenerate
+    // case of BuildPlayerPhotosByQidsQuery/
+    // BuildPlayerPositionsAndBirthYearsByQidsQuery's own shape), combining
+    // all three of those methods' OPTIONAL bindings (P413/P569/P18) PLUS
+    // ?playerLabel — no existing single-QID query in this file already
+    // fetches the label, so this is a new, narrow addition rather than a
+    // duplicate of any of the three above. Same "no candidate-matching
+    // filter" reasoning as those three: the QID passed in is always an
+    // already-real Player row's own already-trusted WikidataQid, so there is
+    // nothing to re-filter by male/date-of-birth/occupation the way a fresh
+    // discovery query would.
+    internal static string BuildPlayerRefreshDataByQidQuery(string qid) => $$"""
+        SELECT ?player ?playerLabel ?positionLabel ?dateOfBirth ?photo WHERE {
+          VALUES ?player { wd:{{qid}} }
+          OPTIONAL { ?player wdt:P413 ?position. }
+          OPTIONAL { ?player wdt:P569 ?dateOfBirth. }
+          OPTIONAL { ?player wdt:P18 ?photo. }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """;
+
     // Case-insensitive label-OR-alias match, deliberately LIMIT 1 — see
     // IWikidataClient.QueryPlayerPhotoByNameAsync's own doc comment for why
     // this is the one query in this file that both filters by a free-text

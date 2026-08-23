@@ -488,6 +488,55 @@ internal static class SparqlResponseParsers
         return new WikidataPlayerCareerLookupResult(wikidataQid, fullName, nationality, clubNames.ToList());
     }
 
+    // REQ-513 (GitHub issue #239): BuildPlayerRefreshDataByQidQuery's own
+    // response — a VALUES clause over one QID, so (unlike
+    // ParsePlayerCareerAndNationalityByNameBindings' name-search shape) an
+    // empty binding list should never actually happen for a syntactically
+    // valid QID; still defensively returns null-fields-only, never throws,
+    // for the same "an unexpected empty response is a null-ish outcome, not
+    // a crash" defensive style every other parser here follows. "First
+    // non-null value seen per field" — same defensive shape as
+    // ParsePositionBirthYearBindings/ParsePhotoBindings, in case Wikidata
+    // somehow returns more than one row for the single VALUES-bound QID
+    // (e.g. more than one non-preferred-rank P413/P569 statement). A null
+    // field in the result means "no current Wikidata binding for this
+    // property," never an error — see WikidataPlayerRefreshData's own doc
+    // comment for why the caller (AdminEndpoints) treats that as "leave the
+    // existing Player value alone," not "wipe it."
+    internal static WikidataPlayerRefreshData ParsePlayerRefreshDataBinding(SparqlResponse? response)
+    {
+        var bindings = response?.Results?.Bindings;
+        if (bindings is null || bindings.Count == 0)
+            return new WikidataPlayerRefreshData(null, null, null, null);
+
+        string? fullName = null;
+        string? position = null;
+        int? birthYear = null;
+        string? photoUrl = null;
+
+        foreach (var binding in bindings)
+        {
+            if (fullName is null && binding.TryGetValue("playerLabel", out var labelValue)
+                && !string.IsNullOrWhiteSpace(labelValue.Value))
+                fullName = labelValue.Value;
+
+            if (position is null && binding.TryGetValue("positionLabel", out var positionValue)
+                && !string.IsNullOrWhiteSpace(positionValue.Value))
+                position = positionValue.Value;
+
+            if (birthYear is null && binding.TryGetValue("dateOfBirth", out var dateOfBirthValue)
+                && !string.IsNullOrWhiteSpace(dateOfBirthValue.Value)
+                && TryParseXsdDateTimeYear(dateOfBirthValue.Value, out var parsedBirthYear))
+                birthYear = parsedBirthYear;
+
+            if (photoUrl is null && binding.TryGetValue("photo", out var photoValue)
+                && !string.IsNullOrWhiteSpace(photoValue.Value))
+                photoUrl = photoValue.Value;
+        }
+
+        return new WikidataPlayerRefreshData(fullName, position, birthYear, photoUrl);
+    }
+
     internal static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

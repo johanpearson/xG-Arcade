@@ -907,6 +907,14 @@ public class AdminSuggestionEndpointTests
         public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
             string playerName, CancellationToken cancellationToken = default) =>
             Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
+
+        // REQ-513 (GitHub issue #239): AdminSuggestionEndpoints never calls
+        // this (it's AdminEndpoints' single-player refresh action) — a
+        // trivial stub, same as every other method in this fake besides
+        // QueryPlayerCareerAndNationalityByNameAsync above.
+        public Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
+            string wikidataQid, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WikidataPlayerRefreshData(null, null, null, null));
     }
 
     // Same "capture every ILogger<T> entry written during a request" shape

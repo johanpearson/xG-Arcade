@@ -779,4 +779,33 @@ public class WikidataClient(
             SparqlResponseParsers.ParsePlayerCareerAndNationalityByNameBindings, cancellationToken);
     }
 
+    // REQ-513 (GitHub issue #239): see IWikidataClient's own doc comment for
+    // the full "why this exists, why it always throws, why it never returns
+    // null" reasoning.
+    //
+    // Timeout budget: deliberately _queryTimeout (15s), NOT
+    // _adminLookupQueryTimeout (45s) — even though this is also an
+    // admin-triggered, synchronously-awaited action. _adminLookupQueryTimeout's
+    // own doc comment is explicit that its 45s budget is earned by QUERY
+    // SHAPE (a broad, population-wide candidate scan/search), not merely by
+    // "an admin is waiting" — see that field's comment for the full
+    // "shape, not caller" reasoning already established there. This query has
+    // no candidate search at all (an exact VALUES-clause match on one
+    // already-known QID), the same cheap, indexed, bounded shape
+    // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync
+    // already use at _queryTimeout — reusing that budget here keeps the
+    // "budget follows shape" rule intact rather than special-casing this
+    // method onto the broad-scan budget just because its caller happens to
+    // be an admin too.
+    public async Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
+        string wikidataQid, CancellationToken cancellationToken = default)
+    {
+        if (!WikidataQid.IsValid(wikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{wikidataQid}'", nameof(wikidataQid));
+
+        var query = SparqlQueryBuilders.BuildPlayerRefreshDataByQidQuery(wikidataQid);
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata admin refresh query for {wikidataQid}",
+            SparqlResponseParsers.ParsePlayerRefreshDataBinding, cancellationToken);
+    }
 }
