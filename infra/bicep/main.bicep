@@ -2,6 +2,7 @@
 // rather than defining resources flat, so each concern (environment,
 // backend, frontend) can be reasoned about and changed independently.
 // See ADR-0004 and docs/architecture-document.md §9 for the rationale.
+// (S-174 scratch proof #2: confirming the new Azure AD federated credential for the pull_request OIDC subject works.)
 
 targetScope = 'resourceGroup'
 
