@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/decisions/0085-run-cli-verb-composite-action.md` (new),
+  `docs/backlog.md` — S-175: extracted
+  `.github/actions/run-cli-verb/action.yml`, a composite action (not a
+  `workflow_call` reusable workflow — ADR-0085) sharing the checkout/
+  setup-dotnet/run-a-CLI-verb/dev-DB-connection-string shape duplicated
+  across `backfill-player-photos.yml`, `import-player-name-index.yml`,
+  `prefetch-player-careers.yml`, `purge-game-history.yml`,
+  `purge-player-pool.yml`, `warm-grid-cache.yml`, and `deploy.yml`'s
+  `migrate-and-seed-database` job (7 real sites; `ci.yml`'s similarly-named
+  step was examined and deliberately left unconverted — see ADR-0085 and
+  S-175's "Built as" note for why). Each caller keeps its own
+  `actions/checkout@v7` step (a GitHub Actions constraint, not leftover
+  duplication) and its own `on:`/cron/`timeout-minutes`.
 - 2026-08-23 — `.github/workflows/validate-bicep.yml` (new), `docs/backlog.md`
   — S-174: added a CI-only Bicep validation gate on every PR touching
   `infra/bicep/**` — `az bicep build` (catches broken module paths/syntax

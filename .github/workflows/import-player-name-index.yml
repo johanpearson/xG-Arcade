@@ -37,10 +37,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
       - name: Import player name index
-        run: dotnet run --project backend/src/XGArcade.Api -- import-player-name-index
-        env:
-          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: import-player-name-index
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

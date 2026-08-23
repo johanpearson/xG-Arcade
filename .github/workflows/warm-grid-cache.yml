@@ -46,9 +46,6 @@ jobs:
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
       # Bug-bundle follow-up (2026-07-27): retries the whole command if the
       # process itself crashes/exits non-zero (e.g. a DB connection drop) —
       # PlayerCacheWarmingService.WarmAsync is idempotent and safe to re-run
@@ -63,18 +60,14 @@ jobs:
       # skips anything already cached and only re-queries what's still
       # missing, so a fresh run is the right lever for "a few pairs got
       # unlucky," not a build-in retry loop here.
+      #
+      # S-175: the 2-attempt retry/warning/error shape moved into
+      # .github/actions/run-cli-verb's `attempts` input (byte-identical
+      # behavior) — this is the only one of the 8 sites that needs attempts
+      # > 1, so it's the only caller passing that input explicitly.
       - name: Warm player cache
-        run: |
-          max_attempts=2
-          for attempt in $(seq 1 "$max_attempts"); do
-            if dotnet run --project backend/src/XGArcade.Api -- warm-player-cache; then
-              exit 0
-            fi
-
-            echo "::warning::warm-player-cache exited non-zero (attempt $attempt/$max_attempts)"
-          done
-
-          echo "::error::warm-player-cache failed after $max_attempts attempts"
-          exit 1
-        env:
-          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: warm-player-cache
+          attempts: '2'
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

@@ -8059,6 +8059,33 @@ sandbox.
 *Deps:* none (may be sequenced with S-176 below, since both touch
 `.github/workflows/`, but neither blocks the other).
 
+*Built as (2026-08-23):* a **composite action**
+(`.github/actions/run-cli-verb/action.yml`, `verb`/`arg`/`connection-string`/
+`attempts` inputs), not a `workflow_call` reusable workflow — see ADR-0085
+for the full reasoning (keeps each caller's `on:`/cron/`timeout-minutes`
+independent, per ADR-0072's precedent; a reusable workflow's nested-run
+Actions-tab shape would have risked failing this story's own "identical run"
+bar). Converted **7** of the listed 8 sites — `ci.yml`'s "Migrate + seed
+local database" step was examined and found not to actually match this
+shape (different, non-secret connection string; shares its job's checkout/
+setup-dotnet with unrelated frontend/Playwright steps rather than owning a
+standalone block) and was deliberately left unconverted, with a comment at
+the site explaining why. Each of the 7 real call sites keeps its own
+`actions/checkout@v7` step before invoking the composite action — a local
+composite action's own `action.yml` must already be resolvable from a
+checked-out workspace, so checkout cannot be folded into the composite
+action itself without becoming circular; this is a genuine GitHub Actions
+constraint, not leftover duplication. `warm-grid-cache.yml`'s existing
+2-attempt retry/`::warning::`/`::error::` shape is reproduced byte-for-byte
+via the composite action's `attempts: '2'` input; the other 6 real sites use
+the default `attempts: '1'` (single run, no synthetic annotations, output
+unchanged from before). **Not verified in this sandbox:** the *Accept*
+criterion's manual `workflow_dispatch` smoke-test of a converted workflow
+(e.g. `purge-player-pool.yml`) against real GitHub Actions — this sandbox
+has no path to trigger a real dispatch; needs a human or a session with real
+GitHub Actions access to run that smoke-test and confirm the Actions-tab run
+is identical before/after.
+
 **S-176 · Deduplicate the byte-identical `generate_round` retry-with-backoff bash function in `generate-grid-round.yml`/`generate-path-round.yml`**
 S-136/ADR-0072 deliberately split a single shared `generate-round.yml`
 into two independent per-`GameKey` workflow files so their cron/

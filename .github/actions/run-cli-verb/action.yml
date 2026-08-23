@@ -1,0 +1,72 @@
+name: 'Run backend CLI verb against dev DB'
+description: >
+  Sets up .NET and runs `dotnet run --project backend/src/XGArcade.Api --
+  <verb>` against the dev database's connection string — the shared body of
+  every maintenance workflow that dispatches a single backend CLI verb
+  (purge/import/prefetch/warm/migrate). Callers must `actions/checkout`
+  first: a workflow step referencing a local composite action (`uses:
+  ./...`) needs the repo already checked out to resolve this action's own
+  action.yml, so checkout can't be folded in here without becoming
+  circular (S-175).
+
+inputs:
+  verb:
+    description: 'CLI verb to run, e.g. "warm-player-cache"'
+    required: true
+  arg:
+    description: >
+      Single extra argument appended after the verb (e.g. a confirmation
+      string). Passed through as one argv element, matching each verb's own
+      single-string-argument contract — leave unset for verbs that take no
+      argument.
+    required: false
+    default: ''
+  connection-string:
+    description: 'Value for the ConnectionStrings__Database env var'
+    required: true
+  attempts:
+    description: >
+      Number of attempts before failing. Values above 1 retry the whole
+      command with an "::warning::" annotation between attempts and an
+      "::error::" annotation on final failure (warm-grid-cache.yml's
+      "Bug-bundle follow-up (2026-07-27)" shape); the default of 1 runs the
+      command once and lets its own exit code/output propagate unchanged.
+    required: false
+    default: '1'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: "10.0.x"
+    - name: Run ${{ inputs.verb }}
+      shell: bash
+      run: |
+        run_once() {
+          if [ -n "$CLI_ARG" ]; then
+            dotnet run --project backend/src/XGArcade.Api -- "$CLI_VERB" "$CLI_ARG"
+          else
+            dotnet run --project backend/src/XGArcade.Api -- "$CLI_VERB"
+          fi
+        }
+
+        if [ "$CLI_ATTEMPTS" -le 1 ]; then
+          run_once
+          exit $?
+        fi
+
+        for attempt in $(seq 1 "$CLI_ATTEMPTS"); do
+          if run_once; then
+            exit 0
+          fi
+          echo "::warning::$CLI_VERB exited non-zero (attempt $attempt/$CLI_ATTEMPTS)"
+        done
+
+        echo "::error::$CLI_VERB failed after $CLI_ATTEMPTS attempts"
+        exit 1
+      env:
+        CLI_VERB: ${{ inputs.verb }}
+        CLI_ARG: ${{ inputs.arg }}
+        CLI_ATTEMPTS: ${{ inputs.attempts }}
+        ConnectionStrings__Database: ${{ inputs.connection-string }}
