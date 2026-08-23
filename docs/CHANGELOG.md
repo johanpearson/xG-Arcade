@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/requirements-document.md` — REQ-513 marked
+  `Status: Implemented` after the quality gate ran: `architecture-reviewer`
+  confirmed the boundary/ADR question (ADR-0086); `quality-architect`
+  found one real code-health-budget issue (a third duplicate
+  `CapturingLoggerProvider` test double, past the rule-of-three
+  threshold — extracted to a shared
+  `XGArcade.Api.Tests/CapturingLoggerProvider.cs`) and two test-coverage
+  gaps (missing `NormalizedFullName` re-derivation assertion after a
+  `FullName` refresh — the column REQ-208 guess-matching actually
+  queries, directly relevant to issue #239's own scenario; and an
+  overclaiming "no-op" test assertion, fixed with a call-counting spy
+  proving `UpdatePlayerAsync` is genuinely skipped when nothing
+  changed) — all fixed. Test suite not compiler-verified in this
+  sandbox (no `dotnet` SDK available); must be confirmed in CI before
+  merge.
 - 2026-08-23 — `docs/requirements-document.md`, `docs/architecture-document.md`,
   `docs/decisions/0086-admin-player-wikidata-refresh-narrow-exception.md`
   (new) — fixed GitHub issue #239 (a garbled player name, frozen in at

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.96"
+version: "1.97"
 status: draft
 last_updated: 2026-08-23
 owner: Johan
@@ -5070,6 +5070,12 @@ resolving one on `SuggestionsScreen.tsx`; no badge/count is rendered for
 a non-admin or guest)
 
 **REQ-513 – Admin refresh of an existing Player's data from Wikidata**
+*(Status: Implemented, `POST /admin/players/{id}/refresh-from-wikidata`,
+`AdminEndpoints.cs`, ADR-0086; test coverage in `AdminEndpointTests.cs`/
+`PlayerRepositoryTests.cs`/`WikidataClientTests.cs` — not yet
+compiler-verified in this sandbox, no `dotnet` SDK available; confirm in
+CI before merge. No admin UI built for this yet, API only, matching
+REQ-501-503's own starting point before REQ-504 added a UI.)*
 > As an admin, I want to re-fetch a specific player's name, position, birth
 > year, and photo from Wikidata using the player's already-stored
 > `WikidataQid`, so a bad or stale value frozen in at creation (REQ-1207)
