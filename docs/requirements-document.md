@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.95"
+version: "1.96"
 status: draft
-last_updated: 2026-08-22
+last_updated: 2026-08-23
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -5068,6 +5068,142 @@ to "Player suggestions" on `AdminScreen.tsx` when pending suggestions
 exist, and reflects an updated count after navigating back from
 resolving one on `SuggestionsScreen.tsx`; no badge/count is rendered for
 a non-admin or guest)
+
+**REQ-513 – Admin refresh of an existing Player's data from Wikidata**
+> As an admin, I want to re-fetch a specific player's name, position, birth
+> year, and photo from Wikidata using the player's already-stored
+> `WikidataQid`, so a bad or stale value frozen in at creation (REQ-1207)
+> — e.g. a garbled name shown to a player as ground truth (#239) — can be
+> corrected without editing the database by hand.
+
+**Scope note (refresh from source, not free-text editing):** this is a
+re-fetch action, not a new data-entry path — the admin never types a
+corrected name/position/birth year/photo directly, only triggers a refresh
+against the player's own already-stored `WikidataQid`. Consistent with
+ADR-0032's trust model (all Wikidata-sourced data is treated as verified by
+default, with no human review step gating it), this REQ re-applies that
+same trust later, against the same already-trusted QID, rather than
+introducing a second, manual way to set these fields that could itself
+become a new source of error. If the re-fetched Wikidata value is itself
+wrong, that is a Wikidata data problem outside this REQ's scope — fixing it
+there, then re-running this action, is the intended remediation path. This
+REQ does not add manual-override support for `Player.FullName`/`Position`/
+`BirthYear`/`PhotoUrl` (there is no `PlayerOverride`-equivalent mechanism
+for these four scalar columns; see REQ-1207's scope note on why they live
+directly on `Player`, not as `PlayerAttribute` rows). This action never
+writes `PlayerNameIndex` — that table is populated only by a separate
+import pipeline (`PlayerNameIndexImporter`, ADR-0007/ADR-0053's
+autocomplete/correctness boundary); a stale entry there, if any, is a
+pre-existing, separate concern this REQ does not address.
+
+**Where it lives and environment gating:** `AdminEndpoints.cs` (REQ-501-503's
+file), behind the existing "Admin" authorization policy, same pattern as
+every other endpoint in that file. Unlike REQ-505/506 (round control, user
+deletion — deliberately non-Production-only testing tools, per ADR-0006),
+this action is registered and available in every environment, including
+Production, the same as REQ-501-503/509/510: its entire purpose is
+correcting real player data that goes wrong in production — restricting it
+to non-Production would defeat the requirement that prompted it.
+
+**Refreshing a player:**
+- Given an existing `Player` row identified by its id, with a non-null
+  `WikidataQid`
+- When an admin triggers a refresh for that player
+- Then the system re-queries Wikidata for that specific `WikidataQid`,
+  fetching the same four properties `Player` already stores at creation
+  (label → `FullName`, P413 → `Position`, P569 → `BirthYear`, P18 →
+  `PhotoUrl`) — no admin-supplied value for any of these fields is ever
+  accepted by this action
+
+**Only changed fields are written:**
+- Given the freshly-fetched value for a field is non-null/non-empty and
+  differs from the value currently stored on the `Player` row
+- Then that field is updated to the freshly-fetched value
+- Given the freshly-fetched value for a field is null/empty (Wikidata
+  currently has no binding for that property), regardless of what is
+  currently stored
+- Then that field is left unchanged — a missing binding is treated as "this
+  query returned no answer for this property," never as evidence the
+  existing stored value is wrong, the same "absence is not evidence of
+  wrongness" principle ADR-0046 already establishes for a guess-time
+  timeout; this action never wipes an existing value to null
+- Given the freshly-fetched value for a field is identical to the value
+  already stored
+- Then that field is not written — this action writes only the fields that
+  actually changed on a given refresh, never a blanket rewrite of all four
+- Given a refresh completes
+- Then the response indicates, per field, whether it changed and, if so,
+  its old and new value — so the admin can see exactly what was corrected,
+  not just an unconditional success message
+
+**No manual value acceptance / no reason field:**
+- Given this action re-applies data from a source already trusted by
+  default (ADR-0032), not a new manual admin assertion
+- Then, unlike `PlayerOverride`'s "correct" action (REQ-501), no `reason`
+  field is required or accepted — matching REQ-503's "approve" action,
+  which also requires no reason, for the same underlying reason: applying
+  already-trusted source data is not recording a new manual judgment
+
+**Error handling:**
+- Given a `Player` id that does not exist
+- Then the request is rejected with `404`
+- Given a `Player` id that exists but has a null `WikidataQid`
+- Then the request is rejected with `409` — there is no QID to refresh
+  from, and this action never falls back to a name-based search (that is
+  REQ-510's separate, existing capability, not this one)
+- Given the Wikidata query for the stored `WikidataQid` fails to complete
+  (times out or errors)
+- Then the request is rejected with `503`, "lookup unavailable, try
+  again" — the same contract REQ-509's `/admin/suggestions/{id}/lookup`
+  already establishes (ADR-0046) — never silently treated as "no fields
+  changed"
+- Given a caller with no valid session, or an authenticated caller not in
+  `Admin:UserIds`
+- Then the request is rejected `401`/`403` respectively, the same
+  authorization boundary every other `/admin/*` endpoint in this file
+  already enforces
+
+**Audit trail:**
+- Given `Player` has no admin-audit columns of its own (unlike
+  `PlayerOverride`'s `LockedByAdminId`/`LockedAt` or `PlayerSuggestion`'s
+  `ResolvedByAdminId`/`ResolvedAt`) — REQ-1207 added no such columns to
+  `Player` when it introduced `Position`/`BirthYear`, and this REQ does not
+  add them either; two new columns on `Player` for one narrow admin action
+  do not carry their weight relative to the alternative below
+- Then the action is recorded via a structured `ILogger` line at refresh
+  time (admin id, player id, `WikidataQid`, and each field's old/new
+  value) — the same "no row to attach an audit trail to → structured log
+  line instead" precedent REQ-503's "remove" action already established,
+  not a new general-purpose audit-log table
+
+**Relationship to REQ-1207's set-once contract (deliberate, scoped
+exception — not a silent contradiction):** REQ-1207 establishes that
+`Position`/`BirthYear` (and, by the same code path, `FullName`/`PhotoUrl`)
+are set once at `Player` row creation and never overwritten by any
+automatic sync/backfill/live-lookup path, with one narrow, already-recorded
+exception (the raw-URI `Position` bug fix). This REQ adds a second,
+equally narrow exception: an explicit, single-player, admin-triggered
+action — never an automatic background process. No automatic path (grid
+generation, cache warming, the guess-time live fallback, the position/
+birth-year backfill, the photo backfill) gains any new ability to overwrite
+an existing value as a result of this REQ — REQ-1207's set-once contract
+for every non-admin-triggered path is otherwise unchanged.
+
+**Out of scope for this REQ:** an admin UI/page for this action (API only,
+same starting point REQ-501-503 had before REQ-504/S-026 added a UI);
+bulk/multi-player refresh (single player per call only — REQ-503's
+"approve" bulk pattern is not extended here); a way to browse/search for
+which `Player` row to refresh (this REQ assumes the admin already knows the
+target `Player`'s id, e.g. from investigating a bug report — building a
+player-browsing admin view is a separate concern).
+
+**Test level:** Unit (per-field diff/no-op logic: a differing non-null
+fetched value overwrites, a null/empty fetched value never overwrites an
+existing value, an identical fetched value is a no-op for that field), API
+(404/409/503/401/403 error contract; a successful refresh persists only
+the fields that changed and returns a per-field changed/unchanged old/new
+result; Admin-policy-gated; registered and reachable in every environment
+including Production, unlike REQ-505/506)
 
 ---
 
