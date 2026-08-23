@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` (S-165 "Built as" note) — implemented
+  Epic 21's S-165: extracted the shared "fetch pool -> mark swept ->
+  skip-empty -> dedup+chunk" shape out of `PlayerCareerPrefetchService
+  .PrefetchAsync`'s two ~90-line near-identical country/club sweep loops,
+  into a shared generic `SweepAsync<TRow>`/`SweepPoolAsync` core plus thin
+  `SweepCountriesAsync`/`SweepClubsAsync` wrappers supplying each sweep's
+  own delegates (fetch call, mark-swept write, log wording). The club
+  sweep's deliberate `club.Name` (never `clubNameByClubQid`) attribute-value
+  sourcing — the 2026-08-18 quality-gate-fix nuance — was preserved
+  verbatim via `SweepClubsAsync`'s own `getName` selector, unchanged.
+  `backend/src/XGArcade.DataSync/Wikidata/PlayerCareerPrefetchService.cs`
+  went 408 → 404 lines (`git diff --stat`: 173 insertions/177 deletions).
+  Pure structural refactor, no behavior change — `PlayerCareerPrefetchServiceTests.cs`
+  byte-unchanged, full backend suite (1,616 tests across 6 projects) green.
+  `architecture-reviewer` and `quality-architect` both reviewed and passed
+  with zero findings; per `architecture-reviewer`, the wrapper-methods-over-
+  shared-core shape is private-method-shape territory below ADR granularity
+  (this story's own flagged "could reasonably go another way" call), so no
+  ADR was written for it. `docs/requirements-document.md` and
+  `docs/architecture-document.md` checked against the diff and found
+  unaffected — no REQ acceptance criteria and no COMP-xxx boundary changed;
+  neither doc names `SweepAsync`/`SweepPoolAsync`/the two-loop shape at the
+  method-signature level, so nothing there needed updating either. S-165.
 - 2026-08-23 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md`,
   `docs/backlog.md` (new Epic 22, S-166–S-169) — periodic whole-codebase
   health sweep (`code-health-auditor`), deliberately widened past the
