@@ -13,6 +13,47 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/backlog.md` (S-166 "Built as" note) — implemented
+  Epic 22's S-166: extracted the shared "check cache -> confirmed-low-
+  from-sweep -> confirmed-low -> persistent-failure -> live lookup"
+  decision tree out of `PlayerCacheWarmingService.WarmAsync`'s two
+  ~100-line near-identical Country×Club/Club×Club loops, into a shared
+  generic `SweepPairsAsync<TLeft, TRight>` core plus thin
+  `SweepCountryClubPairsAsync`/`SweepClubClubPairsAsync` wrappers supplying
+  each sweep's own delegates (attribute type/name selectors, which
+  `IWikidataLookupService` method to call, each log line's exact wording,
+  the failing-pair label) — matching S-165's own generic-delegate
+  parameterization (checked S-165's landed code in
+  `PlayerCareerPrefetchService.cs` first, per this story's own flag; note
+  that file lives in a different project, `XGArcade.DataSync`, not "one
+  directory over" as the story text put it — a `quality-architect` review
+  correction that doesn't affect the fix, both are private in-class
+  helpers with no boundary crossed). Running totals (`SweepPairsOutcome`)
+  are threaded through both sweep calls the same "starting totals continue"
+  shape S-165 established, so `LogProgressCheckpoint` and the final summary
+  still see cumulative counts across both loops, not two separate ones.
+  `backend/src/XGArcade.Games.XGGrid/PlayerCacheWarmingService.cs` went
+  388 → 367 lines (`git diff --stat`: 169 insertions/190 deletions) — an
+  initial pass came in net +10 lines from duplicating the original
+  per-branch REQ-110/ADR-0078 rationale comments into the new shared
+  helper; trimmed those to one-liners since the class-level doc comment
+  already covers the full rationale, which fixed both the line-count
+  regression and got under this story's own accept criterion. Pure
+  structural refactor, no behavior change — `PlayerCacheWarmingServiceTests.cs`
+  (775 lines/28 tests) unchanged and passing, full backend suite (1,616
+  tests across 6 projects) green. `architecture-reviewer` and
+  `quality-architect` both reviewed and passed with zero blocking findings;
+  two non-blocking nits from `quality-architect` (a stale "each loop below"
+  comment reference now pointing at the single shared `SweepPairsAsync`,
+  and `new SweepPairsOutcome()` instead of a bare `default` for the first
+  sweep's starting totals) were applied. No ADR — same "private-method-shape
+  territory below ADR granularity" reasoning `architecture-reviewer` gave
+  for S-165. `docs/requirements-document.md`/`docs/architecture-document.md`
+  checked against the diff and confirmed unaffected — no REQ acceptance
+  criteria or COMP-xxx boundary changed, neither doc names
+  `SweepPairsAsync`/the two-loop shape at the method-signature level.
+  Verified with a real `dotnet` SDK in this session (10.0.111, installed
+  via apt — the repo targets `net10.0`). S-166.
 - 2026-08-23 — no docs changed beyond this entry — S-167 (`docs/backlog.md`
   Epic 22, direct follow-up to S-114's own `BuildDbContext()`/
   `BuildLoggerFactory()` extraction): extracted the Wikidata-client bootstrap
