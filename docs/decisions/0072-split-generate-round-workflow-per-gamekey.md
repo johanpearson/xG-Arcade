@@ -123,12 +123,23 @@ sandbox has no path to trigger a real GitHub Actions dispatch.
   `IRoundSchedulingOptionsResolver`, `RoundGenerationService`, and
   `/internal/generate-round` are all unchanged, confirming ADR-0051's
   per-`GameKey` design was already shaped correctly for this split.
-- Negative / trade-off accepted: two workflow files with near-identical
-  content (the retry-function shape is duplicated, not shared via a
-  reusable workflow) — a deliberate choice per this story's scope, which
-  explicitly ruled out a shared/reusable workflow in favor of genuinely
-  independent files. A future change to the retry logic's shape needs to
-  land in both files.
+- Negative / trade-off accepted (resolved 2026-08-23, S-176): two workflow
+  files originally had near-identical content — the retry-function shape
+  was duplicated, not shared via a reusable workflow, a deliberate choice
+  per this story's scope, which explicitly ruled out a shared/reusable
+  workflow in favor of genuinely independent files. S-176 later extracted
+  the retry-loop body into `.github/actions/trigger-round-generation`, a
+  **composite action** (not a `workflow_call` reusable workflow or matrix
+  strategy — same "For AI agents" prohibition below, still in force).
+  Confirmed by `architecture-reviewer` as compatible: a composite action
+  defines no `on:` trigger surface of its own, so each workflow's cron and
+  `workflow_dispatch.round_duration_hours` input remain fully independent
+  and the coupling bug this ADR fixed cannot reappear — only the executed
+  bash body is now shared, not any trigger/schedule/dispatch-input
+  definition. See ADR-0085 for the general composite-action-vs-reusable-
+  workflow reasoning this mirrors (established for S-175's sibling
+  problem). A future change to the retry logic's shape now lands once, in
+  the composite action.
 - Follow-up: if a third game is added, this ADR's reasoning (rather than
   ADR-0051's shared-cron reasoning) is the one to re-derive against — see
   "For AI agents" below.
@@ -163,4 +174,10 @@ Specifically:
   `generate-grid-round.yml`/`generate-path-round.yml` without a new ADR —
   this story deliberately chose fully independent files, and collapsing
   them back would reintroduce the `workflow_dispatch` coupling bug this ADR
-  fixed.
+  fixed. This prohibition does **not** cover the composite action
+  `.github/actions/trigger-round-generation` added by S-176 — a composite
+  action has no `on:`/trigger surface of its own, so it cannot recouple the
+  two workflows' cron or dispatch inputs; only the retry-loop bash body is
+  shared. Do not "fix" that composite action by folding it into a
+  `workflow_call` reusable workflow or a matrix, for the same reason this
+  ADR rejected those originally.
