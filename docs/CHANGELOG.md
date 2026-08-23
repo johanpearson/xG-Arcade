@@ -14,6 +14,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
+  change — CI-only) — Verification results for the doc-only CI skip
+  (below): after the `predicate-quantifier` fix, two scratch PRs against
+  `main` confirmed real end-to-end behavior. A docs-only diff
+  (`docs/_scratch-ci-skip-verification.md`) produced `changes` = success
+  and all three required jobs (`backend-tests`/`frontend-unit-tests`/
+  `e2e-tests`) as `conclusion: skipped`, with the PR's `mergeable_state`
+  reported `clean` — confirming a skipped required job satisfies branch
+  protection rather than hanging pending. A `frontend/README.md` diff (a
+  nested, non-root `*.md`, deliberately chosen to also confirm nested
+  markdown isn't treated as docs-only) produced `changes` = success and
+  all three jobs ran and passed normally, `mergeable_state` also `clean`.
+  Both scratch PRs were closed without merging; the branches themselves
+  couldn't be deleted from this session (`git push --delete` returned
+  403, matching this repo's pre-existing pattern of leftover `scratch/*`
+  branches from earlier sessions for the same reason) — left for manual
+  cleanup: `scratch/verify-ci-skip-docs-only-{2,3}`,
+  `scratch/verify-ci-runs-on-code-change-{2,3}`.
+- 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
   change — CI-only) — Fixed the `ci.yml` `changes` job (below) added
   earlier the same day: `dorny/paths-filter`'s default
   `predicate-quantifier` (`'some'`) ignores `!`-negated patterns entirely
