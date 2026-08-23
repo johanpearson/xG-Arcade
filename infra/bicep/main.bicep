@@ -1,6 +1,9 @@
 // Main orchestration template. Composes the modules under ./modules/
 // rather than defining resources flat, so each concern (environment,
 // backend, frontend) can be reasoned about and changed independently.
+// (S-174 scratch proof: harmless comment kept here so this file still
+// differs from main, otherwise GitHub's path-filtered pull_request trigger
+// treats a byte-identical-to-base file as "unchanged" and skips the check.)
 // See ADR-0004 and docs/architecture-document.md §9 for the rationale.
 
 targetScope = 'resourceGroup'
