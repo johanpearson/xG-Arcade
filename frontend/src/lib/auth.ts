@@ -1,5 +1,5 @@
 import type { CurrentUser, LoginResponse, SignupResponse, UpdateDisplayNameResponse } from './types';
-import { API_BASE_URL, throwApiError } from './apiClient';
+import { apiRequest } from './apiClient';
 
 // REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
 // amendment: Supabase's captcha-protection toggle is project-wide (see
@@ -24,13 +24,10 @@ export async function signup(
   ageConfirmed: boolean,
   captchaToken: string,
 ): Promise<SignupResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+  return apiRequest<SignupResponse>(null, '/auth/signup', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, confirmPassword, displayName, ageConfirmed, captchaToken }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as SignupResponse;
 }
 
 // REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
@@ -44,13 +41,10 @@ export async function signup(
 // rejection reason — left to throw as an ApiError; the caller branches on
 // `error.title` the same way it does for signup/playAsGuest.
 export async function login(email: string, password: string, captchaToken: string): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  return apiRequest<LoginResponse>(null, '/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, captchaToken }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LoginResponse;
 }
 
 // REQ-717/ADR-0036: provisions a real, auto-enrolled guest User row with no
@@ -73,13 +67,10 @@ export async function login(email: string, password: string, captchaToken: strin
 // ApiError like any other failure here; the caller (AuthScreen.tsx)
 // branches on `error.title` to decide whether to reset the Turnstile widget.
 export async function playAsGuest(captchaToken: string): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/guest`, {
+  return apiRequest<LoginResponse>(null, '/auth/guest', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ captchaToken }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LoginResponse;
 }
 
 // REQ-717/ADR-0036: the claim/upgrade path (POST /auth/claim,
@@ -96,16 +87,10 @@ export async function claimAccount(
   password: string,
   confirmPassword: string,
 ): Promise<CurrentUser> {
-  const response = await fetch(`${API_BASE_URL}/auth/claim`, {
+  return apiRequest<CurrentUser>(accessToken, '/auth/claim', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ email, password, confirmPassword }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as CurrentUser;
 }
 
 // REQ-715/ADR-0033: exchanges a stored refresh token for a new access token
@@ -117,13 +102,10 @@ export async function claimAccount(
 // or revoked refresh token throws (401, title "Refresh failed") — App.tsx's
 // caller falls through to a full logout on that, never an infinite retry.
 export async function refreshAccessToken(refreshToken: string): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+  return apiRequest<LoginResponse>(null, '/auth/refresh', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as LoginResponse;
 }
 
 // REQ-710 (S-039): the server re-verifies `password` against Supabase Auth
@@ -149,15 +131,10 @@ export async function deleteAccount(
   password: string,
   captchaToken: string,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/auth/account`, {
+  await apiRequest<void>(accessToken, '/auth/account', {
     method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ password, captchaToken }),
   });
-  if (!response.ok) await throwApiError(response);
 }
 
 // REQ-718/ADR-0038: the first backend logout call this app has ever made —
@@ -170,11 +147,7 @@ export async function deleteAccount(
 // out — rule 3's 7-day inactivity purge (ADR-0038) is the safety net if
 // this call never completes.
 export async function logout(accessToken: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
+  await apiRequest<void>(accessToken, '/auth/logout', { method: 'POST' });
 }
 
 // REQ-504: nothing calls this before S-026 — it's the only source of
@@ -182,11 +155,7 @@ export async function logout(accessToken: string): Promise<void> {
 // point (App.tsx). A 401 here means the token itself is dead, same meaning
 // as everywhere else in this app.
 export async function fetchMe(accessToken: string): Promise<CurrentUser> {
-  const response = await fetch(`${API_BASE_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as CurrentUser;
+  return apiRequest<CurrentUser>(accessToken, '/auth/me');
 }
 
 // REQ-714: edits the caller's own DisplayName from Settings — same 1-30
@@ -199,14 +168,8 @@ export async function updateDisplayName(
   accessToken: string,
   displayName: string,
 ): Promise<UpdateDisplayNameResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/display-name`, {
+  return apiRequest<UpdateDisplayNameResponse>(accessToken, '/auth/display-name', {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ displayName }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as UpdateDisplayNameResponse;
 }

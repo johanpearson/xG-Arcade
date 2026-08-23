@@ -1,5 +1,5 @@
 import type { AdminIncidentReportsResponse, SubmitIncidentReportResponse } from './types';
-import { API_BASE_URL, throwApiError } from './apiClient';
+import { apiRequest } from './apiClient';
 
 // REQ-903/ADR-0064: files an in-app bug report — the backend turns it into
 // a real GitHub issue server-side (POST /incidents, IncidentEndpoints),
@@ -23,16 +23,10 @@ export async function reportIncident(
   screen: string,
   environment?: string,
 ): Promise<SubmitIncidentReportResponse> {
-  const response = await fetch(`${API_BASE_URL}/incidents`, {
+  return apiRequest<SubmitIncidentReportResponse>(accessToken, '/incidents', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ title, description, screen, environment }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as SubmitIncidentReportResponse;
 }
 
 // REQ-904/ADR-0066: the open-incident-report count for AdminScreen's
@@ -42,9 +36,5 @@ export async function reportIncident(
 // render REQ-904's distinct failure/unknown state. A 401/403 (no/insufficient
 // session) is still left to throw like every other admin call.
 export async function fetchAdminIncidentReports(accessToken: string): Promise<AdminIncidentReportsResponse> {
-  const response = await fetch(`${API_BASE_URL}/admin/incident-reports`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as AdminIncidentReportsResponse;
+  return apiRequest<AdminIncidentReportsResponse>(accessToken, '/admin/incident-reports');
 }

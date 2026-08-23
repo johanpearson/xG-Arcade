@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — no docs changed beyond this entry — S-168 (`docs/backlog.md`
+  Epic 22): added `apiRequest<T>(accessToken: string | null, path: string,
+  init?: RequestInit): Promise<T>` to `frontend/src/lib/apiClient.ts` and
+  refactored the 47 existing hand-rolled fetch call sites across
+  `frontend/src/lib/admin.ts`, `auth.ts`, `announcements.ts`,
+  `leaderboard.ts`, `rounds.ts`, `leagues.ts`, `incidents.ts`, `path.ts` to
+  use it instead of each repeating headers-build/fetch/ok-check+
+  throwApiError/json()-cast by hand. All 47 call sites' status-code
+  special-casing — including the 404-as-data idioms in
+  `fetchActiveAdminRound`/`deleteUserByEmail`/`fetchCurrentRound`/
+  `fetchAdminAnnouncementBanner`/`fetchCurrentPath` — is preserved verbatim
+  via a `try { apiRequest(...) } catch (error) { if (error instanceof
+  ApiError && error.status === 404) return sentinel; throw error; }`
+  wrapper. `useAuthedFetch.ts` (React-hook-scoped, a deliberately different
+  abstraction) and `rounds.ts`'s `warmUpAutocomplete` (deliberately stays on
+  raw `fetch`, never wants the throw-on-non-ok behavior) were left
+  untouched per the story's own scoping. `quality-architect` review caught
+  one fix-now issue during this pass: an earlier draft wrapped
+  `response.json()` in a blanket try/catch that would have swallowed parse
+  failures indiscriminately across all ~40 typed call sites, not just the 4
+  genuinely-void/204 ones — corrected to an explicit `if (response.status
+  === 204) return undefined as T` check before parsing, so a real parse
+  failure on an otherwise-ok response still throws instead of silently
+  resolving to `undefined`. `architecture-reviewer` found no module-boundary
+  violation (change confined to `frontend/src/lib/`) and no ADR warranted —
+  judged equivalent in kind to S-111's original `apiClient.ts` split, which
+  also had no ADR. Pure internal refactor, no behavior change: `npm run
+  test -- --run` 647/647 across 44 files, `npx tsc -b` clean, `npm run lint`
+  (oxlint) clean; no test files added or changed, matching the story's own
+  stated acceptance criteria (existing tests exercise these functions only
+  via mocked `fetch` at each component's boundary). `requirements-document.md`,
+  `architecture-document.md`, and `implementation-document.md` checked
+  against their own `update_when` triggers and left unedited — none of the
+  three mention `apiClient.ts`/`frontend/src/lib/` today, no REQ behavior or
+  COMP boundary changed.
 - 2026-08-23 — `docs/backlog.md` (S-166 "Built as" note) — implemented
   Epic 22's S-166: extracted the shared "check cache -> confirmed-low-
   from-sweep -> confirmed-low -> persistent-failure -> live lookup"

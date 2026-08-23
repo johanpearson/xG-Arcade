@@ -14,7 +14,7 @@ import type {
   UnverifiedPlayerData,
   WikidataPlayerLookupResult,
 } from './types';
-import { API_BASE_URL, throwApiError } from './apiClient';
+import { ApiError, apiRequest } from './apiClient';
 
 // REQ-503 (SCREEN-04): always registered, regardless of environment — no
 // 404-as-hidden handling needed here the way the round-control probe below
@@ -22,11 +22,7 @@ import { API_BASE_URL, throwApiError } from './apiClient';
 export async function fetchUnverifiedPlayerData(
   accessToken: string,
 ): Promise<UnverifiedPlayerData[]> {
-  const response = await fetch(`${API_BASE_URL}/admin/player-data/unverified`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as UnverifiedPlayerData[];
+  return apiRequest<UnverifiedPlayerData[]>(accessToken, '/admin/player-data/unverified');
 }
 
 // REQ-503 (2026-07-20 extension): the bulk "approve" action — a single id
@@ -40,16 +36,10 @@ export async function approvePlayerData(
   accessToken: string,
   playerDataIds: string[],
 ): Promise<ApprovePlayerDataResponse> {
-  const response = await fetch(`${API_BASE_URL}/admin/player-data/approve`, {
+  return apiRequest<ApprovePlayerDataResponse>(accessToken, '/admin/player-data/approve', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ playerDataIds }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as ApprovePlayerDataResponse;
 }
 
 // REQ-503 (2026-07-20 extension): the bulk "remove" action — sibling to
@@ -64,16 +54,10 @@ export async function removePlayerData(
   accessToken: string,
   playerDataIds: string[],
 ): Promise<RemovePlayerDataResponse> {
-  const response = await fetch(`${API_BASE_URL}/admin/player-data/remove`, {
+  return apiRequest<RemovePlayerDataResponse>(accessToken, '/admin/player-data/remove', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ playerDataIds }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as RemovePlayerDataResponse;
 }
 
 // REQ-501: 409 (an override already exists for this playerId/field) is left
@@ -87,44 +71,38 @@ export async function createPlayerOverride(
   value: string,
   reason: string,
 ): Promise<PlayerOverride> {
-  const response = await fetch(`${API_BASE_URL}/admin/player-overrides`, {
+  return apiRequest<PlayerOverride>(accessToken, '/admin/player-overrides', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ playerId, field, value, reason }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as PlayerOverride;
 }
 
 // REQ-505: a bare 404 here (no body, same shape as any other routing miss)
 // means the round-control/user-deletion feature isn't registered in this
 // environment at all (ASPNETCORE_ENVIRONMENT == Production) — mirrors
 // fetchCurrentRound's existing 404-as-null idiom, but the meaning here is
-// "hide the section," not "empty state to render."
+// "hide the section," not "empty state to render." Catches the ApiError
+// apiRequest throws for the 404 rather than letting it surface, since this
+// probe's whole point is telling "not registered" apart from any other
+// failure.
 export async function fetchActiveAdminRound(
   accessToken: string,
   gameKey: string,
 ): Promise<AdminActiveRound | null> {
-  const response = await fetch(`${API_BASE_URL}/admin/rounds/${gameKey}/active`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as AdminActiveRound;
+  try {
+    return await apiRequest<AdminActiveRound>(accessToken, `/admin/rounds/${gameKey}/active`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 // REQ-505: 404 here (no active round for this game right now) is a real
 // error distinct from the probe's 404-as-hidden above — left to throw.
 export async function closeAdminRound(accessToken: string, gameKey: string): Promise<AdminRound> {
-  const response = await fetch(`${API_BASE_URL}/admin/rounds/${gameKey}/close`, {
+  return apiRequest<AdminRound>(accessToken, `/admin/rounds/${gameKey}/close`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as AdminRound;
 }
 
 // REQ-505: 400 problem-details ("Invalid end time") when the chosen time
@@ -135,16 +113,10 @@ export async function updateAdminRoundEndTime(
   gameKey: string,
   endTimeIso: string,
 ): Promise<AdminRound> {
-  const response = await fetch(`${API_BASE_URL}/admin/rounds/${gameKey}/end-time`, {
+  return apiRequest<AdminRound>(accessToken, `/admin/rounds/${gameKey}/end-time`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ endTime: endTimeIso }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as AdminRound;
 }
 
 export type DeleteUserResult = 'deleted' | 'not-found';
@@ -153,20 +125,21 @@ export type DeleteUserResult = 'deleted' | 'not-found';
 // caller shows inline ("No user found with that email.") rather than a
 // thrown error — mirrors why fetchCurrentRound treats its own 404 as data,
 // not a failure, though the meaning here is "not found," not "hidden."
+// Catches the ApiError apiRequest throws for the 404 rather than letting it
+// surface, same reasoning as fetchActiveAdminRound above.
 export async function deleteUserByEmail(
   accessToken: string,
   email: string,
 ): Promise<DeleteUserResult> {
-  const response = await fetch(
-    `${API_BASE_URL}/admin/users?email=${encodeURIComponent(email)}`,
-    {
+  try {
+    await apiRequest<void>(accessToken, `/admin/users?email=${encodeURIComponent(email)}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${accessToken}` },
-    },
-  );
-  if (response.status === 404) return 'not-found';
-  if (!response.ok) await throwApiError(response);
-  return 'deleted';
+    });
+    return 'deleted';
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return 'not-found';
+    throw error;
+  }
 }
 
 // REQ-507: always registered, in every environment (including Production) —
@@ -179,11 +152,7 @@ export async function deleteUserByEmail(
 // REQ-501/502/503's unverified-data fetch already owns that page-level
 // decision).
 export async function fetchAdminAccountMetrics(accessToken: string): Promise<AdminAccountMetrics> {
-  const response = await fetch(`${API_BASE_URL}/admin/accounts/metrics`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as AdminAccountMetrics;
+  return apiRequest<AdminAccountMetrics>(accessToken, '/admin/accounts/metrics');
 }
 
 // REQ-508 step 1: the dry-run count shown before the bulk force-clear-guests
@@ -191,11 +160,7 @@ export async function fetchAdminAccountMetrics(accessToken: string): Promise<Adm
 // currently matching IsGuest = true. Left to throw on any failure (401/403/
 // other), same as every other admin call in this file.
 export async function fetchGuestAccountCount(accessToken: string): Promise<number> {
-  const response = await fetch(`${API_BASE_URL}/admin/accounts/guests/count`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  const body = (await response.json()) as GuestAccountCountResponse;
+  const body = await apiRequest<GuestAccountCountResponse>(accessToken, '/admin/accounts/guests/count');
   return body.count;
 }
 
@@ -208,12 +173,9 @@ export async function fetchGuestAccountCount(accessToken: string): Promise<numbe
 // account, same per-row-outcome discipline as approvePlayerData/
 // removePlayerData above.
 export async function clearGuestAccounts(accessToken: string): Promise<ClearGuestAccountsResponse> {
-  const response = await fetch(`${API_BASE_URL}/admin/accounts/guests/clear`, {
+  return apiRequest<ClearGuestAccountsResponse>(accessToken, '/admin/accounts/guests/clear', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as ClearGuestAccountsResponse;
 }
 
 // REQ-1209/ADR-0058: always registered, in every environment (including
@@ -228,11 +190,7 @@ export async function clearGuestAccounts(accessToken: string): Promise<ClearGues
 // degrade, mirroring AccountMetricsSection's own hide-not-page-wide-deny
 // choice.
 export async function fetchAdminXGPathCycle(accessToken: string): Promise<AdminXGPathCycleState> {
-  const response = await fetch(`${API_BASE_URL}/admin/xg-path/cycle`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as AdminXGPathCycleState;
+  return apiRequest<AdminXGPathCycleState>(accessToken, '/admin/xg-path/cycle');
 }
 
 // REQ-509 (S-090)/ADR-0053: the pending-suggestion queue for
@@ -241,11 +199,7 @@ export async function fetchAdminXGPathCycle(accessToken: string): Promise<AdminX
 // rule). Always registered, same as every other admin call in this file; a
 // 403 (non-admin token) is left to throw like every other admin endpoint.
 export async function fetchPendingSuggestions(accessToken: string): Promise<PendingSuggestion[]> {
-  const response = await fetch(`${API_BASE_URL}/admin/suggestions`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as PendingSuggestion[];
+  return apiRequest<PendingSuggestion[]>(accessToken, '/admin/suggestions');
 }
 
 // REQ-509: triggers a fresh, admin-initiated Wikidata lookup for one pending
@@ -261,12 +215,11 @@ export async function lookupSuggestionPlayer(
   accessToken: string,
   suggestionId: string,
 ): Promise<WikidataPlayerLookupResult> {
-  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/lookup`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as WikidataPlayerLookupResult;
+  return apiRequest<WikidataPlayerLookupResult>(
+    accessToken,
+    `/admin/suggestions/${suggestionId}/lookup`,
+    { method: 'POST' },
+  );
 }
 
 // REQ-509: commits the admin's reviewed/confirmed values for one pending
@@ -281,16 +234,11 @@ export async function commitSuggestion(
   suggestionId: string,
   payload: CommitPlayerDataPayload,
 ): Promise<CommitPlayerDataResult> {
-  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/commit`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as CommitPlayerDataResult;
+  return apiRequest<CommitPlayerDataResult>(
+    accessToken,
+    `/admin/suggestions/${suggestionId}/commit`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
 }
 
 // REQ-509: rejects one pending suggestion — no request body (mirrors
@@ -300,11 +248,9 @@ export async function commitSuggestion(
 // (already resolved by another admin) is left to throw, same as every other
 // suggestion-review call above.
 export async function rejectSuggestion(accessToken: string, suggestionId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/reject`, {
+  await apiRequest<void>(accessToken, `/admin/suggestions/${suggestionId}/reject`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) await throwApiError(response);
 }
 
 // REQ-510/ADR-0053: the standalone variant of lookupSuggestionPlayer above —
@@ -318,16 +264,10 @@ export async function lookupPlayerByName(
   accessToken: string,
   playerName: string,
 ): Promise<WikidataPlayerLookupResult> {
-  const response = await fetch(`${API_BASE_URL}/admin/player-search/lookup`, {
+  return apiRequest<WikidataPlayerLookupResult>(accessToken, '/admin/player-search/lookup', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify({ playerName }),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as WikidataPlayerLookupResult;
 }
 
 // REQ-510/ADR-0053: the standalone variant of commitSuggestion above —
@@ -337,14 +277,8 @@ export async function commitPlayerSearch(
   accessToken: string,
   payload: CommitPlayerDataPayload,
 ): Promise<CommitPlayerDataResult> {
-  const response = await fetch(`${API_BASE_URL}/admin/player-search/commit`, {
+  return apiRequest<CommitPlayerDataResult>(accessToken, '/admin/player-search/commit', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) await throwApiError(response);
-  return (await response.json()) as CommitPlayerDataResult;
 }
