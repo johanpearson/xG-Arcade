@@ -57,10 +57,8 @@ jobs:
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
       - name: Prefetch player careers
-        run: dotnet run --project backend/src/XGArcade.Api -- prefetch-player-careers
-        env:
-          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: prefetch-player-careers
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

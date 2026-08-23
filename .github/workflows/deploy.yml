@@ -55,16 +55,23 @@ jobs:
     # ever touches its ephemeral local Postgres container, so without this
     # job dev's database never got either migrations or seed rows applied
     # automatically. Idempotent, safe to run on every push to main.
+    #
+    # S-175: checkout stays here (a workflow step referencing a local
+    # composite action via `uses: ./...` needs the repo already checked out
+    # to resolve that action's own action.yml); setup-dotnet + the CLI-verb
+    # run + ConnectionStrings__Database wiring moved into
+    # .github/actions/run-cli-verb, shared with every other single-CLI-verb
+    # maintenance workflow. ci.yml's own "Migrate + seed local database"
+    # step was examined and deliberately NOT converted — see that file's
+    # own comment for why.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
       - name: Migrate + seed dev database
-        run: dotnet run --project backend/src/XGArcade.Api -- migrate-and-seed
-        env:
-          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: migrate-and-seed
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
 
   deploy-infra:
     runs-on: ubuntu-latest

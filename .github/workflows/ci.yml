@@ -119,6 +119,14 @@ jobs:
         run: |
           sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list /etc/apt/sources.list.d/* || true
           npx playwright install --with-deps chromium
+      # S-175: examined for the run-cli-verb composite action extraction and
+      # deliberately left as a plain step, not converted — this step reuses
+      # the e2e-tests job's own checkout/setup-dotnet (shared with
+      # setup-node/npm ci/Playwright install above), and its connection
+      # string is this job's own ephemeral local Postgres service container,
+      # never secrets.DEV_DATABASE_CONNECTION_STRING — it isn't an instance
+      # of the "checkout, setup-dotnet, run a CLI verb, connect to dev DB"
+      # shape the composite action exists for, despite the similar name.
       - name: Migrate + seed local database
         run: dotnet run --project backend/src/XGArcade.Api -- migrate-and-seed
         env:

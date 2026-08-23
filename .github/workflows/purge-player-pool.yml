@@ -26,11 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
       - name: Purge player pool
-        run: dotnet run --project backend/src/XGArcade.Api -- purge-player-pool "$CONFIRMATION"
-        env:
-          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
-          CONFIRMATION: ${{ inputs.confirmation }}
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: purge-player-pool
+          arg: ${{ inputs.confirmation }}
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
