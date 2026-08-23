@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
-import { fetchCurrentRound, submitGuess, warmUpAutocomplete } from '../lib/rounds';
-import type {
-  CurrentRoundCell,
-  CurrentRoundGuess,
-  CurrentRoundResponse,
-  SubmitGuessResponse,
-} from '../lib/types';
+import { useCallback, useState } from 'react';
+import { fetchCurrentRound, submitGuess } from '../lib/rounds';
+import type { CurrentRoundCell, CurrentRoundGuess, SubmitGuessResponse } from '../lib/types';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
-import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
+import { formatRoundEndTimeAccessibleLabel } from '../lib/roundTime';
 import { computeRoundCompletion, useCompletionTransition, type CompletableItem } from '../lib/roundCompletion';
+import { useRoundFetch, useAutocompleteWarmup } from '../lib/useRoundFetch';
 import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
 import type { LeaderboardRoundTarget } from '../leaderboard/LeaderboardScreen';
 import { RoundCompletionBanner } from '../components/RoundCompletionBanner';
@@ -56,17 +51,6 @@ function toCompletableItem(guess: CurrentRoundGuess | null): CompletableItem {
   return { locked: guess.locked, points: guess.locked ? MAX_POINTS_PER_CELL : null };
 }
 
-type LoadState =
-  | { phase: 'loading' }
-  | { phase: 'empty' }
-  | { phase: 'error'; message: string }
-  // REQ-303 (2026-07-21 addition): roundEndTime is computed exactly once,
-  // right here at fetch-success time (referenceTime = "now" at this
-  // instant), never recomputed on a later render/timer — see
-  // lib/roundTime.ts's own doc comment for why that's deliberate, not a
-  // shortcut to fix later.
-  | { phase: 'ready'; round: CurrentRoundResponse; roundEndTime: RoundEndTimeDisplay };
-
 // GET /rounds/current only ever returns an Active round today (round-close
 // is S-011 scope) — so roundStatus is always "active" here. SCREEN-01a's
 // "closed" state is exercised via CellState's own props/test instead.
@@ -78,7 +62,7 @@ export function GridScreen({
   isGuest = false,
   onViewRoundLeaderboard,
 }: GridScreenProps) {
-  const [state, setState] = useState<LoadState>({ phase: 'loading' });
+  const { state, setState, checkRoundStillLive } = useRoundFetch(accessToken, fetchCurrentRound, onAuthError);
   const [activeCell, setActiveCell] = useState<CurrentRoundCell | null>(null);
   // REQ-213 (S-041): independent of activeCell/GuessInput on purpose — an
   // open guess-input sheet must stay untouched if the player also opens
@@ -124,51 +108,12 @@ export function GridScreen({
     if (state.phase !== 'ready' || !onViewRoundLeaderboard) return;
     const roundId = state.round.roundId;
     setCheckingLeaderboardTarget(true);
-    let scope: 'live' | 'past' = 'past';
-    try {
-      const current = await fetchCurrentRound(accessToken);
-      if (current && current.roundId === roundId) {
-        scope = 'live';
-      }
-    } catch {
-      // Falls through to 'past' — see this function's own doc comment.
-    }
+    const scope = await checkRoundStillLive(roundId);
     setCheckingLeaderboardTarget(false);
     onViewRoundLeaderboard({ gameKey: XG_GRID_GAME_KEY, scope, roundId });
-  }, [accessToken, state, onViewRoundLeaderboard]);
+  }, [state, onViewRoundLeaderboard, checkRoundStillLive]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchCurrentRound(accessToken)
-      .then((round) => {
-        if (cancelled) return;
-        setState(
-          round
-            ? { phase: 'ready', round, roundEndTime: formatRoundEndTime(round.endTime, new Date()) }
-            : { phase: 'empty' },
-        );
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        if (error instanceof ApiError && error.status === 401) {
-          onAuthError();
-          return;
-        }
-        setState({ phase: 'error', message: describeError(error) });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
-
-  // S-151/REQ-207: fire-and-forget cold-start warm-up, independent of the
-  // round-fetch effect above — this must never gate or affect the round
-  // load's own loading/error state (see warmUpAutocomplete's own comment).
-  useEffect(() => {
-    warmUpAutocomplete(accessToken);
-  }, [accessToken]);
+  useAutocompleteWarmup(accessToken);
 
   // Shared by both handlers below — only ever called with a genuinely
   // scored response (candidates: null), never a disambiguation-needed one.
@@ -197,7 +142,7 @@ export function GridScreen({
         };
       });
     },
-    [],
+    [setState],
   );
 
   // REQ-209/REQ-210/REQ-215 (S-089 revision): returns the full, unmodified

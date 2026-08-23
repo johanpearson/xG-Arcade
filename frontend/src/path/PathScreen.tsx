@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
+import { useCallback, useState } from 'react';
 import { fetchCurrentPath } from '../lib/path';
-import { submitGuess, warmUpAutocomplete } from '../lib/rounds';
+import { submitGuess } from '../lib/rounds';
 import type { CurrentPathGuess, CurrentPathResponse } from '../lib/types';
-import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
+import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel } from '../lib/roundTime';
 import { computeRoundCompletion, useCompletionTransition, type CompletableItem } from '../lib/roundCompletion';
+import { useRoundFetch, useAutocompleteWarmup } from '../lib/useRoundFetch';
 import { XG_PATH_GAME_KEY } from '../games/GameSelectScreen';
 import type { LeaderboardRoundTarget } from '../leaderboard/LeaderboardScreen';
 import { RoundCompletionBanner } from '../components/RoundCompletionBanner';
@@ -42,18 +42,8 @@ function toCompletableItem(guess: CurrentPathGuess | null): CompletableItem {
   return { locked: guess?.locked ?? false, points: guess?.points ?? null };
 }
 
-type LoadState =
-  | { phase: 'loading' }
-  | { phase: 'empty' }
-  | { phase: 'error'; message: string }
-  // REQ-303: roundEndTime is computed exactly once, at fetch-success time —
-  // same GridScreen.tsx convention (see that file's own LoadState comment
-  // and lib/roundTime.ts's doc comment for the full rationale), not
-  // recomputed on a later render/timer.
-  | { phase: 'ready'; round: CurrentPathResponse; roundEndTime: RoundEndTimeDisplay };
-
 export function PathScreen({ accessToken, onAuthError, onViewRoundLeaderboard }: PathScreenProps) {
-  const [state, setState] = useState<LoadState>({ phase: 'loading' });
+  const { state, setState, checkRoundStillLive } = useRoundFetch(accessToken, fetchCurrentPath, onAuthError);
   // S-086: which of the round's puzzles is currently shown — purely
   // client-side, per SCREEN-10's "'Next puzzle' is an explicit action,
   // never automatic" requirement. GET /path/current always returns every
@@ -94,55 +84,19 @@ export function PathScreen({ accessToken, onAuthError, onViewRoundLeaderboard }:
     if (state.phase !== 'ready' || !onViewRoundLeaderboard) return;
     const roundId = state.round.roundId;
     setCheckingLeaderboardTarget(true);
-    let scope: 'live' | 'past' = 'past';
-    try {
-      const current = await fetchCurrentPath(accessToken);
-      if (current && current.roundId === roundId) {
-        scope = 'live';
-      }
-    } catch {
-      // Falls through to 'past' — see GridScreen.tsx's equivalent handler
-      // for the full reasoning.
-    }
+    const scope = await checkRoundStillLive(roundId);
     setCheckingLeaderboardTarget(false);
     onViewRoundLeaderboard({ gameKey: XG_PATH_GAME_KEY, scope, roundId });
-  }, [accessToken, state, onViewRoundLeaderboard]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchCurrentPath(accessToken)
-      .then((round) => {
-        if (cancelled) return;
-        setState(
-          round
-            ? { phase: 'ready', round, roundEndTime: formatRoundEndTime(round.endTime, new Date()) }
-            : { phase: 'empty' },
-        );
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        if (error instanceof ApiError && error.status === 401) {
-          onAuthError();
-          return;
-        }
-        setState({ phase: 'error', message: describeError(error) });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
+  }, [state, onViewRoundLeaderboard, checkRoundStillLive]);
 
   // S-151/REQ-207: fire-and-forget cold-start warm-up, independent of the
-  // round-fetch effect above — this must never gate or affect the round
-  // load's own loading/error state (see warmUpAutocomplete's own comment,
-  // frontend/src/lib/rounds.ts). Same call as GridScreen.tsx's own mount
-  // effect — xG Path shares the same PlayerNameIndex-backed autocomplete
-  // path (PathGuessInput.tsx), so it needs the same warm-up.
-  useEffect(() => {
-    warmUpAutocomplete(accessToken);
-  }, [accessToken]);
+  // round-fetch mount effect inside useRoundFetch — this must never gate or
+  // affect the round load's own loading/error state (see
+  // warmUpAutocomplete's own comment, frontend/src/lib/rounds.ts). Same call
+  // as GridScreen.tsx's own — xG Path shares the same
+  // PlayerNameIndex-backed autocomplete path (PathGuessInput.tsx), so it
+  // needs the same warm-up.
+  useAutocompleteWarmup(accessToken);
 
   // REQ-1203/1204 (S-086): xG Path's POST .../guesses response
   // (SubmitGuessResponse) carries isCorrect/attemptCount/locked but no clue
@@ -194,7 +148,7 @@ export function PathScreen({ accessToken, onAuthError, onViewRoundLeaderboard }:
 
       return result.isCorrect;
     },
-    [accessToken, state, puzzleIndex],
+    [accessToken, state, puzzleIndex, setState],
   );
 
   if (state.phase === 'loading') {

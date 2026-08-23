@@ -13,6 +13,43 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — no docs changed beyond this entry — S-169 (`docs/backlog.md`
+  Epic 22): extracted `useRoundFetch<TRound extends { roundId: string;
+  endTime: string }>(accessToken, fetchFn, onAuthError): { state, setState,
+  checkRoundStillLive }` into new `frontend/src/lib/useRoundFetch.ts`,
+  covering the `LoadState` union and mount-fetch effect
+  `GridScreen.tsx`/`PathScreen.tsx` previously hand-rolled identically
+  (loading/empty/error/ready, `roundEndTime` computed once at fetch-success
+  time, 401 escalated to `onAuthError`, other errors via `describeError`).
+  Folded in `checkRoundStillLive(roundId)` (the shared core of
+  `handleViewCompletedRoundLeaderboard`'s live-vs-past leaderboard-scope
+  check, REQ-1210/ADR-0083) as a read-only re-fetch-and-compare that
+  deliberately never calls `setState` — the pre-extraction code never did
+  either, and `GridScreen.test.tsx`'s "reports the 'past' scope..." test
+  (a 404 re-check) would otherwise flip the screen to `'empty'` and blank
+  out the just-completed round mid-click. Left `warmUpAutocomplete` out as
+  a separate `useAutocompleteWarmup(accessToken)` hook in the same file —
+  an unrelated effect (no `TRound`/`state` involvement) that would have
+  conflated two concerns under one hook name. Each screen keeps its own
+  thin `handleViewCompletedRoundLeaderboard` wrapper (owns
+  `checkingLeaderboardTarget` and its own `gameKey`). `GridScreen.tsx`'s
+  `applyScoredGuess`/`handleSubmitGuess`/`handleResolveDisambiguation` and
+  `PathScreen.tsx`'s `puzzleIndex`/`refetchWarning`/`handleSubmitGuess` were
+  untouched beyond reading `state`/`setState` from the hook. Two new
+  `react-hooks/exhaustive-deps` warnings appeared once `setState` came from
+  a custom hook instead of a literal `useState` call in each file
+  (oxlint's static check no longer recognized it as stable) — fixed by
+  adding `setState` to the affected `useCallback` dependency arrays, since
+  React guarantees a `useState` setter's identity is stable. Pure
+  structural refactor, no behavior change: `npm run test` 647/647 across 44
+  files (including `GridScreen.test.tsx`/`PathScreen.test.tsx` unchanged),
+  `npx tsc -b` clean, `npm run lint` (oxlint) clean; no test files added or
+  changed. No sibling `useRoundFetch.test.ts` added, matching
+  `useAuthedFetch.ts`'s own precedent of no dedicated lib-hook test file —
+  its behavior is exercised only via the two screens' own tests.
+  `requirements-document.md`/`architecture-document.md`/
+  `implementation-document.md` checked against their own `update_when`
+  triggers and left unedited — no REQ behavior or COMP boundary changed.
 - 2026-08-23 — no docs changed beyond this entry — S-168 (`docs/backlog.md`
   Epic 22): added `apiRequest<T>(accessToken: string | null, path: string,
   init?: RequestInit): Promise<T>` to `frontend/src/lib/apiClient.ts` and
