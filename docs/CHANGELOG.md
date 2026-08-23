@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
+  change — this is CI-only and doesn't touch a component boundary) — Added
+  path filtering to `ci.yml`/`deploy.yml` so doc-only changes
+  (`docs/**`, root `*.md`, `.claude/**`, `mockups/**`) skip the full
+  backend/frontend/E2E test run and the build-push-deploy pipeline.
+  `deploy.yml` (push-to-`main`, not a required check) got a plain
+  `paths-ignore` on its `push` trigger. `ci.yml`'s three jobs
+  (`backend-tests`/`frontend-unit-tests`/`e2e-tests`) are confirmed
+  required status checks for `main`'s branch protection, so a
+  workflow-level `paths-ignore` there would leave those checks stuck
+  pending forever on a doc-only PR and block auto-merge — instead, a new
+  leading `changes` job (`dorny/paths-filter`) makes the three jobs
+  conditional (`if: needs.changes.outputs.code == 'true'`) so the
+  workflow still triggers and each required job still posts a (skipped,
+  green) result.
 - 2026-08-23 — `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`,
   `docs/backlog.md` — S-176: extracted the byte-identical `generate_round()`
   retry-with-backoff bash function (3 attempts, 30s/60s backoff,

@@ -16,6 +16,15 @@ name: deploy
 on:
   push:
     branches: [main]
+    # Doc-only changes never affect the deployed app, so skip the
+    # build/push/deploy pipeline entirely for them. Safe here (unlike
+    # ci.yml) because this workflow isn't a required status check — a
+    # push that never triggers it doesn't block anything.
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".claude/**"
+      - "mockups/**"
   workflow_dispatch: {}
 
 permissions:
