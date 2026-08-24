@@ -125,6 +125,26 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
   });
 
+  // REQ-411 (S-179): the own-stats entry point — unconditional (not
+  // isAdmin/isGuest-gated), unlike the "Admin" link above.
+  it('REQ-411: renders a "My stats" link that calls onOpenStats when clicked, for both a guest and a claimed, non-admin account', async () => {
+    const user = userEvent.setup();
+    const { onOpenStats } = renderSettingsScreen({ isAdmin: false, isGuest: true });
+
+    const statsLink = screen.getByRole('button', { name: 'My stats' });
+    expect(statsLink).toBeInTheDocument();
+
+    await user.click(statsLink);
+
+    expect(onOpenStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-411: the "My stats" link is present regardless of isAdmin', () => {
+    renderSettingsScreen({ isAdmin: true });
+
+    expect(screen.getByRole('button', { name: 'My stats' })).toBeInTheDocument();
+  });
+
   // REQ-714: display-name edit form.
   it('REQ-714: pre-fills the display-name field with the current name', () => {
     renderSettingsScreen({ displayName: 'Current Name' });

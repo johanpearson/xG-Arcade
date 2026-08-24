@@ -502,4 +502,52 @@ describe('LeaderboardScreen', () => {
       expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'true');
     });
   });
+
+  // REQ-411 (S-179): `onSelectPlayer` end-to-end through the real screen —
+  // LeaderboardRowsList.test.tsx already covers the row-click/prop-threading
+  // behavior in isolation; this confirms LeaderboardScreen itself actually
+  // wires a real click through to the callback with the correct scope's
+  // rows (default "All-time"), not just that the plumbing exists in theory.
+  describe('REQ-411: selecting another player\'s display name', () => {
+    it('clicking a row\'s display name on the (default) All-time scope calls onSelectPlayer with that row\'s userId/displayName', async () => {
+      const onSelectPlayer = vi.fn();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({
+            rows: [row(1, 'user-42', 'Robin', 77)],
+            requestingUserRow: null,
+            nextCursor: null,
+            hasMore: false,
+          }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} onSelectPlayer={onSelectPlayer} />);
+      await waitFor(() => expect(screen.getByText('Robin')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Robin' }));
+
+      expect(onSelectPlayer).toHaveBeenCalledWith('user-42', 'Robin');
+    });
+
+    it('without onSelectPlayer, row names render as plain text, not a navigation target (backward compatible, matches every pre-REQ-411 test in this file)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({
+            rows: [row(1, 'user-42', 'Robin', 77)],
+            requestingUserRow: null,
+            nextCursor: null,
+            hasMore: false,
+          }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('Robin')).toBeInTheDocument());
+
+      expect(screen.queryByRole('button', { name: 'Robin' })).not.toBeInTheDocument();
+    });
+  });
 });
