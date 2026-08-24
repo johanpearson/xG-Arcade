@@ -87,8 +87,13 @@ describe('AdminScreen', () => {
       '/admin/player-data/unverified': () => jsonResponse([unverifiedRow]),
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
+    const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: UnverifiedDataSection now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
 
     expect(await screen.findByText('Unverified data (1)')).toBeInTheDocument();
     expect(screen.getByText('Henry · nationality · France · live_lookup')).toBeInTheDocument();
@@ -119,6 +124,10 @@ describe('AdminScreen', () => {
     const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: UnverifiedDataSection now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
     await screen.findByText('Henry · nationality · France · live_lookup');
 
     await user.click(screen.getByRole('button', { name: 'Correct' }));
@@ -198,6 +207,9 @@ describe('AdminScreen', () => {
     const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: RoundControlSection now lives in the "Grid" nav group, which
+    // isn't the default ("Users") — select it before interacting.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
     await screen.findByText('Grid Round #12 · ends 2026-07-20T00:00:00Z');
 
     await user.click(screen.getByRole('button', { name: 'End round now' }));
@@ -446,7 +458,13 @@ describe('AdminScreen', () => {
         jsonResponse([pendingSuggestion('s-1'), pendingSuggestion('s-2'), pendingSuggestion('s-3')]),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
 
     expect(await screen.findByRole('button', { name: 'Player suggestions (3)' })).toBeInTheDocument();
   });
@@ -458,7 +476,13 @@ describe('AdminScreen', () => {
       '/admin/suggestions': () => jsonResponse([]),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
 
     // Wait for the fetch to resolve rather than asserting on the initial
     // (also badge-less) render, so this genuinely exercises the N===0 case
@@ -488,7 +512,13 @@ describe('AdminScreen', () => {
       '/admin/suggestions': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
 
     expect(await screen.findByRole('button', { name: 'Player suggestions' })).toBeInTheDocument();
     // The rest of the page renders normally — this section's failure never
@@ -509,6 +539,9 @@ describe('AdminScreen', () => {
     const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={onOpenSuggestions} />);
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before interacting.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
 
     const button = await screen.findByRole('button', { name: 'Player suggestions (1)' });
     await user.click(button);
@@ -524,7 +557,13 @@ describe('AdminScreen', () => {
       '/admin/suggestions': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Grid' }));
 
     expect(await screen.findByText('Something broke.')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Player suggestions' })).toBeInTheDocument();
@@ -555,7 +594,13 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => jsonResponse(incidentReportsResponse(0)),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Issues' }));
 
     // Wait for the page (and this section's own fetch) to resolve before
     // asserting absence, so this genuinely exercises the openCount===0 case
@@ -579,7 +624,13 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => jsonResponse(incidentReportsResponse(3)),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Issues' }));
 
     expect(await screen.findByRole('heading', { name: 'Incident reports (3)' })).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'View open reports on GitHub' });
@@ -597,7 +648,13 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => jsonResponse({ available: false, openCount: 0, issues: [] }),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Issues' }));
 
     expect(await screen.findByRole('heading', { name: 'Incident reports' })).toBeInTheDocument();
     // REQ-904: available:false must never be silently rendered the same way
@@ -619,7 +676,13 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
+    // which isn't the default ("Users") — select it before asserting on
+    // its content.
+    await user.click(await screen.findByRole('tab', { name: 'Issues' }));
 
     expect(await screen.findByRole('heading', { name: 'Incident reports' })).toBeInTheDocument();
     expect(await screen.findByText('Something broke.')).toBeInTheDocument();
@@ -690,7 +753,13 @@ describe('AdminScreen', () => {
       '/admin/announcement-banner': bareNotFound,
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
+    // nav group, which isn't the default ("Users") — select it before
+    // asserting on its content.
+    await user.click(await screen.findByRole('tab', { name: 'Announcements' }));
 
     expect(await screen.findByText('Site-wide announcement banner')).toBeInTheDocument();
     expect(
@@ -709,7 +778,13 @@ describe('AdminScreen', () => {
       '/admin/announcement-banner': () => jsonResponse(loadedActiveBanner),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
+    // nav group, which isn't the default ("Users") — select it before
+    // asserting on its content.
+    await user.click(await screen.findByRole('tab', { name: 'Announcements' }));
 
     expect(await screen.findByText('Status: Active — visible to every visitor')).toBeInTheDocument();
     // The message input's value is set from a separate `useEffect` keyed on
@@ -731,7 +806,13 @@ describe('AdminScreen', () => {
       '/admin/announcement-banner': () => jsonResponse(loadedInactiveBanner),
     });
 
+    const user = userEvent.setup();
+
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
+    // nav group, which isn't the default ("Users") — select it before
+    // asserting on its content.
+    await user.click(await screen.findByRole('tab', { name: 'Announcements' }));
 
     expect(await screen.findByText('Status: Inactive — not shown to visitors')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
@@ -785,6 +866,10 @@ describe('AdminScreen', () => {
     const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
+    // nav group, which isn't the default ("Users") — select it before
+    // interacting.
+    await user.click(await screen.findByRole('tab', { name: 'Announcements' }));
     await screen.findByText('No banner has been created yet — write one below.');
 
     await user.type(screen.getByLabelText('Message'), loadedInactiveBanner.message);
@@ -819,6 +904,10 @@ describe('AdminScreen', () => {
     const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
+    // nav group, which isn't the default ("Users") — select it before
+    // interacting.
+    await user.click(await screen.findByRole('tab', { name: 'Announcements' }));
     await screen.findByText('Status: Inactive — not shown to visitors');
 
     await user.click(screen.getByRole('button', { name: 'Activate' }));
@@ -831,6 +920,117 @@ describe('AdminScreen', () => {
     );
     expect(await screen.findByText('Status: Active — visible to every visitor')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
+  });
+
+  // ---- REQ-516: grouped nav ----------------------------------------------
+
+  it('REQ-516: renders a grouped nav tablist with all 5 groups, defaulting to "Users" selected and visible', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () =>
+        jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('tablist', { name: 'Admin section' })).toBeInTheDocument();
+    for (const label of ['Users', 'Grid', 'Path', 'Announcements', 'Issues']) {
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'true');
+    for (const label of ['Grid', 'Path', 'Announcements', 'Issues']) {
+      expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'false');
+    }
+
+    // "Users" group content (AccountMetricsSection) is visible by default...
+    expect(await screen.findByText('Accounts')).toBeVisible();
+    // ...while "Grid" group content (UnverifiedDataSection) is mounted (its
+    // fetch already ran) but hidden behind the unselected tab.
+    expect(await screen.findByText('No unverified data to review.')).not.toBeVisible();
+  });
+
+  it('REQ-516: clicking a different tab shows only that group and hides the previously-visible one', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () =>
+        jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 }),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    expect(await screen.findByText('Accounts')).toBeVisible();
+    await screen.findByText('No unverified data to review.');
+
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+
+    expect(screen.getByRole('tab', { name: 'Grid' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText('No unverified data to review.')).toBeVisible();
+    // The previously-visible default group's content is still mounted, but
+    // no longer visible — never removed from the DOM by a tab switch.
+    expect(screen.getByText('Accounts')).not.toBeVisible();
+  });
+
+  it('REQ-516: switching from "Users" to "Grid" and back does not re-fetch either section\'s data', async () => {
+    let unverifiedCallCount = 0;
+    let metricsCallCount = 0;
+    stubFetch({
+      '/admin/player-data/unverified': () => {
+        unverifiedCallCount += 1;
+        return jsonResponse([]);
+      },
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () => {
+        metricsCallCount += 1;
+        return jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 });
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('No unverified data to review.');
+    await screen.findByText('Total users');
+    expect(unverifiedCallCount).toBe(1);
+    expect(metricsCallCount).toBe(1);
+
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+    await user.click(screen.getByRole('tab', { name: 'Users' }));
+
+    expect(unverifiedCallCount).toBe(1);
+    expect(metricsCallCount).toBe(1);
+  });
+
+  it('REQ-516: round-control and user-deletion stay entirely absent from the DOM under the grouped nav, even after navigating to their groups', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('No unverified data to review.');
+
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+    expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Users' }));
+    expect(screen.queryByText('Delete a user')).not.toBeInTheDocument();
+  });
+
+  it('REQ-516: the page-level access-denied message renders with no grouped nav/tablist at all', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () =>
+        jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('REQ-511: "Deactivate" calls the deactivate endpoint, flips the shown status to Inactive, and keeps the saved message', async () => {
@@ -848,6 +1048,10 @@ describe('AdminScreen', () => {
     const user = userEvent.setup();
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
+    // nav group, which isn't the default ("Users") — select it before
+    // interacting.
+    await user.click(await screen.findByRole('tab', { name: 'Announcements' }));
     await screen.findByText('Status: Active — visible to every visitor');
 
     await user.click(screen.getByRole('button', { name: 'Deactivate' }));

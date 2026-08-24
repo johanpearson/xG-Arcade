@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.76"
+version: "0.77"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -1502,6 +1502,30 @@ Production-only section-hiding described below are all unchanged; only how
 a player navigates here changed, one hop further from the header than
 before.
 
+**Status note (2026-08-24, grouped sub-navigation per REQ-516/S-177):** the
+page is no longer one long scrolling stack — it now opens with a persistent
+tab bar (`role="tablist"`) with five groups, in this order: **Users**
+(account metrics, guest force-clear, user deletion — the default/opening
+group), **Grid** (unverified data review, player suggestions entry, round
+control), **Path** (xG Path cycle control), **Announcements** (the
+announcement banner), **Issues** (incident reports entry). Only one
+group's sections are visible at a time; every group is always mounted and
+toggled via the `hidden` attribute, never conditional rendering, so
+switching groups never re-fetches a section that's already loaded — the
+same "always mounted, active-controlled" pattern SCREEN-03's own
+leaderboard scope tabs (`LeaderboardScreen.tsx`) already established. The
+tab bar itself reuses that same plain underline-tab treatment (a flush
+bottom border, an active tab's underline in `--color-accent-green`, no new
+tokens) rather than inventing a new control, matching this screen's
+existing "plainer/denser, working tool" character. Production-only
+section-hiding is unaffected: round control and user deletion still fully
+unmount (not merely hide behind an unselected tab) when
+`ASPNETCORE_ENVIRONMENT == Production`, nested inside their respective
+group exactly as before. No section below moved groups relative to its
+REQ; only the page's outer layout changed. A slot is reserved, not yet
+built, in the "Users" group for REQ-517's avatar-moderation section
+(S-183).
+
 **S-026 status note:** this section previously described only the
 unverified-data review list as an aspirational mock (`[Approve]`/
 `[Correct]`/`[Remove]`), with no page actually built. S-026 built the real
@@ -1648,7 +1672,12 @@ these two REQs are explicitly visible in every environment including
 Production (see each REQ's own "Scope note"), so — unlike round control and
 user deletion — this pair is **not** nested inside the same
 `activeRound !== null` visibility gate; it renders and fetches
-unconditionally, right after the unverified-data section above.
+unconditionally. **Status note (2026-08-24, REQ-516):** since the grouped
+nav above moved this pair into the "Users" tab (alongside user deletion)
+rather than the "Grid" tab that holds unverified data, "right after the
+unverified-data section" no longer describes its on-page position — it now
+sits directly above user deletion within "Users," unconditional fetch
+behavior otherwise unchanged.
 
 ```
 ┌─────────────────────────────────────────────┐

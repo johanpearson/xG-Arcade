@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ApiError } from '../lib/apiClient';
 import { fetchActiveAdminRound, fetchUnverifiedPlayerData } from '../lib/admin';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
@@ -23,6 +23,20 @@ export interface AdminScreenProps {
   onOpenSuggestions: () => void;
 }
 
+// REQ-516 (S-177): the five grouped-nav tabs, in this fixed order — "Users"
+// is first/default (no persistence of the last-selected group across a
+// reload is in scope; REQ-516 explicitly leaves that out and says "always
+// opens to the same default group, left to implementation").
+type AdminNavGroup = 'users' | 'grid' | 'path' | 'announcements' | 'issues';
+
+const ADMIN_NAV_GROUPS: Array<{ value: AdminNavGroup; label: string }> = [
+  { value: 'users', label: 'Users' },
+  { value: 'grid', label: 'Grid' },
+  { value: 'path', label: 'Path' },
+  { value: 'announcements', label: 'Announcements' },
+  { value: 'issues', label: 'Issues' },
+];
+
 // SCREEN-04, REQ-504: the admin page S-012 deliberately deferred. Reached
 // only via App.tsx's admin-only nav link (REQ-504's "no visible entry
 // point" half); this component provides the other half — every underlying
@@ -37,6 +51,13 @@ export interface AdminScreenProps {
 // refreshUnverified/refreshActiveRound below — so this deliberately does NOT
 // collapse to one shared refetch.
 export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: AdminScreenProps) {
+  // REQ-516: which nav group is currently visible. Deliberately does NOT
+  // affect any fetch below — every section keeps fetching/loading exactly
+  // as it did before this story, on mount, regardless of which group is
+  // selected. See the render below for how switching groups toggles
+  // visibility (the `hidden` attribute) without ever unmounting a section.
+  const [activeGroup, setActiveGroup] = useState<AdminNavGroup>('users');
+
   const rowsFetchFn = useCallback(() => fetchUnverifiedPlayerData(accessToken), [accessToken]);
   const {
     data: unverifiedRows,
@@ -94,67 +115,105 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
     <div className="admin-screen">
       <h2 className="admin-screen__title">Admin</h2>
 
-      {/* REQ-509/REQ-510 (S-090)/ADR-0053: the only entry point into
-          SuggestionsScreen — a separate screen/file per that ADR, never
-          folded into this one's sections below. Mirrors SettingsScreen's own
-          "onOpenAdmin" link-out pattern, one level deeper. REQ-512 adds the
-          pending-count badge shown alongside it. */}
-      <PlayerSuggestionsEntry
-        accessToken={accessToken}
-        onAuthError={onAuthError}
-        onOpenSuggestions={onOpenSuggestions}
-      />
+      {/* REQ-516: persistent grouped nav — only one group's sections are
+          visible at a time. Every group below is always mounted; switching
+          groups only toggles the `hidden` attribute on that group's
+          wrapper, never conditional rendering, so no section's fetch is
+          ever re-triggered by a group switch (mirrors the
+          "always mounted, active-controlled" pattern LeaderboardScreen.tsx's
+          scope tabs already established). The one exception is
+          RoundControlSection/UserDeletionSection below, which stay a real
+          `activeRound !== null` conditional nested inside the "Grid"/"Users"
+          groups — that gate must still unmount them in Production, not just
+          hide them behind an unselected tab. */}
+      <div className="admin-screen__nav" role="tablist" aria-label="Admin section">
+        {ADMIN_NAV_GROUPS.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={activeGroup === value}
+            className={`admin-screen__nav-tab ${activeGroup === value ? 'admin-screen__nav-tab--active' : ''}`}
+            onClick={() => setActiveGroup(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {/* REQ-904/ADR-0066: the sibling "admin notification" entry point from
-          the same S-096/S-097/S-098 grouping as PlayerSuggestionsEntry above
-          — placed directly after it for that reason. Unlike
-          PlayerSuggestionsEntry, there is no in-app screen to navigate to
-          (ADR-0064's "no review queue" boundary), so this renders as a
-          passive entry (heading + optional count + external link), not a
-          button. */}
-      <IncidentReportsEntry accessToken={accessToken} onAuthError={onAuthError} />
+      {/* Users: account metrics (REQ-507) — which composes REQ-508's
+          guest-clear section internally, kept as-is rather than split out —
+          and user deletion (REQ-506, Production-gated below, same as
+          RoundControlSection's own gating in the Grid group). Leaves a
+          natural insertion point for REQ-517's avatar-moderation section
+          (S-183, a later story) — no avatar-moderation UI built yet. */}
+      <div className="admin-screen__group" hidden={activeGroup !== 'users'}>
+        <AccountMetricsSection accessToken={accessToken} onAuthError={onAuthError} />
 
-      {/* REQ-511: own fetch/state, same resilience pattern as
-          AccountMetricsSection/XGPathCycleSection below — rendered
-          unconditionally (this endpoint, like those, is registered in
-          every environment), never gated by the Non-Production-only
-          activeRound probe. */}
-      <AnnouncementBannerSection accessToken={accessToken} onAuthError={onAuthError} />
+        {activeRound !== null && <UserDeletionSection accessToken={accessToken} onAuthError={onAuthError} />}
+        {/* REQ-517 (S-183, not yet built): avatar-moderation section's
+            insertion point. */}
+      </div>
 
-      <UnverifiedDataSection
-        accessToken={accessToken}
-        rows={unverifiedRows}
-        onAuthError={onAuthError}
-        onRefresh={refreshUnverified}
-      />
+      {/* Grid: unverified data review (REQ-503), player suggestions entry
+          (REQ-509/510/512), and round control (REQ-505, Production-gated
+          below). */}
+      <div className="admin-screen__group" hidden={activeGroup !== 'grid'}>
+        <UnverifiedDataSection
+          accessToken={accessToken}
+          rows={unverifiedRows}
+          onAuthError={onAuthError}
+          onRefresh={refreshUnverified}
+        />
 
-      {/* REQ-507/508: unlike RoundControlSection/UserDeletionSection below,
-          this section is NOT gated by `activeRound !== null` — that gate
-          exists only because the round-control/user-deletion probe 404s in
-          Production (REQ-505/506's non-Production-only scope). REQ-507's
-          metrics view and REQ-508's bulk guest-clear are both explicitly
-          visible in every environment, including Production, so this section
-          renders (and attempts its own fetch) unconditionally. */}
-      <AccountMetricsSection accessToken={accessToken} onAuthError={onAuthError} />
+        {/* REQ-509/REQ-510 (S-090)/ADR-0053: the only entry point into
+            SuggestionsScreen — a separate screen/file per that ADR, never
+            folded into this one's sections below. Mirrors SettingsScreen's
+            own "onOpenAdmin" link-out pattern, one level deeper. REQ-512
+            adds the pending-count badge shown alongside it. */}
+        <PlayerSuggestionsEntry
+          accessToken={accessToken}
+          onAuthError={onAuthError}
+          onOpenSuggestions={onOpenSuggestions}
+        />
 
-      {/* REQ-1209: same "own fetch, own gating, never blocks or is blocked by
-          any other admin section" pattern as AccountMetricsSection above —
-          rendered unconditionally (this endpoint is registered in every
-          environment, including Production, same as REQ-507/508's), not
-          gated by the Non-Production-only `activeRound` probe below. */}
-      <XGPathCycleSection accessToken={accessToken} onAuthError={onAuthError} />
-
-      {activeRound !== null && (
-        <>
+        {activeRound !== null && (
           <RoundControlSection
             accessToken={accessToken}
             activeRound={activeRound}
             onAuthError={onAuthError}
             onRefresh={refreshActiveRound}
           />
-          <UserDeletionSection accessToken={accessToken} onAuthError={onAuthError} />
-        </>
-      )}
+        )}
+      </div>
+
+      {/* Path: xG Path target cycle control (REQ-1209) — same "own fetch,
+          own gating, never blocks or is blocked by any other admin section"
+          pattern as AccountMetricsSection above, rendered unconditionally
+          (this endpoint is registered in every environment, including
+          Production), not gated by the Non-Production-only `activeRound`
+          probe. */}
+      <div className="admin-screen__group" hidden={activeGroup !== 'path'}>
+        <XGPathCycleSection accessToken={accessToken} onAuthError={onAuthError} />
+      </div>
+
+      {/* Announcements: site-wide announcement banner (REQ-511) — own
+          fetch/state, same resilience pattern as AccountMetricsSection/
+          XGPathCycleSection, rendered unconditionally (this endpoint, like
+          those, is registered in every environment), never gated by the
+          Non-Production-only activeRound probe. */}
+      <div className="admin-screen__group" hidden={activeGroup !== 'announcements'}>
+        <AnnouncementBannerSection accessToken={accessToken} onAuthError={onAuthError} />
+      </div>
+
+      {/* Issues: incident-reports admin notification (REQ-904/ADR-0066).
+          Unlike PlayerSuggestionsEntry, there is no in-app screen to
+          navigate to (ADR-0064's "no review queue" boundary), so this
+          renders as a passive entry (heading + optional count + external
+          link), not a button. */}
+      <div className="admin-screen__group" hidden={activeGroup !== 'issues'}>
+        <IncidentReportsEntry accessToken={accessToken} onAuthError={onAuthError} />
+      </div>
     </div>
   );
 }

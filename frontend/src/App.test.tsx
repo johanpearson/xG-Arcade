@@ -1039,6 +1039,9 @@ describe('App (REQ-721: URL reflects current screen)', () => {
     await screen.findByRole('heading', { name: 'Settings' });
     await user.click(screen.getByRole('button', { name: 'Admin' }));
     await screen.findByRole('heading', { name: 'Admin' });
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before interacting.
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
     await user.click(screen.getByRole('button', { name: 'Player suggestions' }));
 
     expect(await screen.findByRole('heading', { name: 'Player suggestions' })).toBeInTheDocument();
@@ -1099,6 +1102,9 @@ describe('App (REQ-721: URL reflects current screen)', () => {
     await screen.findByRole('heading', { name: 'Settings' });
     await user.click(screen.getByRole('button', { name: 'Admin' }));
     await screen.findByRole('heading', { name: 'Admin' });
+    // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
+    // which isn't the default ("Users") — select it before interacting.
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
 
     expect(await screen.findByRole('button', { name: 'Player suggestions (2)' })).toBeInTheDocument();
 
@@ -1108,6 +1114,10 @@ describe('App (REQ-721: URL reflects current screen)', () => {
     await user.click(screen.getByRole('button', { name: 'Back to admin' }));
 
     expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+    // REQ-512/REQ-516: AdminScreen remounts on the way back (App.tsx's
+    // ternary), which resets `activeGroup` to its "Users" default — select
+    // "Grid" again before asserting on the refreshed badge.
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
     expect(await screen.findByRole('button', { name: 'Player suggestions (1)' })).toBeInTheDocument();
   });
 });

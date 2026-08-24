@@ -29,6 +29,50 @@
   color: var(--color-accent-red);
 }
 
+/* REQ-516 (S-177): the grouped-nav tab bar — same plain underline-tab
+   treatment as .leaderboard-screen__scope-tabs/__scope-tab
+   (LeaderboardScreen.css), copied under this file's own naming convention
+   rather than shared, since it's a different screen's DOM. Tokens only,
+   matching SCREEN-04's "plainer/denser, working tool" character. */
+.admin-screen__nav {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.admin-screen__nav-tab {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.admin-screen__nav-tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-green);
+}
+
+/* REQ-516: each nav group's wrapper. Always mounted — only the `hidden`
+   attribute (toggled in AdminScreen.tsx, never conditional rendering)
+   controls which group is visible, so switching groups never remounts a
+   section or re-triggers its fetch. The `[hidden]` override below has
+   higher specificity than the bare class rule (0,2,0 vs 0,1,0), so it wins
+   regardless of source order. */
+.admin-screen__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.admin-screen__group[hidden] {
+  display: none;
+}
+
 .admin-screen__section {
   display: flex;
   flex-direction: column;
