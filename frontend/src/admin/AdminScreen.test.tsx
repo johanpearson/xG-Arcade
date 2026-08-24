@@ -922,6 +922,117 @@ describe('AdminScreen', () => {
     expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
   });
 
+  // ---- REQ-516: grouped nav ----------------------------------------------
+
+  it('REQ-516: renders a grouped nav tablist with all 5 groups, defaulting to "Users" selected and visible', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () =>
+        jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('tablist', { name: 'Admin section' })).toBeInTheDocument();
+    for (const label of ['Users', 'Grid', 'Path', 'Announcements', 'Issues']) {
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'true');
+    for (const label of ['Grid', 'Path', 'Announcements', 'Issues']) {
+      expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'false');
+    }
+
+    // "Users" group content (AccountMetricsSection) is visible by default...
+    expect(await screen.findByText('Accounts')).toBeVisible();
+    // ...while "Grid" group content (UnverifiedDataSection) is mounted (its
+    // fetch already ran) but hidden behind the unselected tab.
+    expect(await screen.findByText('No unverified data to review.')).not.toBeVisible();
+  });
+
+  it('REQ-516: clicking a different tab shows only that group and hides the previously-visible one', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () =>
+        jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 }),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    expect(await screen.findByText('Accounts')).toBeVisible();
+    await screen.findByText('No unverified data to review.');
+
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+
+    expect(screen.getByRole('tab', { name: 'Grid' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText('No unverified data to review.')).toBeVisible();
+    // The previously-visible default group's content is still mounted, but
+    // no longer visible — never removed from the DOM by a tab switch.
+    expect(screen.getByText('Accounts')).not.toBeVisible();
+  });
+
+  it('REQ-516: switching from "Users" to "Grid" and back does not re-fetch either section\'s data', async () => {
+    let unverifiedCallCount = 0;
+    let metricsCallCount = 0;
+    stubFetch({
+      '/admin/player-data/unverified': () => {
+        unverifiedCallCount += 1;
+        return jsonResponse([]);
+      },
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () => {
+        metricsCallCount += 1;
+        return jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 });
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('No unverified data to review.');
+    await screen.findByText('Total users');
+    expect(unverifiedCallCount).toBe(1);
+    expect(metricsCallCount).toBe(1);
+
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+    await user.click(screen.getByRole('tab', { name: 'Users' }));
+
+    expect(unverifiedCallCount).toBe(1);
+    expect(metricsCallCount).toBe(1);
+  });
+
+  it('REQ-516: round-control and user-deletion stay entirely absent from the DOM under the grouped nav, even after navigating to their groups', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('No unverified data to review.');
+
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+    expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Users' }));
+    expect(screen.queryByText('Delete a user')).not.toBeInTheDocument();
+  });
+
+  it('REQ-516: the page-level access-denied message renders with no grouped nav/tablist at all', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () =>
+        jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  });
+
   it('REQ-511: "Deactivate" calls the deactivate endpoint, flips the shown status to Inactive, and keeps the saved message', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       const path = String(url);
