@@ -9,6 +9,7 @@ COPY src/XGArcade.Games.XGGrid/XGArcade.Games.XGGrid.csproj src/XGArcade.Games.X
 COPY src/XGArcade.Games.XGPath/XGArcade.Games.XGPath.csproj src/XGArcade.Games.XGPath/
 COPY src/XGArcade.Data/XGArcade.Data.csproj src/XGArcade.Data/
 COPY src/XGArcade.DataSync/XGArcade.DataSync.csproj src/XGArcade.DataSync/
+COPY src/XGArcade.Storage/XGArcade.Storage.csproj src/XGArcade.Storage/
 RUN dotnet restore src/XGArcade.Api/XGArcade.Api.csproj
 
 COPY src/ src/

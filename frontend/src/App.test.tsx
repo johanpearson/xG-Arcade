@@ -1417,3 +1417,161 @@ describe('App (REQ-1210: round-completion banner "View leaderboard" wiring)', ()
     expect(screen.queryByRole('button', { name: 'Back to previous rounds' })).not.toBeInTheDocument();
   });
 });
+
+// REQ-411 (S-179): App.tsx's own routing/seeding wiring for SCREEN-13's
+// stats/profile view — statsTarget/statsReturnScreen state,
+// handleOpenOwnStats/handleSelectPlayerStats, and the 'stats' screen render
+// branch (including its `statsTarget?.userId ?? currentUser?.id ?? ''`
+// reload-restore fallback). UserStatsScreen.test.tsx already covers that
+// component's own rendering/fetch behavior given a userId/displayName; this
+// describe block covers only what App.tsx does to seed and route to it —
+// same split as the REQ-1210 describe block above for LeaderboardScreen's
+// own initial* props. Mirrors this file's existing 'admin'-screen coverage
+// (navigate-and-verify-hash, reload-restore) one section up.
+describe('App (REQ-411: stats/profile screen navigation)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  const ownStatsResponse = {
+    hasRoundsPlayed: true,
+    roundsPlayed: 6,
+    bestFinalPoints: 8,
+    averageFinalPoints: 14.5,
+    rank: 3,
+  };
+
+  const otherPlayerStatsResponse = {
+    hasRoundsPlayed: true,
+    roundsPlayed: 2,
+    bestFinalPoints: 20,
+    averageFinalPoints: 22,
+    rank: null,
+  };
+
+  it('REQ-411: opening "My stats" from Settings shows the current account\'s own stats, and "Back" returns to Settings', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/users/user-1/stats')) return jsonResponse(ownStatsResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await user.click(screen.getByRole('button', { name: 'My stats' }));
+
+    // meResponse's own id/displayName — 'Player One'/'user-1' — is the only
+    // source App.tsx's handleOpenOwnStats has for "own stats".
+    expect(await screen.findByRole('heading', { name: "Player One's stats" })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/stats');
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/users/user-1/stats?gameKey=xg-grid'),
+        expect.anything(),
+      ),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+
+    // statsReturnScreen was seeded 'settings' by handleOpenOwnStats — "Back"
+    // must land there, not somewhere else (e.g. game-select).
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/settings');
+  });
+
+  it('REQ-411: selecting a leaderboard row\'s display name shows that player\'s stats (not the logged-in account\'s own), and "Back" returns to the Leaderboard', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const otherPlayerRow = {
+      rank: 5,
+      userId: 'user-42',
+      displayName: 'Robin',
+      totalPoints: 77,
+      isRequestingUser: false,
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/leagues/global/leaderboard')) {
+        return jsonResponse({ rows: [otherPlayerRow], requestingUserRow: null, nextCursor: null, hasMore: false });
+      }
+      if (url.includes('/users/user-42/stats')) return jsonResponse(otherPlayerStatsResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Leaderboard' }));
+    await screen.findByRole('heading', { name: 'Global leaderboard' });
+    await user.click(screen.getByRole('button', { name: 'Robin' }));
+
+    expect(await screen.findByRole('heading', { name: "Robin's stats" })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/stats');
+    // Scoped to the clicked row's userId, not the logged-in account's own id
+    // (meResponse's 'user-1') — this is the one thing distinguishing "own
+    // stats" from "another player's" per UserStatsScreen's own doc comment.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/users/user-42/stats?gameKey=xg-grid'),
+        expect.anything(),
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/users/user-1/stats'),
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+
+    // statsReturnScreen was seeded 'leaderboard' by handleSelectPlayerStats
+    // — "Back" must land there, not 'settings' (the other entry point's own
+    // return screen, exercised by the test above).
+    expect(await screen.findByRole('heading', { name: 'Global leaderboard' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/leaderboard');
+  });
+
+  it('REQ-411: reloading (remounting) with location.hash already #/stats and a valid stored session, with no prior in-session navigation, falls back to the current account\'s own stats rather than an empty/broken userId', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    window.location.hash = '#/stats';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      // `statsTarget` is null here (no prior handleOpenOwnStats/
+      // handleSelectPlayerStats call happened this session) — App.tsx's own
+      // `?? currentUser?.id ?? ''` fallback is what's under test, so this
+      // matches any /users/*/stats request (including a transient
+      // '/users//stats' fired before currentUser resolves from GET
+      // /auth/me) so that transient call doesn't itself fail the test; the
+      // assertions below confirm the fallback's *final* state is the real
+      // account, not the broken empty-id request.
+      if (url.includes('/stats')) return jsonResponse(ownStatsResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: "Player One's stats" })).toBeInTheDocument();
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/users/user-1/stats?gameKey=xg-grid'),
+        expect.anything(),
+      ),
+    );
+  });
+});

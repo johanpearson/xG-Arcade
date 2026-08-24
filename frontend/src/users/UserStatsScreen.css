@@ -1,0 +1,138 @@
+/* SCREEN-13 (REQ-411, S-179): tokens only, no new values — same shell/
+   tab/card treatment as LeaderboardScreen.css/SettingsScreen.css, this
+   screen's two closest relatives (a game-scoped tab switcher over a ranked/
+   scored view, and a narrow single-column card, respectively). */
+
+.user-stats-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.user-stats-screen__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Same "name the action, plain text-style button" treatment as
+   .leaderboard-screen__back — not a second green CTA. */
+.user-stats-screen__back {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-accent-green-text);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.user-stats-screen__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* ADR-0021: same "Lowest total wins" correction SCREEN-03's own subtitle
+   already establishes, same token/placement convention. */
+.user-stats-screen__subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+/* REQ-410/ADR-0043-style game switcher — identical declarations to
+   .leaderboard-screen__game-tabs/__game-tab (LeaderboardScreen.css), copied
+   rather than shared across files for the same reason that file's own
+   comment gives for copying it a second time from the scope tabs: distinct
+   component tree, not the same DOM row. */
+.user-stats-screen__game-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.user-stats-screen__game-tab {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.user-stats-screen__game-tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-green);
+}
+
+.user-stats-screen__status {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+}
+
+.user-stats-screen__status--error {
+  color: var(--color-accent-red);
+}
+
+/* design-document.md §5: "empty states are invitations" — same treatment
+   as .leaderboard-screen__empty, reused rather than a new empty-state
+   pattern. */
+.user-stats-screen__empty {
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.user-stats-screen__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.user-stats-screen__stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-card);
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.user-stats-screen__stat:last-child {
+  border-bottom: none;
+}
+
+.user-stats-screen__stat dt {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+.user-stats-screen__stat dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 15px;
+}

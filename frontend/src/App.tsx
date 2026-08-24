@@ -15,6 +15,7 @@ import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { PathScreen } from './path/PathScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
+import { UserStatsScreen } from './users/UserStatsScreen';
 import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 import { useThemePreference } from './lib/theme';
 import { ACCESS_TOKEN_STORAGE_KEY, useSession } from './lib/useSession';
@@ -47,6 +48,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // is in turn only reachable from 'settings'. Never a default destination
 // and never given its own top-level nav entry, per ADR-0053's "a new,
 // separate screen... reached the same gated way" framing.
+// 'stats' (REQ-411, S-179, SCREEN-13) is UserStatsScreen's own destination —
+// reachable from Settings' "My stats" link (own stats) or from any
+// leaderboard row's display name (another player's stats), never given its
+// own top-level nav entry either, same "reached only from an existing
+// screen, not HeaderNav" precedent 'admin'/'admin-suggestions' already set
+// (see REQ-712/713's own header-overflow rationale, restated on
+// SettingsScreen's `onOpenStats` prop).
 type Screen =
   | 'game-select'
   | 'grid'
@@ -55,7 +63,8 @@ type Screen =
   | 'leagues'
   | 'settings'
   | 'admin'
-  | 'admin-suggestions';
+  | 'admin-suggestions'
+  | 'stats';
 
 // REQ-721/ADR-0039: hash-based, hand-rolled URL-per-screen mapping — see
 // that ADR for why (hash not path, no router library, no popstate/
@@ -71,6 +80,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   settings: '#/settings',
   admin: '#/admin',
   'admin-suggestions': '#/admin/suggestions',
+  stats: '#/stats',
 };
 
 const HASH_TO_SCREEN: Partial<Record<string, Screen>> = Object.fromEntries(
@@ -162,6 +172,17 @@ function App() {
   // "Leaderboard" entry point (onSelectLeaderboard below) so a later,
   // ordinary manual visit never silently re-jumps to a stale round.
   const [leaderboardInitial, setLeaderboardInitial] = useState<LeaderboardRoundTarget | null>(null);
+  // REQ-411/ADR-0083-style seed (S-179): which player's stats 'stats'
+  // should show and which screen "Back" should return to — same in-memory,
+  // read-once-at-navigation pattern `leaderboardInitial` above already
+  // establishes (ADR-0039: no router library, no URL param for this).
+  // `statsTarget` is set by both entry points below (Settings' "My stats"
+  // and a leaderboard row's display name) immediately before navigating to
+  // 'stats', so UserStatsScreen is never mounted without a target — the
+  // `null` default only ever exists before either entry point has fired
+  // once, i.e. it's never actually read while `screen === 'stats'`.
+  const [statsTarget, setStatsTarget] = useState<{ userId: string; displayName: string } | null>(null);
+  const [statsReturnScreen, setStatsReturnScreen] = useState<Screen>('game-select');
 
   // REQ-721/ADR-0039: keeps location.hash matching `screen` from the very
   // first render, not only from the next explicit navigateTo() call —
@@ -228,6 +249,27 @@ function App() {
   function handleViewRoundLeaderboard(target: LeaderboardRoundTarget) {
     setLeaderboardInitial(target);
     navigateTo('leaderboard');
+  }
+
+  // REQ-411 (S-179): Settings' "My stats" link — seeds `statsTarget` with
+  // the current account's own id/name (the only source App.tsx has for
+  // "own stats"; UserStatsScreen itself has no own-vs-other concept, see
+  // its own doc comment) and remembers 'settings' as where "Back" should
+  // return to.
+  function handleOpenOwnStats() {
+    if (!currentUser) return;
+    setStatsTarget({ userId: currentUser.id, displayName: currentUser.displayName });
+    setStatsReturnScreen('settings');
+    navigateTo('stats');
+  }
+
+  // REQ-411 (S-179): a leaderboard row's display name — seeds `statsTarget`
+  // with whichever player's row was selected and remembers 'leaderboard' as
+  // where "Back" should return to.
+  function handleSelectPlayerStats(userId: string, displayName: string) {
+    setStatsTarget({ userId, displayName });
+    setStatsReturnScreen('leaderboard');
+    navigateTo('stats');
   }
 
   // REQ-718 UI addendum (rule 4, 2026-08-01): the actual onClick handler
@@ -414,6 +456,21 @@ function App() {
               initialGameKey={leaderboardInitial?.gameKey}
               initialScope={leaderboardInitial?.scope}
               initialRoundId={leaderboardInitial?.roundId}
+              onSelectPlayer={handleSelectPlayerStats}
+            />
+          ) : screen === 'stats' ? (
+            // REQ-411 (S-179): read-only regardless of whose stats
+            // `statsTarget` names — see UserStatsScreen's own top-of-file
+            // doc comment. Falls back to the current account's own
+            // id/displayName if this screen is ever reached with no target
+            // seeded (defensive only — both entry points below always set
+            // `statsTarget` immediately before navigating here).
+            <UserStatsScreen
+              accessToken={accessToken}
+              userId={statsTarget?.userId ?? currentUser?.id ?? ''}
+              displayName={statsTarget?.displayName ?? currentUser?.displayName ?? ''}
+              onAuthError={handleLogout}
+              onBack={() => navigateTo(statsReturnScreen)}
             />
           ) : screen === 'admin' ? (
             <AdminScreen
@@ -454,6 +511,7 @@ function App() {
               onCancel={() => navigateTo('game-select')}
               onAuthError={handleLogout}
               onOpenAdmin={() => navigateTo('admin')}
+              onOpenStats={handleOpenOwnStats}
               themePreference={themePreference}
               onThemePreferenceChange={setThemePreference}
             />
