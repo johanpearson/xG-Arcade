@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.04"
+version: "1.05"
 status: draft
-last_updated: 2026-08-18
+last_updated: 2026-08-24
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -501,6 +501,18 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
 Entities below are grouped by ownership: xG Grid game entities first,
 then xG Arcade (Core) entities. This grouping matters — see the note on
 `Round` and `Guess` below regarding ADR-0003.
+
+**Not yet fully documented here (S-180):** `AvatarSubmission`
+(`XGArcade.Data/Entities/AvatarSubmission.cs`, REQ-722/ADR-0087) — see
+that file directly for its full shape rather than a class listing below.
+REQ-722 leaves its "reasonable size/type limit" to this document
+(matching this section's existing practice for non-product thresholds):
+`AvatarEndpoints.MaxImageSizeBytes` is 5 MB, and
+`AvatarEndpoints.AllowedContentTypes` is `image/jpeg`, `image/png`,
+`image/webp` only — no `image/gif`, and no `image/svg+xml` in particular,
+since SVG can carry executable content.
+
+
 
 ```csharp
 public class Player

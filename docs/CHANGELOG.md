@@ -13,6 +13,44 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/architecture-document.md`, `docs/requirements-document.md`,
+  `docs/backlog.md`, `docs/legal/privacy-policy-draft.md`,
+  `docs/legal/terms-of-service-draft.md`, `docs/implementation-document.md`
+  — S-180 (Epic 25, backend half of REQ-722) built and doc-synced: an
+  `AvatarSubmission` entity (`Pending`/`Approved`/`Rejected`, no FK to
+  `User` — mirrors `PlayerSuggestion`'s no-FK reasoning) plus its
+  repository and migration; `IAvatarStorage` (`XGArcade.Core/Storage`) as
+  the upload/best-effort-delete contract, with its concrete implementation,
+  `SupabaseAvatarStorage`, placed in a **new project**, `XGArcade.Storage`
+  — deliberately not reusing `XGArcade.Core.Auth.SupabaseAuthClient`'s
+  existing in-`Core` placement, a stricter application of ADR-0004's
+  hosting-agnostic boundary than that pre-existing precedent
+  (`architecture-reviewer` called this out specifically). `POST
+  /users/me/avatar` enforces a 5 MB cap and `image/jpeg`/`image/png`/
+  `image/webp` only — no `image/gif`/`image/svg+xml`, SVG excluded
+  deliberately since it can carry executable content — and replaces
+  rather than duplicates an existing `Pending` submission. Recorded in
+  ADR-0087 (provider choice: Supabase Storage; client placement: its own
+  project, not `Core`/`Api`, per ADR-0004; alternatives considered).
+  `architecture-reviewer` and `quality-architect` both passed the diff
+  with no blocking code findings (three doc gaps flagged, closed by this
+  entry); `dotnet test`: 1673 passed, 0 failed, verified via a real SDK
+  in-sandbox this session, not hand-traced. Doc updates: new COMP-14 row
+  (`architecture-document.md` §5, v1.12 → v1.13) plus a `XGArcade.Storage`
+  mention on CONT-02 (§4); a REQ-722 status note
+  (`requirements-document.md`, v2.02 → v2.03) recording the backend build
+  and that REQ-517/S-181 (admin approve/reject) and S-182/183 (frontend)
+  remain separate, not-yet-built stories; a "Built as" note on `backlog.md`'s
+  S-180 entry; a new "avatar image" collected-data category added to both
+  legal drafts (`privacy-policy-draft.md` v0.10 → v0.11,
+  `terms-of-service-draft.md` v0.2 → v0.3) per CLAUDE.md's legal-docs rule
+  — an uploaded image is stored via Supabase Storage, held `Pending` and
+  visible only to the uploader until an admin reviews it, and a rejected
+  image is never shown to anyone else; and a short, deliberately partial
+  note in `implementation-document.md` §5 (v1.04 → v1.05) recording the
+  two concrete non-product thresholds REQ-722 leaves to this document (5
+  MB; `image/jpeg`/`image/png`/`image/webp`) without a full `AvatarSubmission`
+  entity write-up, which remains open for a future pass. REQ-722/ADR-0087/S-180.
 - 2026-08-24 — `docs/design-document.md`, `docs/backlog.md` — S-177
   (Epic 25) built and doc-synced: `AdminScreen.tsx` regrouped its single
   flat vertical stack of sections into a 5-group tabbed sub-nav (Users/

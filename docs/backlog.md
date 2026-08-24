@@ -8319,6 +8319,30 @@ upload and that approving a new submission supersedes an older `Approved`
 one; API tests cover 401 and the size/type rejection.
 *Deps:* none (may run before or alongside S-177/S-178, touches neither).
 
+*Built as (2026-08-24):* `AvatarSubmission` (`XGArcade.Data.Entities`,
+`Pending`/`Approved`/`Rejected`, no FK to `User` — mirrors
+`PlayerSuggestion.SubmittingUserId`'s existing no-FK reasoning) plus
+`IAvatarSubmissionRepository`/`AvatarSubmissionRepository` and a migration.
+`IAvatarStorage` (`XGArcade.Core/Storage/IAvatarStorage.cs`) is the
+upload/best-effort-delete contract; its concrete implementation,
+`SupabaseAvatarStorage`, was placed in a **new project**,
+`XGArcade.Storage` — deliberately not copying
+`XGArcade.Core.Auth.SupabaseAuthClient`'s existing in-`Core` placement, a
+stricter application of ADR-0004's hosting-agnostic boundary than that
+pre-existing precedent, per `architecture-reviewer`'s specific note on the
+diff. `POST /users/me/avatar` (`XGArcade.Api.Avatars.AvatarEndpoints`)
+enforces a 5 MB cap and `image/jpeg`/`image/png`/`image/webp` only — no
+`image/gif`/`image/svg+xml`, SVG excluded deliberately since it can carry
+executable content — and replaces rather than duplicates an existing
+`Pending` submission, best-effort deleting the superseded image. The full
+decision (provider choice, client placement, alternatives considered) is
+recorded in ADR-0087. Architecture review: PASS, no blocking findings
+(the two doc gaps it flagged — `architecture-document.md` component entry
+and this note — closed by `doc-sync` the same session). Quality review:
+PASS, no blocking findings. `dotnet test`: 1673 passed, 0 failed, verified
+via a real SDK in-sandbox. REQ-517's admin approve/reject (S-181) and
+REQ-722's frontend (S-182) remain separate, not-yet-built stories.
+
 **S-181 · Backend admin avatar moderation endpoints (REQ-517)**
 `GET /admin/avatar-submissions` (pending only, oldest first, image preview
 reference + submitter `DisplayName` + submission time — mirrors REQ-509's
