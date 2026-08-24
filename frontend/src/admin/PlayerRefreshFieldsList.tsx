@@ -4,13 +4,16 @@ import './PlayerRefreshFieldsList.css';
 
 // REQ-513/514/515: the four-field changed/unchanged/old-new value
 // presentation for POST /admin/players/{id}/refresh-from-wikidata's
-// response, shared by PlayerRefreshSection (REQ-514's original
-// player-id-driven refresh flow) and PlayerReviewPanel's inline
-// "Refresh from Wikidata" action (REQ-515, SuggestionsScreen.tsx) — extracted
-// here so the two call sites never carry two copies of the same display
-// logic (the exact duplication the code-health-budget rule flags). Its own
-// class prefix/CSS file, not either caller's `admin-screen__*`/
-// `suggestions-screen__*` namespace, since both entry points render it.
+// response. Originally extracted (REQ-515) out of REQ-514's standalone
+// PlayerRefreshSection.tsx once a second call site — PlayerReviewPanel's
+// inline "Refresh from Wikidata" action (SuggestionsScreen.tsx) — needed
+// the identical display logic, so the two never carried two copies of it
+// (the exact duplication the code-health-budget rule flags). REQ-514's own
+// standalone entry point was removed 2026-08-24 (superseded by REQ-515),
+// leaving PlayerReviewPanel as the sole caller today — kept as its own
+// component/CSS file (not folded back inline) since the extraction reason
+// (avoid duplicating this exact rendering) still holds for any future
+// second call site, not just the one REQ-514 originally had.
 export const PLAYER_REFRESH_FIELD_LABELS: ReadonlyArray<{ key: string; label: string }> = [
   { key: 'fullName', label: 'Full name' },
   { key: 'position', label: 'Position' },
@@ -30,12 +33,12 @@ export function describePlayerRefreshField(label: string, field: PlayerRefreshFi
 }
 
 // REQ-513/514/515: the three named error states
-// POST /admin/players/{id}/refresh-from-wikidata can return, shared by both
-// call sites above — see PlayerRefreshSection.tsx's original REQ-514 doc
-// comment for why 404/409 are UI-authored while 503 reads the server's own
-// `detail` via `describeError`. A 401 is deliberately NOT handled here —
-// both callers check `err.status === 401` and call their own `onAuthError`
-// before ever reaching this helper, same as every other admin action.
+// POST /admin/players/{id}/refresh-from-wikidata can return — see
+// docs/design-document.md SCREEN-04's own note for why 404/409 are
+// UI-authored while 503 reads the server's own `detail` via
+// `describeError`. A 401 is deliberately NOT handled here — the caller
+// checks `err.status === 401` and calls its own `onAuthError` before ever
+// reaching this helper, same as every other admin action.
 export function describePlayerRefreshError(err: unknown): string {
   if (err instanceof ApiError && err.status === 404) {
     return 'No player found with that id.';

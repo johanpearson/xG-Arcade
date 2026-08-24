@@ -1,13 +1,13 @@
-/* REQ-513/514/515: shared four-field changed/unchanged result list, used by
-   both PlayerRefreshSection.tsx (REQ-514) and SuggestionsScreen.tsx's
-   PlayerReviewPanel inline refresh action (REQ-515). Tokens only, mirrors
-   the color pairing AdminScreen.css's own `.admin-screen__refresh-field*`
-   established: `--changed` reuses `accent-green-text` (the same token
-   `.admin-screen__confirmation`/`.suggestions-screen__confirmation` already
-   use for a positive outcome), `--unchanged` reuses `text-muted`, the same
-   token used for secondary/no-action-needed text on both screens. Both
-   colors are decorative reinforcement only — the "Changed"/"Unchanged" text
-   label carries the actual meaning either way (§6's accessibility floor). */
+/* REQ-513/514/515: shared four-field changed/unchanged result list, used
+   today by SuggestionsScreen.tsx's PlayerReviewPanel inline refresh action
+   (REQ-515) — originally shared with REQ-514's own standalone
+   PlayerRefreshSection.tsx, removed 2026-08-24. Tokens only: `--changed`
+   reuses `accent-green-text` (the same token `.admin-screen__confirmation`/
+   `.suggestions-screen__confirmation` already use for a positive outcome),
+   `--unchanged` reuses `text-muted`, the same token used for secondary/
+   no-action-needed text throughout this admin UI. Both colors are
+   decorative reinforcement only — the "Changed"/"Unchanged" text label
+   carries the actual meaning either way (§6's accessibility floor). */
 
 .player-refresh-fields {
   list-style: none;

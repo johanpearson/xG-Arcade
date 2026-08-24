@@ -535,8 +535,8 @@ function PlayerReviewPanel({
     }
   }
 
-  // REQ-515: reuses REQ-513's existing refresh endpoint directly (the same
-  // function PlayerRefreshSection.tsx calls) — no duplicate API call, and
+  // REQ-515: reuses REQ-513's existing refresh endpoint directly (same
+  // refreshPlayerFromWikidata client function, no duplicate API call) and
   // the same 404/409/503/401 handling via the shared
   // describePlayerRefreshError helper. Only ever called with a non-null
   // `existingPlayerId` (the button that triggers this is only rendered when
