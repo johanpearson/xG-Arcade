@@ -1,9 +1,9 @@
 ---
 doc_id: terms-of-service-draft
 title: Terms of Service (Draft)
-version: "0.2"
+version: "0.3"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-07-06
+last_updated: 2026-08-24
 ---
 
 > **This is a starting draft, not a finished legal document.** Same caveat
@@ -39,8 +39,8 @@ You agree not to:
   interact with the game in ways a human player couldn't
 - Attempt to circumvent the guess-attempt limit on any cell
 - Create multiple accounts to manipulate leaderboards or uniqueness scores
-- Use offensive, harassing, or illegal content in league names or any
-  other user-generated content
+- Use offensive, harassing, or illegal content in league names, a
+  profile avatar image, or any other user-generated content
 - Attempt to access, scrape, or reconstruct the underlying player/answer
   database beyond normal gameplay
 
@@ -55,6 +55,10 @@ Violating these may result in account suspension or termination.
   layouts, categories, etc.); league names and similar inputs you create
   remain associated with your account but may be removed if they violate
   the acceptable use terms above.
+- If you upload a profile avatar image, it is reviewed by an admin before
+  it becomes visible to other players and may be rejected (with no reason
+  given) if it violates the acceptable use terms above; a rejected or
+  still-pending image is never shown to anyone but you.
 
 ## No warranty
 

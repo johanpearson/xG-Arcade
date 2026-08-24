@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using XGArcade.Api.Admin;
 using XGArcade.Api.Announcements;
 using XGArcade.Api.Auth;
+using XGArcade.Api.Avatars;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Incidents;
@@ -95,5 +96,11 @@ public static class EndpointMapping
         // "submission file vs. admin file" split as MapSuggestionEndpoints/
         // MapAdminSuggestionEndpoints.
         app.MapAdminAnnouncementBannerEndpoints();
+        // REQ-722/ADR-0087 (S-180): POST /users/me/avatar — a logged-in
+        // player's avatar upload, pending admin approval (REQ-517/S-181,
+        // not this endpoint). Its own file/registration, same
+        // one-file-per-feature convention as every other Map*Endpoints call
+        // above.
+        app.MapAvatarEndpoints();
     }
 }

@@ -7513,6 +7513,22 @@ dependency and avoid adding Azure-specific code to `Core`/`Api` — the ADR
 should record this choice and its reasoning, not relitigate it from
 scratch.
 
+**Status note (2026-08-24, S-180 — backend built):** the ADR flagged above
+is written — ADR-0087 (Supabase Storage; `IAvatarStorage` in
+`XGArcade.Core`, its concrete client in a new project, `XGArcade.Storage`,
+kept out of `Core`/`Api` per ADR-0004). The "Uploading" criteria above are
+now built via `POST /users/me/avatar`: the "reasonable size/type limit"
+left open there is 5 MB, and `image/jpeg`/`image/png`/`image/webp` only
+(no `image/gif`/`image/svg+xml` — SVG deliberately excluded since it can
+carry executable content) — recorded in `implementation-document.md` §5.
+REQ-517's admin approve/reject (S-181) remains a separate, not-yet-built
+story — today every submission stays `Pending` indefinitely with no path
+to `Approved`/`Rejected`, so this REQ's "visible to other players once
+approved" clause, the "Seeing your own status" and "No avatar / rejected
+state" criteria above, and S-182/183's frontend consumers are all still
+unbuilt. Both `architecture-reviewer` and `quality-architect` passed the
+backend diff with no blocking findings.
+
 ---
 
 ### 4.11 Operational resilience

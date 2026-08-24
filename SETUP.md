@@ -141,6 +141,18 @@ which is exactly what ADR-0006 needs (dev + prod).
      Supabase dashboard exposes captcha provider configuration) —
      Supabase verifies the token against Cloudflare directly, this
      backend never calls Cloudflare itself (see ADR-0037)
+7. **Create the avatar upload bucket (REQ-722/ADR-0087, S-180):** Storage →
+   New bucket → name it **`avatars`** (matches the code default,
+   `Supabase:AvatarBucketName` — override that config value instead if a
+   different bucket name is ever needed). The backend writes to/deletes
+   from this bucket using the `service_role` key saved above (never the
+   anon key), so it does not need any public bucket/RLS policy for
+   `POST /users/me/avatar` (S-180) itself to work — a public read policy is
+   only needed once REQ-517/S-181's admin approval flow needs to serve an
+   *approved* image back out, not before. Skipped entirely in `ci.yml`'s
+   local E2E stack (`Auth:Mode=local-e2e` swaps in a stub, same as Supabase
+   Auth — see `ServiceRegistration.AddAvatarStorageServices`), so this step
+   only matters for a real dev/prod deployment.
 
 ## 3. Resend (email)
 

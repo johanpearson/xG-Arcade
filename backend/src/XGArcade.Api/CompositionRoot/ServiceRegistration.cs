@@ -1,16 +1,20 @@
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using XGArcade.Api.Auth;
+using XGArcade.Api.Avatars;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.IncidentReporting;
 using XGArcade.Core.Leagues;
 using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
+using XGArcade.Core.Storage;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
+using XGArcade.Storage.Supabase;
 
 namespace XGArcade.Api.CompositionRoot;
 
@@ -231,6 +235,55 @@ public static class ServiceRegistration
         builder.Services.AddScoped<ILiveRoundContributionService, LiveRoundContributionService>();
 
         builder.AddIncidentReportingServices();
+        builder.AddAvatarStorageServices();
+    }
+
+    // REQ-722/ADR-0087 (S-180): AvatarSubmission's own repository plus the
+    // IAvatarStorage registration — its own method, same "one focused
+    // helper per component" shape AddIncidentReportingServices below
+    // already establishes, rather than growing the main body of
+    // AddApplicationServices further.
+    private static void AddAvatarStorageServices(this WebApplicationBuilder builder)
+    {
+        builder.Services.AddScoped<IAvatarSubmissionRepository, AvatarSubmissionRepository>();
+
+        // Same useLocalE2EAuth gate AuthSetup.ConfigureSupabaseAuthentication
+        // uses for ISupabaseAuthClient — ci.yml's e2e-tests job has no live
+        // Supabase project to call, so an unconditional real
+        // SupabaseAvatarStorage registration would throw at startup reading
+        // Supabase:Url/ServiceRoleKey, neither of which that job configures
+        // (see AuthSetup.IsLocalE2EAuth's own doc comment for the full
+        // "never guarded only by config alone" reasoning this reuses
+        // unchanged). Re-checked here rather than assumed, exactly like
+        // that method's own callers do.
+        if (AuthSetup.IsLocalE2EAuth(builder.Configuration, builder.Environment))
+        {
+            builder.Services.AddSingleton<IAvatarStorage, LocalE2EAvatarStorage>();
+            return;
+        }
+
+        var supabaseUrl = builder.Configuration["Supabase:Url"]
+            ?? throw new InvalidOperationException("Supabase:Url is not configured.");
+        // A separate, more-privileged key — same reasoning as
+        // SupabaseAuthClient.DeleteUserAsync (REQ-710/ADR-0026): avatar
+        // uploads/deletes are always backend-initiated writes to a bucket
+        // with no public write policy, never the anon key.
+        var supabaseServiceRoleKey = builder.Configuration["Supabase:ServiceRoleKey"]
+            ?? throw new InvalidOperationException("Supabase:ServiceRoleKey is not configured.");
+        // Non-secret, defaults to "avatars" — REQ-722 doesn't mandate a
+        // specific bucket name, so this is configurable the same way
+        // AddIncidentReportingServices' GitHub:IncidentReportOwner/Repo/Label
+        // below default sensibly rather than requiring every environment to
+        // set it explicitly.
+        var avatarBucketName = builder.Configuration["Supabase:AvatarBucketName"] ?? "avatars";
+        builder.Services.AddSingleton(new SupabaseAvatarBucketOptions(avatarBucketName));
+
+        builder.Services.AddHttpClient<IAvatarStorage, SupabaseAvatarStorage>(client =>
+        {
+            client.BaseAddress = new Uri(supabaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Add("apikey", supabaseServiceRoleKey);
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseServiceRoleKey}");
+        });
     }
 
     private static void AddIncidentReportingServices(this WebApplicationBuilder builder)

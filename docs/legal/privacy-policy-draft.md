@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.10"
+version: "0.11"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-08-10
+last_updated: 2026-08-24
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -33,6 +33,15 @@ last_updated: 2026-08-10
   display name (e.g. "Guest8317") is used until you set your own.
 - **Gameplay data:** the guesses you submit, which rounds and leagues you
   participate in, your scores
+- **Profile avatar image (optional):** if you choose to upload a picture
+  for your profile, we store the image file itself (not just a reference
+  to it) with our storage provider, Supabase Storage. It is held in a
+  "Pending" state, visible only to you, until an admin reviews it: if
+  approved, it becomes visible to other players as your avatar; if
+  rejected, it is never shown to anyone but you, and you can upload a new
+  one to try again. Uploading a new image while one is already pending
+  replaces it — we never hold more than one pending image per account at
+  a time.
 - **Last-active timestamp:** for every account, guest or not, we record the
   time of your most recent login, guest sign-in, account claim, or
   submitted guess. For a guest account, this is used only to determine when
@@ -56,9 +65,12 @@ last_updated: 2026-08-10
   players — on the global leaderboard, and on any leaderboard for a league
   you're a member of. Your email address is never shown to other players;
   the display name exists specifically so a leaderboard never has to
-  expose it.
-- **Supabase** (database and authentication) — stores your account and
-  gameplay data
+  expose it. If you've uploaded a profile avatar image and an admin has
+  approved it, that image is also visible to other players; a pending or
+  rejected image is never shown to anyone but you.
+- **Supabase** (database, authentication, and — for your profile avatar
+  image, if you upload one — file storage) — stores your account,
+  gameplay, and (where applicable) avatar image data
 - **Resend** (email delivery) — sends confirmation and notification emails
   on our behalf; sees your email address and the content of those emails
 - **Microsoft Azure** (hosting) — runs the application; doesn't have
