@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.01"
+version: "2.02"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -4181,6 +4181,75 @@ cases.
 
 ---
 
+**REQ-411 – Player stats / profile view (own and another player's)**
+> As a player, I want to see my own performance stats (best score, average
+> score, rounds played) and look up another player's stats the same way,
+> so I have somewhere to check progress beyond the leaderboard's single
+> ranked list.
+
+**Own stats:**
+- Given a logged-in player (guest or claimed account)
+- When they open their own stats/profile view
+- Then it shows, scoped to a single game's `GameKey` at a time (same
+  per-game scoping REQ-410 already established for the all-time ranking —
+  this REQ reuses that convention, not a new cross-game aggregate):
+  rounds played (REQ-409's existing qualifying-round definition — a
+  closed round the player submitted at least one guess in, no new
+  "played" definition introduced), best single round's `FinalPoints`
+  total (REQ-408's definition), average `FinalPoints` across their
+  qualifying rounds, and their current all-time rank if they meet
+  REQ-409's 5-round minimum (omitted, not zero, when they don't — the
+  same distinction REQ-409 already makes on the leaderboard itself)
+- And if the player has zero qualifying rounds for the selected game, the
+  view shows that plainly (zero rounds played, no best/average/rank
+  figures rather than a `0`) rather than an empty or broken-looking screen
+
+**Viewing another player's stats:**
+- Given a logged-in player and any other player's `DisplayName` shown
+  somewhere in the app they already have access to (the leaderboard is
+  the only such surface as of this REQ)
+- When they select that display name
+- Then they see the same stats view, scoped to that player, read-only —
+  no action is available on someone else's stats beyond viewing them
+- Given the viewed player has zero qualifying rounds for the selected game
+- Then the same "no rounds played yet" presentation applies, not an error
+
+**Authorization boundary:**
+- Given a request for any player's stats (own or another's)
+- When the caller has no valid session
+- Then the request is rejected with `401` — this view is not reachable by
+  a fully logged-out visitor, unlike REQ-511's banner
+- Given a valid session
+- Then the same stats are returned regardless of whose stats are
+  requested — there is no additional per-player privacy toggle in this
+  REQ (see Out of scope)
+
+**Out of scope for this REQ:** an opt-out/privacy setting letting a player
+hide their stats from others (every account's stats are visible to any
+other logged-in account, the same exposure level `DisplayName` already
+has on the leaderboard); a stricter "solved" definition based on getting
+every cell in a round correct (this REQ's "rounds played" reuses REQ-409's
+existing qualifying-round definition — closed round, at least one guess —
+not a new all-correct threshold); any cross-game combined total (each
+`GameKey` is scoped independently, same as REQ-410); guest-specific
+exclusions beyond what REQ-409 already applies to the rank figure (a
+guest's rounds-played/best/average figures are shown the same as a
+claimed account's — only the *rank* figure inherits REQ-409's existing
+guest-eligibility rules, nothing new here).
+
+**Test level:** Unit (the stats aggregate reuses REQ-408/409's existing
+per-round total and qualifying-round queries, scoped by `GameKey` and
+`UserId`; zero-qualifying-rounds returns the "no rounds played" shape, not
+a `0`-filled one; rank is omitted below REQ-409's 5-round minimum). API
+(`GET /users/{userId}/stats?gameKey=` returns 401 with no session; returns
+the same shape for a caller's own id and another player's id; a
+nonexistent `userId` returns 404). UI (own stats reachable from an entry
+point in Settings/header nav; another player's stats reachable by
+selecting their display name on the leaderboard; the zero-rounds-played
+empty state renders distinctly from a loading/error state).
+
+---
+
 ### 4.5 Data management and overrides
 
 **REQ-501 – Manual override always wins**
@@ -5461,6 +5530,115 @@ renders its own specific message and a 401 triggers `onAuthError`, extending
 existing coverage for `/admin/suggestions/{id}/lookup`,
 `/admin/player-search/lookup`, and REQ-513's endpoint (called from a second
 site, not a new one).
+
+---
+
+**REQ-516 – Admin UI grouped navigation**
+> As an admin, I want the admin page organized into grouped sections
+> (Users, Grid, Path, Announcements, Issues) with a way to switch between
+> them, instead of one long scrolling page, so I can find the control I
+> need without scanning past unrelated sections.
+
+- Given the admin page (REQ-504) as it exists today — a single vertical
+  stack of independent sections (player suggestions entry, incident
+  reports entry, announcement banner, unverified data review, account
+  metrics, xG Path cycle control, round control, user deletion, and this
+  section's own REQ-517 avatar moderation once built)
+- When an admin opens the admin page
+- Then those sections are grouped and reachable via a persistent
+  navigation control (tabs or an equivalent grouped nav), with groups at
+  minimum: **Users** (account metrics, user deletion, guest force-clear,
+  REQ-517's avatar moderation), **Grid** (unverified data review, player
+  suggestions entry, round control), **Path** (xG Path cycle control),
+  **Announcements** (the announcement banner), **Issues** (incident
+  reports entry) — only one group's sections are visible at a time
+- And switching groups does not re-fetch a section's data if it was
+  already loaded during this page visit — each section keeps the
+  independent fetch/refetch behavior REQ-504/505/507/508/511/512/1209
+  already established; this REQ only changes which sections are visible
+  at once, not how or when any of them fetch
+- And every existing per-section behavior is unchanged: a section absent
+  in Production (REQ-505/506's non-Production-only sections) is still
+  entirely absent from the DOM, not merely hidden behind an unselected
+  tab; a non-admin still gets the page-level "access denied" message
+  (REQ-504) before any group or section renders
+
+**Out of scope for this REQ:** any new admin capability, endpoint, or
+permission — this is a pure navigation/layout change over sections that
+already exist (or, for REQ-517, are being added in the same area);
+persisting the admin's last-selected group across a page reload (always
+opens to the same default group, left to implementation).
+
+**Test level:** UI (the admin page renders grouped nav instead of one long
+scroll; selecting a group shows only that group's sections; the existing
+Production-hiding and non-admin access-denied behavior for
+REQ-504/505/506 is unchanged under the new nav; a section's own
+loading/error/refetch behavior — e.g. `AccountMetricsSection`'s — is
+unaffected by switching groups away from and back to it).
+
+---
+
+**REQ-517 – Admin review of pending avatar uploads**
+> As an admin, I want to see every player's pending avatar upload with a
+> preview image and approve or reject it, so no image becomes visible to
+> other players without a human checking it first.
+
+**Reviewing the queue:**
+- Given one or more players have an avatar submission in `Pending` status
+  (REQ-722)
+- When an admin opens the avatar moderation section (grouped under
+  REQ-516's "Users" nav group)
+- Then they see every pending submission with a preview of the uploaded
+  image, the submitting player's `DisplayName`, and the submission time —
+  oldest first, matching REQ-509's existing pending-suggestion ordering
+  convention
+
+**Approving:**
+- Given a pending avatar submission
+- When an admin approves it
+- Then that submission becomes the player's visible avatar (REQ-722), the
+  submission's status becomes `Approved`, and it leaves the pending queue
+- And if the same player already had a previously-approved avatar, the
+  new one replaces it — a player has at most one visible avatar at a time
+
+**Rejecting:**
+- Given a pending avatar submission
+- When an admin rejects it
+- Then the submission's status becomes `Rejected`, it leaves the pending
+  queue, no image becomes visible to anyone but the submitting player
+  (who sees their own submission's rejected status, REQ-722), and the
+  player's previously-approved avatar if any is unchanged
+- And rejecting requires no reason field in v1 — a player who wants to
+  know why can only infer it from the fact of rejection, the same minimal
+  bar REQ-509's suggestion rejection already sets
+
+**Authorization and notification:**
+- Given a request to list, approve, or reject avatar submissions
+- When the caller is not authenticated, or is authenticated but not in
+  the `Admin:UserIds` allowlist
+- Then it is rejected with `401`/`403` respectively — the same "Admin"
+  policy every other admin endpoint in §4.5 already uses
+- Given at least one submission is pending
+- Then the admin page shows a pending-count badge next to this section's
+  nav entry, mirroring REQ-512's existing badge for player suggestions —
+  no separate REQ is needed for the badge itself, it reuses that pattern
+  directly
+
+**Out of scope for this REQ:** automated image content scanning (human
+review via this queue is the only moderation mechanism for v1); a reason/
+comment field on rejection; re-review of an already-decided submission (a
+rejected or approved submission is terminal — a player must submit a new
+image to try again, per REQ-722).
+
+**Test level:** Unit (approving replaces any prior approved avatar and
+clears pending status; rejecting leaves a prior approved avatar
+untouched). API (`GET /admin/avatar-submissions` returns only `Pending`
+rows oldest-first, 401/403 under the Admin policy; approve/reject
+transition status correctly and reject acting twice on an already-decided
+submission with a clear error, not a silent success). UI (the moderation
+section renders image previews; approving/rejecting removes the row from
+the pending list; the pending-count badge matches the number of rows
+returned).
 
 ---
 
@@ -7239,6 +7417,76 @@ explicitly asked whether `/` or `#` should be used) per `CLAUDE.md`'s ADR
 guidance. Flagged for `architecture-reviewer`/the implementer to write
 before or alongside implementation — not decided here, since a
 requirements document specifies WHAT and HOW TO VERIFY, not HOW TO BUILD.
+
+---
+
+**REQ-722 – Upload a profile avatar, pending admin approval**
+> As a player, I want to upload a picture for my profile, so other
+> players see something more personal than just my display name — with an
+> admin checking it first so nothing inappropriate goes live.
+
+**Uploading:**
+- Given a logged-in player (guest or claimed account)
+- When they upload an image file within a reasonable size/type limit
+  (exact limits left to implementation, matching this document's existing
+  practice of leaving non-product thresholds to
+  `implementation-document.md`)
+- Then a new avatar submission is created in `Pending` status for that
+  player, and it is not visible to any other player until an admin
+  approves it (REQ-517)
+- Given a player already has a submission in `Pending` status
+- When they upload again
+- Then the prior pending submission is replaced by the new one — never
+  two pending submissions queued for the same player at once, and the
+  queue an admin reviews (REQ-517) never shows more than one pending row
+  per player
+
+**Seeing your own status:**
+- Given a player has an avatar submission in `Pending`, `Approved`, or
+  `Rejected` status, or has never submitted one
+- When they view their own avatar setting (in Settings, alongside
+  REQ-714's display-name edit)
+- Then they see which of those four states applies, and — for `Pending`
+  or `Rejected` — a preview of the image in that state; a `Rejected`
+  status does not remove or affect a separately-existing `Approved`
+  avatar from an earlier, different submission
+
+**Replacing an approved avatar:**
+- Given a player already has an `Approved` avatar
+- When they upload a new image
+- Then the new submission enters the queue as `Pending` (REQ-517) and the
+  previously-approved image continues to be shown to other players until
+  the new one is itself approved — uploading never blanks a player's
+  visible avatar while the replacement awaits review
+
+**No avatar / rejected state, as seen by other players:**
+- Given a player has no `Approved` avatar (never uploaded one, or their
+  only submission is `Pending`/`Rejected`)
+- When another player views their stats (REQ-411) or any other surface
+  showing their avatar
+- Then a placeholder is shown instead (initials or a generic icon, exact
+  presentation left to `design-document.md`) — a `Pending` or `Rejected`
+  image is never shown to anyone but the submitting player
+
+**Test level:** Unit (uploading while a `Pending` submission exists
+replaces it rather than creating a second one; approving a new submission
+while an older `Approved` one exists supersedes it, never leaving two
+`Approved` rows). API (`POST /users/me/avatar` returns 401 with no
+session; rejects a file outside the configured size/type limit with a
+clear error). UI (Settings shows the correct one of the four states with
+a preview where applicable; another player's view never renders a
+`Pending`/`Rejected` image, only `Approved` or the placeholder).
+
+**Needs an ADR:** the storage backend for uploaded images is a genuine
+"could reasonably have gone another way" structural decision (Supabase
+Storage vs. Azure Blob Storage, and the abstraction boundary that keeps
+`XGArcade.Core`/`XGArcade.Api` hosting-agnostic per ADR-0004) — flagged
+for `architecture-reviewer`/the implementer to write before or alongside
+implementation, not decided here. Product direction from this planning
+session (2026-08-24): Supabase Storage, to reuse the existing Supabase
+dependency and avoid adding Azure-specific code to `Core`/`Api` — the ADR
+should record this choice and its reasoning, not relitigate it from
+scratch.
 
 ---
 

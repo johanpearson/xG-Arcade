@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/requirements-document.md`, `docs/backlog.md` —
+  Planning session (product owner request): four new REQs drafted, no
+  implementation yet. **REQ-411** (player stats/profile view, own and
+  another player's, per-`GameKey`, reusing REQ-408/409's existing
+  per-round-total and qualifying-round queries — §4.4). **REQ-516**
+  (admin UI grouped navigation — Users/Grid/Path/Announcements/Issues —
+  replacing `AdminScreen.tsx`'s current single flat scroll, pure
+  layout/nav change over existing sections, no new endpoints — §4.5).
+  **REQ-517** (admin review/approve/reject of pending avatar uploads,
+  mirroring REQ-509's suggestion-review pattern — §4.5). **REQ-722**
+  (player avatar upload, `Pending`/`Approved`/`Rejected` lifecycle,
+  visible to other players only once approved — §4.10; flags a needed
+  ADR for the storage backend, with Supabase Storage as the recorded
+  product direction over Azure Blob, to keep `Core`/`Api` hosting-agnostic
+  per ADR-0004). `docs/backlog.md` gained Epic 25 (S-177 through S-183)
+  sequencing the work: admin nav regrouping first (S-177), stats backend
+  then frontend (S-178/179), avatar upload ADR+backend then its two
+  frontend consumers — Settings upload UI and the admin moderation
+  section slotted into S-177's new "Users" group (S-180/181/182/183).
+  Also notes `docs/legal/*.md` needs a same-iteration update once avatar
+  upload ships (new category of collected data — user-uploaded images).
+  `requirements-document.md` bumped to v2.02.
 - 2026-08-24 — `docs/requirements-document.md`, `docs/design-document.md` —
   REQ-514 deprecated (superseded by REQ-515), product-owner decision:
   its standalone "Refresh a player from Wikidata" admin section
