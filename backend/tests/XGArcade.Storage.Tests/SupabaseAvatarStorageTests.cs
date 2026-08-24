@@ -54,6 +54,23 @@ public class SupabaseAvatarStorageTests
             await storage.UploadAsync(new MemoryStream(Encoding.UTF8.GetBytes("a")), "image/jpeg"));
     }
 
+    // Diagnosed against a real deployment (2026-08-24): a bare
+    // EnsureSuccessStatusCode() left every upload failure logged as an
+    // indistinguishable status code with no reason — this guards the fix
+    // that folds Supabase's own response body into the thrown exception.
+    [Test]
+    public void REQ722_UploadAsync_ThrownExceptionIncludesSupabasesResponseBody_ForDiagnosability()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(
+            HttpStatusCode.BadRequest, """{"statusCode":"400","error":"Bad Request","message":"mime type not supported"}""");
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        var ex = Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await storage.UploadAsync(new MemoryStream(Encoding.UTF8.GetBytes("a")), "image/jpeg"));
+
+        Assert.That(ex!.Message, Does.Contain("mime type not supported"));
+    }
+
     [Test]
     public async Task REQ722_DeleteAsync_SendsABulkDeleteRequest_WithThePrefixesBody()
     {
