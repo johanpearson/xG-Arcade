@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.99"
+version: "2.00"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -5316,6 +5316,129 @@ shared generic one); a 401 response triggers `onAuthError` rather than a
 section-local message; the section does not render (or is not reachable)
 for a non-admin/guest, consistent with `AdminScreen.test.tsx`'s existing
 access-denied coverage.
+
+**REQ-515 – Surface WikidataQid and an inline REQ-513 refresh from admin
+player-search/suggestion-lookup results**
+> As an admin, I want the player I just looked up on Wikidata (via
+> suggestion review or manual search) to show its `WikidataQid`, and — when
+> a `Player` row already exists locally for that QID — a one-click way to
+> run REQ-513's refresh right there, so I don't have to copy an id into the
+> separate REQ-514 section to fix a value I can already see is stale.
+
+**Scope note (bridges REQ-509/510's lookup to REQ-513's refresh; no new
+backend action):** this REQ adds no new write behavior. It (a) surfaces an
+already-fetched value (`WikidataQid`) that REQ-509/510's shared
+`LookupPlayerAsync` helper already returns but `PlayerReviewPanel` never
+renders, and (b) adds a second call site for REQ-513's existing
+`POST /admin/players/{id}/refresh-from-wikidata` endpoint, reusing the same
+`refreshPlayerFromWikidata` client function REQ-514's `PlayerRefreshSection`
+already calls. No new endpoint, no new authorization policy, no change to
+REQ-513's request/response contract or error contract, and no change to
+REQ-509/510's commit path. Because `LookupPlayerAsync` is the single shared
+helper behind both `/admin/suggestions/{id}/lookup` (REQ-509) and
+`/admin/player-search/lookup` (REQ-510), and `PlayerReviewPanel` is the
+single shared component both `PendingSuggestionRow` (suggestion review) and
+`ManualSearchSection` (standalone search) render, this REQ's acceptance
+criteria apply identically in both contexts with no endpoint- or
+context-specific carve-out.
+
+**Backend: resolving whether a local `Player` already exists for the found
+QID:**
+- Given a Wikidata lookup (`/admin/suggestions/{id}/lookup` or
+  `/admin/player-search/lookup`) returns `Found = true` with a non-null
+  `WikidataQid`
+- When the response is built
+- Then the system resolves whether a `Player` row already exists for that
+  `WikidataQid` (via `IPlayerRepository.GetPlayerByWikidataQidAsync`) and
+  includes that `Player`'s id in the response
+- Given a Wikidata lookup returns `Found = true` but no local `Player` row
+  exists yet for that `WikidataQid`
+- Then the response indicates no existing player id (null), the same as the
+  `Found = false` case below
+- Given a Wikidata lookup returns `Found = false`
+- Then the response indicates no existing player id (null), consistent with
+  every other field on a `Found = false` response already being null/empty
+- Given this new field is added to the single shared
+  `WikidataPlayerLookupResponse`/`LookupPlayerAsync` helper
+- Then both `/admin/suggestions/{id}/lookup` and `/admin/player-search/lookup`
+  include it with no endpoint-specific special-casing — verified by a test
+  against each endpoint, not just the shared helper in isolation
+
+**Frontend: showing the QID:**
+- Given `PlayerReviewPanel` is in its `found` phase (a successful lookup)
+- Then the fetched `WikidataQid` is rendered as visible text somewhere in
+  that phase's output — no interactivity or further behavior is required of
+  this display beyond being visible to the admin, in both the
+  suggestion-review context (`PendingSuggestionRow`) and the standalone
+  manual-search context (`ManualSearchSection`)
+
+**Frontend: inline refresh action when a local `Player` already exists:**
+- Given `PlayerReviewPanel` is in its `found` phase and the lookup response's
+  new existing-player-id field is non-null
+- Then an inline "Refresh from Wikidata" control is rendered in that phase's
+  output, in addition to (not instead of) the existing commit/reject form
+- Given `PlayerReviewPanel` is in its `found` phase and the lookup response's
+  existing-player-id field is null (no local `Player` row for this QID yet)
+- Then no inline refresh control is rendered — there is no existing `Player`
+  row for REQ-513's endpoint to act on
+- Given the admin activates the inline refresh control
+- Then the UI calls REQ-513's existing endpoint (via the same
+  `refreshPlayerFromWikidata` client function `PlayerRefreshSection.tsx`
+  already uses, not a duplicate implementation) for the existing player id
+  from the lookup response, and disables the control while the request is in
+  flight — the same pending-state pattern REQ-514 already establishes,
+  applied to this second call site
+- Given the refresh request succeeds
+- Then all four fields (`FullName`, `Position`, `BirthYear`, `PhotoUrl`) are
+  shown with the same per-field changed/unchanged (with old/new values on a
+  changed field) presentation REQ-514 already defines for
+  `PlayerRefreshSection` — this result display is independent of, and does
+  not alter, the separate commit/reject form `PlayerReviewPanel` already
+  renders in the `found` phase
+- Given this action is not a destructive one (it can only apply
+  already-trusted Wikidata data, the same reasoning REQ-514 already
+  establishes for its own entry point)
+- Then there is no confirmation step before it runs — this is REQ-513's own
+  existing action, invoked from a second entry point, not a new action with
+  its own confirmation policy
+
+**Error handling:**
+- Given the refresh request made from this inline action fails
+- Then it is handled with the identical 404/409/503/401 contract REQ-513's
+  endpoint already defines and REQ-514 already establishes UI messages for
+  (404 "player not found," 409 "no Wikidata id to refresh from," 503 "lookup
+  unavailable, try again," 401 triggers the same `onAuthError` re-
+  authentication flow `PlayerReviewPanel` already uses on its own lookup/
+  commit/reject calls) — this REQ introduces no new error states or
+  messages of its own; a 404/409 here would only occur if the local `Player`
+  row was deleted or its `WikidataQid` cleared between the lookup and the
+  refresh click, an edge case REQ-513's existing contract already covers
+
+**Out of scope for this REQ:** any change to `LookupPlayerAsync`'s Wikidata
+query itself, to REQ-513's refresh endpoint/response/error contract, or to
+REQ-509/510's commit write path; a player-browsing/search UI beyond what
+REQ-509/510 already provide (this REQ only adds visibility/an action to an
+already-fetched lookup result, it does not add a new way to find a player);
+removing or changing REQ-514's existing standalone `PlayerRefreshSection`
+(that entry point remains, for the case where an admin already knows a
+`Player` id without having just run a Wikidata lookup for it).
+
+**Test level:** Unit (backend: `ExistingPlayerId`/equivalent field is
+present with the correct value when a local `Player` exists for the found
+QID, and null both when no local `Player` exists and when `Found = false`
+— verified against both `/admin/suggestions/{id}/lookup` and
+`/admin/player-search/lookup`, extending `AdminSuggestionEndpointTests.cs`;
+frontend: the QID renders as visible text in the `found` phase for both
+`PendingSuggestionRow` and `ManualSearchSection` contexts; the inline
+refresh control renders only when an existing player id is present and not
+otherwise; activating it calls `refreshPlayerFromWikidata` with that id and
+shows a pending state; a successful response renders all four fields with
+the same changed/unchanged presentation as REQ-514; each of 404/409/503
+renders its own specific message and a 401 triggers `onAuthError`, extending
+`SuggestionsScreen.test.tsx`). No new API-level test class — this extends
+existing coverage for `/admin/suggestions/{id}/lookup`,
+`/admin/player-search/lookup`, and REQ-513's endpoint (called from a second
+site, not a new one).
 
 ---
 
