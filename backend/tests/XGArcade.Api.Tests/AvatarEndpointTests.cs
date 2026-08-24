@@ -406,4 +406,50 @@ public class AvatarEndpointTests
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
+
+    // Sibling to REQ722_AvatarStatus_Get_ReturnsUnauthorized_WithoutBearerToken
+    // above, for the image endpoint — no equivalent existed for
+    // GET /users/me/avatar/{id}/image.
+    [Test]
+    public async Task REQ722_AvatarImage_Get_ReturnsUnauthorized_WithoutBearerToken()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/users/me/avatar/{Guid.NewGuid()}/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // The row exists and is owned by the caller (GetByIdAsync succeeds),
+    // but the underlying storage object it points at is gone — the
+    // `image is null` branch in AvatarEndpoints.cs, distinct from the
+    // "no such row"/"someone else's row" 404s covered above.
+    [Test]
+    public async Task REQ722_AvatarImage_Get_ReturnsNotFound_WhenStorageObjectIsMissingForAnOwnedRow()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var uploadResponse = await client.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/png"));
+        var uploadBody = await uploadResponse.Content.ReadFromJsonAsync<SubmitAvatarResponse>();
+
+        string storageKey;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var submission = await dbContext.AvatarSubmissions.SingleAsync(a => a.Id == uploadBody!.Id);
+            storageKey = submission.ImageStorageKey;
+        }
+
+        // Simulate the storage object having gone missing (e.g. deleted
+        // out-of-band in the bucket) while the DB row still references it
+        // — directly against the fake, not through the API, since this
+        // isn't reachable via any endpoint.
+        await _fakeAvatarStorage.DeleteAsync(storageKey);
+
+        var imageResponse = await client.GetAsync($"/users/me/avatar/{uploadBody!.Id}/image");
+
+        Assert.That(imageResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
 }
