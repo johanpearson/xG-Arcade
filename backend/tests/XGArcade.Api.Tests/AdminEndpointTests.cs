@@ -44,6 +44,21 @@ public class AdminEndpointTests
     {
         _fakeWikidataClient = new FakeWikidataClient();
 
+        // Generated once, OUTSIDE the WithWebHostBuilder lambda below, and
+        // captured by closure — bug fix (issue #239 CI failure): a derived
+        // factory built later off `_factory` via a second `.WithWebHostBuilder(...)`
+        // call (`CreateAdminClientWithLogging`/`CreateAdminClientWithUpdatePlayerCallCounter`
+        // below) replays this whole customization delegate again to build its
+        // own host. Generating the name INSIDE the lambda (as this used to)
+        // meant each such derived factory got its own fresh, empty in-memory
+        // database, disconnected from whatever `_factory`'s own DbContext had
+        // already seeded — every REQ-513 test using either of those two
+        // helpers got a spurious 404 for a player that was, in fact, seeded.
+        // Same "generate once outside the lambda" shape as
+        // AdminSuggestionEndpointTests.cs's own SetUp, which is exactly why
+        // its sibling `CreateAdminClientWithLogging` usage never hit this.
+        var inMemoryDatabaseName = Guid.NewGuid().ToString();
+
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
@@ -67,7 +82,6 @@ public class AdminEndpointTests
                         services.Remove(descriptor);
                     }
 
-                    var inMemoryDatabaseName = Guid.NewGuid().ToString();
                     services.AddDbContext<XGArcadeDbContext>(options =>
                         options.UseInMemoryDatabase(inMemoryDatabaseName));
 
