@@ -1307,4 +1307,31 @@ public class LeaderboardServiceTests
         Assert.That(stats.AverageFinalPoints, Is.EqualTo(30.0));
         Assert.That(stats.Rank, Is.Null, "REQ-409/717's guest ranking exclusion is deliberately unchanged");
     }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_ClaimedAccountRoundsClosedBeforeClaiming_StatsFiguresIncluded()
+    {
+        // Mirrors REQ717_GetGlobalLeaderboardAsync_ClaimedAccount_RoundsClosedBeforeClaimingNeverCountTowardQualification
+        // above, but proves the opposite outcome now applies to
+        // GetUserStatsAsync's stats figures specifically: before this REQ-411
+        // fix, GetPerRoundFinalPointsByUserIdsAsync unconditionally excluded
+        // a claimed account's pre-claim rounds, which GetUserStatsAsync
+        // inherited for RoundsPlayed/Best/Average too. With
+        // applyGuestEligibilityRules: false, these 5 pre-claim rounds must
+        // now count toward the stats figures — while Rank must still be null,
+        // since GetRankedMembersAsync (unchanged) still excludes them from
+        // ranking, leaving this account with 0 *ranking*-qualifying rounds.
+        var claimedAt = DateTime.UtcNow.AddDays(-5);
+        var you = await SeedClaimedMemberAsync("You", claimedAt);
+        for (var i = 0; i < 5; i++)
+            await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(-1 - i)); // all closed BEFORE claiming.
+
+        var stats = await _service.GetUserStatsAsync(you.Id, GameKey);
+
+        Assert.That(stats.HasRoundsPlayed, Is.True, "pre-claim rounds must count toward stats figures now, unlike ranking");
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(5));
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(30.0));
+        Assert.That(stats.Rank, Is.Null, "GetRankedMembersAsync still excludes pre-claim rounds, so this account has 0 ranking-qualifying rounds");
+    }
 }
