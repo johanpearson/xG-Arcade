@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `CLAUDE.md`, `.claude/README.md`, `.claude/agents/backend-implementer.md`,
+  `.claude/agents/quality-architect.md`, `.claude/agents/test-writer.md`,
+  `.claude/commands/quality-gate.md`, `.claude/commands/orchestrate.md`,
+  `.claude/commands/test.md`, `.github/workflows/ci.yml` (no REQ/ADR
+  change — tooling/workflow-process only) — Added a `workflow_dispatch`
+  trigger to `ci.yml` so a session without a local `dotnet` SDK can run
+  the real backend/frontend/E2E suites against a pushed branch before a
+  PR exists (manual runs bypass the doc-only paths-filter and always run
+  the full suite; job names unchanged, so branch-protection required
+  checks are unaffected). Documented the trigger-and-check flow in
+  CLAUDE.md's new "Testing without a local dotnet SDK" section, including
+  token-efficient log handling (check conclusions first, pull only failed
+  jobs' failed portion). Wired delivery agents/commands to flag rather
+  than trigger it themselves, since they don't hold GitHub API tool
+  access — only the orchestrating main session does. Also made
+  commit-early-and-often and default PR-creation-with-auto-merge explicit
+  conventions in CLAUDE.md's Git and PR conventions section, rather than
+  behavior that has to be requested each time.
 - 2026-08-24 — `docs/design-document.md` — REQ-514 built:
   `frontend/src/admin/PlayerRefreshSection.tsx`, a pure UI layer over
   REQ-513's existing `POST /admin/players/{id}/refresh-from-wikidata`

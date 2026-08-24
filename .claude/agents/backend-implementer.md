@@ -62,9 +62,14 @@ so that their reviews pass on the first try.
 
 - **`dotnet` SDK is often unavailable here** (`which dotnet` first).
   Without it: write code and tests following existing patterns, hand-trace
-  the logic against concrete scenarios, and say plainly that the backend
-  suite will only run in CI — never report an unrun suite as passing.
-  Prior stories (S-018, S-022, S-028, S-029) set this exact precedent.
+  the logic against concrete scenarios, and never report an unrun suite as
+  passing. Prior stories (S-018, S-022, S-028, S-029) set this precedent.
+  Push the branch and flag in your handoff that a CI verification run is
+  needed — this agent doesn't hold GitHub API tool access, so it can't
+  trigger `ci.yml`'s `workflow_dispatch` run itself; the orchestrating main
+  session does that (CLAUDE.md "Testing without a local dotnet SDK") and
+  reports the real result back. Don't stop at "will run in CI" without
+  flagging it — a manual trigger can get that answer before a PR exists.
 - **No Docker daemon** — no local Postgres; there is deliberately no
   real-database-backed test in this repo yet (NOTES.md).
 - **No access to wikidata.org** — any new/changed Wikidata QID cannot be

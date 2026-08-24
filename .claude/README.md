@@ -92,8 +92,11 @@ they don't forbid the short ones.
 1. Run `/test` — Tier 0: runs the full suite locally against a fresh
    local stack (mirroring `ci.yml`), since there's no deployed dev
    environment yet. (Tier 1 adds the dev-env reset via REQ-802.) Note the
-   sandbox often lacks the `dotnet` SDK — backend results then come from
-   CI, and Claude should say so rather than claiming a local pass.
+   sandbox often lacks the `dotnet` SDK — when it does, Claude triggers
+   `ci.yml` directly via its `workflow_dispatch` trigger (push the branch,
+   then run it manually) instead of just deferring to a future PR's CI
+   run; see `CLAUDE.md` "Testing without a local dotnet SDK". It reports
+   pass/fail per job rather than dumping raw logs.
 2. If coverage is missing for something you just built, ask for it
    directly or let `test-writer` pick it up — it'll name tests by REQ ID,
    so you can grep `docs/requirements-document.md` for a REQ and grep the
@@ -146,7 +149,11 @@ they don't forbid the short ones.
   Claude Code's native git/PR capabilities directly. `CLAUDE.md`'s "Git
   and PR conventions" section is what keeps commit messages, branch
   names, and PR descriptions consistent with the REQ/ADR ID system used
-  everywhere else.
+  everywhere else. It also commits/pushes incrementally rather than in one
+  batch at the end (so an interrupted session leaves recoverable state),
+  and opens the PR with auto-merge enabled by default once a unit of work
+  is ready — you don't need to ask for that each time, only redirect it if
+  you don't want it for a given change.
 - **Requirements**: use `requirements-writer` before writing code for
   anything not already covered by an existing REQ — it drafts in the
   established Given/When/Then format and checks for ID collisions/testability.

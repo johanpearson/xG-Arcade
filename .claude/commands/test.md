@@ -17,6 +17,15 @@ Report a summary: what passed, what failed, and for failures, which
 requirement ID (if named in the test) is affected — don't just paste raw
 test-runner output without a summary on top.
 
+If the sandbox can't run a suite (no `dotnet` SDK, no Docker daemon —
+check, don't assume), don't stop at "will run in CI": push the branch and
+trigger `ci.yml`'s `workflow_dispatch` run instead, per CLAUDE.md "Testing
+without a local dotnet SDK". Check job conclusions first and only pull
+logs for jobs that failed, and only the failed portion — token efficiency
+matters here, since a full green/red log dump is mostly noise. This is
+what actually gets a suite that can't run locally tested before a PR
+exists, instead of guessing at correctness.
+
 Tier 1 evolution: once the dev environment and test-data API exist
 (ADR-0006, REQ-801-804), this command gains a step to reset dev test data
 via `/internal/test-data/reset` and point E2E at the deployed dev env.

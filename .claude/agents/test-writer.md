@@ -52,7 +52,11 @@ REQ ID as a prefix or tag, e.g. `test("REQ204: shows live badge and updates on r
 
 - Run the relevant test command (`dotnet test`, `npm run test`, or
   `npm run test:e2e`) and confirm they pass against current code, or fail
-  for the right reason if written test-first.
+  for the right reason if written test-first. If `dotnet` isn't available
+  in this sandbox, say so and flag that a CI verification run is needed —
+  this agent doesn't hold GitHub API tool access to trigger `ci.yml`'s
+  `workflow_dispatch` run itself (CLAUDE.md "Testing without a local
+  dotnet SDK"); the orchestrating main session does that.
 - Report which REQ IDs now have coverage and which acceptance-criteria
   branches, if any, are still uncovered — do not silently leave gaps.
 - Do not update `docs/requirements-document.md` yourself unless the act of

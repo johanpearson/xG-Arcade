@@ -27,9 +27,12 @@ is reported as not-passed, never waved through.
    affected gate after fixes. A finding may be explicitly waived only by
    the person, not by an agent.
 4. **Test gate** — run the full suite per `/test`. In this sandbox the
-   backend suite needs the `dotnet` SDK and E2E needs a local stack —
-   for whatever can't run here, say so explicitly and mark the gate
-   "deferred to CI", never "passed".
+   backend suite needs the `dotnet` SDK and E2E needs a local stack — for
+   whatever can't run here, push the branch and trigger `ci.yml`'s
+   `workflow_dispatch` run (CLAUDE.md "Testing without a local dotnet
+   SDK") to get a real result instead of just deferring; only mark the
+   gate "deferred to CI" if triggering it isn't possible in this context
+   either, and say why.
 5. **Doc gate** — confirm docs are in sync (`/update-docs` if any
    behavior, boundary, or data-model reality changed; CHANGELOG entry if
    any doc changed).
