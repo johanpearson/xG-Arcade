@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.02"
+version: "2.03"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -4182,6 +4182,31 @@ cases.
 ---
 
 **REQ-411 – Player stats / profile view (own and another player's)**
+*(Status: Implemented (backend only), 2026-08-24, S-178 — `GET
+/users/{userId}/stats?gameKey=` (`UserEndpoints.cs`), backed by a new
+`ILeaderboardService.GetUserStatsAsync`. No new aggregate path: rounds
+played/best/average `FinalPoints` reuse the existing
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` query (REQ-408/409),
+and rank reuses `GetRankedMembersAsync`, a helper extracted from
+`GetGlobalLeaderboardAsync` with no behavior change to that method — never
+a second, independently-drifting rank formula. `UserStatsResult
+.HasRoundsPlayed` is the "no rounds played" discriminator this REQ
+requires (`false` ⇒ `RoundsPlayed = 0`, `Best`/`Average`/`Rank` all `null`,
+never `0`-filled). **Bug found and fixed mid-implementation:**
+`GetPerRoundFinalPointsByUserIdsAsync`'s REQ-717/ADR-0036 guest/claimed-
+account exclusion was unconditional, so the first version of this endpoint
+always returned the zero-rounds-played shape for guest accounts and for a
+claimed account's pre-claim rounds, even with 5+ genuinely qualifying
+rounds — contradicting this REQ's own "Out of scope" carve-out that only
+the *rank* figure inherits guest-eligibility rules. Fixed by adding an
+`applyGuestEligibilityRules` parameter (default `true`, so
+`GetRankedMembersAsync`'s existing ranking call and its pre-existing tests
+are unaffected); `GetUserStatsAsync` is the one caller that passes `false`
+for the three stats figures, while Rank still goes through the unchanged,
+guest-excluding path. Frontend consumption (own-stats entry point,
+other-player navigation from the leaderboard) is the separate follow-on
+story S-179, not yet built — this REQ's UI acceptance criteria remain
+open until then.)*
 > As a player, I want to see my own performance stats (best score, average
 > score, rounds played) and look up another player's stats the same way,
 > so I have somewhere to check progress beyond the leaderboard's single

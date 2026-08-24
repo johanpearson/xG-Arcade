@@ -1157,4 +1157,181 @@ public class LeaderboardServiceTests
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "Alex" }));
         Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 40, 90 }));
     }
+
+    // ---- REQ-411/S-178: single player's stats/profile view -----------------
+    // GetUserStatsAsync reuses GetPerRoundFinalPointsByUserIdsAsync (REQ-408/
+    // 409's existing query) and the private GetRankedMembersAsync helper
+    // GetGlobalLeaderboardAsync itself uses (extracted, not reimplemented) —
+    // these tests exercise the one new method directly, own id/other-id
+    // symmetry and the API-layer shape/401/404 concerns are covered instead
+    // by XGArcade.Api.Tests/UserEndpointTests.cs per the REQ's own "Test
+    // level" split (Unit here, API there).
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_ZeroQualifyingRounds_ReturnsNoRoundsPlayedShapeNotZeroFilled()
+    {
+        var member = await SeedMemberAsync("Alex");
+
+        var stats = await _service.GetUserStatsAsync(member.Id, GameKey);
+
+        Assert.That(stats.HasRoundsPlayed, Is.False);
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(0));
+        Assert.That(stats.BestFinalPoints, Is.Null);
+        Assert.That(stats.AverageFinalPoints, Is.Null);
+        Assert.That(stats.Rank, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_FewerThanFiveQualifyingRounds_StatsPresentButRankOmitted()
+    {
+        var you = await SeedMemberAsync("You");
+        // Sorted: 10, 20, 30, 40 -> best (min) 10, average 25. Only 4
+        // qualifying rounds, below REQ-409's 5-round ranking minimum.
+        await SeedQualifyingRoundsAsync(you.Id, 40, 10, 30, 20);
+
+        var stats = await _service.GetUserStatsAsync(you.Id, GameKey);
+
+        Assert.That(stats.HasRoundsPlayed, Is.True);
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(4));
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(25.0));
+        Assert.That(stats.Rank, Is.Null, "below REQ-409's 5-round minimum: omitted, not a placeholder rank");
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_BestIsMinimumFinalPointsNotMedianOrSum()
+    {
+        // ADR-0021 (golf scoring, lowest wins): Best must be the minimum per-
+        // round total. Sorted: 10, 20, 30, 40, 100 -> min 10, median 30, sum
+        // 200 — three different values, so an implementation that wrongly
+        // used the median or a sum would be caught here.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 100, 10, 30, 40, 20);
+
+        var stats = await _service.GetUserStatsAsync(you.Id, GameKey);
+
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_AverageIsArithmeticMeanNotMedian()
+    {
+        // Same 5 values as above: mean = (10+20+30+40+100)/5 = 40, which
+        // differs from both the median (30) and the min/Best (10) — proves
+        // Average specifically uses the mean, not a reused median formula.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 100, 10, 30, 40, 20);
+
+        var stats = await _service.GetUserStatsAsync(you.Id, GameKey);
+
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(40.0));
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_FiveOrMoreQualifyingRounds_RankMatchesGetGlobalLeaderboardAsyncsOwnRanking()
+    {
+        // Cross-checks against GetGlobalLeaderboardAsync's own ranked output
+        // for the same GameKey/membership, rather than asserting an
+        // arbitrary expected number — proves the reused GetRankedMembersAsync
+        // helper actually produces the same rank the leaderboard itself would
+        // show, not just a plausible-looking one.
+        var alex = await SeedMemberAsync("Alex");
+        var sam = await SeedMemberAsync("Sam");
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(alex.Id, 60, 70, 80, 90, 100); // median 80
+        await SeedQualifyingRoundsAsync(sam.Id, 10, 20, 30, 40, 50);   // median 30
+        await SeedQualifyingRoundsAsync(you.Id, 40, 45, 50, 55, 60);   // median 50
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var expectedRankByUserId = page.Rows.ToDictionary(r => r.UserId, r => r.Rank);
+
+        var alexStats = await _service.GetUserStatsAsync(alex.Id, GameKey);
+        var samStats = await _service.GetUserStatsAsync(sam.Id, GameKey);
+        var youStats = await _service.GetUserStatsAsync(you.Id, GameKey);
+
+        Assert.That(alexStats.Rank, Is.EqualTo(expectedRankByUserId[alex.Id]));
+        Assert.That(samStats.Rank, Is.EqualTo(expectedRankByUserId[sam.Id]));
+        Assert.That(youStats.Rank, Is.EqualTo(expectedRankByUserId[you.Id]));
+        // Pin the concrete values too, so this test still fails clearly if
+        // GetGlobalLeaderboardAsync's own ranking ever regresses alongside it.
+        Assert.That(samStats.Rank, Is.EqualTo(1));
+        Assert.That(youStats.Rank, Is.EqualTo(2));
+        Assert.That(alexStats.Rank, Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_QualifyingRoundsInAnotherGame_NeverCountTowardThisGamesStats()
+    {
+        // Same cross-game-isolation shape as the REQ-410 tests above: 5
+        // qualifying xg-grid rounds (clears REQ-409's floor, ranked) plus 3
+        // xg-path rounds (below the floor, unranked) for the same player —
+        // each GameKey's stats must reflect only its own rounds.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50); // xg-grid: 5 rounds, best 10, avg 30.
+        await SeedQualifyingRoundsAsync(you.Id, OtherGameKey, 900, 900, 900); // xg-path: only 3 rounds.
+
+        var xgGridStats = await _service.GetUserStatsAsync(you.Id, GameKey);
+        var xgPathStats = await _service.GetUserStatsAsync(you.Id, OtherGameKey);
+
+        Assert.That(xgGridStats.HasRoundsPlayed, Is.True);
+        Assert.That(xgGridStats.RoundsPlayed, Is.EqualTo(5));
+        Assert.That(xgGridStats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(xgGridStats.AverageFinalPoints, Is.EqualTo(30.0));
+        Assert.That(xgGridStats.Rank, Is.EqualTo(1), "the only xg-grid qualifier, so ranked #1");
+
+        Assert.That(xgPathStats.HasRoundsPlayed, Is.True);
+        Assert.That(xgPathStats.RoundsPlayed, Is.EqualTo(3));
+        Assert.That(xgPathStats.BestFinalPoints, Is.EqualTo(900));
+        Assert.That(xgPathStats.AverageFinalPoints, Is.EqualTo(900.0));
+        Assert.That(xgPathStats.Rank, Is.Null, "only 3 xg-path rounds, below REQ-409's 5-round minimum");
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_GuestAccount_StatsFiguresIncludedButRankStillExcluded()
+    {
+        // REQ-411's own "Out of scope" text is explicit: a guest's
+        // rounds-played/best/average are shown the same as a claimed
+        // account's — only the Rank figure still inherits REQ-409/717's
+        // existing guest-eligibility gate (GetRankedMembersAsync, unchanged
+        // by this fix). 5 qualifying rounds so this also proves Rank stays
+        // excluded even once the 5-round minimum would otherwise be cleared,
+        // not just "guest with too few rounds anyway".
+        var guest = await SeedGuestMemberAsync("GuestPlayer");
+        await SeedQualifyingRoundsAsync(guest.Id, 10, 20, 30, 40, 50); // sorted: best 10, average 30.
+
+        var stats = await _service.GetUserStatsAsync(guest.Id, GameKey);
+
+        Assert.That(stats.HasRoundsPlayed, Is.True, "a guest's rounds-played must not be zeroed out");
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(5));
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(30.0));
+        Assert.That(stats.Rank, Is.Null, "REQ-409/717's guest ranking exclusion is deliberately unchanged");
+    }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_ClaimedAccountRoundsClosedBeforeClaiming_StatsFiguresIncluded()
+    {
+        // Mirrors REQ717_GetGlobalLeaderboardAsync_ClaimedAccount_RoundsClosedBeforeClaimingNeverCountTowardQualification
+        // above, but proves the opposite outcome now applies to
+        // GetUserStatsAsync's stats figures specifically: before this REQ-411
+        // fix, GetPerRoundFinalPointsByUserIdsAsync unconditionally excluded
+        // a claimed account's pre-claim rounds, which GetUserStatsAsync
+        // inherited for RoundsPlayed/Best/Average too. With
+        // applyGuestEligibilityRules: false, these 5 pre-claim rounds must
+        // now count toward the stats figures — while Rank must still be null,
+        // since GetRankedMembersAsync (unchanged) still excludes them from
+        // ranking, leaving this account with 0 *ranking*-qualifying rounds.
+        var claimedAt = DateTime.UtcNow.AddDays(-5);
+        var you = await SeedClaimedMemberAsync("You", claimedAt);
+        for (var i = 0; i < 5; i++)
+            await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(-1 - i)); // all closed BEFORE claiming.
+
+        var stats = await _service.GetUserStatsAsync(you.Id, GameKey);
+
+        Assert.That(stats.HasRoundsPlayed, Is.True, "pre-claim rounds must count toward stats figures now, unlike ranking");
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(5));
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(30.0));
+        Assert.That(stats.Rank, Is.Null, "GetRankedMembersAsync still excludes pre-claim rounds, so this account has 0 ranking-qualifying rounds");
+    }
 }

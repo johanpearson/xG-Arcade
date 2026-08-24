@@ -78,8 +78,19 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
     // claiming do. Both conditions are trivially true (never exclude
     // anything) for an account that was never a guest at all: IsGuest is
     // false and ClaimedAt is null from creation.
+    //
+    // REQ-411 (2026-08-24): applyGuestEligibilityRules defaults to true so
+    // LeaderboardService.GetRankedMembersAsync's existing REQ-409/717
+    // ranking call (and every pre-existing test of it) is completely
+    // unaffected. GetUserStatsAsync is the one caller that passes false —
+    // REQ-411's own "Out of scope" text is explicit that a guest's
+    // rounds-played/best/average figures are shown the same as a claimed
+    // account's, and only the *rank* figure (still computed via the
+    // unchanged, guest-excluding GetRankedMembersAsync) inherits REQ-409's
+    // guest-eligibility gate.
     public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
-        IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default,
+        bool applyGuestEligibilityRules = true)
     {
         if (userIds.Count == 0)
             return new Dictionary<Guid, IReadOnlyList<int>>();
@@ -95,8 +106,7 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
                 && userIds.Contains(guess.UserId.Value)
                 && round.ClosedAt != null
                 && round.GameKey == gameKey
-                && !user.IsGuest
-                && (user.ClaimedAt == null || round.ClosedAt > user.ClaimedAt)
+                && (!applyGuestEligibilityRules || (!user.IsGuest && (user.ClaimedAt == null || round.ClosedAt > user.ClaimedAt)))
             group guess by new { UserId = guess.UserId!.Value, guess.RoundId } into perRoundGroup
             select new { perRoundGroup.Key.UserId, Total = perRoundGroup.Sum(g => g.FinalPoints ?? 0) })
             .ToListAsync(cancellationToken);

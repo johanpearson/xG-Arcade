@@ -284,7 +284,10 @@ public static class LeaderboardEndpoints
     // for its own gameKey query param — an unrecognized value is malformed
     // caller input, not a leaderboard-computation failure, so it's rejected
     // here rather than passed through to Core.Leagues.
-    private static IResult? ValidateGameKey(string? gameKey)
+    // Not private: REQ-411/S-178's UserEndpoints.cs reuses this exact same
+    // known-gameKey check rather than duplicating it — one gameKey allowlist
+    // for the whole Api layer, not two that could silently drift apart.
+    internal static IResult? ValidateGameKey(string? gameKey)
     {
         if (gameKey is not (null or GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey))
         {
@@ -303,7 +306,9 @@ public static class LeaderboardEndpoints
     // Results.Unauthorized() themselves (kept out of this helper so it stays
     // a plain resolver, not a response-shaping one, matching ValidatePaging's
     // split of "figure out if something's wrong" from "shape the response").
-    private static async Task<User?> ResolveRequestingUserAsync(
+    // Not private, for the same reason as ValidateGameKey above: REQ-411/
+    // S-178's UserEndpoints.cs reuses this exact auth-resolution pattern.
+    internal static async Task<User?> ResolveRequestingUserAsync(
         ClaimsPrincipal principal, IUserRepository userRepository, CancellationToken cancellationToken)
     {
         var authProviderUserId = principal.GetAuthProviderUserId();
