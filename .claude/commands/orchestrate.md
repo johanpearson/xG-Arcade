@@ -68,8 +68,12 @@ reasonably have gone another way. CHANGELOG entry if any doc changed.
 ## 7. Completion validation
 
 Verify CLAUDE.md's definition of done explicitly, item by item: tests
-pass (state exactly which suites actually ran in this sandbox and which
-only run in CI), docs updated or confirmed unaffected, CHANGELOG entry
-present if docs changed, ADR present if a structural decision was made.
-Report the result against the original request — including anything
-descoped or deferred, stated plainly.
+pass — for anything a delivery agent flagged as unrunnable locally (no
+`dotnet` SDK), trigger `ci.yml`'s `workflow_dispatch` run yourself (CLAUDE.md
+"Testing without a local dotnet SDK") and use that real result rather than
+leaving it as "only runs in CI" — docs updated or confirmed unaffected,
+CHANGELOG entry present if docs changed, ADR present if a structural
+decision was made. Report the result against the original request —
+including anything descoped or deferred, stated plainly. Once done, open
+the PR and enable auto-merge per CLAUDE.md's Git and PR conventions —
+that's the default now, not something that needs asking for each time.

@@ -153,8 +153,11 @@ what those tests share:
 
 - This sandbox frequently has no `dotnet` SDK (check `which dotnet` before
   claiming anything ran). When it's absent: hand-trace backend logic,
-  follow existing test patterns exactly, state plainly that the backend
-  suite ran only in CI — never report an unrun suite as passing.
+  follow existing test patterns exactly, and flag in your report that a CI
+  verification run is needed — this agent doesn't hold GitHub API tool
+  access, so it can't trigger `ci.yml`'s `workflow_dispatch` run itself
+  (CLAUDE.md "Testing without a local dotnet SDK"); the orchestrating main
+  session does that. Never report an unrun suite as passing.
 - Frontend verification is always available: `npm run test`, `tsc -b`,
   `npm run lint` from `/frontend`.
 

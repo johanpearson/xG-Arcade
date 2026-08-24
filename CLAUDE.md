@@ -109,6 +109,25 @@ was made, it needs an ADR.
   description itself), since wrapping a built-in capability in a persona
   would add a layer without adding value. The template is what keeps PRs
   consistent, not an agent.
+- **Commit early and often, not once at the end.** Commit after each
+  logically complete step (scaffold, then implementation, then tests, then
+  docs) rather than batching a whole story into one commit at the finish.
+  Push after each commit, or at minimum every few commits. Sessions can be
+  interrupted or hit a length/time limit without warning — uncommitted or
+  unpushed work is work that's lost, and the next session (yours or a
+  human's) can only pick up where the git history actually left off, not
+  where the conversation did.
+- **Open the PR and enable auto-merge by default when a unit of work is
+  ready** — don't wait to be told to "create a PR and auto-merge" each
+  time; that phrasing shouldn't need repeating. Once tests pass (see
+  below) and docs are updated, open the PR against `main` following the
+  template, then enable auto-merge so it lands as soon as required checks
+  and any required review are satisfied. This does not extend to actions
+  the rest of this file doesn't already cover (force-push, merging without
+  passing checks, bypassing review) — it only pre-authorizes the
+  create-PR-and-enable-auto-merge step itself. Skip it and say why if the
+  change is exploratory/draft, the user asked to review before a PR
+  exists, or checks can't be made to pass.
 
 ## Conventions
 
@@ -240,6 +259,39 @@ verified early with almost no code in it.
 - Frontend unit tests: `npm run test` (Vitest)
 - E2E tests: `npm run test:e2e` (Playwright)
 - Full local run: see `implementation-document.md` §9 for suggested build order
+
+## Testing without a local dotnet SDK
+
+This sandbox frequently has no `dotnet` SDK and no Docker daemon (check
+`which dotnet` first — don't assume). When backend or E2E behavior changed
+and it can't be verified locally, don't just say "will run in CI" and stop
+— push the branch, then trigger `ci.yml` directly instead of waiting for a
+PR to exist to get a real test run. Delivery agents (`backend-implementer`
+etc.) don't hold GitHub API tool access — they push and flag that a CI
+verification run is needed; the orchestrating main session (which does
+hold it) runs the steps below and reports the result back before the work
+is considered done:
+
+1. Push the current branch.
+2. Trigger a run: the GitHub Actions tool's `run_workflow` method,
+   `workflow_id: ci.yml`, `ref: <branch>`. `ci.yml` has a `workflow_dispatch`
+   trigger specifically for this — manual runs always execute the full
+   suite (backend, frontend unit, E2E), bypassing the doc-only path filter.
+3. Poll for the run (list/get workflow runs for `ci.yml` on that branch)
+   until it's no longer `in_progress`.
+4. Check job conclusions first. Only pull logs for jobs that didn't
+   succeed, and only the failed portion (`failed_only: true`) — never pull
+   full logs for passing jobs, and don't paste raw log dumps into the
+   conversation; summarize pass/fail per job and, for failures, the
+   specific assertion/error and which REQ-xxx it affects. This keeps a
+   verification loop cheap enough to repeat per fix instead of guessing.
+5. Do this before opening a PR whenever the sandbox couldn't run the
+   relevant suite itself — a PR should never be the first real test run of
+   backend/E2E-affecting changes.
+
+This is a verification tool, not a substitute for local frontend
+tests/lint that already run fine in the sandbox — use those directly and
+save the manual CI trigger for what the sandbox genuinely can't run.
 
 ## Agent organization (`.claude/agents/`, `.claude/commands/`)
 
