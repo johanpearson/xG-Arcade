@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.97"
+version: "1.98"
 status: draft
-last_updated: 2026-08-23
+last_updated: 2026-08-24
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -5210,6 +5210,108 @@ existing value, an identical fetched value is a no-op for that field), API
 the fields that changed and returns a per-field changed/unchanged old/new
 result; Admin-policy-gated; registered and reachable in every environment
 including Production, unlike REQ-505/506)
+
+**REQ-514 – Admin UI for refreshing a Player from Wikidata**
+> As an admin, I want to trigger REQ-513's Wikidata refresh for a specific
+> player and see what changed, from the admin page I already use for other
+> player-data corrections, so I don't have to script an HTTP request to
+> fix a bad or stale value I've found.
+
+**Scope note (UI over REQ-513, no new backend behavior):** this REQ adds no
+endpoint of its own — it is a UI surface over `POST
+/admin/players/{id}/refresh-from-wikidata` (REQ-513), the same relationship
+REQ-504 has to REQ-501-503/505/506. It follows REQ-504's own precedent of
+starting an admin capability as API-only and adding a UI once there's a
+concrete need to use it without scripting a request by hand.
+
+**Where it lives:** a new `PlayerRefreshSection` component
+(`frontend/src/admin/PlayerRefreshSection.tsx`), added to `AdminScreen.tsx`
+(SCREEN-04) as an independent section following the same
+own-fetch/own-state pattern every other section there already uses (e.g.
+`UnverifiedDataSection`, `UserDeletionSection`). Placed near
+`UnverifiedDataSection`, given both sections are about administering
+`Player`/`PlayerData` — exact ordering is a UI-polish detail, not part of
+this REQ's acceptance criteria. Unlike `RoundControlSection`/
+`UserDeletionSection`, this section is not gated by the non-Production-only
+`activeRound` probe: REQ-513's endpoint is registered and reachable in every
+environment including Production (matching REQ-501-503/509/510's own
+`AdminScreen.tsx` gating), so this section renders unconditionally, the
+same as `UnverifiedDataSection`/`AccountMetricsSection`.
+
+**Triggering a refresh:**
+- Given an admin viewing `AdminScreen.tsx`
+- When they type a `Player` id (a GUID, plain text input — no
+  player-search/browse UI is added by this REQ, matching REQ-513's own
+  "assumes the admin already knows the target Player's id" scope cut) and
+  submit
+- Then the UI calls REQ-513's endpoint for that id and, while the request is
+  in flight, disables the input/submit control and shows a pending state
+  (mirroring `UserDeletionSection`'s `deleting`/disabled-while-submitting
+  pattern) — there is no confirmation step before submitting, since this
+  action is non-destructive (it can only apply already-trusted Wikidata
+  data, per REQ-513's scope note) and does not need
+  `UserDeletionSection`'s "Yes, delete this user permanently" confirm/cancel
+  pattern
+
+**Displaying the result:**
+- Given a refresh request succeeds
+- Then the UI shows all four fields (`FullName`, `Position`, `BirthYear`,
+  `PhotoUrl`) from REQ-513's response, each clearly marked as changed or
+  unchanged — a changed field shows both its old and new value, an
+  unchanged field is visibly distinguished from a changed one (e.g. a
+  "Changed"/"Unchanged" label or equivalent styling using
+  `design-document.md` §2 tokens only) — this is not satisfied by a single
+  generic "success" message or by dumping the raw response as JSON, since
+  REQ-513's own stated purpose is giving the admin visibility into exactly
+  what changed
+- Given a refresh request succeeds and zero of the four fields changed
+- Then the UI still shows all four fields as unchanged (with their current
+  stored values, per REQ-513's response), not an empty or blank result
+
+**Error states:**
+- Given the submitted id does not correspond to an existing `Player`
+  (REQ-513's `404`)
+- Then the UI shows a message stating the player was not found, not a
+  generic error
+- Given the `Player` exists but has no `WikidataQid` (REQ-513's `409`)
+- Then the UI shows a message stating this player has no Wikidata id to
+  refresh from, not a generic error
+- Given the Wikidata lookup fails or times out (REQ-513's `503`)
+- Then the UI shows a message stating the lookup is unavailable and to try
+  again, not a generic error — mirroring how `describeError`/
+  `ApiError`-derived messaging is already used elsewhere in this directory
+  (e.g. `UserDeletionSection`) rather than introducing a second, separate
+  error-formatting convention
+- Given the request returns `401`
+- Then the same `onAuthError` re-authentication flow every other admin
+  section already uses on `401` fires (e.g. `UserDeletionSection`'s
+  `handleDeleteConfirmed`), not a section-local error message
+
+**Non-admin/guest access:**
+- Given a non-admin or guest reaches `AdminScreen.tsx` directly
+- Then this section is not reachable at all — it is part of the same
+  `rowsHidden || activeRoundHidden` page-wide access-denied gate every
+  other section on this screen already sits behind (REQ-504's
+  defense-in-depth), and there is no separate, standalone entry point to
+  it anywhere else in the UI
+
+**Out of scope for this REQ:** anything REQ-513 itself scoped out (bulk/
+multi-player refresh, a player-browsing/search UI, manual field editing);
+any change to REQ-513's backend behavior, response shape, or error
+contract; a new authorization policy (this reuses the existing "Admin"
+policy REQ-513's endpoint already enforces).
+
+**Test level:** Unit (Vitest/Testing Library, `PlayerRefreshSection.test.tsx`,
+matching this directory's existing `*.test.tsx` naming): submitting an id
+calls REQ-513's endpoint and shows a pending state; a successful response
+with at least one changed field renders all four fields with changed ones
+showing old/new values and unchanged ones visibly distinguished; a
+successful response with zero changed fields still renders all four fields
+as unchanged; each of 404/409/503 renders its own specific message (not a
+shared generic one); a 401 response triggers `onAuthError` rather than a
+section-local message; the section does not render (or is not reachable)
+for a non-admin/guest, consistent with `AdminScreen.test.tsx`'s existing
+access-denied coverage.
 
 ---
 
