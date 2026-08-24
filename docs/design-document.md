@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.73"
+version: "0.74"
 status: draft
-last_updated: 2026-08-22
+last_updated: 2026-08-24
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1728,6 +1728,73 @@ discipline rather than left as an unreviewed implementation-only detail:
   first in practice; this is defensive, not the primary access-control path.
   A 401 still escalates via the same `onAuthError` callback every other
   admin action in this file uses.
+
+**Player refresh from Wikidata (REQ-513/514, added 2026-08-24) — always
+rendered, no `ASPNETCORE_ENVIRONMENT` gate, same as Accounts/guest-clear
+above:** REQ-513's endpoint is registered in every environment including
+Production, so this section is not nested inside the `activeRound !== null`
+gate either. Placed directly after the unverified-data section above, since
+both are about administering `Player`/`PlayerData` — exact ordering is a
+UI-polish detail, not part of REQ-514's acceptance criteria.
+
+```
+┌─────────────────────────────────────────────┐
+│ Refresh a player from Wikidata                 │
+├─────────────────────────────────────────────┤
+│ Player id [__________________]                │
+│ [ Refresh from Wikidata ]                      │
+│                                                 │
+│ Full name: Changed — "Thiery Henri" →          │
+│   "Thierry Henry"                              │
+│ Position: Unchanged — "Forward"                │
+│ Birth year: Unchanged — "1977"                 │
+│ Photo URL: Unchanged — "(none)"                │
+└─────────────────────────────────────────────┘
+```
+
+A plain-text `Player` id (GUID) input — no player-search/browse UI, matching
+REQ-513's own scope cut. Submitting calls the refresh endpoint immediately,
+with no confirm/cancel step (unlike "End round now"/"Delete user" above):
+this action is non-destructive, it can only apply already-trusted Wikidata
+data (ADR-0032), so it doesn't need SCREEN-04's two-step-confirm pattern for
+irreversible actions. While the request is in flight the input and button
+are disabled and the button reads "Refreshing…", the same
+disabled-while-submitting pattern "Delete user" already uses.
+
+On success, all four fields (`FullName`/`Position`/`BirthYear`/`PhotoUrl`)
+are always shown, each as its own line reading `"{Label}: Changed — "{old}"
+→ "{new}""` or `"{Label}: Unchanged — "{value}""` — the word "Changed"/
+"Unchanged" is real text on every row, never a color-only signal (§6). A
+missing/null value renders as `"(none)"` rather than a blank string. A
+response where nothing changed still renders all four rows as unchanged
+with their current stored values, never a blank or empty result.
+
+Judgment calls made without an existing spec to follow (`ui-implementer`,
+this session — REQ-514 itself specified the interaction shape in detail, so
+these are narrow gaps, not open design questions):
+
+- **Changed/unchanged color pairing is a new, narrow token reuse, not a new
+  value:** `.admin-screen__refresh-field--changed` reuses `accent-green-text`
+  — the same token `.admin-screen__confirmation` already uses for a positive
+  outcome ("Deleted.") elsewhere on this screen — and
+  `--unchanged` reuses `text-muted`, the same token used for secondary/
+  no-action-needed text throughout this screen. Both colors are decorative
+  reinforcement only; the "Changed"/"Unchanged" text label carries the
+  actual meaning either way.
+- **404 and 409's messages are UI-authored, not server-sourced; 503's reuses
+  the server's own `detail` text:** REQ-513's `404` has no response body
+  (`Results.NotFound()`), so "No player found with that id." is written in
+  `PlayerRefreshSection.tsx` directly, mirroring `UserDeletionSection`'s own
+  "No user found with that email." precedent for the same reason. `409`
+  does have a server `detail`, but its wording (mentioning `WikidataQid` and
+  a cross-reference to REQ-510) is too internal for an admin-facing message,
+  so "This player has no Wikidata id to refresh from." is UI-authored
+  instead, matching REQ-514's specific required wording. `503`'s server
+  `detail` — "We couldn't reach Wikidata to refresh this player. Please try
+  again." — already matches REQ-514's required wording as-is, so that one
+  is read via the shared `describeError` convention every other admin
+  action in this file already uses for its non-specifically-handled error
+  path.
 
 ### SCREEN-05: Delete account
 

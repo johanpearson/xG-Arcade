@@ -632,6 +632,33 @@ export interface AdminAnnouncementBanner {
   lastUpdatedByAdminId: string;
 }
 
+// REQ-513/514: one of the four scalar Player fields ("fullName" | "position"
+// | "birthYear" | "photoUrl") POST /admin/players/{id}/refresh-from-wikidata
+// can touch — mirrors `PlayerRefreshFieldResult` exactly
+// (backend/src/XGArcade.Api/Admin/AdminEndpoints.cs). `oldValue` is always
+// the value BEFORE the refresh ran, regardless of `changed` — REQ-514's UI
+// reads it for the "unchanged" case too, since there's no other field
+// carrying the current stored value then. `newValue` is populated only when
+// `changed` is true. `birthYear`'s int? is serialized as its string form
+// here too (same as every other field), matching the backend record's own
+// choice not to add a differently-typed sibling just for one field.
+export interface PlayerRefreshFieldResult {
+  field: string;
+  changed: boolean;
+  oldValue: string | null;
+  newValue: string | null;
+}
+
+// REQ-513/514: POST /admin/players/{id}/refresh-from-wikidata's response
+// shape — mirrors `RefreshPlayerFromWikidataResponse` exactly. `fields`
+// always carries all four PlayerRefreshFieldResult rows (fullName/position/
+// birthYear/photoUrl), whether or not any of them actually changed.
+export interface RefreshPlayerFromWikidataResponse {
+  playerId: string;
+  wikidataQid: string;
+  fields: PlayerRefreshFieldResult[];
+}
+
 // REQ-402/403: a custom league, as returned by POST /leagues,
 // POST /leagues/join, and GET /leagues/mine (XGArcade.Api.Leagues.LeagueResponse)
 // — this story's minimal "create/join/list my leagues" scope only, no

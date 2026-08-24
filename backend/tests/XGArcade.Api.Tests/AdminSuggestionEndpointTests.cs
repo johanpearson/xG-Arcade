@@ -907,29 +907,13 @@ public class AdminSuggestionEndpointTests
         public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
             string playerName, CancellationToken cancellationToken = default) =>
             Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
-    }
 
-    // Same "capture every ILogger<T> entry written during a request" shape
-    // as GridEndpointTests.CapturingLoggerProvider — duplicated locally
-    // rather than shared, matching that file's own precedent (no shared
-    // test-infrastructure project exists yet for this).
-    private class CapturingLoggerProvider : ILoggerProvider
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-        public void Dispose() { }
-
-        private class CapturingLogger(CapturingLoggerProvider owner) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                owner.Entries.Add((logLevel, formatter(state, exception)));
-        }
+        // REQ-513 (GitHub issue #239): AdminSuggestionEndpoints never calls
+        // this (it's AdminEndpoints' single-player refresh action) — a
+        // trivial stub, same as every other method in this fake besides
+        // QueryPlayerCareerAndNationalityByNameAsync above.
+        public Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
+            string wikidataQid, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WikidataPlayerRefreshData(null, null, null, null));
     }
 }

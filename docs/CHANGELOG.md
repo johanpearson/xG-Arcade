@@ -31,6 +31,54 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   commit-early-and-often and default PR-creation-with-auto-merge explicit
   conventions in CLAUDE.md's Git and PR conventions section, rather than
   behavior that has to be requested each time.
+- 2026-08-24 — `docs/design-document.md` — REQ-514 built:
+  `frontend/src/admin/PlayerRefreshSection.tsx`, a pure UI layer over
+  REQ-513's existing `POST /admin/players/{id}/refresh-from-wikidata`
+  (no backend changes), added to `AdminScreen.tsx` near
+  `UnverifiedDataSection`, rendered unconditionally (not gated by the
+  Non-Production-only `activeRound` probe). SCREEN-04 §3 updated with the
+  new section's mock and the narrow judgment calls made (changed/unchanged
+  color pairing reusing existing tokens; which of 404/409/503's messages
+  are UI-authored vs. server-`detail`-sourced). `frontend/src/lib/types.ts`
+  gained `PlayerRefreshFieldResult`/`RefreshPlayerFromWikidataResponse`;
+  `frontend/src/lib/admin.ts` gained `refreshPlayerFromWikidata`. Tests:
+  `frontend/src/admin/PlayerRefreshSection.test.tsx` (10 cases — happy path
+  with a changed field, zero-changed-fields case, each of 404/409/503's
+  distinct message, pending/disabled-while-submitting state, 401→
+  `onAuthError` routing). Full frontend suite (657 tests), `tsc -b`, and
+  `oxlint` all verified passing in this sandbox.
+- 2026-08-23 — `docs/requirements-document.md` — REQ-513 marked
+  `Status: Implemented` after the quality gate ran: `architecture-reviewer`
+  confirmed the boundary/ADR question (ADR-0086); `quality-architect`
+  found one real code-health-budget issue (a third duplicate
+  `CapturingLoggerProvider` test double, past the rule-of-three
+  threshold — extracted to a shared
+  `XGArcade.Api.Tests/CapturingLoggerProvider.cs`) and two test-coverage
+  gaps (missing `NormalizedFullName` re-derivation assertion after a
+  `FullName` refresh — the column REQ-208 guess-matching actually
+  queries, directly relevant to issue #239's own scenario; and an
+  overclaiming "no-op" test assertion, fixed with a call-counting spy
+  proving `UpdatePlayerAsync` is genuinely skipped when nothing
+  changed) — all fixed. Test suite not compiler-verified in this
+  sandbox (no `dotnet` SDK available); must be confirmed in CI before
+  merge.
+- 2026-08-23 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/decisions/0086-admin-player-wikidata-refresh-narrow-exception.md`
+  (new) — fixed GitHub issue #239 (a garbled player name, frozen in at
+  creation from a bad Wikidata snapshot, was shown to a player as the
+  "correct answer" on a locked xG Path puzzle, with no way to correct it).
+  Added REQ-513: an admin-only `POST /admin/players/{id}/refresh-from-wikidata`
+  that re-queries Wikidata by a `Player`'s existing `WikidataQid` and
+  updates `FullName`/`Position`/`BirthYear`/`PhotoUrl` per-field where the
+  fresh value differs (a missing/null fetched value never overwrites).
+  This is the first-ever exception to REQ-1207's "these four fields are
+  set once at creation, never re-synced" rule, so it's deliberately narrow
+  (admin-triggered only, one player per call, no admin-supplied
+  name/QID) and recorded in ADR-0086 — re-applies ADR-0032's existing
+  "Wikidata trusted by default" model rather than adding a review step,
+  since the goal is closing the "no correction path" gap, not reopening
+  that trust decision. `architecture-document.md` §5/§10 updated (COMP-06
+  row, new ADR-0086 table row).
 - 2026-08-23 — `docs/CHANGELOG.md` only (no REQ/ADR/architecture-document
   change — CI-only) — Verification results for the doc-only CI skip
   (below): after the `predicate-quantifier` fix, two scratch PRs against

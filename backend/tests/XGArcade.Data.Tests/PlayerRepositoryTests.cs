@@ -35,12 +35,19 @@ public class PlayerRepositoryTests
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerRepository _repository = null!;
+    // Captured so REQ-513's UpdatePlayerAsync tests below can open a SECOND,
+    // independent DbContext against the same EF Core InMemory store (keyed
+    // by name, shared per-process) to verify a mutation was genuinely
+    // persisted via SaveChangesAsync, rather than just still sitting on the
+    // same tracked in-memory instance _dbContext already holds.
+    private string _inMemoryDatabaseName = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _inMemoryDatabaseName = Guid.NewGuid().ToString();
         var options = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .UseInMemoryDatabase(databaseName: _inMemoryDatabaseName)
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _repository = new PlayerRepository(_dbContext);
@@ -216,5 +223,70 @@ public class PlayerRepositoryTests
         Assert.That(result["Q1519"].WasCreated, Is.False);
         Assert.That(result["Q1519"].Player.Position, Is.Null, "a null already on the existing row is never backfilled by a later request");
         Assert.That(result["Q1519"].Player.BirthYear, Is.Null, "a null already on the existing row is never backfilled by a later request");
+    }
+
+    // ---- REQ-513 (GitHub issue #239): admin refresh from Wikidata ----------
+    // GetPlayerForRefreshAsync/UpdatePlayerAsync — see IPlayerRepository's own
+    // doc comment for why this pair is a deliberate, narrow, TRACKED
+    // exception to this class's otherwise-uniform AsNoTracking read pattern.
+
+    [Test]
+    public async Task GetPlayerForRefreshAsync_ReturnsMatchingPlayer()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Clarence Seedorf", WikidataQid = "Q188207" };
+        await _repository.AddPlayerAsync(player);
+
+        var found = await _repository.GetPlayerForRefreshAsync(player.Id);
+
+        Assert.That(found, Is.Not.Null);
+        Assert.That(found!.FullName, Is.EqualTo("Clarence Seedorf"));
+    }
+
+    [Test]
+    public async Task GetPlayerForRefreshAsync_ReturnsNull_WhenNoPlayerMatches()
+    {
+        var found = await _repository.GetPlayerForRefreshAsync(Guid.NewGuid());
+
+        Assert.That(found, Is.Null);
+    }
+
+    [Test]
+    public async Task GetPlayerForRefreshAsync_ReturnsATrackedEntity_SoMutatingItInPlaceCanLaterBeSaved()
+    {
+        // AddPlayerAsync's own SaveChangesAsync already detaches nothing, but
+        // this proves the SPECIFIC contract AdminEndpoints' refresh action
+        // relies on: the entity instance returned by GetPlayerForRefreshAsync
+        // is tracked by _dbContext (unlike every AsNoTracking read elsewhere
+        // in this repository), so mutating its properties directly and later
+        // calling SaveChangesAsync (via UpdatePlayerAsync) persists those
+        // mutations without a separate Update()/Attach() call in between.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Clarence Seedorf", WikidataQid = "Q188207" };
+        await _repository.AddPlayerAsync(player);
+
+        var tracked = await _repository.GetPlayerForRefreshAsync(player.Id);
+
+        Assert.That(_dbContext.Entry(tracked!).State, Is.Not.EqualTo(EntityState.Detached));
+    }
+
+    [Test]
+    public async Task UpdatePlayerAsync_PersistsMutationsMadeToTheEntityReturnedByGetPlayerForRefreshAsync()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Clarnce Seedorf", WikidataQid = "Q188207" };
+        await _repository.AddPlayerAsync(player);
+        var tracked = await _repository.GetPlayerForRefreshAsync(player.Id);
+        tracked!.FullName = "Clarence Seedorf";
+
+        await _repository.UpdatePlayerAsync(tracked);
+
+        // A fresh, independent DbContext against the same InMemory store —
+        // not just re-reading _dbContext's own identity-mapped instance —
+        // proves the write actually went through SaveChangesAsync, the same
+        // "second context, same database name" pattern
+        // AdminSuggestionEndpointTests.cs's API-level tests use via a fresh
+        // scope.
+        await using var verifyContext = new XGArcadeDbContext(
+            new DbContextOptionsBuilder<XGArcadeDbContext>().UseInMemoryDatabase(_inMemoryDatabaseName).Options);
+        var persisted = await verifyContext.Players.AsNoTracking().SingleAsync(p => p.Id == player.Id);
+        Assert.That(persisted.FullName, Is.EqualTo("Clarence Seedorf"));
     }
 }
