@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/design-document.md`, `docs/backlog.md` — S-177
+  (Epic 25) built and doc-synced: `AdminScreen.tsx` regrouped its single
+  flat vertical stack of sections into a 5-group tabbed sub-nav (Users/
+  Grid/Path/Announcements/Issues), reusing `LeaderboardScreen.tsx`'s
+  "always mounted, `hidden`-toggled" tab pattern so switching groups never
+  re-fetches a section. `RoundControlSection`/`UserDeletionSection` keep
+  their real `activeRound !== null` conditional, still fully unmounting in
+  Production. Pure frontend layout change, no new endpoints; REQ-516's
+  text (drafted earlier this session) needed no correction — implementation
+  matches its acceptance criteria as-is, confirmed by an
+  `architecture-reviewer` pass (PASS, no boundary/component change, no ADR)
+  and a `quality-architect` pass (PASS, no blocking findings).
+  `design-document.md`'s SCREEN-04 section updated to describe the grouped
+  nav (v0.76 → v0.77) — including correcting the now-stale "renders right
+  after the unverified-data section" claim for the Accounts/guest-clear
+  pair, which moved into the "Users" group. `docs/backlog.md`'s S-177 entry
+  gained a "Built as" note, including one naming deviation from the
+  original story text: there is no separate `GuestClearSection` component
+  (REQ-508's guest-clear UI was already composed inside
+  `AccountMetricsSection` before this story). No requirements/architecture/
+  implementation-document changes needed — verified against each doc's own
+  `update_when` triggers. REQ-516/S-177.
 - 2026-08-24 — `docs/requirements-document.md`, `docs/backlog.md` —
   Planning session (product owner request): four new REQs drafted, no
   implementation yet. **REQ-411** (player stats/profile view, own and

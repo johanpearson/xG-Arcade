@@ -8248,6 +8248,26 @@ entirely absent from the DOM in Production, now within the "Users"/"Grid"
 groups rather than always-rendered.
 *Deps:* none.
 
+*Built as (2026-08-24):* a persistent `role="tablist"` tab bar (5 tabs,
+"Users" default), each group rendered as an always-mounted
+`.admin-screen__group` wrapper toggled via the `hidden` attribute rather
+than conditional rendering — the same "always mounted, active-controlled"
+pattern `LeaderboardScreen.tsx`'s scope tabs already established — so no
+section's fetch is ever re-triggered by a group switch.
+`RoundControlSection`/`UserDeletionSection` keep their real
+`activeRound !== null` conditional nested inside the "Grid"/"Users" groups
+respectively, still fully unmounting in Production. One naming deviation
+from this story's own text above: there is no separate `GuestClearSection`
+component to place in the "Users" group — REQ-508's guest-clear UI was
+already composed inside `AccountMetricsSection` before this story, and
+stays that way (not split out), so "Users" renders `AccountMetricsSection`
+(alone) plus the Production-gated `UserDeletionSection`, and a reserved,
+not-yet-built slot for S-183's avatar moderation section. Architecture
+review: PASS, no boundary change, no ADR needed (pure frontend layout).
+Quality review: PASS, no blocking findings. `docs/design-document.md`
+SCREEN-04 updated to describe the grouped nav in the same session
+(`doc-sync`).
+
 **S-178 · Backend player stats aggregate endpoint (REQ-411)**
 `GET /users/{userId}/stats?gameKey=` returning, scoped to one `GameKey`:
 rounds played, best single round `FinalPoints`, average `FinalPoints`,
