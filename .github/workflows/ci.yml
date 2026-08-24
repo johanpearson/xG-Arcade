@@ -16,6 +16,17 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # On-demand trigger: this sandbox frequently has no `dotnet` SDK (see
+  # CLAUDE.md "Testing without a local dotnet SDK"), so an agent validates
+  # a pushed branch by running this workflow manually — via
+  # `actions_run_trigger`'s `run_workflow` method (workflow_id: ci.yml,
+  # ref: the branch) — instead of opening a PR just to get a test run.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this run was triggered manually (e.g. pre-PR validation from an agent session without a local dotnet SDK)"
+        required: false
+        type: string
 
 # dorny/test-reporter (all three jobs below) publishes a per-job Checks-tab
 # report from each test run's output file, so pass/fail/new/removed tests
@@ -43,15 +54,23 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      code: ${{ steps.manual.outputs.code || steps.filter.outputs.code }}
     steps:
       # Only needed so paths-filter has local history to diff against on
       # `push` events (github.event.before..github.sha) — on `pull_request`
       # events it uses the GitHub API instead and this step is a no-op for
       # that purpose, but harmless to always run.
       - uses: actions/checkout@v7
+      # workflow_dispatch has no push/PR base for paths-filter to diff
+      # against, and a manual trigger means someone explicitly wants the
+      # suite run — so skip filtering entirely rather than guessing a base.
+      - name: Manual dispatch always runs the full suite
+        if: github.event_name == 'workflow_dispatch'
+        id: manual
+        run: echo "code=true" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v4
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
           # dorny/paths-filter's default predicate-quantifier ('some') treats
           # a file as matching if it matches ANY listed pattern, including
