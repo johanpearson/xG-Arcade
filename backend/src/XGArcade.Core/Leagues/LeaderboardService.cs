@@ -87,7 +87,14 @@ public class LeaderboardService(
     public async Task<UserStatsResult> GetUserStatsAsync(
         Guid userId, string gameKey, CancellationToken cancellationToken = default)
     {
-        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(new[] { userId }, gameKey, cancellationToken);
+        // REQ-411's "Out of scope" text is explicit: rounds-played/best/average
+        // are shown the same for a guest as a claimed account — only Rank
+        // (below, via GetRankedMembersAsync) still inherits REQ-409/717's
+        // guest-eligibility gate. applyGuestEligibilityRules: false is what
+        // keeps this call from silently reusing GetRankedMembersAsync's own
+        // guest-excluding query for these three unrelated figures.
+        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(
+            new[] { userId }, gameKey, cancellationToken, applyGuestEligibilityRules: false);
         var totals = perRoundTotalsByUserId.GetValueOrDefault(userId, Array.Empty<int>());
 
         if (totals.Count == 0)

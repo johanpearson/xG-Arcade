@@ -71,8 +71,20 @@ public interface IGuessRepository
     // no schema change and no new join, since the query already joins to
     // Round for round.ClosedAt. A round belonging to a different game
     // contributes no entry here at all, same as an active/unlocked round.
+    //
+    // REQ-411 (2026-08-24): applyGuestEligibilityRules, defaulting to true,
+    // toggles the REQ-717/ADR-0036 guest-exclusion/ClaimedAt narrowing
+    // above. Defaulting true keeps LeaderboardService.GetRankedMembersAsync's
+    // existing REQ-409/717 ranking call (and every pre-existing test of it)
+    // completely unaffected. GetUserStatsAsync is the one caller that passes
+    // false: REQ-411's own "Out of scope" text requires a guest's
+    // rounds-played/best/average figures to be shown the same as a claimed
+    // account's — only that method's separately-computed rank figure still
+    // goes through the guest-eligibility gate, via the unchanged
+    // GetRankedMembersAsync path.
     Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
-        IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default);
+        IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default,
+        bool applyGuestEligibilityRules = true);
 
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 

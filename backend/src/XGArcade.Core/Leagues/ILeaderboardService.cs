@@ -128,9 +128,15 @@ public interface ILeaderboardService
     // leaderboard rather than a new aggregate path. RoundsPlayed/Best/Average
     // come straight from IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync
     // (REQ-408/409's existing per-round-total/qualifying-round query, called
-    // here with a single-element userIds collection) — the exact same
-    // "absent from the dictionary means zero qualifying rounds" convention
-    // GetGlobalLeaderboardAsync already relies on. Rank reuses the same
+    // here with a single-element userIds collection, applyGuestEligibilityRules:
+    // false) — the exact same "absent from the dictionary means zero
+    // qualifying rounds" convention GetGlobalLeaderboardAsync already relies
+    // on, except a guest's own rounds count for these three figures per
+    // REQ-411's own "Out of scope" text ("a guest's rounds-played/best/
+    // average figures are shown the same as a claimed account's"); only
+    // Rank still inherits REQ-409/717's guest-eligibility gate, via the
+    // unchanged, still-guest-excluding GetRankedMembersAsync path below.
+    // Rank reuses the same
     // ranked-member ordering GetGlobalLeaderboardAsync itself produces (a
     // shared private helper extracted from that method) so a player's rank
     // here is never computed by a second, independently-drifting formula —
