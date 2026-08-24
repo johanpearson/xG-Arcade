@@ -289,8 +289,10 @@ export async function commitPlayerSearch(
 // WikidataQid — never a name-based search (that's lookupPlayerByName/
 // lookupSuggestionPlayer above). A 404 (no such Player), 409 (no
 // WikidataQid on record), and 503 (Wikidata lookup failed/timed out) are
-// all left to throw as an ApiError so the caller (PlayerRefreshSection) can
-// branch on `error.status` and render each as its own distinct, specific
+// all left to throw as an ApiError so the caller (SuggestionsScreen's
+// PlayerReviewPanel, REQ-515 — REQ-514's own standalone
+// PlayerRefreshSection.tsx entry point was removed 2026-08-24) can branch
+// on `error.status` and render each as its own distinct, specific
 // message — same convention as lookupSuggestionPlayer/lookupPlayerByName
 // above, never a shared generic message for all three.
 export async function refreshPlayerFromWikidata(

@@ -14,6 +14,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-24 — `docs/requirements-document.md`, `docs/design-document.md` —
+  REQ-514 deprecated (superseded by REQ-515), product-owner decision:
+  its standalone "Refresh a player from Wikidata" admin section
+  (`PlayerRefreshSection.tsx`, a raw-Player-id text field) is removed —
+  nothing in the admin UI ever surfaced a raw `Player` id for it to
+  consume, and REQ-515's inline refresh (from admin player search)
+  covers the same action with no id-entry step. REQ-513's underlying
+  endpoint is unchanged; the shared `PlayerRefreshFieldsList` result
+  display it introduced stays, now owned solely by REQ-515's inline
+  entry point. `design-document.md`'s SCREEN-04 subsection rewritten to
+  match. Verified locally after removal: `npx tsc -b`, `npm run lint`,
+  `npm run test` (44 files/653 tests) — all passed.
+- 2026-08-24 — `docs/requirements-document.md`, `docs/design-document.md` —
   REQ-515: bridges REQ-509/510's admin player-search results with
   REQ-513/514's Wikidata refresh action, requested directly by the
   product owner after REQ-513/514 shipped ("the search... also returned

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.00"
+version: "2.01"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -5212,14 +5212,25 @@ result; Admin-policy-gated; registered and reachable in every environment
 including Production, unlike REQ-505/506)
 
 **REQ-514 – Admin UI for refreshing a Player from Wikidata**
-*(Status: Implemented, `PlayerRefreshSection.tsx`, wired into `AdminScreen.tsx`
-(design-document.md SCREEN-04). Verified locally: `npm run test` (45 files/
-657 tests incl. the 10 new for this section), `npx tsc -b`, `npm run lint`
-— all passed.)*
+*(Status: Deprecated, 2026-08-24 — superseded by REQ-515. Its own standalone
+entry point (`PlayerRefreshSection.tsx`, a raw-Player-id text field) is
+removed: REQ-515's inline refresh, surfaced directly from admin player
+search once a matching local `Player` row is found, covers the same action
+with no separate id-entry step — product-owner decision, since nothing
+else in the admin UI ever surfaced a raw `Player` id for this standalone
+field to consume in the first place. REQ-513's underlying endpoint
+(`POST /admin/players/{id}/refresh-from-wikidata`) is UNCHANGED and still
+in active use — only this REQ's standalone UI entry point is removed; the
+shared `PlayerRefreshFieldsList` result-display component REQ-514
+introduced is kept, now owned by REQ-515's inline entry point instead.)*
 > As an admin, I want to trigger REQ-513's Wikidata refresh for a specific
 > player and see what changed, from the admin page I already use for other
 > player-data corrections, so I don't have to script an HTTP request to
 > fix a bad or stale value I've found.
+>
+> **Superseded (2026-08-24):** this standalone entry point is removed — see
+> REQ-515, which surfaces the same action inline from admin player search
+> instead, requiring no id-entry step at all.
 
 **Scope note (UI over REQ-513, no new backend behavior):** this REQ adds no
 endpoint of its own — it is a UI surface over `POST

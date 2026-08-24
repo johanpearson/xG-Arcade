@@ -243,12 +243,6 @@
   color: var(--color-text-primary);
 }
 
-/* REQ-513/514/515: PlayerRefreshSection's per-field result rows moved to the
-   shared `player-refresh-fields__*` classes in PlayerRefreshFieldsList.css
-   (REQ-515 extracted the rendering + styling into a component shared with
-   SuggestionsScreen.tsx's PlayerReviewPanel) — no `.admin-screen__refresh-field*`
-   classes remain here. */
-
 /* REQ-904: the only <a> element in this screen — an external "view on
    GitHub" link-out (opens in a new tab), not a button, since it navigates
    away from the app rather than triggering an in-app action. No existing
