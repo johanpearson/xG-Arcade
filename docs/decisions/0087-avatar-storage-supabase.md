@@ -88,20 +88,25 @@ blur its purpose" case this ADR was asked to watch for.
   only) rather than growing to cover REQ-517/S-181's future "resolve a
   stored key into something servable" need speculatively — a small
   discipline cost, not a technical one.
-- Follow-up: REQ-517/S-181 (admin approve/reject) will need
-  `IAvatarStorage` to resolve a stored key into a servable URL (signed or
-  public) — add that method to the interface, and its Supabase
-  implementation to `SupabaseAvatarStorage`, when that story is built,
-  rather than pre-building it here. The exact request/response shapes this
-  ADR's implementation (`SupabaseAvatarStorage`) assumes for Supabase
-  Storage's REST API (`POST /storage/v1/object/{bucket}/{path}` for
-  upload, `DELETE /storage/v1/object/{bucket}` with a `{"prefixes": [...]}`
-  body for bulk delete) are **not independently verified against a live
-  Supabase project** from the sandbox this was built in (no network access
-  to supabase.com) — flagged for manual verification against a real
-  Supabase project before this ships, the same standing caveat
-  `SupabaseAuthClient.cs` already carries for several of its own calls
-  (`SignInAnonymouslyAsync`, `LinkEmailPasswordAsync`).
+- Follow-up (completed, 2026-08-24, S-181): `IAvatarStorage.
+  GetPreviewUrlAsync(storageKey)` resolves a stored key into a short-lived
+  (5 min) signed URL, generated server-side per request via `SupabaseAvatarStorage`
+  (`POST /storage/v1/object/sign/{bucket}/{path}` with a
+  `{"expiresIn": <seconds>}` body) — never a bare public URL, consistent
+  with this ADR's "backend mediates" pattern for upload/delete. Used by
+  `XGArcade.Api.Admin.AdminAvatarEndpoints`' `GET /admin/avatar-submissions`
+  (REQ-517) to render an image preview in the moderation queue. The exact
+  request/response shapes this ADR's implementation (`SupabaseAvatarStorage`)
+  assumes for Supabase Storage's REST API (`POST /storage/v1/object/{bucket}/{path}`
+  for upload, `DELETE /storage/v1/object/{bucket}` with a
+  `{"prefixes": [...]}` body for bulk delete, and now `POST /storage/v1/
+  object/sign/{bucket}/{path}` for a signed preview URL) are **not
+  independently verified against a live Supabase project** from the
+  sandbox this was built in (no network access to supabase.com) —
+  flagged for manual verification against a real Supabase project before
+  this ships, the same standing caveat `SupabaseAuthClient.cs` already
+  carries for several of its own calls (`SignInAnonymouslyAsync`,
+  `LinkEmailPasswordAsync`).
 
 ## For AI agents
 

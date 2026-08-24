@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.03"
+version: "2.04"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -5665,6 +5665,27 @@ section renders image previews; approving/rejecting removes the row from
 the pending list; the pending-count badge matches the number of rows
 returned).
 
+**Status note (2026-08-24, S-181 — backend built):** `GET
+/admin/avatar-submissions`/`POST .../{id}/approve`/`POST .../{id}/reject`
+(`XGArcade.Api.Admin.AdminAvatarEndpoints`) are built, mirroring
+REQ-509's `AdminSuggestionEndpoints` list/act-on-one-by-id/terminal-
+state-409 shape, under the same `"Admin"` policy. `IAvatarStorage` gained
+`GetPreviewUrlAsync` (ADR-0087's own anticipated Follow-up) to resolve
+the "image preview" criterion — a short-lived (5 min) Supabase Storage
+signed URL, generated server-side per request. Approving supersedes any
+prior `Approved` row for the same player by deleting it in the same
+write (no new `AvatarSubmissionStatus` member added) and best-effort
+deletes its now-orphaned image; rejecting never touches a prior
+`Approved` row. Race-safety (acting twice on an already-decided
+submission → 409, not a silent success) is enforced at the repository
+level (`IAvatarSubmissionRepository.ApproveAsync`/`RejectAsync` re-check
+`Status==Pending` inside the same tracked load before writing), not just
+in the endpoint. The "pending-count badge" criterion and every UI
+criterion remain unbuilt — S-183, a separate, not-yet-built story. Built
+without a local `dotnet` SDK in-sandbox — hand-traced against
+`AdminSuggestionEndpointTests`/`AvatarEndpointTests`'s existing patterns;
+CI verification pending as of this note.
+
 ---
 
 ### 4.7 Account creation and email confirmation
@@ -7528,6 +7549,17 @@ approved" clause, the "Seeing your own status" and "No avatar / rejected
 state" criteria above, and S-182/183's frontend consumers are all still
 unbuilt. Both `architecture-reviewer` and `quality-architect` passed the
 backend diff with no blocking findings.
+
+**Status note (2026-08-24, S-181 — REQ-517's backend built, see that REQ's
+own status note below for the full detail):** submissions now have a path
+off `Pending` (`POST /admin/avatar-submissions/{id}/approve|reject`). This
+REQ's "visible to other players once approved" clause, "Seeing your own
+status," and "No avatar / rejected state" criteria remain unbuilt — none
+of those are read paths, and none are built by S-181, a write-side-only
+(admin review) story. No frontend (`/users/me/avatar` GET, Settings UI,
+other-player avatar rendering) exists yet — S-182/183 remain separate,
+not-yet-built stories. Built without a local `dotnet` SDK in-sandbox; CI
+verification pending as of this note.
 
 ---
 

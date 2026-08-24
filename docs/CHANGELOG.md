@@ -14,6 +14,44 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-24 — `docs/architecture-document.md`, `docs/requirements-document.md`,
+  `docs/backlog.md`, `docs/decisions/0087-avatar-storage-supabase.md`,
+  `docs/implementation-document.md` — S-181 (Epic 25, backend admin avatar
+  moderation, REQ-517) built:
+  `GET /admin/avatar-submissions`/`POST .../{id}/approve`/`POST
+  .../{id}/reject` (`XGArcade.Api.Admin.AdminAvatarEndpoints`), mirroring
+  `AdminSuggestionEndpoints`'s list/act-on-one-by-id/terminal-state-409
+  shape under the same `"Admin"` policy. `IAvatarSubmissionRepository`
+  gained `GetByIdAsync`/`GetAllPendingAsync` (oldest-first) and race-safe
+  `ApproveAsync`/`RejectAsync` (re-check `Status==Pending` inside the same
+  tracked load before writing, mirroring
+  `PlayerSuggestionRepository.ResolveAsync`); `ApproveAsync` supersedes
+  any prior `Approved` row for the same player by deleting it in the same
+  `SaveChangesAsync` (no new `AvatarSubmissionStatus` member — follows
+  `CreateOrReplacePendingAsync`'s existing "replace" precedent) and
+  best-effort deletes that row's now-orphaned image; `RejectAsync` never
+  touches a prior `Approved` row. `IAvatarStorage` gained
+  `GetPreviewUrlAsync` — ADR-0087's own anticipated Follow-up, not a new
+  structural decision (that ADR's Consequences section updated with a
+  "Follow-up (completed)" note) — implemented in `SupabaseAvatarStorage`
+  as a 5-minute Supabase Storage signed URL (`POST /storage/v1/object/sign/
+  {bucket}/{path}`), and as a deterministic placeholder in
+  `LocalE2EAvatarStorage`/the test suite's `FakeAvatarStorage`. New
+  `PendingAvatarSubmissionResponse` DTO exposes the resolved
+  `ImagePreviewUrl`, never `ImageStorageKey`. Doc updates: COMP-14 row
+  extended (`architecture-document.md` v1.13 → v1.14); status notes on
+  REQ-517 and REQ-722 (`requirements-document.md` v2.03 → v2.04)
+  recording what's built vs. still open (S-182/183's frontend, the
+  pending-count badge); a "Built as" note on `backlog.md`'s S-181 entry; a
+  one-line non-product-threshold note in `implementation-document.md` §5
+  (v1.05 → v1.06) recording the preview URL's 5-minute expiry. No
+  `docs/legal/*.md` change needed — S-180 already added the avatar
+  data-collection category those drafts needed. Built without a local
+  `dotnet` SDK in-sandbox (not available in this environment) — hand-traced
+  against `AdminSuggestionEndpointTests`/`AvatarEndpointTests`'s existing
+  patterns, following S-018/S-022/S-028/S-029's precedent for this gap; a
+  CI `workflow_dispatch` verification run against `ci.yml` is required
+  before this is considered done. REQ-517/ADR-0087/S-181.
+- 2026-08-24 — `docs/architecture-document.md`, `docs/requirements-document.md`,
   `docs/backlog.md`, `docs/legal/privacy-policy-draft.md`,
   `docs/legal/terms-of-service-draft.md`, `docs/implementation-document.md`
   — S-180 (Epic 25, backend half of REQ-722) built and doc-synced: an

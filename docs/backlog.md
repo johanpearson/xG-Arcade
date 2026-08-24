@@ -8389,6 +8389,32 @@ under the Admin policy, and the reject-a-second-decision-on-the-same-row
 error case.
 *Deps:* S-180 (needs `AvatarSubmission` to exist).
 
+*Built as (2026-08-24):* `IAvatarSubmissionRepository` gained
+`GetByIdAsync`/`GetAllPendingAsync` (oldest-first, mirrors
+`IPlayerSuggestionRepository.GetPendingAsync()`) and race-safe
+`ApproveAsync`/`RejectAsync` (both re-check `Status==Pending` inside the
+same tracked load before writing, mirroring
+`PlayerSuggestionRepository.ResolveAsync`'s bool-return race guard);
+`ApproveAsync` additionally looks up and deletes any prior `Approved` row
+for the same `SubmittingUserId` in the same `SaveChangesAsync`, following
+`CreateOrReplacePendingAsync`'s existing "replace, don't invent a new
+status" precedent rather than adding a `Superseded` enum member.
+`IAvatarStorage` gained `GetPreviewUrlAsync` (ADR-0087's own anticipated
+Follow-up, not a new ADR) — implemented in `SupabaseAvatarStorage` as a
+5-minute signed URL via Supabase Storage's `POST /storage/v1/object/sign/
+{bucket}/{path}`, and as a deterministic placeholder in
+`LocalE2EAvatarStorage`/`FakeAvatarStorage` for the local-e2e/test paths.
+New file `XGArcade.Api.Admin.AdminAvatarEndpoints` (`GET
+/admin/avatar-submissions`, `POST .../approve`, `POST .../reject`)
+mirrors `AdminSuggestionEndpoints`'s list/act-by-id/409-on-already-
+resolved shape, registered in `EndpointMapping.cs` next to
+`MapAvatarEndpoints`. Response DTO (`PendingAvatarSubmissionResponse`)
+exposes the resolved `ImagePreviewUrl`, never `ImageStorageKey`. Built
+without a local `dotnet` SDK in-sandbox — hand-traced against
+`AdminSuggestionEndpointTests`/`AvatarEndpointTests`'s existing patterns,
+not locally run; a CI verification run is required before this is
+considered done.
+
 **S-182 · Frontend avatar upload UI in Settings (REQ-722)**
 A "My avatar" section in `SettingsScreen.tsx`, alongside REQ-714's
 existing display-name edit: upload control, and a display of whichever of
