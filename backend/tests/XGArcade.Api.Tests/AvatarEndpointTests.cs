@@ -28,6 +28,13 @@ public class AvatarEndpointTests
     {
         _fakeAvatarStorage.UploadedContentTypes.Clear();
         _fakeAvatarStorage.DeletedStorageKeys.Clear();
+        // NUnit's default fixture lifecycle shares one AvatarEndpointTests
+        // instance (and so one _fakeAvatarStorage) across every test in this
+        // class — without resetting this here, ThrowOnUpload set by
+        // REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails
+        // would stay true for every test that runs after it in the fixture,
+        // breaking their own seed uploads.
+        _fakeAvatarStorage.ThrowOnUpload = false;
 
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
