@@ -29,16 +29,33 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response);
 }
 
+// AvatarModerationSection (REQ-517/S-183) fetches GET /admin/avatar-submissions
+// unconditionally on every AdminScreen mount — unlike UserDeletionSection, it
+// isn't gated behind the activeRound probe, so it always fires alongside the
+// other section fetches this file already stubs. None of the tests below
+// care about its content, so `stubFetch` folds in a default empty-list
+// response for it (a test can still override this by supplying its own
+// '/admin/avatar-submissions' entry in `routes`, which takes precedence).
+// Without this default, the mocked fetch throws "Unexpected fetch:" for that
+// URL on every render — caught internally by useAuthedFetch (never an
+// unhandled rejection, so no test fails), but it silently left
+// AvatarModerationSection stuck in a loadError state on every test that
+// renders the default "Users" tab, which nothing here was asserting against.
+const defaultRoutes: Record<string, () => Promise<Response>> = {
+  '/admin/avatar-submissions': () => jsonResponse([]),
+};
+
 // `routes` maps a URL substring to a handler — handlers can be stateful
 // (e.g. a call counter) so a test can simulate a list changing after a
-// refetch. Throws on any URL none of the routes match, so an unexpected
-// call fails loudly rather than hanging.
+// refetch. Throws on any URL none of the routes (or defaultRoutes above)
+// match, so an unexpected call fails loudly rather than hanging.
 function stubFetch(routes: Record<string, () => Promise<Response>>) {
+  const merged = { ...defaultRoutes, ...routes };
   vi.stubGlobal(
     'fetch',
     vi.fn().mockImplementation((url: string) => {
       const path = String(url);
-      const match = Object.entries(routes).find(([suffix]) => path.includes(suffix));
+      const match = Object.entries(merged).find(([suffix]) => path.includes(suffix));
       if (match) return match[1]();
       throw new Error(`Unexpected fetch: ${path}`);
     }),
@@ -195,6 +212,7 @@ describe('AdminScreen', () => {
     let activeRoundCallCount = 0;
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       const path = String(url);
+      if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
       if (path.includes('/admin/rounds/xg-grid/close')) return jsonResponse(activeRound.round);
       if (path.includes('/admin/rounds/xg-grid/active')) {
@@ -854,6 +872,7 @@ describe('AdminScreen', () => {
     // the existing "End round now"/"Delete user" confirm-step tests above.
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       const path = String(url);
+      if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
       if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
       if (path.includes('/admin/announcement-banner')) {
@@ -892,6 +911,7 @@ describe('AdminScreen', () => {
   it('REQ-511: "Activate" calls the activate endpoint and flips the shown status to Active', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       const path = String(url);
+      if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
       if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
       if (path.includes('/admin/announcement-banner/activate')) {
@@ -924,7 +944,7 @@ describe('AdminScreen', () => {
 
   // ---- REQ-516: grouped nav ----------------------------------------------
 
-  it('REQ-516: renders a grouped nav tablist with all 5 groups, defaulting to "Users" selected and visible', async () => {
+  it('REQ-516: renders a grouped nav tablist with all 5 groups (and no separate top-level tab for avatar moderation), defaulting to "Users" selected and visible', async () => {
     stubFetch({
       '/admin/player-data/unverified': () => jsonResponse([]),
       '/admin/rounds/xg-grid/active': bareNotFound,
@@ -942,15 +962,21 @@ describe('AdminScreen', () => {
     for (const label of ['Grid', 'Path', 'Announcements', 'Issues']) {
       expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'false');
     }
+    // REQ-517/S-183: avatar moderation is grouped under "Users" (asserted via
+    // its content's visibility below), not a standalone nav entry of its
+    // own — the 5 tabs enumerated above are the complete set.
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
 
-    // "Users" group content (AccountMetricsSection) is visible by default...
+    // "Users" group content (AccountMetricsSection, AvatarModerationSection)
+    // is visible by default...
     expect(await screen.findByText('Accounts')).toBeVisible();
+    expect(await screen.findByText('Avatar moderation')).toBeVisible();
     // ...while "Grid" group content (UnverifiedDataSection) is mounted (its
     // fetch already ran) but hidden behind the unselected tab.
     expect(await screen.findByText('No unverified data to review.')).not.toBeVisible();
   });
 
-  it('REQ-516: clicking a different tab shows only that group and hides the previously-visible one', async () => {
+  it('REQ-516/REQ-517: clicking a different tab shows only that group and hides the previously-visible one, including avatar moderation', async () => {
     stubFetch({
       '/admin/player-data/unverified': () => jsonResponse([]),
       '/admin/rounds/xg-grid/active': bareNotFound,
@@ -961,6 +987,7 @@ describe('AdminScreen', () => {
 
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     expect(await screen.findByText('Accounts')).toBeVisible();
+    expect(await screen.findByText('Avatar moderation')).toBeVisible();
     await screen.findByText('No unverified data to review.');
 
     await user.click(screen.getByRole('tab', { name: 'Grid' }));
@@ -971,6 +998,7 @@ describe('AdminScreen', () => {
     // The previously-visible default group's content is still mounted, but
     // no longer visible — never removed from the DOM by a tab switch.
     expect(screen.getByText('Accounts')).not.toBeVisible();
+    expect(screen.getByText('Avatar moderation')).not.toBeVisible();
   });
 
   it('REQ-516: switching from "Users" to "Grid" and back does not re-fetch either section\'s data', async () => {
@@ -1036,6 +1064,7 @@ describe('AdminScreen', () => {
   it('REQ-511: "Deactivate" calls the deactivate endpoint, flips the shown status to Inactive, and keeps the saved message', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       const path = String(url);
+      if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
       if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
       if (path.includes('/admin/announcement-banner/deactivate')) {

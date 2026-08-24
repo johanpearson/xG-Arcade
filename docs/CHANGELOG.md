@@ -13,8 +13,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
-- 2026-08-24 — `docs/requirements-document.md` — bug fix: `POST
-  /users/me/avatar` returned a generic browser "Failed to fetch" (no
+- 2026-08-24 — `docs/requirements-document.md` (v2.08 → v2.09) — bug fix:
+  `POST /users/me/avatar` returned a generic browser "Failed to fetch" (no
   diagnosable detail) whenever the Supabase Storage upload call failed,
   because `AvatarEndpoints.cs`'s handler was the one place in that file
   with no `try`/`catch` around an external-dependency call, letting the
@@ -24,6 +24,58 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   external-dependency-failure convention. New test:
   `REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails`
   (REQ-722).
+- 2026-08-24 — `docs/requirements-document.md` (v2.06 → v2.07),
+  `docs/backlog.md`, `docs/design-document.md` (v0.78 → v0.79) — S-183
+  (Epic 25, frontend half of REQ-517) built and doc-synced: a new
+  `AvatarModerationSection.tsx` (`frontend/src/admin/`) consumes S-181's
+  already-merged `GET/POST /admin/avatar-submissions...` endpoints via
+  three new `frontend/src/lib/admin.ts` functions and a new
+  `PendingAvatarSubmission` type (`frontend/src/lib/types.ts`), rendered
+  unconditionally inline in `AdminScreen.tsx`'s "Users" nav group
+  (REQ-516/S-177's reserved slot), immediately below
+  `AccountMetricsSection`. Each pending row shows an image preview (the
+  backend's already-resolved signed URL, never a storage key resolved
+  client-side), the submitter's display name (falling back to "a deleted
+  user" per REQ-710, matching `SuggestionsScreen`'s existing convention),
+  and the submission time, oldest first. Approve/reject are per-row
+  actions with per-row action/error state; a 409 (already resolved by
+  another admin) renders a distinct "Already resolved" message plus a
+  "Refresh list" action, mirroring `SuggestionsScreen`'s
+  `PlayerReviewPanel` conflict handling rather than a new pattern. The
+  pending-count badge is an "Avatar moderation (N)" heading badge —
+  `UnverifiedDataSection`'s inline heading-badge convention, not
+  `PlayerSuggestionsEntry`'s button-label badge, since this section has no
+  separate click-through entry point — omitting "(N)" at zero per
+  REQ-512's convention. No new visual token introduced. A separate
+  `requirements-writer` pass (folded into this same doc-sync) fixed a
+  wording-drift `quality-architect` flagged: REQ-517 and S-183's own text
+  said the badge sits "next to this section's nav entry," presupposing a
+  click-through entry point like REQ-512's `PlayerSuggestionsEntry`, when
+  the section actually renders inline with no such entry point — both now
+  describe the heading-badge convention that shipped.
+  `docs/architecture-document.md` checked and left unchanged — pure
+  frontend consumption of an already-documented COMP-14 endpoint, no
+  component/data-flow boundary change (confirmed by
+  `architecture-reviewer`). Verified with `AvatarModerationSection.test.tsx`
+  (8 tests: queue rendering with previews, REQ-710 fallback, approve/reject
+  removing a row, badge count/no-"(0)", 409-conflict state, 401/403
+  handling) and an extension of `AdminScreen.test.tsx` confirming the
+  section renders only inside the "Users" group (visible there, hidden and
+  not re-fetched on other tabs, no separate top-level nav tab) — that
+  extension also fixed a real gap where every pre-existing `AdminScreen`
+  test was silently leaving this new always-on fetch in an unasserted
+  `loadError` state. 689/689 frontend tests passing; `tsc -b` and lint both
+  clean; a `ci.yml` `workflow_dispatch` run (backend/frontend-unit/E2E,
+  run #616) passed in full — this sandbox has no `dotnet` SDK.
+  `architecture-reviewer`: PASS, no ADR needed. `quality-architect`: PASS,
+  after the one wording-drift finding above (fixed, not left open). No
+  `docs/legal/*.md` change needed — S-180 already added the avatar
+  data-collection category those drafts needed (confirmed unchanged).
+  Merge-conflict reconciliation with S-182 below (both independently
+  bumped `requirements-document.md` from a shared v2.05 base to v2.06):
+  resolved to v2.08, one past both parents', since the merged file
+  carries both stories' content additions in full — no text lost or
+  overwritten on either side. REQ-517/S-183.
 - 2026-08-24 — `docs/requirements-document.md`, `docs/architecture-document.md`,
   `docs/decisions/0087-avatar-storage-supabase.md`, `docs/backlog.md` —
   S-182 (Epic 25, frontend half of REQ-722) built and doc-synced: a "My

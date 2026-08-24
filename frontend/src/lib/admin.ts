@@ -8,6 +8,7 @@ import type {
   CommitPlayerDataPayload,
   CommitPlayerDataResult,
   GuestAccountCountResponse,
+  PendingAvatarSubmission,
   PendingSuggestion,
   PlayerOverride,
   RefreshPlayerFromWikidataResponse,
@@ -304,4 +305,41 @@ export async function refreshPlayerFromWikidata(
     `/admin/players/${playerId}/refresh-from-wikidata`,
     { method: 'POST' },
   );
+}
+
+// REQ-517 (S-181/S-183): the pending avatar-submission queue for
+// AvatarModerationSection — its own endpoint, own row shape
+// (PendingAvatarSubmission), never merged with fetchPendingSuggestions or
+// fetchUnverifiedPlayerData above, same "never a shared row shape" reasoning
+// ADR-0053 already establishes for suggestions vs. unverified data. Always
+// registered, in every environment (including Production) — unlike
+// fetchActiveAdminRound's Non-Production-only probe, avatar moderation isn't
+// gated on an active round existing. A 403 (non-admin token) is left to
+// throw like every other admin call in this file; the caller
+// (AvatarModerationSection) decides how to degrade, mirroring
+// AccountMetricsSection's own hide-not-page-wide-deny choice.
+export async function fetchPendingAvatarSubmissions(accessToken: string): Promise<PendingAvatarSubmission[]> {
+  return apiRequest<PendingAvatarSubmission[]>(accessToken, '/admin/avatar-submissions');
+}
+
+// REQ-517: approves one pending avatar submission — no request body (no
+// reason field, mirrors approvePlayerData/rejectSuggestion's own "no reason
+// on the routine per-row action" precedent). Success is 204 No Content. A
+// 409 (already resolved by another admin — a race, not a validation error)
+// is left to throw as an ApiError so the caller can branch on `error.status`
+// and render it distinctly, same convention as
+// commitSuggestion/rejectSuggestion's own 409 handling above.
+export async function approveAvatarSubmission(accessToken: string, submissionId: string): Promise<void> {
+  await apiRequest<void>(accessToken, `/admin/avatar-submissions/${submissionId}/approve`, {
+    method: 'POST',
+  });
+}
+
+// REQ-517: rejects one pending avatar submission — sibling to
+// approveAvatarSubmission above in every respect (no request body, same
+// 204/404/409 shape) except which terminal status it writes.
+export async function rejectAvatarSubmission(accessToken: string, submissionId: string): Promise<void> {
+  await apiRequest<void>(accessToken, `/admin/avatar-submissions/${submissionId}/reject`, {
+    method: 'POST',
+  });
 }
