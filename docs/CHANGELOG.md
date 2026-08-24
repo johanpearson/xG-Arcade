@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/design-document.md` — REQ-514 built:
+  `frontend/src/admin/PlayerRefreshSection.tsx`, a pure UI layer over
+  REQ-513's existing `POST /admin/players/{id}/refresh-from-wikidata`
+  (no backend changes), added to `AdminScreen.tsx` near
+  `UnverifiedDataSection`, rendered unconditionally (not gated by the
+  Non-Production-only `activeRound` probe). SCREEN-04 §3 updated with the
+  new section's mock and the narrow judgment calls made (changed/unchanged
+  color pairing reusing existing tokens; which of 404/409/503's messages
+  are UI-authored vs. server-`detail`-sourced). `frontend/src/lib/types.ts`
+  gained `PlayerRefreshFieldResult`/`RefreshPlayerFromWikidataResponse`;
+  `frontend/src/lib/admin.ts` gained `refreshPlayerFromWikidata`. Tests:
+  `frontend/src/admin/PlayerRefreshSection.test.tsx` (10 cases — happy path
+  with a changed field, zero-changed-fields case, each of 404/409/503's
+  distinct message, pending/disabled-while-submitting state, 401→
+  `onAuthError` routing). Full frontend suite (657 tests), `tsc -b`, and
+  `oxlint` all verified passing in this sandbox.
 - 2026-08-23 — `docs/requirements-document.md` — REQ-513 marked
   `Status: Implemented` after the quality gate ran: `architecture-reviewer`
   confirmed the boundary/ADR question (ADR-0086); `quality-architect`

@@ -243,6 +243,30 @@
   color: var(--color-text-primary);
 }
 
+/* REQ-513/514: PlayerRefreshSection's per-field result rows — reuses
+   `.admin-screen__row`'s existing spacing, but needs its own changed/
+   unchanged color distinction (tokens only), which no existing class in
+   this file provides — `.admin-screen__approval-result--failed` is
+   red-for-failure specifically, not a general changed/unchanged pairing.
+   Both states are always paired with an explicit "Changed"/"Unchanged"
+   text label in the row's own text content (never color alone — §6's
+   accessibility floor). `--changed` reuses `accent-green-text`, the same
+   token `.admin-screen__confirmation` already uses for a positive outcome
+   ("Deleted."); `--unchanged` reuses `text-muted`, the same token used for
+   secondary/no-action-needed text everywhere else in this file. */
+.admin-screen__refresh-field {
+  font-size: 13px;
+  margin: 0;
+}
+
+.admin-screen__refresh-field--changed {
+  color: var(--color-accent-green-text);
+}
+
+.admin-screen__refresh-field--unchanged {
+  color: var(--color-text-muted);
+}
+
 /* REQ-904: the only <a> element in this screen — an external "view on
    GitHub" link-out (opens in a new tab), not a button, since it navigates
    away from the app rather than triggering an in-app action. No existing
