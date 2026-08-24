@@ -12,11 +12,22 @@ namespace XGArcade.Core.Storage;
 // existing (but not-to-be-copied-uncritically) placement directly inside
 // XGArcade.Core/Auth.
 //
-// Deliberately narrow: only what POST /users/me/avatar itself needs (store
-// a new image, best-effort delete a superseded one). Resolving a stored
-// key into something servable (a signed/public URL) is REQ-517/S-181's
-// future admin-approval-flow concern — its own addition to this interface
-// when that story is built, not pre-built speculatively here.
+// Was "deliberately narrow: only what POST /users/me/avatar itself needs"
+// as of S-180/ADR-0087 — that ADR's own "Follow-up" section assigned
+// "resolve a stored key into a servable URL" to REQ-517/S-181 (the admin
+// queue/public-visible case). S-182 needs a *narrower* version of that
+// first: the owning player's own preview of their own Pending/Rejected/
+// Approved submission (REQ-722's "Seeing your own status" criterion) —
+// genuinely different from ADR-0087's deferred case, which was about a
+// signed/public URL usable by an admin reviewer or by other players.
+// DownloadAsync below streams bytes back through this backend instead
+// (never a signed URL handed to the client — ADR-0013's "backend
+// mediates, frontend never talks to the provider directly" convention,
+// same as SupabaseAvatarStorage's own upload/delete calls), so it doesn't
+// actually build the thing ADR-0087 deferred; it's a separate, smaller
+// need that happens to live on the same interface. S-181's admin-queue
+// view and any future "visible to other players" public case remain
+// genuinely deferred, unbuilt by this addition.
 public interface IAvatarStorage
 {
     // Uploads image content and returns the storage key (object path) it
@@ -34,4 +45,25 @@ public interface IAvatarStorage
     // contract XGArcade.Core.Auth.ISupabaseAuthClient.DeleteUserAsync uses
     // for REQ-710) — never throws for a not-found key.
     Task<bool> DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    // REQ-722 (S-182): resolves a previously-uploaded image's storage key
+    // back into servable bytes + its Content-Type, for GET
+    // /users/me/avatar/{id}/image (XGArcade.Api.Avatars.AvatarEndpoints) to
+    // stream to the *owning player only* — see this interface's own doc
+    // comment for why this is narrower than ADR-0087's deferred "resolve a
+    // key into a URL" follow-up. Returns null if the object no longer
+    // exists in storage (same "missing is a valid, non-exceptional outcome"
+    // shape DeleteAsync's own "already gone counts as success" contract
+    // uses) rather than throwing — the caller (AvatarEndpoints) turns that
+    // into a 404, same as an unknown/not-owned submission id.
+    Task<AvatarImageContent?> DownloadAsync(string storageKey, CancellationToken cancellationToken = default);
 }
+
+// REQ-722 (S-182): Content is the full image body — avatar images are
+// capped at AvatarEndpoints.MaxImageSizeBytes (5 MB) at upload time, small
+// enough that buffering the whole thing in memory per request is fine and
+// keeps this contract simple (no stream-disposal-ownership question to
+// answer across the IAvatarStorage boundary). ContentType is read back from
+// the storage object's own metadata rather than a new AvatarSubmission
+// column (see SupabaseAvatarStorage.DownloadAsync's own comment for why).
+public record AvatarImageContent(byte[] Content, string ContentType);

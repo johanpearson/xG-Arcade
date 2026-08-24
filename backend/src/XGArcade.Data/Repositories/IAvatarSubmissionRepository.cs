@@ -32,6 +32,33 @@ public interface IAvatarSubmissionRepository
     // needs to add this lookup itself.
     Task<AvatarSubmission?> GetApprovedAsync(Guid submittingUserId, CancellationToken cancellationToken = default);
 
+    // REQ-722 (S-182): the caller's own most-recently-created Rejected row,
+    // if any. Rejected rows are never deleted (REQ-517/S-181's future
+    // reject action, when built, is expected to just flip Status the same
+    // way it will for Approved — nothing in this codebase today removes a
+    // Rejected row), so a player can accumulate more than one over time;
+    // "most recent" is CreatedAt descending, since that's the one relevant
+    // to "see your own current status" — an old rejection from months ago
+    // shouldn't resurface over a more recent one. Deliberately independent
+    // of GetPendingAsync/GetApprovedAsync above: a Rejected row can coexist
+    // with a separate, older Approved row (REQ-722's "Seeing your own
+    // status" criterion — rejection never hides a still-valid earlier
+    // approval), so this never filters by "no Approved row exists" or
+    // similar — GET /users/me/avatar (AvatarEndpoints, S-182) calls all
+    // three lookups unconditionally and lets the response carry whichever
+    // combination is actually true.
+    Task<AvatarSubmission?> GetLatestRejectedAsync(Guid submittingUserId, CancellationToken cancellationToken = default);
+
+    // REQ-722 (S-182): a single row by its own Id, regardless of Status or
+    // owner — GET /users/me/avatar/{id}/image (AvatarEndpoints) uses this
+    // to resolve the requested submission and then checks
+    // SubmittingUserId == caller itself (never pushed into the query here),
+    // matching PlayerSuggestionRepository.GetByIdAsync's identical
+    // "fetch by id, let the caller enforce authorization" shape. Not
+    // AsNoTracking-only-by-convention-violating — this is a pure read, no
+    // future story needs this call site to return a tracked entity.
+    Task<AvatarSubmission?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
     // REQ-722: creates a brand-new Pending row for submittingUserId,
     // replacing (deleting) any existing Pending row for that same player
     // first — "never two pending submissions queued for the same player at

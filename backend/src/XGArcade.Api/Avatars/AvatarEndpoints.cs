@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Storage;
+using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Api.Avatars;
@@ -126,7 +127,97 @@ public static class AvatarEndpoints
                 $"/users/me/avatar/{result.Submission.Id}",
                 new SubmitAvatarResponse(result.Submission.Id, result.Submission.Status.ToString(), result.Submission.CreatedAt));
         }).RequireAuthorization().DisableAntiforgery();
+
+        // REQ-722 (S-182): "Seeing your own status" — a logged-in player's
+        // own Pending/Rejected/Approved rows, independently looked up (see
+        // AvatarStatusResponse's own doc comment for why none of the three
+        // filters on the others). ADR-0087's "Follow-up" section assigned
+        // "resolve a stored key into a servable URL" to REQ-517/S-181 —
+        // that's still true for the admin-queue/public-visible case, but
+        // S-182 needs the owning player's own preview first; see
+        // IAvatarStorage's own doc comment for the fuller reasoning on why
+        // this doesn't actually build what that follow-up deferred.
+        app.MapGet("/users/me/avatar", async (
+            ClaimsPrincipal principal,
+            IUserRepository userRepository,
+            IAvatarSubmissionRepository avatarSubmissionRepository,
+            CancellationToken cancellationToken) =>
+        {
+            var authProviderUserId = principal.GetAuthProviderUserId();
+            if (authProviderUserId is null)
+                return Results.Unauthorized();
+
+            var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+            if (user is null)
+                return Results.Unauthorized();
+
+            // Three independent lookups, not a single "current status"
+            // query — REQ-722 is explicit that a Rejected row never hides a
+            // separately-existing Approved row from an earlier submission,
+            // and (symmetrically) a fresh Pending upload never hides an
+            // older Approved row either. All three can be non-null for the
+            // same player at once.
+            var pending = await avatarSubmissionRepository.GetPendingAsync(user.Id, cancellationToken);
+            var rejected = await avatarSubmissionRepository.GetLatestRejectedAsync(user.Id, cancellationToken);
+            var approved = await avatarSubmissionRepository.GetApprovedAsync(user.Id, cancellationToken);
+
+            return Results.Ok(new AvatarStatusResponse(
+                ToSummary(pending),
+                ToSummary(rejected),
+                ToSummary(approved)));
+        }).RequireAuthorization();
+
+        // REQ-722 (S-182): streams the actual image bytes for one of the
+        // caller's own submissions, referenced by AvatarStatusResponse's
+        // ImageUrl above. Deliberately owner-only for now, regardless of
+        // Status — REQ-722 is explicit that Pending/Rejected must never be
+        // shown to anyone but the submitting player, and even an Approved
+        // row (eventually visible to other players once REQ-517/S-181's
+        // admin approval exists and a "visible to other players" surface is
+        // built) has no such surface yet, so restricting this to the owner
+        // only is strictly narrower than final behavior, never broader.
+        // S-181's future admin-queue view and any future "visible to other
+        // players" endpoint each need their own separate authorization
+        // path — not this one — when those stories are built.
+        app.MapGet("/users/me/avatar/{submissionId:guid}/image", async (
+            Guid submissionId,
+            ClaimsPrincipal principal,
+            IUserRepository userRepository,
+            IAvatarSubmissionRepository avatarSubmissionRepository,
+            IAvatarStorage avatarStorage,
+            CancellationToken cancellationToken) =>
+        {
+            var authProviderUserId = principal.GetAuthProviderUserId();
+            if (authProviderUserId is null)
+                return Results.Unauthorized();
+
+            var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+            if (user is null)
+                return Results.Unauthorized();
+
+            var submission = await avatarSubmissionRepository.GetByIdAsync(submissionId, cancellationToken);
+
+            // A missing row and a row owned by someone else are the exact
+            // same response — 404, never 403 — so this endpoint never
+            // confirms to a caller that a given submissionId exists at all
+            // for another player (same "don't leak existence" reasoning
+            // this file's own doc comment on POST /users/me/avatar's
+            // sibling checks apply elsewhere in this codebase).
+            if (submission is null || submission.SubmittingUserId != user.Id)
+                return Results.NotFound();
+
+            var image = await avatarStorage.DownloadAsync(submission.ImageStorageKey, cancellationToken);
+            if (image is null)
+                return Results.NotFound();
+
+            return Results.Stream(new MemoryStream(image.Content), image.ContentType);
+        }).RequireAuthorization();
     }
+
+    private static AvatarSubmissionSummary? ToSummary(AvatarSubmission? submission) =>
+        submission is null
+            ? null
+            : new AvatarSubmissionSummary(submission.Id, submission.CreatedAt, $"/users/me/avatar/{submission.Id}/image");
 }
 
 // Id/Status/CreatedAt only — never AvatarSubmission itself
@@ -134,6 +225,28 @@ public static class AvatarEndpoints
 // ImageStorageKey/SubmittingUserId, neither of which the caller has any
 // use for.
 public record SubmitAvatarResponse(Guid Id, string Status, DateTime CreatedAt);
+
+// REQ-722 (S-182): GET /users/me/avatar's response — three independent
+// slots, not one "current status" field, because REQ-722's "Seeing your
+// own status" criterion requires a Rejected submission to never hide a
+// separately-existing Approved one from an earlier submission (and,
+// symmetrically, a fresh Pending upload never hides an older Approved one
+// either — REQ-722's "Replacing an approved avatar" criterion). Any subset
+// of the three can be non-null at once for the same player; the frontend
+// (S-182, ui-implementer's own task, not built by this file) decides how
+// to present that combination, this endpoint just reports it faithfully.
+public record AvatarStatusResponse(
+    AvatarSubmissionSummary? Pending, AvatarSubmissionSummary? Rejected, AvatarSubmissionSummary? Approved);
+
+// Id/CreatedAt/ImageUrl only — same DTO-at-the-boundary reasoning
+// SubmitAvatarResponse's own doc comment gives (never AvatarSubmission
+// itself, never ImageStorageKey/SubmittingUserId). ImageUrl is always this
+// same API's own relative path (GET /users/me/avatar/{id}/image below),
+// never a raw Supabase Storage URL — ADR-0013's "backend mediates, frontend
+// never talks to the provider directly" convention, the same reasoning
+// SupabaseAvatarStorage.cs's own top-of-file comment gives for why every
+// Supabase Storage call is backend-initiated.
+public record AvatarSubmissionSummary(Guid Id, DateTime CreatedAt, string ImageUrl);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // SuggestionEndpoints.cs's SuggestionEndpointsLogCategory/IncidentEndpoints

@@ -82,4 +82,35 @@ public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOp
         // DeleteUserAsync's own belt-and-braces shape.
         return response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound;
     }
+
+    // REQ-722 (S-182): GET storage/v1/object/{bucket}/{path} — the plain
+    // download counterpart to UploadAsync's POST to the same path shape.
+    // Content-Type is read back from the response's own header rather than
+    // stored on AvatarSubmission (see IAvatarStorage.DownloadAsync's own
+    // doc comment) — UploadAsync above already set it correctly at upload
+    // time via streamContent.Headers.ContentType, and Supabase Storage is
+    // documented to persist and echo back an object's Content-Type on GET,
+    // so this trusts that rather than re-deriving it. NOT independently
+    // verified against a live Supabase project from this sandbox — same
+    // standing caveat as every other call in this class (see this file's
+    // own top-of-file comment).
+    public async Task<AvatarImageContent?> DownloadAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        var requestPath = $"storage/v1/object/{bucketOptions.BucketName}/{storageKey}";
+
+        using var response = await httpClient.GetAsync(requestPath, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        response.EnsureSuccessStatusCode();
+
+        var content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        // Falls back to a generic binary type only if Supabase somehow
+        // omits Content-Type on the response — shouldn't happen given
+        // UploadAsync always sets one, but Results.Stream (AvatarEndpoints)
+        // needs a non-null string regardless.
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+
+        return new AvatarImageContent(content, contentType);
+    }
 }
