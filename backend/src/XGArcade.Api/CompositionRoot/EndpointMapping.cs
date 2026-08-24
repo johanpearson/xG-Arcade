@@ -102,5 +102,10 @@ public static class EndpointMapping
         // one-file-per-feature convention as every other Map*Endpoints call
         // above.
         app.MapAvatarEndpoints();
+        // REQ-517 (S-181): admin review (list/approve/reject) of the
+        // Pending queue MapAvatarEndpoints above feeds — its own file/
+        // registration, same "submission file vs. admin file" split as
+        // MapSuggestionEndpoints/MapAdminSuggestionEndpoints above.
+        app.MapAdminAvatarEndpoints();
     }
 }
