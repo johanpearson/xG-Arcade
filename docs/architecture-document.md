@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.12"
+version: "1.13"
 status: draft
-last_updated: 2026-08-23
+last_updated: 2026-08-24
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -138,7 +138,7 @@ one.
 | ID | Component | Responsibility (current state) | Maps to (implementation doc) |
 |---|---|---|---|
 | COMP-01 | Core.Users | User accounts and Supabase Auth integration, including guest accounts (`IsGuest`/`ClaimedAt`/nullable `Email`, REQ-717). `IAccountDeletionService` (`XGArcade.Core.Auth`) is the single implementation behind self-service deletion (REQ-710), admin-triggered deletion (REQ-505/506), and scheduled guest cleanup (REQ-718, `/internal/purge-guest-accounts`) — it anonymizes `Guess` rows (COMP-04), removes `LeagueMembership` rows (COMP-02), and deletes the Supabase Auth identity via `ISupabaseAuthClient.DeleteUserAsync` (needs the privileged `Supabase:ServiceRoleKey`, ADR-0026). `User.NormalizedDisplayName` enforces REQ-701 uniqueness via a DB unique index plus an app-level pre-check (ADR-0019). `AdminAccountsEndpoints` (REQ-507/508) exposes account metrics/guest counts/bulk-clear, registered unconditionally including Production since it acts on real account data, not seeded/test data. | `XGArcade.Core` |
-| COMP-02 | Core.Leagues | `ILeaderboardService` (read) and `ILeagueService` (write) in `XGArcade.Core.Leagues`. Every user auto-joins one Global League at signup (REQ-401); custom leagues (REQ-402/403) can additionally be created/joined via `POST /leagues`/`POST /leagues/join`, with a collision-checked 6-character invite code. Four leaderboard scopes exist, all `GameKey`-scoped (REQ-410, defaulting to xG Grid when the caller omits `gameKey`): all-time (`GetGlobalLeaderboardAsync`, REQ-409 — ranks by median per-round `SUM(FinalPoints)` across qualifying closed rounds, ≥5 rounds to be ranked, never live), active-round (REQ-407, live via COMP-04's `ILiveRoundContributionService`), closed-rounds (REQ-408), and windowed (REQ-405, calendar-aligned round/week/month/year). REQ-404's full per-custom-league leaderboard remains deferred (Tier 1). COMP-02 never references a game module directly — every `GameKey` it needs is passed in by the Api layer (ADR-0003 intact). | `XGArcade.Core` |
+| COMP-02 | Core.Leagues | `ILeaderboardService` (read) and `ILeagueService` (write) in `XGArcade.Core.Leagues`. Every user auto-joins one Global League at signup (REQ-401); custom leagues (REQ-402/403) can additionally be created/joined via `POST /leagues`/`POST /leagues/join`, with a collision-checked 6-character invite code. Four leaderboard scopes exist, all `GameKey`-scoped (REQ-410, defaulting to xG Grid when the caller omits `gameKey`): all-time (`GetGlobalLeaderboardAsync`, REQ-409 — ranks by median per-round `SUM(FinalPoints)` across qualifying closed rounds, ≥5 rounds to be ranked, never live), active-round (REQ-407, live via COMP-04's `ILiveRoundContributionService`), closed-rounds (REQ-408), and windowed (REQ-405, calendar-aligned round/week/month/year). REQ-404's full per-custom-league leaderboard remains deferred (Tier 1). `GetUserStatsAsync` (REQ-411, S-178) is a fifth, per-player read — rounds played/best/average `FinalPoints` plus current all-time rank, one `GameKey` and `UserId` at a time — reusing the same `GetPerRoundFinalPointsByUserIdsAsync` query and a ranked-members helper extracted from `GetGlobalLeaderboardAsync`, not a new aggregate path; exposed via `GET /users/{userId}/stats`. COMP-02 never references a game module directly — every `GameKey` it needs is passed in by the Api layer (ADR-0003 intact). | `XGArcade.Core` |
 | COMP-03 | Core.Rounds | `RoundGenerationService.GenerateNextRoundIfNeededAsync` (REQ-301) takes a `gameKey` and resolves per-game scheduling options via `IRoundSchedulingOptionsResolver` (ADR-0051, mirroring COMP-04's `IScoringStrategyResolver`) — two instances registered today (`"xg-grid"`, `"xg-path"`), each with its own `RoundDuration`. It creates a `Round` only once the owning game module's `GenerateInstanceAsync` succeeds, then closes the *previous* round (never the one just created) via `IRoundCloseService` (ADR-0022). `Round.ClosedAt` is set only after score-locking completes, never before or concurrently. Each created `Round` is also assigned `SequenceNumber` (REQ-304/ADR-0071): `MAX(SequenceNumber) + 1` scoped to its own `GameKey` (via `IRoundRepository.GetMaxSequenceNumberByGameKeyAsync`), guarded against concurrent duplication by a `(GameKey, SequenceNumber)` unique index rather than an explicit transaction — a display-only label surfaced on every round-shaped DTO, never a routing/FK identifier (`Round.Id` remains the only real one). `POST /internal/generate-round` (bearer-token-gated, registered in every environment) is the one production trigger, called once per `GameKey` — `generate-round.yml`'s single daily cron until S-136/ADR-0072, now each `GameKey`'s own independent daily cron (`generate-grid-round.yml`/`generate-path-round.yml`). `IRoundCloseService.CloseRoundAsync` has three callers — `RoundGenerationService`, `AdminManagementEndpoints` (REQ-505), and the non-Production test-data force-close endpoint — never a second implementation. | `XGArcade.Core` (`IRoundRepository`/`RoundRepository` in `XGArcade.Data`) |
 | COMP-04 | Core.Scoring | `GuessSubmissionService` (REQ-201/202/210) and `IScoreLockingService` (REQ-205) are COMP-04's two entry points. Scoring is pluggable per `Round.GameKey` via `IScoringStrategy`/`IScoringStrategyResolver` (ADR-0040, mirroring `IGameModuleResolver`'s shape): `UniquenessScoringStrategy` (xG Grid, REQ-204 — excludes the guesser's own guess from the ratio, lowest-wins, ADR-0020/ADR-0021) and `ClueEfficiencyScoringStrategy` (xG Path, REQ-1206, scores off `Guess.AttemptCount`, no uniqueness concept). `ScoreLockingService.MaterializeUnansweredCellsAsync` synthesizes an incorrect-guess row for every cell a round participant never attempted, before any strategy runs. The per-cell attempt cap is resolved through `IGameModule.GetMaxAttemptsForCellAsync` (ADR-0041; xG Grid: 2, xG Path: 7). `IGameModule` also exposes `GetCellCategoryTypesAsync` (REQ-215 — xG Grid implements it, xG Path throws `NotSupportedException`, no suggestion UI wired up for xG Path yet) and `ResolveWrongGuessPlayerAsync` (REQ-216/ADR-0057, xG Grid only — cache-first/Wikidata-fallback display name+photo for a locked, incorrectly-guessed cell, no correctness implication). `Guess.CellId` is a raw `Guid` typed only as "opaque submission reference" — a deliberate v1 simplification (confirmed no real FK exists in `XGArcadeDbContext`, so it already works for a second game with no schema change). | `XGArcade.Core` (`Scoring/`; `Guess`/`IGuessRepository` in `XGArcade.Data`) |
 | COMP-05 | Games.XGGrid | As of ADR-0068 (2026-08-11), `GridGameModule` is a thin `IGameModule` adapter (~160 lines) composing three independently-registered classes, no facade: `IGridGenerationService`/`GridGenerationService` (grid generation — Country/Club/Trophy pairing per REQ-107/108 via `CategoryPairingRules`), `IGridNameMatcher`/`GridNameMatcher` (three-stage name matching and disambiguation, REQ-207-209), and `IGridLiveLookupDispatcher`/`GridLiveLookupDispatcher` (the REQ-211 guess-time live-lookup fallback, also shared by `GridGenerationService`'s own generation-time cache-miss path). `GridGameModule` itself still owns the small set of trivial single-repository-call `IGameModule` methods that don't belong to any of the three (`GetCellIdsAsync`, `GetCellCategoryTypesAsync`, `GetMaxAttemptsForCellAsync`) plus the REQ-211 gate check — as of ADR-0070 (S-128), that gate check is preceded by a config-driven `GridLiveLookupOptions.Enabled` flag (default `true`) that can disable the whole guess-time fallback (never `GridGenerationService`'s own REQ-103 live lookup, a separate call path through the same shared `IGridLiveLookupDispatcher`) — and must keep implementing `IGameModule` directly since that contract has real external callers (`Core.Scoring`, `Core.Rounds`, `XGArcade.Api`). `PlayerCacheWarmingService` (REQ-110) proactively warms COMP-06's cache for every reference pairing except Trophy pairs — a known, flagged latency/reliability gap now that Trophy pairings are reachable in production (ADR-0061), not a correctness gap, since `GridGenerationService`'s own live-lookup fallback still covers a cold cell. Reaches COMP-06 only through its repository interfaces (boundary rule 1) — `IsConfirmedLowAsync`/`RecordConfirmedLowAsync` (ADR-0050) and the persistent-technical-failure markers (ADR-0052) both gate cache-warming's live queries. Run as its own CLI verb, not an HTTP endpoint (ADR-0024). | `XGArcade.Games.XGGrid` |
@@ -238,7 +238,7 @@ rationale, don't expect this list to explain anything on its own.
 | Component | ADRs / REQs that shaped its current shape |
 |---|---|
 | COMP-01 Core.Users | ADR-0019 (display-name uniqueness), ADR-0026 (service-role deletion), ADR-0036 (guest play), ADR-0038 (guest cleanup), REQ-505/506/507/508 (admin account management) |
-| COMP-02 Core.Leagues | ADR-0031 (live leaderboard coupling), REQ-405 (windowed scope), REQ-409 (median all-time ranking), REQ-402/403 (custom leagues), ADR-0043 (per-`GameKey` leaderboards) |
+| COMP-02 Core.Leagues | ADR-0031 (live leaderboard coupling), REQ-405 (windowed scope), REQ-409 (median all-time ranking), REQ-402/403 (custom leagues), ADR-0043 (per-`GameKey` leaderboards), REQ-411 (per-player stats/rank view, S-178) |
 | COMP-03 Core.Rounds | ADR-0022 (close-previous-round-on-generate), REQ-408 (`Round.ClosedAt`), ADR-0051 (per-`GameKey` round scheduling) |
 | COMP-04 Core.Scoring | ADR-0020 (exclude own guess from ratio), ADR-0021 (lowest-wins scoring), ADR-0040/ADR-0041 (pluggable `IScoringStrategy`/attempt cap), ADR-0049 (clue-efficiency strategy signature), ADR-0057 (wrong-guess player resolution) |
 | COMP-05 Games.XGGrid | ADR-0018 (guess-time live-lookup fallback), ADR-0023, ADR-0032, ADR-0035 (home-nation query path), ADR-0050/ADR-0052 (cache-warming failure tracking), ADR-0061 (trophy pool growth), ADR-0068 (responsibility split), ADR-0070 (guess-time fallback config flag), ADR-0078 (confirm a fully-swept, below-threshold pair low without a live query) |
@@ -638,9 +638,9 @@ Round Scheduler Job (Core.Rounds, via RoundGenerationService) → Core.Rounds
 ```
 
 **6.2a Global leaderboard flow** (realizes REQ-401, REQ-402, REQ-403,
-REQ-404, REQ-405, REQ-407, REQ-408, REQ-409 — REQ-406 was retired by
-REQ-409, see below; Tier 0 slice only, added S-011, extended through
-2026-07-21)
+REQ-404, REQ-405, REQ-407, REQ-408, REQ-409, REQ-411 — REQ-406 was retired
+by REQ-409, see below; Tier 0 slice only, added S-011, extended through
+2026-08-24/S-178)
 
 ```
 Person → Web Frontend → Backend API: POST /auth/signup (new account)
@@ -723,6 +723,27 @@ Player → Web Frontend → Backend API: GET /leagues/mine (REQ-402/403, S-063)
   → Core.Leagues (COMP-02): LeagueService.GetMemberLeaguesAsync — lists the
     caller's own custom-league memberships (name + invite code only, no
     per-league leaderboard data — see below)
+
+Player → Web Frontend → Backend API: GET /users/{userId}/stats?gameKey=
+  (REQ-411, S-178) → Api layer (UserEndpoints): resolve the requesting
+  user (same ResolveRequestingUserAsync/ValidateGameKey helpers
+  LeaderboardEndpoints already exposes internally, reused rather than
+  duplicated) → 401 with no valid session, 404 for a nonexistent target
+  userId → Core.Leagues (COMP-02): LeaderboardService.GetUserStatsAsync —
+  no new aggregate path: rounds played/best/average `FinalPoints` reuse the
+  exact same IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync query
+  REQ-408/409 already call, and the current all-time rank (when the player
+  meets REQ-409's 5-round minimum) reuses GetRankedMembersAsync, a private
+  helper extracted from GetGlobalLeaderboardAsync above so this route's
+  rank is never a second, independently-drifting formula. One deliberate
+  difference from every other call into that per-round-totals query:
+  applyGuestEligibilityRules: false — REQ-411's own "Out of scope" text
+  carves out rounds-played/best/average from REQ-409/717's guest-exclusion
+  rule (a guest's or a not-yet-claimed account's pre-claim rounds count
+  toward these three figures the same as a claimed account's), while Rank
+  still goes through the unchanged, guest-excluding GetRankedMembersAsync
+  path. No privacy branching either: the same call and response shape are
+  returned whether userId is the requester's own id or another player's.
 ```
 
 Custom leagues (REQ-402/403) are now built — create, join, and "list my
