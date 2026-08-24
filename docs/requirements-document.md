@@ -5319,6 +5319,17 @@ access-denied coverage.
 
 **REQ-515 – Surface WikidataQid and an inline REQ-513 refresh from admin
 player-search/suggestion-lookup results**
+*(Status: Implemented. Backend: `ExistingPlayerId` added to
+`WikidataPlayerLookupResponse`/`LookupPlayerAsync` (`AdminSuggestionEndpoints.cs`),
+covering both `/admin/suggestions/{id}/lookup` and `/admin/player-search/lookup`.
+Frontend: `PlayerReviewPanel` (`SuggestionsScreen.tsx`) always shows the
+WikidataQid and, when `existingPlayerId` is present, an inline refresh
+action reusing the new shared `PlayerRefreshFieldsList` component
+(extracted from REQ-514's `PlayerRefreshSection.tsx` to avoid duplicating
+its field-diff rendering). Verified locally: `npx tsc -b`, `npm run lint`,
+`npm run test` (45 files/663 tests) — all passed. Backend tests written
+and manually traced but not compiler-verified in this sandbox (no .NET
+SDK); must be confirmed in CI.)*
 > As an admin, I want the player I just looked up on Wikidata (via
 > suggestion review or manual search) to show its `WikidataQid`, and — when
 > a `Player` row already exists locally for that QID — a one-click way to

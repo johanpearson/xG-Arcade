@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.74"
+version: "0.75"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -1774,13 +1774,17 @@ this session — REQ-514 itself specified the interaction shape in detail, so
 these are narrow gaps, not open design questions):
 
 - **Changed/unchanged color pairing is a new, narrow token reuse, not a new
-  value:** `.admin-screen__refresh-field--changed` reuses `accent-green-text`
+  value:** `.player-refresh-fields__field--changed` reuses `accent-green-text`
   — the same token `.admin-screen__confirmation` already uses for a positive
   outcome ("Deleted.") elsewhere on this screen — and
   `--unchanged` reuses `text-muted`, the same token used for secondary/
   no-action-needed text throughout this screen. Both colors are decorative
   reinforcement only; the "Changed"/"Unchanged" text label carries the
-  actual meaning either way.
+  actual meaning either way. (Extracted into a shared
+  `PlayerRefreshFieldsList` component/stylesheet by REQ-515, below, once a
+  second call site needed the identical rendering — the class names moved
+  from `.admin-screen__refresh-field*` to `.player-refresh-fields__field*`
+  at that point; behavior and tokens are unchanged.)
 - **404 and 409's messages are UI-authored, not server-sourced; 503's reuses
   the server's own `detail` text:** REQ-513's `404` has no response body
   (`Results.NotFound()`), so "No player found with that id." is written in
@@ -1795,6 +1799,24 @@ these are narrow gaps, not open design questions):
   is read via the shared `describeError` convention every other admin
   action in this file already uses for its non-specifically-handled error
   path.
+
+**WikidataQid display + inline refresh in player search results (REQ-515,
+added 2026-08-24):** `PlayerReviewPanel` — the shared "found a matching
+Wikidata player" result component behind both `SuggestionsScreen.tsx`'s
+pending-suggestion review flow (REQ-509) and its standalone manual-search
+flow (REQ-510) — now always shows the found player's `WikidataQid` as
+plain text alongside the existing name/nationality/clubs fields, and, only
+when a local `Player` row already exists for that QID, an inline "Refresh
+from Wikidata" button. Activating it calls REQ-513's endpoint directly and
+renders the same `PlayerRefreshFieldsList` result (changed/unchanged, per
+field, old→new) described just above — same component, same tokens, same
+error wording, reused rather than reimplemented. No confirm step, same
+non-destructive reasoning as REQ-513/514. `SuggestionsScreen.tsx`/
+`PlayerReviewPanel` still has no formal `SCREEN-xx` entry of its own
+(pre-existing gap, not introduced by this change) — this note lives here,
+next to REQ-513/514's, since it's a direct extension of that same feature;
+a future pass giving `SuggestionsScreen` its own `SCREEN-xx` entry should
+fold this note in there instead.
 
 ### SCREEN-05: Delete account
 
