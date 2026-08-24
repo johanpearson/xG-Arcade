@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.06"
+version: "1.07"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -449,14 +449,42 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      change; no shared fetch hook fit any of
                                      the four scopes' lifecycles (unlike
                                      S-120's LeaguesScreen), so each keeps its
-                                     own local handleAuthError helper instead
+                                     own local handleAuthError helper instead.
+                                     S-179 (REQ-411, 2026-08-24) added an
+                                     optional `onSelectPlayer` prop on
+                                     LeaderboardRowsList, turning every main-
+                                     list row's display name into a `<button>`
+                                     nav target for /users' UserStatsScreen
+                                     (threaded through all four scope
+                                     components and LeaderboardScreen.tsx up
+                                     to App.tsx); the REQ-607 pinned "you"
+                                     footer row stays plain text
     /nav                          -> HeaderNav (SCREEN-07, REQ-712: mobile-only
                                      hamburger toggle collapsing the header nav
                                      below 480px)
     /settings                     -> SettingsScreen (SCREEN-08, REQ-713: the
                                      "Settings" nav entry's destination, wraps
                                      /auth's DeleteAccountScreen unchanged plus
-                                     an admin-only link to /admin's AdminScreen)
+                                     an admin-only link to /admin's AdminScreen).
+                                     S-179 (REQ-411, 2026-08-24) added an
+                                     unconditional "My stats" link/section
+                                     (not admin-gated) opening /users'
+                                     UserStatsScreen scoped to the caller's
+                                     own id
+    /users                         -> UserStatsScreen (SCREEN-13, REQ-411,
+                                     S-179, 2026-08-24) — one read-only
+                                     component for both "own stats" and
+                                     "another player's stats" (no own-vs-
+                                     other concept beyond the userId/
+                                     displayName props it's handed), reusing
+                                     /leaderboard's XG_GRID_GAME_KEY/
+                                     XG_PATH_GAME_KEY tab pattern for the
+                                     per-GameKey scoping REQ-411 requires.
+                                     Reached from /settings' "My stats" link
+                                     (own stats) or a leaderboard row's
+                                     display name (another player's,
+                                     see /leaderboard below) — never a
+                                     top-level nav entry
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts,
                                      scoringRules.ts (MAX_POINTS_PER_CELL,
@@ -473,7 +501,14 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      CurrentPathResponse/fetchCurrentPath
                                      (S-086), mirroring the existing
                                      CurrentRoundResponse/fetchCurrentRound
-                                     pattern
+                                     pattern. S-179 (REQ-411, 2026-08-24)
+                                     added userStats.ts (fetchUserStats,
+                                     GET /users/{userId}/stats?gameKey=,
+                                     `gameKey` required unlike
+                                     leaderboard.ts's own defaulting reads,
+                                     since UserStatsScreen always has a
+                                     selected game-tab by fetch time) and
+                                     types.ts's UserStatsResponse
   /tests
     /unit                       -> Vitest — mostly the pre-S-010 App/health-check
                                    test; App.tsx's own top-level routing tests

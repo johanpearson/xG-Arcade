@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.04"
+version: "2.05"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -4182,7 +4182,7 @@ cases.
 ---
 
 **REQ-411 – Player stats / profile view (own and another player's)**
-*(Status: Implemented (backend only), 2026-08-24, S-178 — `GET
+*(Status: Implemented, 2026-08-24. Backend (S-178) — `GET
 /users/{userId}/stats?gameKey=` (`UserEndpoints.cs`), backed by a new
 `ILeaderboardService.GetUserStatsAsync`. No new aggregate path: rounds
 played/best/average `FinalPoints` reuse the existing
@@ -4203,10 +4203,39 @@ the *rank* figure inherits guest-eligibility rules. Fixed by adding an
 `GetRankedMembersAsync`'s existing ranking call and its pre-existing tests
 are unaffected); `GetUserStatsAsync` is the one caller that passes `false`
 for the three stats figures, while Rank still goes through the unchanged,
-guest-excluding path. Frontend consumption (own-stats entry point,
-other-player navigation from the leaderboard) is the separate follow-on
-story S-179, not yet built — this REQ's UI acceptance criteria remain
-open until then.)*
+guest-excluding path.
+**Frontend (S-179, same day):** a single new `UserStatsScreen.tsx`
+(SCREEN-13, `frontend/src/users/`) renders both "own stats" and "another
+player's stats" — the component itself has no own-vs-other concept beyond
+the `userId`/`displayName` props it's handed, matching this REQ's own "the
+same stats view" framing for the other-player case. Two entry points, as
+this REQ's acceptance criteria require: an unconditional "My stats" link
+on `SettingsScreen.tsx` (own stats — every account, guest or claimed, not
+admin-gated), and every row's `DisplayName` on the leaderboard
+(`LeaderboardRowsList.tsx`) becoming a `<button>` navigation target
+(another player's stats) when a new optional `onSelectPlayer` prop is
+supplied, threaded through all four leaderboard-scope components and
+`LeaderboardScreen.tsx` up to `App.tsx`. Judgement call, recorded inline in
+`LeaderboardRowsList.tsx`: the requesting user's own row, when already
+visible in a loaded page of the main ranked list, is clickable too, for
+list consistency — the REQ-607 pinned "you" footer row stays plain text
+since Settings already covers that destination. `App.tsx` gained a `'stats'`
+screen value on its existing hand-rolled `Screen` union plus a `#/stats`
+hash entry (ADR-0039), and an in-memory `statsTarget`/`statsReturnScreen`
+navigation seed (same pattern `leaderboardInitial`/`LeaderboardRoundTarget`
+already established, ADR-0083) so "Back" returns to whichever screen
+(Settings or the leaderboard) the player actually came from. Renders
+roundsPlayed/bestFinalPoints/averageFinalPoints/rank when
+`hasRoundsPlayed` is true (rank independently omitted, not shown as 0 or
+an error, when it's `null` below REQ-409's 5-round minimum); a distinct
+"no rounds played yet" empty state when `hasRoundsPlayed` is false; a
+401 routes to `onAuthError` (same convention as every other authenticated
+screen); a nonexistent `userId` (404) is a distinct not-found state, never
+confused with the empty state. `architecture-reviewer`: PASS, no ADR
+needed (narrow, spec-driven extension of already-decided patterns — ADR-0039
+hash routing, ADR-0083 nav-seed). `quality-architect`: pass, after one
+follow-up round closing a test gap. This REQ's UI acceptance criteria are
+now covered end-to-end; no open scope remains under REQ-411 itself.)*
 > As a player, I want to see my own performance stats (best score, average
 > score, rounds played) and look up another player's stats the same way,
 > so I have somewhere to check progress beyond the leaderboard's single
@@ -4271,7 +4300,14 @@ the same shape for a caller's own id and another player's id; a
 nonexistent `userId` returns 404). UI (own stats reachable from an entry
 point in Settings/header nav; another player's stats reachable by
 selecting their display name on the leaderboard; the zero-rounds-played
-empty state renders distinctly from a loading/error state).
+empty state renders distinctly from a loading/error state) — covered as of
+2026-08-24 (S-179): `UserStatsScreen.test.tsx` (own/other-player rendering,
+populated/empty/not-found/error states, omitted-rank, per-game switching),
+`LeaderboardRowsList.test.tsx` (row-name-as-nav-target), and extensions to
+`SettingsScreen.test.tsx`/`LeaderboardScreen.test.tsx`; three new
+`App.test.tsx` routing cases cover own-stats-from-Settings-and-Back,
+other-player-from-leaderboard-and-Back-to-leaderboard, and
+reload-restore-fallback-to-own-stats.
 
 ---
 
