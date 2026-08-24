@@ -1285,4 +1285,26 @@ public class LeaderboardServiceTests
         Assert.That(xgPathStats.AverageFinalPoints, Is.EqualTo(900.0));
         Assert.That(xgPathStats.Rank, Is.Null, "only 3 xg-path rounds, below REQ-409's 5-round minimum");
     }
+
+    [Test]
+    public async Task REQ411_GetUserStatsAsync_GuestAccount_StatsFiguresIncludedButRankStillExcluded()
+    {
+        // REQ-411's own "Out of scope" text is explicit: a guest's
+        // rounds-played/best/average are shown the same as a claimed
+        // account's — only the Rank figure still inherits REQ-409/717's
+        // existing guest-eligibility gate (GetRankedMembersAsync, unchanged
+        // by this fix). 5 qualifying rounds so this also proves Rank stays
+        // excluded even once the 5-round minimum would otherwise be cleared,
+        // not just "guest with too few rounds anyway".
+        var guest = await SeedGuestMemberAsync("GuestPlayer");
+        await SeedQualifyingRoundsAsync(guest.Id, 10, 20, 30, 40, 50); // sorted: best 10, average 30.
+
+        var stats = await _service.GetUserStatsAsync(guest.Id, GameKey);
+
+        Assert.That(stats.HasRoundsPlayed, Is.True, "a guest's rounds-played must not be zeroed out");
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(5));
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(30.0));
+        Assert.That(stats.Rank, Is.Null, "REQ-409/717's guest ranking exclusion is deliberately unchanged");
+    }
 }
