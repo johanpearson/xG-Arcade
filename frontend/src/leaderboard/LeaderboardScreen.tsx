@@ -49,6 +49,15 @@ export interface LeaderboardScreenProps {
   initialGameKey?: GameKey;
   initialScope?: Scope;
   initialRoundId?: string;
+  // REQ-411 (S-179): called when a player selects another row's display
+  // name in any of the four scopes below — App.tsx seeds SCREEN-13's stats
+  // target from `(userId, displayName)` and navigates there, the same
+  // "in-memory initial-state seed, not a URL param" pattern
+  // `initialGameKey`/`initialScope`/`initialRoundId` above already
+  // establish (ADR-0039/REQ-1210/ADR-0083). Optional so every existing call
+  // site/test predating this story is unaffected — see
+  // LeaderboardRowsList.tsx's own doc comment for the full reasoning.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027): a new, separate scope selector on
@@ -118,6 +127,7 @@ export function LeaderboardScreen({
   initialGameKey,
   initialScope,
   initialRoundId,
+  onSelectPlayer,
 }: LeaderboardScreenProps) {
   // REQ-1210/ADR-0083: `initialScope`/`initialGameKey` seed this screen's
   // own scope/game-tab state exactly once, at mount — every existing call
@@ -265,12 +275,14 @@ export function LeaderboardScreen({
         gameKey={gameKey}
         onAuthError={onAuthError}
         active={scope === 'all-time'}
+        onSelectPlayer={onSelectPlayer}
       />
       <LiveLeaderboard
         accessToken={accessToken}
         gameKey={gameKey}
         onAuthError={onAuthError}
         active={scope === 'live'}
+        onSelectPlayer={onSelectPlayer}
       />
       <PastRoundsLeaderboard
         accessToken={accessToken}
@@ -283,12 +295,14 @@ export function LeaderboardScreen({
         // re-entry, so this can safely stay set for the lifetime of this
         // component without re-triggering the jump.
         initialRoundId={initialRoundId}
+        onSelectPlayer={onSelectPlayer}
       />
       <WindowedLeaderboard
         accessToken={accessToken}
         gameKey={gameKey}
         onAuthError={onAuthError}
         active={scope === 'window'}
+        onSelectPlayer={onSelectPlayer}
       />
       {/* REQ-213 (2026-08-08): game-aware — xG Grid's explainer describes
           uniqueness/live-locked points and median ranking, none of which

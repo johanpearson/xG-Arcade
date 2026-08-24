@@ -46,6 +46,16 @@ export interface SettingsScreenProps {
   onCancel: () => void;
   onAuthError: () => void;
   onOpenAdmin: () => void;
+  // REQ-411 (S-179): opens SCREEN-13's stats/profile view scoped to the
+  // current account's own id — the "own stats" entry point REQ-411's UI
+  // acceptance criteria requires. Deliberately here, not a new top-level
+  // `HeaderNav` entry — REQ-712/713 already consolidated standalone
+  // top-level links into Settings specifically to stop header overflow;
+  // adding a new one here would reintroduce exactly that regression. Not
+  // gated by `isAdmin`/`isGuest` — every account (guest or claimed) can
+  // view its own stats, same as REQ-411's own "Own stats" acceptance
+  // criteria ("Given a logged-in player (guest or claimed account)").
+  onOpenStats: () => void;
   // REQ-716/ADR-0034: the player's own choice (System/Light/Dark) — the
   // resolved light/dark value itself isn't a prop here, since App.tsx's
   // useThemePreference already owns applying it to <html>; this component
@@ -93,6 +103,7 @@ export function SettingsScreen({
   onCancel,
   onAuthError,
   onOpenAdmin,
+  onOpenStats,
   themePreference,
   onThemePreferenceChange,
 }: SettingsScreenProps) {
@@ -285,6 +296,17 @@ export function SettingsScreen({
           </form>
         </section>
       )}
+
+      {/* REQ-411 (S-179): "My stats" — the own-stats entry point, styled/
+          structured exactly like the admin-only link below (same bordered-
+          row section, same plain-link button treatment), but unconditional:
+          every account (guest or claimed, admin or not) can view its own
+          stats, so unlike the admin link this renders for everyone. */}
+      <section className="settings-screen__section">
+        <button type="button" className="settings-screen__stats-link" onClick={onOpenStats}>
+          My stats
+        </button>
+      </section>
 
       {isAdmin && (
         <section className="settings-screen__section">

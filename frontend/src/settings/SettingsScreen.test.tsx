@@ -29,6 +29,7 @@ function renderSettingsScreen(
   const onCancel = vi.fn();
   const onAuthError = vi.fn();
   const onOpenAdmin = vi.fn();
+  const onOpenStats = vi.fn();
   const onDisplayNameUpdated = vi.fn();
   const onAccountClaimed = vi.fn();
   const onThemePreferenceChange = vi.fn();
@@ -45,6 +46,7 @@ function renderSettingsScreen(
       onCancel={onCancel}
       onAuthError={onAuthError}
       onOpenAdmin={onOpenAdmin}
+      onOpenStats={onOpenStats}
       themePreference="system"
       onThemePreferenceChange={onThemePreferenceChange}
       {...overrides}
@@ -56,6 +58,7 @@ function renderSettingsScreen(
     onCancel,
     onAuthError,
     onOpenAdmin,
+    onOpenStats,
     onDisplayNameUpdated,
     onAccountClaimed,
     onThemePreferenceChange,

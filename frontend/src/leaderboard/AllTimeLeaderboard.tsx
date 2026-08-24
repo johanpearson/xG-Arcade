@@ -29,6 +29,10 @@ export interface AllTimeLeaderboardProps {
   // for why), and only its rendered *output* is gated by this flag; its
   // fetch/poll lifecycle runs regardless.
   active: boolean;
+  // REQ-411 (S-179): threaded straight through to LeaderboardRowsList — see
+  // that component's own doc comment for the optional-prop/backward-compat
+  // reasoning and the "why every row, including your own" judgement call.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027, split out of LeaderboardScreen.tsx
@@ -43,7 +47,7 @@ export interface AllTimeLeaderboardProps {
 // without waiting for a fresh fetch — see the "REQ406/407/408: the all-time
 // scope keeps its own existing 15s poll/'Load more' behavior after
 // switching scopes and back" test.
-export function AllTimeLeaderboard({ accessToken, gameKey, onAuthError, active }: AllTimeLeaderboardProps) {
+export function AllTimeLeaderboard({ accessToken, gameKey, onAuthError, active, onSelectPlayer }: AllTimeLeaderboardProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
 
   // Stable across renders (as long as onAuthError itself is) so the effect
@@ -209,6 +213,7 @@ export function AllTimeLeaderboard({ accessToken, gameKey, onAuthError, active }
       loadMoreError={state.loadMoreError}
       onLoadMore={handleLoadMore}
       provisional={false}
+      onSelectPlayer={onSelectPlayer}
     />
   );
 }

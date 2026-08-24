@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.77"
+version: "0.78"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -1390,6 +1390,19 @@ Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
 (`accent-green` underline on the active tab) — one visual tab pattern
 reused, not a second one invented.
 
+**Player names are navigation targets to SCREEN-13 (REQ-411, S-179, added
+2026-08-24):** every row's display name in the main ranked list (across all
+four scopes below) is a real link — `accent-green-text`, underlined, same
+44px row height already covers the touch-target floor — opening SCREEN-13's
+stats/profile view for that player. This includes the requesting user's own
+row when it's already visible in the loaded list (a deliberate judgement
+call — see `LeaderboardRowsList.tsx`'s own comment for why a partial list
+where only one row's name stays inert plain text would read as broken
+rather than intentional). The separate pinned "you" footer row (REQ-607,
+described under **Pagination** below) stays plain text — it already
+unambiguously means "you," and Settings has its own dedicated "My stats"
+entry point to the same destination (SCREEN-08).
+
 **Game switcher (built, ADR-0043/`requirements-document.md` REQ-410,
 `docs/backlog.md` S-087, 2026-08-02 — see that entry's "Built as" for the
 full implementation, including the backend `gameKey` query-param work it
@@ -2185,6 +2198,13 @@ given a wireframe in this document** — built functionally with the
 existing token system only, same "flagged, not silently left out of sync"
 treatment as this document's other unreviewed-screen gaps (see §7).
 
+**Added 2026-08-24, REQ-411/S-179:** a "My stats" link, in its own bordered
+row — same plain-link treatment as the admin-only "Admin" link above it,
+but unconditional (every account, guest or claimed, admin or not, can view
+its own stats). Opens SCREEN-13's stats/profile view scoped to the current
+account's own id. Placed above the admin-only link, since it applies to
+every account and the admin link doesn't.
+
 ### SCREEN-09: Game select (post-login landing)
 
 ```
@@ -2759,6 +2779,93 @@ header nav or any other on-screen control:
   spacing scale (`--space-*`) and the shared `--touch-target-min` sizing —
   no new color or typeface. See §2 above for the settle-in animation
   itself and its `prefers-reduced-motion` fallback.
+
+### SCREEN-13: Player stats / profile (REQ-411, S-179)
+
+New for this story — no prior SCREEN entry covered this. One component,
+`UserStatsScreen.tsx` (`frontend/src/users/`), used identically whether it's
+showing the viewer's own stats or another player's — REQ-411 has no
+own-only action, so there is no "edit" mode, no privacy toggle, nothing
+this screen can do besides display figures for whichever `userId` it was
+given.
+
+```
+┌───────────────────────────────┐
+│ Back                           │
+│ Alex's stats                   │
+│ Lowest total wins               │
+├───────────────────────────────┤
+│ [xG Grid] [xG Path]            │
+├───────────────────────────────┤
+│ Rounds played            12    │
+│ Best round            120 pts  │
+│ Average round        142.3 pts │
+│ All-time rank             #4   │
+└───────────────────────────────┘
+```
+
+- **Reached from two entry points, never a top-level nav entry.** Settings'
+  "My stats" link (own stats — see SCREEN-08's own entry, updated alongside
+  this one) and, on the leaderboard (SCREEN-03), selecting any row's display
+  name (another player's stats — the requesting user's own in-list row is
+  included too, a deliberate judgement call recorded in
+  `LeaderboardRowsList.tsx`'s own comment: leaving just that one row as
+  inert plain text among an otherwise all-clickable list would read as
+  broken, not intentional, and clicking your own name here is harmless).
+  The pinned "you" footer row stays plain text — it already unambiguously
+  means "you," and Settings already has a dedicated entry point to the same
+  destination. No `HeaderNav` entry, deliberately — REQ-712/713 already
+  consolidated standalone top-level links into Settings specifically to
+  stop header overflow; this screen is reached the same gated way
+  `AdminScreen`/`SuggestionsScreen` already are.
+- **Heading always names whose stats are shown.** "{DisplayName}'s stats" —
+  same heading whether this is the viewer's own account or someone else's,
+  since the component itself has no own-vs-other concept beyond the
+  `userId`/`displayName` props it was handed (App.tsx is the only place
+  that knows which case it is, via which entry point set the in-memory
+  navigation seed — see ADR-0083's "no router library" pattern, reused here
+  exactly as `leaderboardInitial`/`LeaderboardRoundTarget` already
+  established for SCREEN-03's own round-completion-banner deep link).
+- **"Lowest total wins" note.** Same ADR-0021 correction SCREEN-03 already
+  leads with, same token/placement (`text-muted`, directly under the
+  heading) — the figures below are the same `FinalPoints`/median metric
+  that note already governs, so the same golf-scoring reminder applies here
+  too, shown unconditionally (not just in the populated state).
+- **Game switcher.** Same plain underline-tab pattern as SCREEN-03's own
+  game switcher (xG Grid, then xG Path — same order, same tokens,
+  `accent-green` underline on the active tab), not a new control type.
+  Switching games re-fetches this screen's stats scoped to the newly
+  selected game.
+- **Populated state.** Rounds played (REQ-409's existing qualifying-round
+  definition — a closed round with at least one guess), best single round's
+  `FinalPoints`, average `FinalPoints` (shown to one decimal place, trimmed
+  when it's a whole number), and all-time rank — but rank is **omitted
+  entirely**, not shown as zero or an error, when the player hasn't met
+  REQ-409's 5-round ranking minimum, even though the other three figures
+  are present. Same `mono-figure` tabular-numeral treatment (§2) every other
+  numeric figure in this app already uses (leaderboard rank/points).
+- **Zero-qualifying-rounds empty state.** `hasRoundsPlayed: false` (the
+  API's own discriminator, `UserStatsResponse`) renders "No rounds played
+  yet for this game." — a distinct, calm empty state (design-document.md
+  §5: "empty states are invitations"), never a blank screen and never
+  `roundsPlayed`/`bestFinalPoints`/`averageFinalPoints` rendered as `0`,
+  which would misread as a real, played score of zero. Applies identically
+  whether the zero-rounds account is the viewer's own or another player's —
+  REQ-411's "Viewing another player's stats" acceptance criteria is
+  explicit that this is the same presentation, not an error, in that case.
+- **Not-found state.** A `userId` that doesn't exist (404) is a real, distinct
+  error state — "This player couldn't be found." — never the same
+  zero-rounds empty state a real player with no qualifying rounds gets. In
+  practice this should be unreachable through either of this screen's own
+  entry points (both only ever pass a `userId` sourced from a real account —
+  the current session or a leaderboard row), but the API contract allows it
+  and the UI branches on it explicitly rather than assuming it can't happen.
+- **Tokens only** — same card/tab/status shell every other screen in this
+  document already uses (`--color-surface-card`, `--color-border-hairline`,
+  `--color-text-muted`, `--color-accent-green`/`--color-accent-green-text`,
+  `--color-accent-red` for the error/not-found states, existing spacing
+  scale, `--touch-target-min`) — no new color or typeface introduced for
+  this screen.
 
 ## 4. Responsive strategy
 
