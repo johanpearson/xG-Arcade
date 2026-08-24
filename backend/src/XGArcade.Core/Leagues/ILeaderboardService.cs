@@ -120,6 +120,40 @@ public interface ILeaderboardService
         int cursor,
         int pageSize,
         CancellationToken cancellationToken = default);
+
+    // REQ-411 (2026-08-24, backlog S-178): one player's stats/profile view,
+    // scoped to a single GameKey — rounds played, best (lowest,
+    // ADR-0021) single round's FinalPoints total, average FinalPoints, and
+    // current all-time rank, all reused from data already computed for the
+    // leaderboard rather than a new aggregate path. RoundsPlayed/Best/Average
+    // come straight from IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync
+    // (REQ-408/409's existing per-round-total/qualifying-round query, called
+    // here with a single-element userIds collection, applyGuestEligibilityRules:
+    // false) — the exact same "absent from the dictionary means zero
+    // qualifying rounds" convention GetGlobalLeaderboardAsync already relies
+    // on, except a guest's own rounds count for these three figures per
+    // REQ-411's own "Out of scope" text ("a guest's rounds-played/best/
+    // average figures are shown the same as a claimed account's"); only
+    // Rank still inherits REQ-409/717's guest-eligibility gate, via the
+    // unchanged, still-guest-excluding GetRankedMembersAsync path below.
+    // Rank reuses the same
+    // ranked-member ordering GetGlobalLeaderboardAsync itself produces (a
+    // shared private helper extracted from that method) so a player's rank
+    // here is never computed by a second, independently-drifting formula —
+    // it's the same list, just looked up by this one userId instead of paged.
+    //
+    // UserStatsResult.HasRoundsPlayed is the "no rounds played" discriminator
+    // REQ-411 requires: false means zero qualifying rounds, and
+    // Best/Average/Rank are all null (never 0-filled); true means at least
+    // one qualifying round, though Rank is still independently nullable —
+    // omitted below REQ-409's 5-round qualifying minimum even when the other
+    // three figures are present. No privacy toggle: identical for the
+    // requesting user's own id and any other userId (see REQ-411's own "Out
+    // of scope").
+    Task<UserStatsResult> GetUserStatsAsync(
+        Guid userId,
+        string gameKey,
+        CancellationToken cancellationToken = default);
 }
 
 // REQ-405: the four leaderboard time-window resolutions — Round is "the
@@ -187,3 +221,15 @@ public enum ClosedRoundLeaderboardStatus
 
 // Page is only populated when Status is Found.
 public record ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus Status, LeaderboardPage? Page);
+
+// REQ-411: HasRoundsPlayed is the discriminator for the "no rounds played"
+// shape — when false, RoundsPlayed is 0 and BestFinalPoints/AverageFinalPoints/Rank
+// are all null (never 0-filled). When true, Rank is still independently
+// nullable — omitted below REQ-409's 5-round qualifying minimum even though
+// the player has qualifying rounds for these other figures.
+public record UserStatsResult(
+    bool HasRoundsPlayed,
+    int RoundsPlayed,
+    int? BestFinalPoints,
+    double? AverageFinalPoints,
+    int? Rank);

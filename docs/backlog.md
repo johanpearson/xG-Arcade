@@ -8284,6 +8284,38 @@ API tests cover 401/404 and that both self and other-player lookups
 return identical shapes.
 *Deps:* none.
 
+*Built as (2026-08-24):* `GET /users/{userId}/stats?gameKey=`
+(`UserEndpoints.cs`, `MapUserEndpoints`) plus a new
+`ILeaderboardService.GetUserStatsAsync`. `ValidateGameKey`/
+`ResolveRequestingUserAsync` (previously `private` on
+`LeaderboardEndpoints`) were made `internal` and reused rather than
+duplicated — one gameKey allowlist and one auth-resolution path for the
+whole Api layer. Rank is computed from `GetRankedMembersAsync`, a private
+helper extracted from `GetGlobalLeaderboardAsync` with no behavior change
+to that method, so a player's rank here can never drift from the
+leaderboard's own ranking. **Guest/claimed-account bug found and fixed
+mid-implementation:** the first version reused
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` as-is, but that
+query's REQ-717/ADR-0036 guest-exclusion clause was unconditional, so a
+guest account (and a claimed account's pre-claim rounds) always came back
+as "zero rounds played" even with 5+ genuinely qualifying rounds —
+contradicting REQ-411's own "Out of scope" text, which carves out only the
+*rank* figure from guest-eligibility rules. Fixed by adding an
+`applyGuestEligibilityRules` parameter (default `true`, preserving
+`GetRankedMembersAsync`'s existing ranking call and its pre-existing tests
+unchanged); `GetUserStatsAsync` passes `false` for rounds-played/best/
+average while Rank still goes through the unchanged, guest-excluding path.
+Covered by two follow-up tests (guest-inclusion, claimed-account
+pre-claim-rounds). Final file list: `UserEndpoints.cs` (new),
+`ILeaderboardService.cs`/`LeaderboardService.cs`, `IGuessRepository.cs`/
+`GuessRepository.cs`, `LeaderboardEndpoints.cs` (visibility only),
+`EndpointMapping.cs`; tests in `UserEndpointTests.cs` (new) and
+`LeaderboardServiceTests.cs`. Architecture review: PASS, no ADR needed —
+the `applyGuestEligibilityRules` parameter and the `internal` visibility
+changes are both narrow, spec-driven extensions of already-decided
+boundaries, not new structural decisions. doc-sync: REQ-411 status note,
+`architecture-document.md` COMP-02/§5.3/§6.2a updated.
+
 **S-179 · Frontend player stats/profile screen (REQ-411)**
 A stats/profile screen consuming S-178's endpoint: an entry point to view
 your own stats (from Settings or header nav, matching REQ-712/713's

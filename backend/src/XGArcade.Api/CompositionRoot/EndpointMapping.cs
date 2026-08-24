@@ -11,6 +11,7 @@ using XGArcade.Api.Path;
 using XGArcade.Api.Players;
 using XGArcade.Api.Rounds;
 using XGArcade.Api.Suggestions;
+using XGArcade.Api.Users;
 
 namespace XGArcade.Api.CompositionRoot;
 
@@ -56,6 +57,9 @@ public static class EndpointMapping
         app.MapSuggestionEndpoints();
         app.MapLeaderboardEndpoints();
         app.MapLeagueEndpoints();
+        // REQ-411/S-178: GET /users/{userId}/stats — read-only stats/profile
+        // view, own and any other player's, reusing LeaderboardService.
+        app.MapUserEndpoints();
         app.MapAdminEndpoints();
         // REQ-509/REQ-510 (S-090): suggestion review/commit/reject + the standalone
         // manual search-and-add path — its own file/registration, never folded into

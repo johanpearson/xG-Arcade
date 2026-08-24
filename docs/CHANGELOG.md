@@ -51,6 +51,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   two concrete non-product thresholds REQ-722 leaves to this document (5
   MB; `image/jpeg`/`image/png`/`image/webp`) without a full `AvatarSubmission`
   entity write-up, which remains open for a future pass. REQ-722/ADR-0087/S-180.
+- 2026-08-24 — `docs/architecture-document.md`, `docs/requirements-document.md`,
+  `docs/backlog.md` — S-178 (REQ-411) built and doc-synced: `GET
+  /users/{userId}/stats?gameKey=` (`UserEndpoints.cs`) plus a new
+  `ILeaderboardService.GetUserStatsAsync`, reusing REQ-408/409's existing
+  `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` query and a
+  `GetRankedMembersAsync` helper extracted from `GetGlobalLeaderboardAsync`
+  (no behavior change to that method) rather than a new aggregate/rank
+  path. `LeaderboardEndpoints.ValidateGameKey`/`ResolveRequestingUserAsync`
+  made `internal` and reused rather than duplicated. Mid-implementation fix:
+  `GetPerRoundFinalPointsByUserIdsAsync`'s guest/claimed-account exclusion
+  (REQ-717/ADR-0036) was unconditional, wrongly zeroing out a guest's or a
+  claimed account's pre-claim rounds-played/best/average even with
+  qualifying rounds — added an `applyGuestEligibilityRules` parameter
+  (default `true`, existing ranking callers unaffected) so `GetUserStatsAsync`
+  can opt out for those three figures per REQ-411's own guest carve-out,
+  while Rank still goes through the unchanged, guest-excluding path.
+  `architecture-document.md`'s COMP-02 row, §5.3 evolution table, and §6.2a
+  flow gained a REQ-411 entry/paragraph; `requirements-document.md`'s
+  REQ-411 gained a "Status: Implemented (backend only)" note (frontend
+  consumption remains S-179, not yet built); `docs/backlog.md`'s S-178
+  entry gained a "Built as" note. Architecture review: PASS, no ADR needed
+  — the new parameter and visibility changes are narrow, spec-driven
+  extensions of already-decided boundaries, not new structural decisions.
+  REQ-411/S-178.
 - 2026-08-24 — `docs/design-document.md`, `docs/backlog.md` — S-177
   (Epic 25) built and doc-synced: `AdminScreen.tsx` regrouped its single
   flat vertical stack of sections into a 5-group tabbed sub-nav (Users/
