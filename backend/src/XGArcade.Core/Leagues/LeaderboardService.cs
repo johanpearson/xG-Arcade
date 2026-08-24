@@ -20,6 +20,31 @@ public class LeaderboardService(
     public async Task<LeaderboardPage> GetGlobalLeaderboardAsync(
         Guid requestingUserId, string gameKey, int cursor, int pageSize, CancellationToken cancellationToken = default)
     {
+        var ranked = await GetRankedMembersAsync(gameKey, cancellationToken);
+
+        var entries = ranked
+            .Select((m, index) => new LeaderboardEntry(
+                index + 1,
+                m.UserId,
+                m.DisplayName,
+                (int)Math.Round(m.Median, MidpointRounding.AwayFromZero),
+                m.UserId == requestingUserId))
+            .ToList();
+
+        return Paginate(entries, cursor, pageSize);
+    }
+
+    // REQ-411/S-178: extracted out of GetGlobalLeaderboardAsync (no behavior
+    // change to that method) so GetUserStatsAsync's rank figure is computed
+    // from the exact same ordering the leaderboard itself shows, rather than
+    // a second, independently-drifting formula. Returns every *qualifying*
+    // (>=MinimumQualifyingRoundsForRanking rounds) global-league member,
+    // already ordered ascending by median (ADR-0021: lowest wins) then by
+    // DisplayName — unpaginated, since GetGlobalLeaderboardAsync still owns
+    // pagination and GetUserStatsAsync only needs one member's position.
+    private async Task<IReadOnlyList<(Guid UserId, string DisplayName, double Median)>> GetRankedMembersAsync(
+        string gameKey, CancellationToken cancellationToken)
+    {
         var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
         var memberUserIds = await leagueRepository.GetMemberUserIdsAsync(globalLeague.Id, cancellationToken);
         var members = await userRepository.GetByIdsAsync(memberUserIds, cancellationToken);
@@ -38,28 +63,49 @@ public class LeaderboardService(
         // no longer folds in a contribution from the currently active round
         // — see ILeaderboardService's doc comment for why folding a live
         // round into a median has no resolved meaning.
-        var ranked = members
+        return members
             .Select(member => (
                 member.Id,
                 member.DisplayName,
                 PerRoundTotals: perRoundTotalsByUserId.GetValueOrDefault(member.Id, Array.Empty<int>())))
             .Where(m => m.PerRoundTotals.Count >= MinimumQualifyingRoundsForRanking)
-            .Select(m => (m.Id, m.DisplayName, Median: ComputeMedian(m.PerRoundTotals)))
+            .Select(m => (UserId: m.Id, m.DisplayName, Median: ComputeMedian(m.PerRoundTotals)))
             // ADR-0021: ascending — lowest median wins, same direction as
             // every other ranking in this file. Sorting/tie-breaking happens
             // on the unrounded double median, so ComputeMedian's rounding
-            // for LeaderboardEntry.TotalPoints (below) never affects order.
+            // for LeaderboardEntry.TotalPoints (in GetGlobalLeaderboardAsync)
+            // never affects order.
             .OrderBy(m => m.Median)
             .ThenBy(m => m.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select((m, index) => new LeaderboardEntry(
-                index + 1,
-                m.Id,
-                m.DisplayName,
-                (int)Math.Round(m.Median, MidpointRounding.AwayFromZero),
-                m.Id == requestingUserId))
             .ToList();
+    }
 
-        return Paginate(ranked, cursor, pageSize);
+    // REQ-411/S-178: one player's stats view, scoped to gameKey — see
+    // ILeaderboardService's own doc comment for the full "why" (reuse of
+    // GetPerRoundFinalPointsByUserIdsAsync and the shared ranked-members
+    // helper above, the HasRoundsPlayed discriminator, no privacy toggle).
+    public async Task<UserStatsResult> GetUserStatsAsync(
+        Guid userId, string gameKey, CancellationToken cancellationToken = default)
+    {
+        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(new[] { userId }, gameKey, cancellationToken);
+        var totals = perRoundTotalsByUserId.GetValueOrDefault(userId, Array.Empty<int>());
+
+        if (totals.Count == 0)
+            return new UserStatsResult(false, 0, null, null, null);
+
+        int? rank = null;
+        if (totals.Count >= MinimumQualifyingRoundsForRanking)
+        {
+            var ranked = await GetRankedMembersAsync(gameKey, cancellationToken);
+            var position = ranked
+                .Select((m, index) => (m.UserId, Rank: index + 1))
+                .Where(m => m.UserId == userId)
+                .Select(m => (int?)m.Rank)
+                .FirstOrDefault();
+            rank = position;
+        }
+
+        return new UserStatsResult(true, totals.Count, totals.Min(), totals.Average(), rank);
     }
 
     // REQ-409: the standard median — the middle value once a player's
