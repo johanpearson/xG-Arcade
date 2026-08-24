@@ -6,14 +6,17 @@ import {
   fetchPendingSuggestions,
   lookupPlayerByName,
   lookupSuggestionPlayer,
+  refreshPlayerFromWikidata,
   rejectSuggestion,
 } from '../lib/admin';
 import type {
   CommitPlayerDataPayload,
   CommitPlayerDataResult,
   PendingSuggestion,
+  RefreshPlayerFromWikidataResponse,
   WikidataPlayerLookupResult,
 } from '../lib/types';
+import { PlayerRefreshFieldsList, describePlayerRefreshError } from './PlayerRefreshFieldsList';
 import './SuggestionsScreen.css';
 
 // REQ-509/510/S-129: turns a commit response's actually-written facts into a
@@ -242,6 +245,7 @@ function PendingSuggestionRow({
       {isOpen ? (
         <PlayerReviewPanel
           key={suggestion.id}
+          accessToken={accessToken}
           onLookup={onLookup}
           onCommit={onCommit}
           onReject={onReject}
@@ -332,6 +336,7 @@ function ManualSearchSection({ accessToken, onAuthError }: ManualSearchSectionPr
       {searchTarget && (
         <PlayerReviewPanel
           key={searchTarget.nonce}
+          accessToken={accessToken}
           onLookup={onLookup}
           onCommit={onCommit}
           onReject={null}
@@ -354,6 +359,14 @@ type LookupPhase =
   | { phase: 'error'; message: string };
 
 interface PlayerReviewPanelProps {
+  // REQ-515: needed only for the inline "Refresh from Wikidata" action
+  // below, which calls refreshPlayerFromWikidata directly — every other
+  // call in this panel already goes through the caller-supplied
+  // onLookup/onCommit/onReject callbacks instead of taking accessToken
+  // itself, but there's no equivalent per-panel callback for REQ-513's
+  // existing endpoint (it isn't scoped to a suggestion/search at all, just
+  // a bare player id), so the token is threaded through directly here.
+  accessToken: string;
   onLookup: () => Promise<WikidataPlayerLookupResult>;
   onCommit: (payload: CommitPlayerDataPayload) => Promise<CommitPlayerDataResult>;
   onReject: (() => Promise<void>) | null;
@@ -379,6 +392,7 @@ interface PlayerReviewPanelProps {
 // suggestion/search always gets a fresh panel instance rather than reusing
 // stale state — no separate "reset" logic needed here.
 function PlayerReviewPanel({
+  accessToken,
   onLookup,
   onCommit,
   onReject,
@@ -401,6 +415,15 @@ function PlayerReviewPanel({
   const [rejecting, setRejecting] = useState(false);
   const [rejectError, setRejectError] = useState<string | null>(null);
 
+  // REQ-515: the inline "Refresh from Wikidata" action's own in-flight/
+  // error/result state — independent of commit/reject above, since it's a
+  // separate, non-destructive action (REQ-513/514's own "no confirm step"
+  // reasoning applies here unchanged) that can run without affecting the
+  // commit form.
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshResult, setRefreshResult] = useState<RefreshPlayerFromWikidataResponse | null>(null);
+
   // Runs on mount and on every explicit "Try again" click (the `attempt`
   // counter) — never on any other re-render, since onLookup/onAuthError are
   // stable references from the caller (see PendingSuggestionRow/
@@ -408,6 +431,12 @@ function PlayerReviewPanel({
   useEffect(() => {
     let cancelled = false;
     setPhase({ phase: 'loading' });
+    // REQ-515: a fresh lookup (mount, or "Try again" after an unavailable
+    // result) always starts with a clean inline-refresh slate — never
+    // carries a stale result/error over from a previous fetched player.
+    setRefreshing(false);
+    setRefreshError(null);
+    setRefreshResult(null);
 
     onLookup()
       .then((result) => {
@@ -506,6 +535,29 @@ function PlayerReviewPanel({
     }
   }
 
+  // REQ-515: reuses REQ-513's existing refresh endpoint directly (the same
+  // function PlayerRefreshSection.tsx calls) — no duplicate API call, and
+  // the same 404/409/503/401 handling via the shared
+  // describePlayerRefreshError helper. Only ever called with a non-null
+  // `existingPlayerId` (the button that triggers this is only rendered when
+  // one is present), so there's no "no player id" branch to guard here.
+  async function handleInlineRefresh(existingPlayerId: string) {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const response = await refreshPlayerFromWikidata(accessToken, existingPlayerId);
+      setRefreshResult(response);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      setRefreshError(describePlayerRefreshError(err));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   if (phase.phase === 'loading') {
     return <p className="suggestions-screen__review-status">Looking up player on Wikidata…</p>;
   }
@@ -586,6 +638,7 @@ function PlayerReviewPanel({
 
   // phase.phase === 'found'
   const { data } = phase;
+  const existingPlayerId = data.existingPlayerId;
   const hasClubText = clubsText
     .split('\n')
     .some((club) => club.trim().length > 0);
@@ -600,6 +653,32 @@ function PlayerReviewPanel({
 
   return (
     <div className="suggestions-screen__review">
+      <p className="suggestions-screen__row-detail">Wikidata ID: {wikidataQid ?? '—'}</p>
+
+      {/* REQ-515: only rendered when the lookup's resolved wikidataQid
+          already has a local Player row on file — a brand-new player being
+          added has nothing yet to refresh. Reuses REQ-513's existing
+          refresh endpoint (refreshPlayerFromWikidata) and REQ-514's own
+          four-field changed/unchanged presentation (PlayerRefreshFieldsList)
+          rather than a second copy of either. */}
+      {existingPlayerId && (
+        <div className="suggestions-screen__inline-refresh">
+          <button
+            type="button"
+            onClick={() => handleInlineRefresh(existingPlayerId)}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh from Wikidata'}
+          </button>
+          {refreshError && (
+            <p className="suggestions-screen__error" role="alert">
+              {refreshError}
+            </p>
+          )}
+          {refreshResult && <PlayerRefreshFieldsList result={refreshResult} />}
+        </div>
+      )}
+
       {claim && (
         <div className="suggestions-screen__comparison">
           <div className="suggestions-screen__comparison-column">

@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/requirements-document.md`, `docs/design-document.md` —
+  REQ-515: bridges REQ-509/510's admin player-search results with
+  REQ-513/514's Wikidata refresh action, requested directly by the
+  product owner after REQ-513/514 shipped ("the search... also returned
+  the QID, then it would be easy to update or refetch"). `PlayerReviewPanel`
+  (shared by the pending-suggestion review flow and the standalone
+  manual-search flow) now always shows the found player's `WikidataQid`,
+  and — only when a local `Player` row already exists for that QID
+  (`WikidataPlayerLookupResponse.ExistingPlayerId`, resolved via
+  `IPlayerRepository.GetPlayerByWikidataQidAsync` in the shared
+  `LookupPlayerAsync` helper backing both `/admin/suggestions/{id}/lookup`
+  and `/admin/player-search/lookup`) — an inline "Refresh from Wikidata"
+  action that calls REQ-513's endpoint directly. Extracted
+  `PlayerRefreshFieldsList` (fields display + error-message mapping) out
+  of REQ-514's `PlayerRefreshSection.tsx` so REQ-515 reuses it instead of
+  duplicating that rendering logic a second time. `design-document.md`'s
+  SCREEN-04 subsection updated (new REQ-515 note; fixed a stale CSS
+  class-name reference left over from the extraction).
 - 2026-08-24 — `CLAUDE.md`, `.claude/README.md`, `.claude/agents/backend-implementer.md`,
   `.claude/agents/quality-architect.md`, `.claude/agents/test-writer.md`,
   `.claude/commands/quality-gate.md`, `.claude/commands/orchestrate.md`,

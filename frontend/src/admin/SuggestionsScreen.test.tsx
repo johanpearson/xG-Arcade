@@ -45,6 +45,15 @@ const foundLookupResult = {
   fullName: 'Clarence Seedorf',
   nationality: 'Netherlands',
   clubs: ['AC Milan', 'Real Madrid'],
+  existingPlayerId: null,
+};
+
+// REQ-515: same lookup result, but resolved to a wikidataQid that already
+// has a local Player row — the one signal that gates the inline "Refresh
+// from Wikidata" action's visibility.
+const foundLookupResultWithExistingPlayer = {
+  ...foundLookupResult,
+  existingPlayerId: 'player-existing-1',
 };
 
 describe('SuggestionsScreen', () => {
@@ -125,6 +134,11 @@ describe('SuggestionsScreen', () => {
     resolveLookup?.();
     expect(await screen.findByText('Suggested by player')).toBeInTheDocument();
     expect(screen.getByText('Fetched from Wikidata')).toBeInTheDocument();
+    // REQ-515: the fetched wikidataQid is always visible, even when there's
+    // no existing local Player row to refresh (this fixture's
+    // existingPlayerId is null).
+    expect(screen.getByText('Wikidata ID: Q188207')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh from Wikidata' })).not.toBeInTheDocument();
     // Original claim (from the suggestion) and the fetched Wikidata data are
     // both presented, distinctly, for admin judgment — never auto-approved.
     const comparisonClubLines = screen.getAllByText(/^Clubs: /);
@@ -435,6 +449,236 @@ describe('SuggestionsScreen', () => {
     // action — but a call to any suggestion-SCOPED path (with an id/segment
     // after "suggestions/", e.g. lookup/commit/reject) must never happen.
     expect(calledUrls.some((url) => /\/admin\/suggestions\//.test(url))).toBe(false);
+  });
+
+  // ---- REQ-515: inline "Refresh from Wikidata" action ---------------------
+
+  it('REQ515: the inline refresh button is absent when the lookup found no existing local Player row', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') return jsonResponse([suggestion1]);
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) return jsonResponse(foundLookupResult);
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+
+    await screen.findByText('Wikidata ID: Q188207');
+    expect(screen.queryByRole('button', { name: 'Refresh from Wikidata' })).not.toBeInTheDocument();
+  });
+
+  it('REQ515: a non-null existingPlayerId shows the inline refresh button, which calls the REQ-513 refresh endpoint directly and renders the shared changed/unchanged field presentation', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') return jsonResponse([suggestion1]);
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) {
+        return jsonResponse(foundLookupResultWithExistingPlayer);
+      }
+      if (path.includes('/admin/players/player-existing-1/refresh-from-wikidata')) {
+        return jsonResponse({
+          playerId: 'player-existing-1',
+          wikidataQid: 'Q188207',
+          fields: [
+            { field: 'fullName', changed: true, oldValue: 'Clarance Seedorf', newValue: 'Clarence Seedorf' },
+            { field: 'position', changed: false, oldValue: 'Midfielder', newValue: null },
+            { field: 'birthYear', changed: false, oldValue: '1976', newValue: null },
+            { field: 'photoUrl', changed: false, oldValue: null, newValue: null },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+
+    await screen.findByText('Wikidata ID: Q188207');
+    const refreshButton = await screen.findByRole('button', { name: 'Refresh from Wikidata' });
+    await user.click(refreshButton);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/players/player-existing-1/refresh-from-wikidata'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(
+      await screen.findByText('Full name: Changed — "Clarance Seedorf" → "Clarence Seedorf"'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Position: Unchanged — "Midfielder"')).toBeInTheDocument();
+    expect(screen.getByText('Birth year: Unchanged — "1976"')).toBeInTheDocument();
+    expect(screen.getByText('Photo URL: Unchanged — "(none)"')).toBeInTheDocument();
+
+    // No confirmation step — clicking once was enough, no separate
+    // "Confirm"/"Cancel" pair ever appeared for this action.
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument();
+
+    // The rest of the review panel (commit form) is unaffected by the
+    // inline refresh action — still present and usable.
+    expect(screen.getByRole('button', { name: 'Commit' })).toBeInTheDocument();
+  });
+
+  it('REQ515: the inline refresh button shows a pending, disabled state while in flight', async () => {
+    let resolveRefresh: (value: Response) => void = () => {};
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') return jsonResponse([suggestion1]);
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) {
+        return jsonResponse(foundLookupResultWithExistingPlayer);
+      }
+      if (path.includes('/admin/players/player-existing-1/refresh-from-wikidata')) {
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+
+    const refreshButton = await screen.findByRole('button', { name: 'Refresh from Wikidata' });
+    await user.click(refreshButton);
+
+    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
+
+    resolveRefresh(
+      (await jsonResponse({
+        playerId: 'player-existing-1',
+        wikidataQid: 'Q188207',
+        fields: [
+          { field: 'fullName', changed: false, oldValue: 'Clarence Seedorf', newValue: null },
+          { field: 'position', changed: false, oldValue: 'Midfielder', newValue: null },
+          { field: 'birthYear', changed: false, oldValue: '1976', newValue: null },
+          { field: 'photoUrl', changed: false, oldValue: null, newValue: null },
+        ],
+      })) as unknown as Response,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Refresh from Wikidata' })).toBeEnabled(),
+    );
+  });
+
+  it('REQ515: a 409 from the inline refresh endpoint reuses REQ-514\'s exact "no Wikidata id" message, not a new one', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') return jsonResponse([suggestion1]);
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) {
+        return jsonResponse(foundLookupResultWithExistingPlayer);
+      }
+      if (path.includes('/admin/players/player-existing-1/refresh-from-wikidata')) {
+        return jsonResponse(
+          {
+            title: 'No Wikidata QID to refresh from',
+            detail: 'This player has no WikidataQid on record — there is nothing to refresh from.',
+          },
+          409,
+        );
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+
+    const refreshButton = await screen.findByRole('button', { name: 'Refresh from Wikidata' });
+    await user.click(refreshButton);
+
+    expect(
+      await screen.findByText('This player has no Wikidata id to refresh from.'),
+    ).toBeInTheDocument();
+    // The commit form's own error state is untouched by this action's error.
+    expect(screen.queryByRole('button', { name: 'Commit' })).toBeInTheDocument();
+  });
+
+  it('REQ515: a 401 from the inline refresh endpoint calls onAuthError instead of showing a panel-local message', async () => {
+    const onAuthError = vi.fn();
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') return jsonResponse([suggestion1]);
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) {
+        return jsonResponse(foundLookupResultWithExistingPlayer);
+      }
+      if (path.includes('/admin/players/player-existing-1/refresh-from-wikidata')) {
+        return jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401);
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={onAuthError} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+
+    const refreshButton = await screen.findByRole('button', { name: 'Refresh from Wikidata' });
+    await user.click(refreshButton);
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
+  it('REQ515: the manual-search entry point (ManualSearchSection) also shows the inline refresh action when existingPlayerId is present — the shared PlayerReviewPanel, not a second copy', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') return jsonResponse([]);
+      if (path.includes('/admin/player-search/lookup')) {
+        return jsonResponse({
+          found: true,
+          wikidataQid: 'Qpires',
+          fullName: 'Robert Pires',
+          nationality: 'France',
+          clubs: ['Arsenal'],
+          existingPlayerId: 'player-pires-1',
+        });
+      }
+      if (path.includes('/admin/players/player-pires-1/refresh-from-wikidata')) {
+        return jsonResponse({
+          playerId: 'player-pires-1',
+          wikidataQid: 'Qpires',
+          fields: [
+            { field: 'fullName', changed: false, oldValue: 'Robert Pires', newValue: null },
+            { field: 'position', changed: false, oldValue: 'Midfielder', newValue: null },
+            { field: 'birthYear', changed: false, oldValue: '1973', newValue: null },
+            { field: 'photoUrl', changed: false, oldValue: null, newValue: null },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('No pending suggestions to review.');
+
+    await user.type(screen.getByLabelText('Player name'), 'Robert Pires');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await screen.findByText('Wikidata ID: Qpires');
+    const refreshButton = await screen.findByRole('button', { name: 'Refresh from Wikidata' });
+    await user.click(refreshButton);
+
+    expect(
+      await screen.findByText('Full name: Unchanged — "Robert Pires"'),
+    ).toBeInTheDocument();
   });
 
   // ---- Auth: 401/403 (mirrors AdminScreen.test.tsx's own convention) ----
