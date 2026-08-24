@@ -94,6 +94,9 @@ public static class AdminSuggestionEndpoints
             Guid id,
             IPlayerSuggestionRepository playerSuggestionRepository,
             IWikidataClient wikidataClient,
+            // REQ-515: resolves whether a local Player row already exists for
+            // the found WikidataQid, so the response can surface its id.
+            IPlayerRepository playerRepository,
             ILogger<AdminSuggestionEndpointsLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
@@ -112,7 +115,7 @@ public static class AdminSuggestionEndpoints
             WikidataPlayerLookupResponse response;
             try
             {
-                response = await LookupPlayerAsync(suggestion.PlayerName, wikidataClient, cancellationToken);
+                response = await LookupPlayerAsync(suggestion.PlayerName, wikidataClient, playerRepository, cancellationToken);
             }
             catch (WikidataQueryException ex)
             {
@@ -256,6 +259,9 @@ public static class AdminSuggestionEndpoints
         app.MapPost("/admin/player-search/lookup", async (
             PlayerSearchLookupRequest request,
             IWikidataClient wikidataClient,
+            // REQ-515: see the identical parameter on
+            // /admin/suggestions/{id}/lookup above.
+            IPlayerRepository playerRepository,
             ILogger<AdminSuggestionEndpointsLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
@@ -270,7 +276,7 @@ public static class AdminSuggestionEndpoints
             WikidataPlayerLookupResponse response;
             try
             {
-                response = await LookupPlayerAsync(request.PlayerName, wikidataClient, cancellationToken);
+                response = await LookupPlayerAsync(request.PlayerName, wikidataClient, playerRepository, cancellationToken);
             }
             catch (WikidataQueryException ex)
             {
@@ -338,19 +344,30 @@ public static class AdminSuggestionEndpoints
     // never surfaced as an error — a WikidataQueryException propagates past
     // this method uncaught, for each caller's own catch block to translate
     // to a 503.
+    //
+    // REQ-515: also resolves ExistingPlayerId — non-null only when Found is
+    // true AND a local Player row already exists for the found WikidataQid
+    // (via IPlayerRepository.GetPlayerByWikidataQidAsync); null in every
+    // other case, including Found=false and Found=true-but-no-local-row-yet.
     private static async Task<WikidataPlayerLookupResponse> LookupPlayerAsync(
-        string playerName, IWikidataClient wikidataClient, CancellationToken cancellationToken)
+        string playerName,
+        IWikidataClient wikidataClient,
+        IPlayerRepository playerRepository,
+        CancellationToken cancellationToken)
     {
         var result = await wikidataClient.QueryPlayerCareerAndNationalityByNameAsync(playerName, cancellationToken);
         if (result is null)
-            return new WikidataPlayerLookupResponse(false, null, null, null, []);
+            return new WikidataPlayerLookupResponse(false, null, null, null, [], null);
+
+        var existingPlayer = await playerRepository.GetPlayerByWikidataQidAsync(result.WikidataQid, cancellationToken);
 
         return new WikidataPlayerLookupResponse(
             true,
             result.WikidataQid,
             result.FullName,
             result.Nationality,
-            result.Clubs.ToList());
+            result.Clubs.ToList(),
+            existingPlayer?.Id);
     }
 
     // Shared by both /commit endpoints above — REQ-509/510's identical write
@@ -502,12 +519,20 @@ public record PendingSuggestionResponse(
 // normal, valid outcome, never an error (a lookup FAILURE is a 503, not this
 // shape with Found=false). Every other field is null/empty exactly when
 // Found is false.
+//
+// ExistingPlayerId (REQ-515): the local Player.Id already on file for
+// WikidataQid, resolved via IPlayerRepository.GetPlayerByWikidataQidAsync.
+// Non-null only when Found is true AND a matching Player row already
+// exists; null when Found is false, and null when Found is true but no
+// local Player row exists yet for that QID (this lookup would create one on
+// commit, not before).
 public record WikidataPlayerLookupResponse(
     bool Found,
     string? WikidataQid,
     string? FullName,
     string? Nationality,
-    IReadOnlyList<string> Clubs);
+    IReadOnlyList<string> Clubs,
+    Guid? ExistingPlayerId);
 
 // The admin's CONFIRMED values for a commit — typically pre-filled from a
 // prior /lookup response and reviewed as-is, but not required to be

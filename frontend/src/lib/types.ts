@@ -562,12 +562,20 @@ export interface PendingSuggestion {
 // failure (ADR-0046's timeout-vs-no-match distinction); a 503 is left to
 // throw as an ApiError by lib/admin.ts's lookup functions rather than ever
 // resolving to this shape.
+//
+// REQ-515: `existingPlayerId` is the local Player id already on file for
+// `wikidataQid`, resolved server-side via
+// IPlayerRepository.GetPlayerByWikidataQidAsync. Non-null only when
+// `found` is true AND a matching local Player row already exists; null in
+// every other case, including `found: false` and `found: true` with no
+// local Player row yet for that QID.
 export interface WikidataPlayerLookupResult {
   found: boolean;
   wikidataQid: string | null;
   fullName: string | null;
   nationality: string | null;
   clubs: string[];
+  existingPlayerId: string | null;
 }
 
 // REQ-509/510: the admin's reviewed/confirmed values sent to both
