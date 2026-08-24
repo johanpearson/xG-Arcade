@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.07"
+version: "2.08"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -7648,6 +7648,36 @@ of those are read paths, and none are built by S-181, a write-side-only
 other-player avatar rendering) exists yet — S-182/183 remain separate,
 not-yet-built stories. Built without a local `dotnet` SDK in-sandbox; CI
 verification pending as of this note.
+
+**Status note (2026-08-24, S-182 — the "Seeing your own status" and
+"Replacing an approved avatar" criteria are now built end-to-end):** a "My
+avatar" section in `SettingsScreen.tsx` (`frontend/src/settings/`, SCREEN-08
+addendum) reads two new endpoints built alongside it — `GET
+/users/me/avatar` (three independent Pending/Rejected/Approved summaries,
+never one mutually-exclusive status, per this REQ's own "a `Rejected`
+status does not remove or affect a separately-existing `Approved` avatar"
+clause) and `GET /users/me/avatar/{id}/image` (owner-only byte stream, used
+for the preview shown alongside each status). Uploading while already
+`Approved` correctly leaves the prior approved image reported as-is while
+the new submission shows as `Pending`, matching "Replacing an approved
+avatar"'s acceptance criterion exactly. The one criterion in this REQ still
+genuinely unbuilt: **"No avatar / rejected state, as seen by other
+players."** No surface anywhere in the frontend renders *another* player's
+avatar yet — REQ-411's stats view (`UserStatsScreen.tsx`, implemented
+end-to-end as of S-179, see that REQ's own status note) does not display an
+avatar at all, own or another player's, so this criterion has no assigned
+story yet; flagged here rather than assumed covered by REQ-411's existing
+"Implemented" status. `GET /users/me/avatar/{id}/image` streams bytes
+through the backend rather than handing back a signed URL — a second,
+narrower, owner-scoped mediation shape on `IAvatarStorage`
+(`DownloadAsync`) alongside S-181's admin-facing `GetPreviewUrlAsync`
+(signed URL); see ADR-0087's "Consequences" section (S-182 follow-up
+paragraph) for the fuller reasoning on why these two shapes coexist
+deliberately rather than one being reused for the other, and which one is
+canonical for any future "another player's avatar" surface. Built without a
+local `dotnet` SDK in-sandbox; confirmed via a real CI run (`ci.yml`,
+`workflow_dispatch`) on the final commit — backend, frontend unit, and E2E
+jobs all green.
 
 ---
 

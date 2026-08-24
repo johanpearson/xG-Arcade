@@ -60,7 +60,46 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   after the one wording-drift finding above (fixed, not left open). No
   `docs/legal/*.md` change needed — S-180 already added the avatar
   data-collection category those drafts needed (confirmed unchanged).
-  REQ-517/S-183.
+  Merge-conflict reconciliation with S-182 below (both independently
+  bumped `requirements-document.md` from a shared v2.05 base to v2.06):
+  resolved to v2.08, one past both parents', since the merged file
+  carries both stories' content additions in full — no text lost or
+  overwritten on either side. REQ-517/S-183.
+- 2026-08-24 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/decisions/0087-avatar-storage-supabase.md`, `docs/backlog.md` —
+  S-182 (Epic 25, frontend half of REQ-722) built and doc-synced: a "My
+  avatar" section in `SettingsScreen.tsx` (SCREEN-08 addendum, added before
+  this merge) — upload control plus independent Pending/Rejected/Approved
+  status rows with previews, none hiding another. Needed two new backend
+  read endpoints, built in the same story: `GET /users/me/avatar` (three
+  independent status summaries) and `GET /users/me/avatar/{id}/image`
+  (owner-only byte stream), backed by a new `IAvatarStorage.DownloadAsync`
+  and `IAvatarSubmissionRepository.GetLatestRejectedAsync`. This branch
+  merged `origin/main` mid-flight to pick up S-181 (REQ-517, admin avatar
+  moderation), which landed in parallel and had independently added an
+  identical-signature `IAvatarSubmissionRepository.GetByIdAsync` and its
+  own updates to several of these same docs — reconciled during the merge
+  (one shared `GetByIdAsync`, not two; doc edits layered rather than
+  overwritten) rather than redone. Quality-gate fixes folded in: extracted
+  a shared `ResolveCurrentUserAsync` helper (`AvatarEndpoints.cs`, closing
+  a third duplicated caller-identity-resolution block) and two added
+  test-coverage gaps (401 with no bearer token, and 404 for an owned row
+  whose underlying storage object is missing). Doc updates: REQ-722 gained
+  a third status note recording what S-182 built and what's still open
+  ("No avatar / rejected state, as seen by other players" has no
+  rendering surface yet); COMP-14 extended to describe `DownloadAsync`
+  alongside S-181's `GetPreviewUrlAsync`; ADR-0087's Consequences section
+  gained a sibling "Follow-up (completed, S-182)" paragraph reconciling
+  the two mediation shapes on `IAvatarStorage` and stating which is
+  canonical for a future "another player's avatar" surface, per
+  `architecture-reviewer`'s specific request on this diff; `backlog.md`'s
+  S-182 entry got a "Built as" note. `docs/design-document.md` (SCREEN-08
+  addendum, v0.78 → v0.79) and `docs/implementation-document.md` checked
+  and left unchanged — the design addendum already matched the merged
+  code with no S-181 conflict, and no route/endpoint table exists in the
+  implementation doc at the granularity these two new routes would need.
+  Built without a local `dotnet` SDK in-sandbox; CI verification pending
+  as of this entry. REQ-722/ADR-0087/S-182.
 - 2026-08-24 — `docs/requirements-document.md`, `docs/backlog.md`,
   `docs/implementation-document.md` — S-179 (Epic 25, frontend half of
   REQ-411) built and doc-synced: a new `UserStatsScreen.tsx`

@@ -8473,6 +8473,47 @@ and that uploading while pending replaces rather than queues a second
 submission (matching S-180's backend behavior).
 *Deps:* S-180.
 
+*Built as (2026-08-24):* the "My avatar" section (`SettingsScreen.tsx`,
+SCREEN-08 addendum — see `design-document.md`, v0.78 → v0.79, added before
+this merge) needed two backend read endpoints that didn't exist yet, built
+in the same story: `GET /users/me/avatar` (three independent
+Pending/Rejected/Approved summaries — never one mutually-exclusive status,
+per REQ-722's own "a `Rejected` status does not remove or affect a
+separately-existing `Approved` avatar" clause) and `GET
+/users/me/avatar/{id}/image` (owner-only byte stream; 404, never 403, for
+unknown/not-owned/underlying-storage-missing rows alike, so existence is
+never leaked). Backend support added: `IAvatarStorage.DownloadAsync`
+(owner-scoped, streams bytes through the backend per ADR-0013 — a second,
+narrower mediation shape alongside S-181's admin-facing
+`GetPreviewUrlAsync`, reconciled in ADR-0087's Consequences section) and
+`IAvatarSubmissionRepository.GetLatestRejectedAsync`.
+`IAvatarSubmissionRepository.GetByIdAsync` was added independently by both
+this story and S-181 with an identical signature (each needed "fetch by
+id, any status, let the caller enforce its own authorization rule" for its
+own handler); deduped to one copy during the merge with `origin/main`,
+now shared by S-181's admin approve/reject handlers and this story's image
+endpoint. Test coverage: roughly 27 new tests added across this story's
+commits (16 backend `[Test]` cases across `AvatarEndpointTests.cs`,
+`AvatarSubmissionRepositoryTests.cs`, and `SupabaseAvatarStorageTests.cs`,
+plus 11 frontend `it(...)` cases in `SettingsScreen.test.tsx` covering all
+four avatar states). Architecture review: PASS — flagged that `S-181`
+landed in parallel on `origin/main` with an overlapping `GetByIdAsync`
+addition and the `IAvatarStorage`/ADR-0087 doc updates, requiring a real
+merge-conflict reconciliation (not just a rebase) rather than a clean
+fast-forward, and separately asked for the ADR-0087 addendum reconciling
+`DownloadAsync` against S-181's `GetPreviewUrlAsync` (added, see that
+ADR). Quality review: conditional pass, two must-fix items, both since
+fixed — (1) the `ClaimsPrincipal` → `IUserRepository` → 401 caller-identity
+block, now duplicated a third time across this file's three handlers,
+extracted into a shared `ResolveCurrentUserAsync` helper (pure mechanical
+extraction, no behavior change); (2) two test-coverage gaps on the new
+image endpoint — 401 with no bearer token, and 404 specifically for the
+"owned row, but the underlying storage object is gone" branch, distinct
+from the already-covered unknown-id/not-owned-id 404 cases. Built without
+a local `dotnet` SDK in-sandbox; confirmed via a real CI run (`ci.yml`,
+`workflow_dispatch`) on the final commit — backend, frontend unit, and E2E
+jobs all green.
+
 **S-183 · Frontend admin avatar moderation section (REQ-517)**
 An avatar moderation section consuming S-181's endpoints, with image
 previews and approve/reject actions, slotted into S-177's "Users" admin
