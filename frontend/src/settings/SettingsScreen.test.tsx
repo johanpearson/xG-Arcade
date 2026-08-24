@@ -711,6 +711,236 @@ describe('SettingsScreen', () => {
 
       await waitFor(() => expect(onAuthError).toHaveBeenCalled());
     });
+
+    // REQ-722's "Test level" section requires each of the four states
+    // (none/pending/approved/rejected) to render distinctly. The tests
+    // above already cover "none" and "all three at once"; these isolate
+    // each of the other three states on its own, so a bug that makes one
+    // section's presence leak into/depend on another can't hide behind the
+    // "all three at once" test alone.
+    it('REQ-722: renders only the pending state when only a Pending submission exists', async () => {
+      stubAvatarObjectUrls();
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar/')) return avatarStatusFetch(input);
+        if (url.includes('/users/me/avatar')) {
+          return jsonResponse({
+            pending: { id: 'p1', createdAt: '2026-08-24T00:00:00Z', imageUrl: '/users/me/avatar/p1/image' },
+            rejected: null,
+            approved: null,
+          });
+        }
+        return jsonResponse({});
+      });
+      renderSettingsScreen({}, fetchMock);
+
+      expect(await screen.findByTestId('avatar-section-pending')).toHaveTextContent('Pending review');
+      expect(await screen.findByTestId('avatar-section-pending-image')).toHaveAttribute(
+        'src',
+        'blob:mock-preview-url',
+      );
+      expect(screen.queryByTestId('avatar-section-rejected')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-approved')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-none')).not.toBeInTheDocument();
+    });
+
+    it('REQ-722: renders only the rejected state when only a Rejected submission exists', async () => {
+      stubAvatarObjectUrls();
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar/')) return avatarStatusFetch(input);
+        if (url.includes('/users/me/avatar')) {
+          return jsonResponse({
+            pending: null,
+            rejected: { id: 'r1', createdAt: '2026-08-20T00:00:00Z', imageUrl: '/users/me/avatar/r1/image' },
+            approved: null,
+          });
+        }
+        return jsonResponse({});
+      });
+      renderSettingsScreen({}, fetchMock);
+
+      expect(await screen.findByTestId('avatar-section-rejected')).toHaveTextContent('Rejected');
+      expect(await screen.findByTestId('avatar-section-rejected-image')).toHaveAttribute(
+        'src',
+        'blob:mock-preview-url',
+      );
+      expect(screen.queryByTestId('avatar-section-pending')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-approved')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-none')).not.toBeInTheDocument();
+    });
+
+    it('REQ-722: renders only the approved state when only an Approved submission exists', async () => {
+      stubAvatarObjectUrls();
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar/')) return avatarStatusFetch(input);
+        if (url.includes('/users/me/avatar')) {
+          return jsonResponse({
+            pending: null,
+            rejected: null,
+            approved: { id: 'a1', createdAt: '2026-08-01T00:00:00Z', imageUrl: '/users/me/avatar/a1/image' },
+          });
+        }
+        return jsonResponse({});
+      });
+      renderSettingsScreen({}, fetchMock);
+
+      expect(await screen.findByTestId('avatar-section-approved')).toHaveTextContent(
+        'Currently visible to other players',
+      );
+      expect(await screen.findByTestId('avatar-section-approved-image')).toHaveAttribute(
+        'src',
+        'blob:mock-preview-url',
+      );
+      expect(screen.queryByTestId('avatar-section-pending')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-rejected')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-none')).not.toBeInTheDocument();
+    });
+
+    // REQ-722's literal "a Rejected status does not remove or affect a
+    // separately-existing Approved avatar" acceptance criterion, isolated
+    // from the "all three at once" test above — no Pending row exists here
+    // at all, so this proves the Approved preview survives specifically
+    // alongside a Rejected one, not merely alongside a Pending one too.
+    it('REQ-722: renders Rejected and Approved simultaneously with no Pending — a Rejected status does not remove/affect a separately-existing Approved avatar', async () => {
+      stubAvatarObjectUrls();
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar/')) return avatarStatusFetch(input);
+        if (url.includes('/users/me/avatar')) {
+          return jsonResponse({
+            pending: null,
+            rejected: { id: 'r1', createdAt: '2026-08-20T00:00:00Z', imageUrl: '/users/me/avatar/r1/image' },
+            approved: { id: 'a1', createdAt: '2026-08-01T00:00:00Z', imageUrl: '/users/me/avatar/a1/image' },
+          });
+        }
+        return jsonResponse({});
+      });
+      renderSettingsScreen({}, fetchMock);
+
+      expect(await screen.findByTestId('avatar-section-rejected')).toHaveTextContent('Rejected');
+      expect(await screen.findByTestId('avatar-section-approved')).toHaveTextContent(
+        'Currently visible to other players',
+      );
+      expect(await screen.findByTestId('avatar-section-approved-image')).toHaveAttribute(
+        'src',
+        'blob:mock-preview-url',
+      );
+      expect(screen.queryByTestId('avatar-section-pending')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-none')).not.toBeInTheDocument();
+    });
+
+    // Mirrors the oversized-file test's structure above, but for an
+    // unsupported MIME type (image/gif — deliberately excluded per
+    // AVATAR_ALLOWED_TYPES/ADR-0087's SVG-exclusion reasoning, applied here
+    // to GIF too). `applyAccept: false` is required on this userEvent
+    // instance: the real input's `accept="image/jpeg,image/png,image/webp"`
+    // attribute makes user-event's own upload() silently drop a
+    // non-matching file (same browser-level filtering a real file picker
+    // does), which would leave avatarFile null and produce "Choose an
+    // image to upload." instead of exercising this component's own
+    // AVATAR_ALLOWED_TYPES check — same "bypass the browser-level
+    // constraint to test the JS check directly" reasoning as the
+    // exactly-30-characters display-name test above (which uses
+    // fireEvent.change instead, since that constraint is a maxLength
+    // attribute rather than an upload-time filter).
+    it('REQ-722: rejects an unsupported file type (image/gif) client-side, without calling POST /users/me/avatar, showing a specific message', async () => {
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) =>
+        String(input).includes('/users/me/avatar') ? jsonResponse({ pending: null, rejected: null, approved: null }) : jsonResponse({}),
+      );
+      const user = userEvent.setup({ applyAccept: false });
+      renderSettingsScreen({}, fetchMock);
+      await screen.findByTestId('avatar-section-none');
+
+      const gifFile = new File(['fake-gif-bytes'], 'avatar.gif', { type: 'image/gif' });
+      const input = screen.getByTestId('avatar-section-upload-input') as HTMLInputElement;
+      await user.upload(input, gifFile);
+      await user.click(screen.getByTestId('avatar-section-upload-button'));
+
+      expect(await screen.findByText('Choose a JPEG, PNG, or WEBP image.')).toBeInTheDocument();
+      expect(
+        fetchMock.mock.calls.some(
+          ([callUrl, callInit]) =>
+            String(callUrl).includes('/users/me/avatar') && (callInit as RequestInit | undefined)?.method === 'POST',
+        ),
+      ).toBe(false);
+    });
+
+    // UI-level half of S-182's "uploading while pending replaces rather
+    // than queues a second submission" acceptance criterion — the
+    // server-side replace itself is already covered by
+    // AvatarEndpointTests.cs's
+    // REQ722_Avatar_Post_SecondUploadWhilePending_ReplacesRatherThanDuplicates;
+    // this only confirms the UI reflects that single resulting row. Uses
+    // a distinguishable per-id Blob marker (rather than the shared
+    // stubAvatarObjectUrls's constant 'blob:mock-preview-url') so the
+    // preview's src can actually prove which submission it came from.
+    it('REQ-722: uploading while a Pending submission is showing replaces it in place — never a second avatar-section-pending element, and the preview reflects the new submission', async () => {
+      vi.stubGlobal('URL', {
+        ...URL,
+        createObjectURL: vi.fn((blob: { marker?: string }) => `blob:${blob.marker ?? 'unknown'}`),
+        revokeObjectURL: vi.fn(),
+      });
+
+      let avatarStatusCallCount = 0;
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar/p1/image')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            blob: () => Promise.resolve({ marker: 'p1' }),
+          } as unknown as Response);
+        }
+        if (url.includes('/users/me/avatar/p2/image')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            blob: () => Promise.resolve({ marker: 'p2' }),
+          } as unknown as Response);
+        }
+        if (url.includes('/users/me/avatar') && init?.method === 'POST') {
+          return jsonResponse({ id: 'p2', status: 'Pending', createdAt: '2026-08-24T12:00:00Z' }, 201);
+        }
+        if (url.includes('/users/me/avatar')) {
+          avatarStatusCallCount += 1;
+          if (avatarStatusCallCount === 1) {
+            return jsonResponse({
+              pending: { id: 'p1', createdAt: '2026-08-01T00:00:00Z', imageUrl: '/users/me/avatar/p1/image' },
+              rejected: null,
+              approved: null,
+            });
+          }
+          // The refetch after the upload — the server's own single
+          // resulting Pending row, now p2, not p1.
+          return jsonResponse({
+            pending: { id: 'p2', createdAt: '2026-08-24T12:00:00Z', imageUrl: '/users/me/avatar/p2/image' },
+            rejected: null,
+            approved: null,
+          });
+        }
+        return jsonResponse({});
+      });
+      const user = userEvent.setup();
+      renderSettingsScreen({ accessToken: 'token-abc' }, fetchMock);
+
+      expect(await screen.findByTestId('avatar-section-pending')).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByTestId('avatar-section-pending-image')).toHaveAttribute('src', 'blob:p1'),
+      );
+      expect(screen.getAllByTestId('avatar-section-pending')).toHaveLength(1);
+
+      const file = new File(['fake'], 'avatar.png', { type: 'image/png' });
+      const input = screen.getByTestId('avatar-section-upload-input') as HTMLInputElement;
+      await user.upload(input, file);
+      await user.click(screen.getByTestId('avatar-section-upload-button'));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('avatar-section-pending-image')).toHaveAttribute('src', 'blob:p2'),
+      );
+      expect(screen.getAllByTestId('avatar-section-pending')).toHaveLength(1);
+    });
   });
 });
 
