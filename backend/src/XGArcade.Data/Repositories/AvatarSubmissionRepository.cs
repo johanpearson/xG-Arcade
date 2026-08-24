@@ -15,6 +15,16 @@ public class AvatarSubmissionRepository(XGArcadeDbContext dbContext) : IAvatarSu
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.SubmittingUserId == submittingUserId && a.Status == AvatarSubmissionStatus.Approved, cancellationToken);
 
+    // REQ-722 (S-182): most-recent by CreatedAt — see this method's own doc
+    // comment on IAvatarSubmissionRepository for why "most recent" and why
+    // this is independent of GetApprovedAsync above.
+    public async Task<AvatarSubmission?> GetLatestRejectedAsync(Guid submittingUserId, CancellationToken cancellationToken = default) =>
+        await dbContext.AvatarSubmissions
+            .AsNoTracking()
+            .Where(a => a.SubmittingUserId == submittingUserId && a.Status == AvatarSubmissionStatus.Rejected)
+            .OrderByDescending(a => a.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<AvatarSubmissionCreationResult> CreateOrReplacePendingAsync(
         Guid submittingUserId, string imageStorageKey, DateTime createdAt, CancellationToken cancellationToken = default)
     {

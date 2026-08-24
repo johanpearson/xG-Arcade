@@ -27,6 +27,25 @@ internal sealed class LocalE2EAvatarStorage : IAvatarStorage
     public Task<bool> DeleteAsync(string storageKey, CancellationToken cancellationToken = default) =>
         Task.FromResult(true);
 
+    // REQ-722 (S-182): no real Supabase project exists in this mode (see
+    // class doc comment above), and this class never actually persists
+    // UploadAsync's bytes anywhere to read back — same "unverifiable but
+    // must not crash" shape LocalE2EAuthClient's stand-in methods use
+    // throughout (e.g. DeleteUserAsync's unconditional success). Returns a
+    // trivial, hardcoded 1x1 transparent PNG for every key rather than null,
+    // so that once a frontend E2E spec exercises GET
+    // /users/me/avatar/{id}/image (none does yet — no upload UI, S-182),
+    // the endpoint has real, decodable image bytes to stream back instead
+    // of every lookup looking like a 404 regardless of storageKey.
+    public Task<AvatarImageContent?> DownloadAsync(string storageKey, CancellationToken cancellationToken = default) =>
+        Task.FromResult<AvatarImageContent?>(new AvatarImageContent(PlaceholderPngBytes, "image/png"));
+
+    // A minimal valid 1x1 transparent PNG (base64), the smallest byte
+    // sequence most image decoders/`<img>` tags will accept without error —
+    // not derived from any real avatar upload, purely a decodable stand-in.
+    private static readonly byte[] PlaceholderPngBytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
     // REQ-517: no live Supabase project in local-e2e mode either — a
     // deterministic placeholder per storage key, same "app can still start
     // without a real Supabase project" reasoning as the rest of this class.

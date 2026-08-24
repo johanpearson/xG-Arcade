@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
 import { claimAccount, updateDisplayName } from '../lib/auth';
+import { fetchAvatarImageObjectUrl, fetchAvatarStatus, submitAvatar } from '../lib/avatar';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
-import type { CurrentUser } from '../lib/types';
+import type { AvatarStatusResponse, CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';
 import { GUEST_EXPIRY_COPY } from '../lib/guestExpiryCopy';
 import './SettingsScreen.css';
@@ -67,6 +68,64 @@ export interface SettingsScreenProps {
 
 const DISPLAY_NAME_MAX_LENGTH = 30;
 
+// REQ-722/S-182: client-side pre-check only, matching the server's own
+// known limits (backend/src/XGArcade.Api/Avatars/AvatarEndpoints.cs's
+// MaxImageSizeBytes/AllowedContentTypes) as a UX nicety — the server is
+// still the real enforcement, and its own 400 detail text (surfaced via
+// describeError in handleAvatarSubmit below) is what's shown on rejection,
+// never a duplicated client-side message standing in for it.
+const AVATAR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+const AVATAR_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+// REQ-722/S-182: fetches an authenticated object-URL for a given
+// AvatarSubmissionSummary.imageUrl (GET /users/me/avatar/{id}/image streams
+// raw bytes and requires a bearer token an <img src> can't carry — see
+// fetchAvatarImageObjectUrl's own doc comment in lib/avatar.ts). Re-fetches
+// whenever imageUrl changes (e.g. a new upload replaces the Pending row's
+// id/imageUrl) and revokes the previously-created object URL in this
+// effect's cleanup — both on unmount and on every imageUrl change — so this
+// never leaks blob URLs across re-renders or across accessTokens
+// (accessToken is in the dependency array too, since a stale token should
+// never be reused for a refetch).
+function useAvatarObjectUrl(accessToken: string, imageUrl: string | null): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!imageUrl) {
+      setObjectUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let createdUrl: string | null = null;
+
+    fetchAvatarImageObjectUrl(accessToken, imageUrl)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setObjectUrl(url);
+      })
+      .catch(() => {
+        // REQ-722: a failed preview fetch (e.g. the image was since removed)
+        // degrades to "no preview" rather than surfacing a second error
+        // banner alongside the status row's own label — the label text
+        // ("Pending review"/"Rejected"/"Currently visible to other players")
+        // already carries the meaningful information on its own.
+        if (!cancelled) setObjectUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [accessToken, imageUrl]);
+
+  return objectUrl;
+}
+
 // SCREEN-08 (design-document.md §3), REQ-713: the single "Settings" nav
 // entry's destination, consolidating what used to be two standalone
 // top-level header links — "Delete account" (REQ-710) and, admin-only,
@@ -127,11 +186,112 @@ export function SettingsScreen({
   const [claimSubmitting, setClaimSubmitting] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
+  // REQ-722/S-182: the avatar section's own state, separate from every form
+  // above — a different submit action, a different error surface, no
+  // shared state with the other sections. `avatarRefreshKey` is bumped
+  // after a successful upload to trigger a re-fetch of GET /users/me/avatar
+  // (rather than hand-constructing the post-upload state client-side) so
+  // this section reflects the server's own single resulting Pending row —
+  // REQ-722's "uploading while pending replaces rather than queues a second
+  // submission" is already the server's behavior; this only needs to
+  // re-read it.
+  const [avatarStatus, setAvatarStatus] = useState<AvatarStatusResponse | null>(null);
+  const [avatarStatusError, setAvatarStatusError] = useState<string | null>(null);
+  const [avatarRefreshKey, setAvatarRefreshKey] = useState(0);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarSubmitting, setAvatarSubmitting] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSaved, setAvatarSaved] = useState(false);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (!touched) {
       setNewDisplayName(displayName);
     }
   }, [displayName, touched]);
+
+  // REQ-722/S-182: fetched on mount, and again whenever avatarRefreshKey
+  // changes (after a successful upload) — same "any other 401 is a dead
+  // token" handling every other authenticated fetch in this screen already
+  // uses.
+  useEffect(() => {
+    let cancelled = false;
+    fetchAvatarStatus(accessToken)
+      .then((result) => {
+        if (cancelled) return;
+        setAvatarStatus(result);
+        setAvatarStatusError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          onAuthError();
+          return;
+        }
+        setAvatarStatusError(describeError(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, onAuthError, avatarRefreshKey]);
+
+  // REQ-722/S-182: all three fields are independent (see AvatarStatusResponse's
+  // own doc comment in lib/types.ts) — a Rejected preview and an Approved
+  // preview can both need fetching alongside a Pending one at the same time,
+  // so each gets its own call to the shared hook rather than one call
+  // switched on a single "current status".
+  const pendingImageUrl = useAvatarObjectUrl(accessToken, avatarStatus?.pending?.imageUrl ?? null);
+  const rejectedImageUrl = useAvatarObjectUrl(accessToken, avatarStatus?.rejected?.imageUrl ?? null);
+  const approvedImageUrl = useAvatarObjectUrl(accessToken, avatarStatus?.approved?.imageUrl ?? null);
+
+  async function handleAvatarSubmit(event: FormEvent) {
+    event.preventDefault();
+    setAvatarError(null);
+    setAvatarSaved(false);
+
+    if (!avatarFile) {
+      setAvatarError('Choose an image to upload.');
+      return;
+    }
+
+    // REQ-722: free, local checks before any request — same "cheap check
+    // before a network call" order as handleDisplayNameSubmit/
+    // handleClaimSubmit above. Not the only enforcement; see
+    // AVATAR_MAX_SIZE_BYTES/AVATAR_ALLOWED_TYPES's own doc comment.
+    if (!AVATAR_ALLOWED_TYPES.includes(avatarFile.type)) {
+      setAvatarError('Choose a JPEG, PNG, or WEBP image.');
+      return;
+    }
+    if (avatarFile.size > AVATAR_MAX_SIZE_BYTES) {
+      setAvatarError('That image is too large. Choose one under 5 MB.');
+      return;
+    }
+
+    setAvatarSubmitting(true);
+    try {
+      await submitAvatar(accessToken, avatarFile);
+      setAvatarSaved(true);
+      setAvatarFile(null);
+      if (avatarFileInputRef.current) avatarFileInputRef.current.value = '';
+      setAvatarRefreshKey((key) => key + 1);
+    } catch (err) {
+      // A 401 here means the session itself is dead, same meaning as every
+      // other authenticated screen in this app.
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      // REQ-722: a 400 (empty file, over 5 MB, or an unsupported type)
+      // surfaces here with the server's own specific detail text —
+      // describeError already prefers ApiError.detail over a generic
+      // message, so the server's real limits are what's shown, not the
+      // client-side pre-check copy above (which only fires before any
+      // request is even sent).
+      setAvatarError(describeError(err));
+    } finally {
+      setAvatarSubmitting(false);
+    }
+  }
 
   async function handleClaimSubmit(event: FormEvent) {
     event.preventDefault();
@@ -373,6 +533,121 @@ export function SettingsScreen({
             {submitting ? 'Saving…' : 'Save name'}
           </button>
         </form>
+      </section>
+
+      {/* REQ-722/S-182: the avatar upload/status section — reuses
+          .settings-screen__section's existing bordered-row treatment plus
+          the same field/error/success/submit-button pattern the
+          display-name form above already established. Uploading and
+          status-viewing are both here, since REQ-722 has no separate
+          "review" surface for the player's own submissions the way
+          REQ-517's admin queue does. */}
+      <section className="settings-screen__section settings-screen__section--avatar">
+        <h3 className="settings-screen__section-title">My avatar</h3>
+
+        <form className="settings-screen__avatar-form" onSubmit={handleAvatarSubmit}>
+          <label className="settings-screen__field">
+            <span>Upload a new avatar</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              ref={avatarFileInputRef}
+              data-testid="avatar-section-upload-input"
+              onChange={(event) => {
+                setAvatarError(null);
+                setAvatarSaved(false);
+                setAvatarFile(event.target.files?.[0] ?? null);
+              }}
+              disabled={avatarSubmitting}
+            />
+          </label>
+
+          {avatarError && (
+            <p className="settings-screen__avatar-error" role="alert">
+              {avatarError}
+            </p>
+          )}
+
+          {avatarSaved && !avatarError && (
+            <p className="settings-screen__avatar-success" role="status">
+              Avatar submitted for review.
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="settings-screen__avatar-submit"
+            data-testid="avatar-section-upload-button"
+            disabled={avatarSubmitting}
+          >
+            {avatarSubmitting ? 'Uploading…' : 'Upload avatar'}
+          </button>
+        </form>
+
+        <div className="settings-screen__avatar-status">
+          {avatarStatusError && (
+            <p className="settings-screen__avatar-error" role="alert">
+              {avatarStatusError}
+            </p>
+          )}
+
+          {/* REQ-722: all three rows below are independent, not a single
+              mutually-exclusive switch — a Rejected row never implies the
+              Approved row is hidden, and vice versa (see
+              AvatarStatusResponse's own doc comment in lib/types.ts). */}
+          {avatarStatus?.pending && (
+            <div className="settings-screen__avatar-status-row" data-testid="avatar-section-pending">
+              <span className="settings-screen__avatar-status-label">Pending review</span>
+              {pendingImageUrl && (
+                <img
+                  className="settings-screen__avatar-preview"
+                  src={pendingImageUrl}
+                  alt="Your pending avatar submission, awaiting admin review"
+                  data-testid="avatar-section-pending-image"
+                />
+              )}
+            </div>
+          )}
+
+          {avatarStatus?.rejected && (
+            <div className="settings-screen__avatar-status-row" data-testid="avatar-section-rejected">
+              <span className="settings-screen__avatar-status-label settings-screen__avatar-status-label--rejected">
+                Rejected
+              </span>
+              {rejectedImageUrl && (
+                <img
+                  className="settings-screen__avatar-preview"
+                  src={rejectedImageUrl}
+                  alt="Your rejected avatar submission"
+                  data-testid="avatar-section-rejected-image"
+                />
+              )}
+            </div>
+          )}
+
+          {avatarStatus?.approved && (
+            <div className="settings-screen__avatar-status-row" data-testid="avatar-section-approved">
+              <span className="settings-screen__avatar-status-label">Currently visible to other players</span>
+              {approvedImageUrl && (
+                <img
+                  className="settings-screen__avatar-preview"
+                  src={approvedImageUrl}
+                  alt="Your current avatar, visible to other players"
+                  data-testid="avatar-section-approved-image"
+                />
+              )}
+            </div>
+          )}
+
+          {avatarStatus &&
+            !avatarStatus.pending &&
+            !avatarStatus.rejected &&
+            !avatarStatus.approved && (
+              <p className="settings-screen__avatar-empty" data-testid="avatar-section-none">
+                You haven&apos;t uploaded an avatar yet.
+              </p>
+            )}
+        </div>
       </section>
 
       <DeleteAccountScreen

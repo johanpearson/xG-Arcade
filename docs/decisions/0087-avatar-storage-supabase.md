@@ -107,6 +107,41 @@ blur its purpose" case this ADR was asked to watch for.
   this ships, the same standing caveat `SupabaseAuthClient.cs` already
   carries for several of its own calls (`SignInAnonymouslyAsync`,
   `LinkEmailPasswordAsync`).
+- Follow-up (completed, 2026-08-24, S-182, built in parallel with S-181 and
+  merged afterward): `IAvatarStorage.DownloadAsync(storageKey)` resolves a
+  stored key back into the raw image bytes + `ContentType`, streamed
+  through this backend, for `GET /users/me/avatar/{id}/image`
+  (`XGArcade.Api.Avatars.AvatarEndpoints`, REQ-722's "Seeing your own
+  status" criterion) to serve the *owning player's own* preview of their
+  own Pending/Rejected/Approved submission. This is a deliberate **second**
+  mediation shape on `IAvatarStorage`, not a reuse of
+  `GetPreviewUrlAsync` above — a signed URL handed to the client for this
+  caller would violate ADR-0013's "backend mediates, frontend never talks
+  to the provider directly" convention for what is, in this case, a
+  general player-facing surface, not the admin-only queue where that
+  tradeoff was accepted. `architecture-reviewer`'s review of the merged
+  diff asked explicitly for this addendum, having found "two divergent
+  designs" on one interface with no stated reconciliation; the two shapes
+  now coexist by design, scoped to their own trust boundaries:
+  - **`GetPreviewUrlAsync`** (signed URL) — admin reviewer only, via
+    `AdminAvatarEndpoints`. Acceptable exposure because the caller is an
+    already-privileged admin browser session, not a general player.
+  - **`DownloadAsync`** (streamed bytes) — any authenticated player,
+    scoped to rows they themselves own, via `AvatarEndpoints`. Never
+    returns a URL a client could hand off or cache outside an
+    authenticated request.
+
+  **Canonical guidance for any future avatar-viewing surface** (e.g.
+  REQ-411's stats view eventually rendering *another* player's `Approved`
+  avatar, still unbuilt as of this note): that is neither of the two
+  existing callers — not an admin, and not the image's own owner — so it
+  needs its own explicit authorization decision (most likely: only ever
+  serve an `Approved` row, via `DownloadAsync`'s streamed-bytes shape
+  rather than a signed URL, extending `AvatarEndpoints`'s ownership check
+  to "is `Approved`" instead of "is mine"). Do not default to
+  `GetPreviewUrlAsync` for a new player-facing surface just because it
+  already exists — that shape is reserved for the admin trust boundary
+  that justified it here.
 
 ## For AI agents
 

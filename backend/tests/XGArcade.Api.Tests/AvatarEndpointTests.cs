@@ -269,4 +269,187 @@ public class AvatarEndpointTests
         Assert.That(_fakeAvatarStorage.DeletedStorageKeys, Is.Empty,
             "no Pending row existed to replace, so nothing should have been deleted from storage");
     }
+
+    // ---- REQ-722 (S-182): GET /users/me/avatar — own status -------------
+    // Minimal smoke coverage only, added because this diff can't be
+    // compiled/run locally (no dotnet SDK in this sandbox) — formal
+    // REQ-722 read-path coverage is test-writer's own task, not this one.
+
+    [Test]
+    public async Task REQ722_AvatarStatus_Get_ReturnsUnauthorized_WithoutBearerToken()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/users/me/avatar");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    [Test]
+    public async Task REQ722_AvatarStatus_Get_ReturnsAllNull_WhenNoSubmissionsExist()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/users/me/avatar");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<AvatarStatusResponse>();
+        Assert.That(body!.Pending, Is.Null);
+        Assert.That(body.Rejected, Is.Null);
+        Assert.That(body.Approved, Is.Null);
+    }
+
+    // REQ-722's own "a Rejected status does not remove or affect a
+    // separately-existing Approved avatar from an earlier, different
+    // submission" — and symmetrically, a fresh Pending upload doesn't hide
+    // an older Approved row either. All three must be reported at once.
+    [Test]
+    public async Task REQ722_AvatarStatus_Get_ReportsPendingRejectedAndApproved_Independently()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.AvatarSubmissions.AddRange(
+                new AvatarSubmission
+                {
+                    Id = Guid.NewGuid(),
+                    SubmittingUserId = userId,
+                    ImageStorageKey = "approved-key",
+                    Status = AvatarSubmissionStatus.Approved,
+                    CreatedAt = DateTime.UtcNow.AddDays(-5),
+                    ResolvedByAdminId = Guid.NewGuid(),
+                    ResolvedAt = DateTime.UtcNow.AddDays(-5),
+                },
+                new AvatarSubmission
+                {
+                    Id = Guid.NewGuid(),
+                    SubmittingUserId = userId,
+                    ImageStorageKey = "rejected-key",
+                    Status = AvatarSubmissionStatus.Rejected,
+                    CreatedAt = DateTime.UtcNow.AddDays(-2),
+                    ResolvedByAdminId = Guid.NewGuid(),
+                    ResolvedAt = DateTime.UtcNow.AddDays(-2),
+                },
+                new AvatarSubmission
+                {
+                    Id = Guid.NewGuid(),
+                    SubmittingUserId = userId,
+                    ImageStorageKey = "pending-key",
+                    Status = AvatarSubmissionStatus.Pending,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            await dbContext.SaveChangesAsync();
+        }
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/users/me/avatar");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<AvatarStatusResponse>();
+        Assert.That(body!.Pending, Is.Not.Null);
+        Assert.That(body.Rejected, Is.Not.Null);
+        Assert.That(body.Approved, Is.Not.Null);
+        Assert.That(body.Pending!.ImageUrl, Is.EqualTo($"/users/me/avatar/{body.Pending.Id}/image"));
+    }
+
+    // ---- REQ-722 (S-182): GET /users/me/avatar/{id}/image ----------------
+
+    [Test]
+    public async Task REQ722_AvatarImage_Get_StreamsBytes_ForOwnPendingSubmission()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var uploadResponse = await client.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/png"));
+        var uploadBody = await uploadResponse.Content.ReadFromJsonAsync<SubmitAvatarResponse>();
+
+        var imageResponse = await client.GetAsync($"/users/me/avatar/{uploadBody!.Id}/image");
+
+        Assert.That(imageResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(imageResponse.Content.Headers.ContentType?.MediaType, Is.EqualTo("image/png"));
+        var bytes = await imageResponse.Content.ReadAsByteArrayAsync();
+        Assert.That(bytes, Is.EqualTo(SmallImageBytes()));
+    }
+
+    [Test]
+    public async Task REQ722_AvatarImage_Get_ReturnsNotFound_ForAnotherPlayersSubmission()
+    {
+        var ownerAuthProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(ownerAuthProviderUserId);
+        var ownerClient = CreateAuthenticatedClient(ownerAuthProviderUserId);
+        var uploadResponse = await ownerClient.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/png"));
+        var uploadBody = await uploadResponse.Content.ReadFromJsonAsync<SubmitAvatarResponse>();
+
+        var otherAuthProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(otherAuthProviderUserId);
+        var otherClient = CreateAuthenticatedClient(otherAuthProviderUserId);
+
+        var response = await otherClient.GetAsync($"/users/me/avatar/{uploadBody!.Id}/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound),
+            "REQ-722: a Pending/Rejected image is never shown to anyone but the submitting player — 404, never 403, so existence isn't leaked");
+    }
+
+    [Test]
+    public async Task REQ722_AvatarImage_Get_ReturnsNotFound_ForAnUnknownSubmissionId()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/users/me/avatar/{Guid.NewGuid()}/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // Sibling to REQ722_AvatarStatus_Get_ReturnsUnauthorized_WithoutBearerToken
+    // above, for the image endpoint — no equivalent existed for
+    // GET /users/me/avatar/{id}/image.
+    [Test]
+    public async Task REQ722_AvatarImage_Get_ReturnsUnauthorized_WithoutBearerToken()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/users/me/avatar/{Guid.NewGuid()}/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // The row exists and is owned by the caller (GetByIdAsync succeeds),
+    // but the underlying storage object it points at is gone — the
+    // `image is null` branch in AvatarEndpoints.cs, distinct from the
+    // "no such row"/"someone else's row" 404s covered above.
+    [Test]
+    public async Task REQ722_AvatarImage_Get_ReturnsNotFound_WhenStorageObjectIsMissingForAnOwnedRow()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var uploadResponse = await client.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/png"));
+        var uploadBody = await uploadResponse.Content.ReadFromJsonAsync<SubmitAvatarResponse>();
+
+        string storageKey;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var submission = await dbContext.AvatarSubmissions.SingleAsync(a => a.Id == uploadBody!.Id);
+            storageKey = submission.ImageStorageKey;
+        }
+
+        // Simulate the storage object having gone missing (e.g. deleted
+        // out-of-band in the bucket) while the DB row still references it
+        // — directly against the fake, not through the API, since this
+        // isn't reachable via any endpoint.
+        await _fakeAvatarStorage.DeleteAsync(storageKey);
+
+        var imageResponse = await client.GetAsync($"/users/me/avatar/{uploadBody!.Id}/image");
+
+        Assert.That(imageResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
 }
