@@ -287,6 +287,33 @@
   color: var(--color-text-primary);
 }
 
+/* REQ-517 (S-183): the avatar-moderation row's image preview + submitter
+   summary — a genuinely new visual need (no existing row class shows an
+   image), tokens only. 64px thumbnail matches this screen's existing
+   "plainer/denser, working tool" character (no larger showcase treatment);
+   8px radius matches every other rounded element already in this file
+   (`.admin-screen__section`, `.admin-screen button`, `.admin-screen__field
+   input`) rather than introducing a new radius value (design-document.md
+   §7 notes there's no formal border-radius scale yet — reusing the one
+   value already established in this file is the safer choice over
+   inventing a second). `object-fit: cover` on a fixed square box keeps a
+   non-square upload from distorting or overflowing the row. */
+.admin-screen__avatar-row-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.admin-screen__avatar-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-hairline);
+  background: var(--color-surface-sunken);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
 /* REQ-904: the only <a> element in this screen — an external "view on
    GitHub" link-out (opens in a new tab), not a button, since it navigates
    away from the app rather than triggering an in-app action. No existing
