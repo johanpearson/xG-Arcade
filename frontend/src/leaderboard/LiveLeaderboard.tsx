@@ -33,11 +33,15 @@ export interface LiveLeaderboardProps {
   // unmount/remount) is what drives the "fetch on entry, refetch on every
   // re-entry" effect below.
   active: boolean;
+  // REQ-411 (S-179): threaded straight through to LeaderboardRowsList — see
+  // that component's own doc comment for the optional-prop/backward-compat
+  // reasoning and the "why every row, including your own" judgement call.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027, split out of LeaderboardScreen.tsx
 // in S-121): REQ-407's standalone active-round scope.
-export function LiveLeaderboard({ accessToken, gameKey, onAuthError, active }: LiveLeaderboardProps) {
+export function LiveLeaderboard({ accessToken, gameKey, onAuthError, active, onSelectPlayer }: LiveLeaderboardProps) {
   const [liveState, setLiveState] = useState<LiveState>({ phase: 'idle' });
 
   // Stable across renders (as long as onAuthError itself is) so the effect
@@ -198,6 +202,7 @@ export function LiveLeaderboard({ accessToken, gameKey, onAuthError, active }: L
         loadMoreError={liveState.loadMoreError}
         onLoadMore={handleLoadMoreLive}
         provisional
+        onSelectPlayer={onSelectPlayer}
       />
     </>
   );

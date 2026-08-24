@@ -8330,6 +8330,53 @@ from a leaderboard row, the zero-rounds empty state, and per-game
 switching.
 *Deps:* S-178.
 
+*Built as (2026-08-24):* a new `UserStatsScreen.tsx`/`.css`/`.test.tsx`
+(`frontend/src/users/`, SCREEN-13) — one component for both "own stats"
+and "another player's stats," since it has no own-vs-other concept beyond
+the `userId`/`displayName` props it's handed, consuming S-178's `GET
+/users/{userId}/stats?gameKey=` via a new `fetchUserStats`
+(`frontend/src/lib/userStats.ts`) and `UserStatsResponse`
+(`frontend/src/lib/types.ts`). Reuses `LeaderboardScreen.tsx`'s existing
+`XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` tab pattern for per-`GameKey`
+scoping. Own-stats entry point: an unconditional "My stats" link/section
+on `SettingsScreen.tsx` (not admin-gated, styled like the existing
+admin-link section). Other-player entry point: `LeaderboardRowsList.tsx`'s
+main-list row display names became `<button>` nav targets via a new
+optional `onSelectPlayer(userId, displayName)` prop, threaded through
+`AllTimeLeaderboard`/`LiveLeaderboard`/`PastRoundsLeaderboard`/
+`WindowedLeaderboard` and `LeaderboardScreen.tsx` up to `App.tsx`.
+Judgement call, documented inline in `LeaderboardRowsList.tsx`: the
+requesting user's own row, when already visible in a loaded page, is
+clickable too, for list consistency (a partial list where only some names
+are clickable would read as broken) — the pinned "you" footer row (REQ-607)
+stays plain text since Settings already covers that destination. `App.tsx`
+gained a `'stats'` value on its existing hand-rolled `Screen` union plus a
+`#/stats` hash entry (ADR-0039 pattern), an in-memory
+`statsTarget`/`statsReturnScreen` seed (same pattern
+`leaderboardInitial`/`LeaderboardRoundTarget` already established,
+ADR-0083), and `handleOpenOwnStats`/`handleSelectPlayerStats` handlers so
+"Back" returns to whichever screen (Settings or Leaderboard) the player
+actually came from. `docs/design-document.md` gained SCREEN-13 plus short
+SCREEN-03/SCREEN-08 addenda (written alongside the implementation, v0.78).
+Full test coverage: `UserStatsScreen.test.tsx`,
+`LeaderboardRowsList.test.tsx` (new), extensions to
+`SettingsScreen.test.tsx`/`LeaderboardScreen.test.tsx`, and 3 new
+`App.test.tsx` routing cases (own-stats-from-Settings-and-Back,
+other-player-from-leaderboard-and-Back-to-leaderboard,
+reload-restore-fallback-to-own-stats). 681 frontend tests passing, 0
+failures; `npx tsc -b` and lint both clean. No backend changes — S-178's
+backend is untouched by this story. Architecture review: PASS, no ADR
+needed (narrow, spec-driven extension of already-decided patterns —
+ADR-0039 hash routing, ADR-0083 nav-seed). Quality review: pass, after one
+follow-up round closing a test gap. doc-sync: REQ-411 status note
+(`requirements-document.md`) updated from "backend only" to fully
+implemented; `docs/implementation-document.md` §4 gained a new `/users`
+folder entry plus short additions to `/settings`, `/leaderboard`, and
+`/lib` recording the new files this story added.
+`docs/architecture-document.md` checked and left unchanged — pure frontend
+consuming an already-documented COMP-02 endpoint, no component/data-flow
+boundary change per its own `update_when` trigger.
+
 **S-180 · ADR + backend avatar upload pipeline (REQ-722)**
 Write the ADR REQ-722 flags (Supabase Storage vs. Azure Blob — product
 direction from the 2026-08-24 planning session is Supabase Storage, to

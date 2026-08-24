@@ -269,6 +269,24 @@
   white-space: nowrap;
 }
 
+/* REQ-411 (S-179): a real nav target to SCREEN-13's stats view — the same
+   layout as the plain `.leaderboard-screen__name` span above (flex-1,
+   ellipsis truncation) with browser button chrome reset out, plus
+   `accent-green-text` (not `accent-green` — §2's text-contrast note) and an
+   underline so it reads as an actionable link, not just differently-colored
+   text. The row's own min-height (`--touch-target-min`) already covers the
+   44px touch-target floor, so no extra padding is added here. */
+.leaderboard-screen__name-button {
+  min-height: var(--touch-target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  color: var(--color-accent-green-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .leaderboard-screen__points {
   color: var(--color-text-primary);
   font-size: 14px;

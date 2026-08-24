@@ -29,6 +29,7 @@ function renderSettingsScreen(
   const onCancel = vi.fn();
   const onAuthError = vi.fn();
   const onOpenAdmin = vi.fn();
+  const onOpenStats = vi.fn();
   const onDisplayNameUpdated = vi.fn();
   const onAccountClaimed = vi.fn();
   const onThemePreferenceChange = vi.fn();
@@ -45,6 +46,7 @@ function renderSettingsScreen(
       onCancel={onCancel}
       onAuthError={onAuthError}
       onOpenAdmin={onOpenAdmin}
+      onOpenStats={onOpenStats}
       themePreference="system"
       onThemePreferenceChange={onThemePreferenceChange}
       {...overrides}
@@ -56,6 +58,7 @@ function renderSettingsScreen(
     onCancel,
     onAuthError,
     onOpenAdmin,
+    onOpenStats,
     onDisplayNameUpdated,
     onAccountClaimed,
     onThemePreferenceChange,
@@ -120,6 +123,26 @@ describe('SettingsScreen', () => {
     renderSettingsScreen();
 
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+  });
+
+  // REQ-411 (S-179): the own-stats entry point — unconditional (not
+  // isAdmin/isGuest-gated), unlike the "Admin" link above.
+  it('REQ-411: renders a "My stats" link that calls onOpenStats when clicked, for both a guest and a claimed, non-admin account', async () => {
+    const user = userEvent.setup();
+    const { onOpenStats } = renderSettingsScreen({ isAdmin: false, isGuest: true });
+
+    const statsLink = screen.getByRole('button', { name: 'My stats' });
+    expect(statsLink).toBeInTheDocument();
+
+    await user.click(statsLink);
+
+    expect(onOpenStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-411: the "My stats" link is present regardless of isAdmin', () => {
+    renderSettingsScreen({ isAdmin: true });
+
+    expect(screen.getByRole('button', { name: 'My stats' })).toBeInTheDocument();
   });
 
   // REQ-714: display-name edit form.

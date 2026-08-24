@@ -45,6 +45,25 @@
   cursor: pointer;
 }
 
+/* REQ-411 (S-179): "My stats" — same plain bordered-row link treatment as
+   .settings-screen__admin-link directly above (identical declarations,
+   copied rather than shared for the same "own class name per distinct row"
+   reason LeaderboardScreen.css's own game-tabs/scope-tabs comment already
+   gives). */
+.settings-screen__stats-link {
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
 /* REQ-716/ADR-0034: the System/Light/Dark toggle's own section — reuses
    .settings-screen__section's existing bordered-row treatment (same tokens
    as the admin-link row above). No new tokens. */

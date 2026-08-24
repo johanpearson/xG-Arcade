@@ -52,6 +52,10 @@ export interface PastRoundsLeaderboardProps {
   // previous rounds" click, or re-entering this scope normally afterward,
   // never re-triggers the jump.
   initialRoundId?: string;
+  // REQ-411 (S-179): threaded straight through to LeaderboardRowsList — see
+  // that component's own doc comment for the optional-prop/backward-compat
+  // reasoning and the "why every row, including your own" judgement call.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027, split out of LeaderboardScreen.tsx
@@ -62,6 +66,7 @@ export function PastRoundsLeaderboard({
   onAuthError,
   active,
   initialRoundId,
+  onSelectPlayer,
 }: PastRoundsLeaderboardProps) {
   const [pastListState, setPastListState] = useState<PastListState>({ phase: 'idle' });
   // REQ-1210/ADR-0083: split from a single `selectedRound: ClosedRoundSummary
@@ -342,6 +347,7 @@ export function PastRoundsLeaderboard({
             loadMoreError={pastDetailState.loadMoreError}
             onLoadMore={handleLoadMoreRoundDetail}
             provisional={false}
+            onSelectPlayer={onSelectPlayer}
           />
         )}
       </>

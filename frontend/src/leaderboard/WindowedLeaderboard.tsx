@@ -44,12 +44,22 @@ export interface WindowedLeaderboardProps {
   // remount) is what drives the "fetch on entry, refetch on every
   // re-entry" effect below.
   active: boolean;
+  // REQ-411 (S-179): threaded straight through to LeaderboardRowsList — see
+  // that component's own doc comment for the optional-prop/backward-compat
+  // reasoning and the "why every row, including your own" judgement call.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027, split out of LeaderboardScreen.tsx
 // in S-121): REQ-405's calendar-aligned (never rolling) round/week/month/
 // year leaderboard.
-export function WindowedLeaderboard({ accessToken, gameKey, onAuthError, active }: WindowedLeaderboardProps) {
+export function WindowedLeaderboard({
+  accessToken,
+  gameKey,
+  onAuthError,
+  active,
+  onSelectPlayer,
+}: WindowedLeaderboardProps) {
   const [windowResolution, setWindowResolution] = useState<WindowResolution>(DEFAULT_WINDOW_RESOLUTION);
   const [windowState, setWindowState] = useState<WindowState>({ phase: 'idle' });
 
@@ -187,6 +197,7 @@ export function WindowedLeaderboard({ accessToken, gameKey, onAuthError, active 
           loadMoreError={windowState.loadMoreError}
           onLoadMore={handleLoadMoreWindow}
           provisional={false}
+          onSelectPlayer={onSelectPlayer}
         />
       )}
     </>

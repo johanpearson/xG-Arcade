@@ -34,6 +34,7 @@ export function LeaderboardRowsList({
   loadMoreError,
   onLoadMore,
   provisional,
+  onSelectPlayer,
 }: {
   rows: LeaderboardRow[];
   requestingUserRow: LeaderboardRow | null;
@@ -43,6 +44,15 @@ export function LeaderboardRowsList({
   loadMoreError: string | null;
   onLoadMore: () => void;
   provisional: boolean;
+  // REQ-411 (S-179): opens SCREEN-13's stats/profile view for the row's
+  // player when their display name is selected — optional (rather than
+  // required) so every existing call site/test that predates this story
+  // keeps rendering a plain, non-interactive name exactly as before; every
+  // real call site (the four scope components, threaded up from
+  // LeaderboardScreen/App.tsx) always passes it. Undefined here on purpose
+  // never means "silently do nothing on click" — see the render below,
+  // which only renders a <button> at all when this is provided.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }) {
   // REQ-607: when the requesting user's row isn't among the currently
   // loaded rows (they're off-page, or — for the live scope — simply not a
@@ -67,7 +77,37 @@ export function LeaderboardRowsList({
                 className={`leaderboard-screen__row ${row.isRequestingUser ? 'leaderboard-screen__row--you' : ''}`}
               >
                 <span className="leaderboard-screen__rank mono-figure">{row.rank}</span>
-                <span className="leaderboard-screen__name">{row.displayName}</span>
+                {/* REQ-411 (S-179): a real navigation target to SCREEN-13's
+                    stats view, per REQ-411's "select that display name on
+                    the leaderboard" acceptance criteria. Judgement call
+                    (story text left this to discretion): EVERY row here —
+                    including the requesting user's own row when it happens
+                    to already be visible on the current page — becomes
+                    clickable, rather than leaving just that one row as
+                    inert plain text among an otherwise all-clickable list.
+                    A partial list where most names are links but one
+                    (unpredictably, whichever page the requester's own rank
+                    happens to land on) isn't would read as broken/
+                    inconsistent, not intentional — clicking your own name
+                    here simply opens your own stats, which is harmless and
+                    consistent with "view any player's stats the same way."
+                    The separate "you" FOOTER below (a fixed, always-your-
+                    own-row summary, never one of these in-list rows) is
+                    deliberately left as plain text — it already unambiguously
+                    means "you," so it doesn't need to become a link to
+                    itself, and Settings already has a dedicated "My stats"
+                    entry point for that same destination. */}
+                {onSelectPlayer ? (
+                  <button
+                    type="button"
+                    className="leaderboard-screen__name leaderboard-screen__name-button"
+                    onClick={() => onSelectPlayer(row.userId, row.displayName)}
+                  >
+                    {row.displayName}
+                  </button>
+                ) : (
+                  <span className="leaderboard-screen__name">{row.displayName}</span>
+                )}
                 <span className="leaderboard-screen__points mono-figure">
                   {formatPoints(row.totalPoints, provisional)}
                 </span>
