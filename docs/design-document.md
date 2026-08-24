@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.78"
+version: "0.79"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -2204,6 +2204,71 @@ but unconditional (every account, guest or claimed, admin or not, can view
 its own stats). Opens SCREEN-13's stats/profile view scoped to the current
 account's own id. Placed above the admin-only link, since it applies to
 every account and the admin link doesn't.
+
+**Added 2026-08-24, REQ-722/S-182:** a "My avatar" section, placed directly
+after the "Display name" section (both are account-identity edits) —
+uploading a new avatar and viewing the status of past submissions in one
+place, since REQ-722 has no separate "review my own submissions" surface
+the way REQ-517's admin queue does. Same `settings-screen__section`
+bordered-row treatment and field/error/success/submit-button pattern the
+display-name form above already established — no new color/animation
+tokens.
+
+- A file input (`accept="image/jpeg,image/png,image/webp"`, a client-side
+  nicety only — the server's own limits, 5 MB and
+  `image/jpeg`/`image/png`/`image/webp`, are the real enforcement and its
+  detail text is what's shown on a 400, never a duplicated client-side
+  message standing in for it) plus an "Upload avatar" button
+  ("Uploading…" while submitting). A successful submission shows "Avatar
+  submitted for review." in `accent-green-text`, same success-text
+  convention as the display-name form's "Display name updated."
+- Below the form, up to three independent status rows, each label paired
+  with a preview image where one exists — **never a single
+  mutually-exclusive status switch**, since REQ-722 is explicit that
+  `pending`/`rejected`/`approved` can all be true at once (an old rejected
+  submission can sit alongside a separately-still-approved earlier image,
+  and either can sit alongside a brand-new pending upload):
+  - **Pending review** — the currently-pending submission's preview, if any.
+  - **Rejected** — a rejected submission's preview, if any. Paired with the
+    word "Rejected" itself, not a color-only signal (§6) — the label text
+    carries the meaning; `accent-red` on the label is reinforcement only.
+  - **Currently visible to other players** — the approved submission's
+    preview, if any, worded to make clear this is the image other players
+    actually see, distinct from the pending/rejected review state above it.
+  - If none of the three exist: "You haven't uploaded an avatar yet." in
+    `text-muted`, no preview — no placeholder-silhouette graphic reused
+    here (unlike REQ-216's `CellPlaceholderAvatar`, which is a full-bleed
+    grid-cell treatment, not a small settings-page thumbnail); a future
+    pass may revisit this if a reusable avatar placeholder component gets
+    built for the other-players-facing surface REQ-722 still hasn't reached
+    (SCREEN-08's own status note below).
+- **New layout value (judgment call, not previously in this document):**
+  the preview thumbnail is a 64×64px circle (`border-radius: 50%`,
+  `object-fit: cover`), bordered with `border-hairline` and backed by
+  `surface-sunken` while loading — no existing token specified an
+  avatar-thumbnail size, so this is a new, one-off dimension rather than a
+  reuse; flagged here rather than left as an undocumented value in CSS.
+  Every color used on it (`border-hairline`, `surface-sunken`) is an
+  existing token — only the size is new.
+- A preview image requires an authenticated fetch (`GET
+  /users/me/avatar/{id}/image` streams bytes behind the same bearer auth
+  every other endpoint needs, which a plain `<img src>` can't carry) —
+  rendered as a `URL.createObjectURL` blob URL, revoked on unmount or when
+  the underlying image changes. This is an implementation detail, not a
+  visual one, noted here only because it's why a preview can briefly be
+  absent (label shown, image not yet loaded) rather than a synchronous
+  `<img src>` swap.
+- **Uploading while a Pending submission exists replaces it** (S-180's
+  server-side behavior, REQ-722's own acceptance criterion) — the UI adds
+  no client-side "replace" logic of its own; it re-fetches status after a
+  successful upload and simply reflects whatever the server now reports,
+  so this section shows one resulting Pending row, never two.
+- No loading-state wireframe previously existed for this section (or
+  anywhere else in SCREEN-08) — while the initial `GET /users/me/avatar`
+  is in flight, none of the four states render yet (this is a brief,
+  sub-second gap in normal operation, not a designed "loading" visual);
+  flagged here rather than silently built with no record, per this
+  document's own practice for other unreviewed gaps (§7).
 
 ### SCREEN-09: Game select (post-login landing)
 
