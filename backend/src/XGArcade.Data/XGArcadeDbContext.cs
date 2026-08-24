@@ -74,6 +74,13 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // row, ever) rather than a list/queue.
     public DbSet<AnnouncementBanner> AnnouncementBanners => Set<AnnouncementBanner>();
 
+    // REQ-722/ADR-0087 (S-180): a player's profile-avatar upload pipeline —
+    // see AvatarSubmission's own doc comment. No boundary relationship to
+    // PlayerData/PlayerOverride/PlayerAttribute/PlayerNameIndex above; this
+    // is a Core.Users-adjacent table, same "its own table" precedent
+    // PlayerSuggestion already sets for a different concern.
+    public DbSet<AvatarSubmission> AvatarSubmissions => Set<AvatarSubmission>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Dedup identity for players fetched across multiple intersection
@@ -409,5 +416,15 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .WithMany(ps => ps.AssertedClubs)
             .HasForeignKey(psc => psc.PlayerSuggestionId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-722 (S-180): AvatarSubmissionRepository's own two read paths
+        // (GetPendingAsync/GetApprovedAsync) both filter on
+        // SubmittingUserId + Status together — a composite index matches
+        // that hot read path exactly, same "status filter is the hot read
+        // path" precedent as PlayerSuggestion.Status's own index above,
+        // narrowed further here since every read is also scoped to one
+        // player.
+        modelBuilder.Entity<AvatarSubmission>()
+            .HasIndex(a => new { a.SubmittingUserId, a.Status });
     }
 }
