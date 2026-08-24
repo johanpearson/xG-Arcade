@@ -7699,6 +7699,28 @@ opaque network error. Covered by
 `REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails` in
 `AvatarEndpointTests.cs`.
 
+**Status note (2026-08-24 — follow-up: diagnosability of the 503 above):**
+after the fix above shipped, a real deployment (dev) still returned "Avatar
+upload unavailable" — no longer a bare "Failed to fetch," but the container
+logs only showed `HttpRequestException: Response status code does not
+indicate success: 400 (Bad Request)` with no further detail, because
+`SupabaseAvatarStorage`'s `EnsureSuccessStatusCode()` calls discard the
+response body Supabase Storage actually explains the rejection in. Root
+cause in this instance: the `avatars` bucket referenced by `SETUP.md` step 7
+had never been created in that environment's Supabase project (a manual,
+human dashboard step this backend has no code path to perform) — created
+directly in the dashboard, not fixed in code. Separately, added a
+`EnsureSuccessAsync` helper (`SupabaseAvatarStorage.cs`) that folds the
+response body into the thrown exception's `Message` for every call in that
+class (`UploadAsync`/`DownloadAsync`/`GetPreviewUrlAsync`), so a future
+rejection (wrong MIME-type policy, bucket size limit, ...) is diagnosable
+from `AvatarEndpoints.cs`'s/`AdminAvatarEndpoints.cs`'s existing
+`logger.LogError(ex, ...)` calls without needing direct Supabase dashboard
+access to guess why. Nothing here changes what the player sees (still the
+same generic `Results.Problem` detail) or any acceptance criterion. Covered
+by `REQ722_UploadAsync_ThrownExceptionIncludesSupabasesResponseBody_ForDiagnosability`
+in `SupabaseAvatarStorageTests.cs`.
+
 ---
 
 ### 4.11 Operational resilience

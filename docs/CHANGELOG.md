@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/requirements-document.md` — follow-up to the
+  "Failed to fetch" fix below: a real dev deployment still returned "Avatar
+  upload unavailable" (the new 503, working as designed) but the container
+  logs only showed a bare `400 (Bad Request)` with no reason, because
+  `SupabaseAvatarStorage`'s `EnsureSuccessStatusCode()` calls discard
+  Supabase's own error-body text on failure. Root cause: the `avatars`
+  bucket (`SETUP.md` step 7, a manual Supabase-dashboard step) had never
+  been created in that environment — created directly in the dashboard, not
+  a code fix. Separately hardened `SupabaseAvatarStorage.cs` with an
+  `EnsureSuccessAsync` helper that folds the response body into the thrown
+  exception's `Message` across `UploadAsync`/`DownloadAsync`/
+  `GetPreviewUrlAsync`, so the next failure is diagnosable from existing
+  logs. New test:
+  `REQ722_UploadAsync_ThrownExceptionIncludesSupabasesResponseBody_ForDiagnosability`
+  (REQ-722).
 - 2026-08-24 — `docs/requirements-document.md` (v2.08 → v2.09) — bug fix:
   `POST /users/me/avatar` returned a generic browser "Failed to fetch" (no
   diagnosable detail) whenever the Supabase Storage upload call failed,

@@ -68,7 +68,7 @@ public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOp
         streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
 
         using var response = await httpClient.PostAsync(requestPath, streamContent, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"upload to '{requestPath}'", cancellationToken);
 
         return storageKey;
     }
@@ -113,7 +113,7 @@ public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOp
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"download of '{requestPath}'", cancellationToken);
 
         var content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
         // Falls back to a generic binary type only if Supabase somehow
@@ -131,7 +131,7 @@ public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOp
 
         using var response = await httpClient.PostAsJsonAsync(
             requestPath, new { expiresIn = PreviewUrlExpirySeconds }, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"sign of '{requestPath}'", cancellationToken);
 
         var payload = await response.Content.ReadFromJsonAsync<SignedUrlResponse>(cancellationToken: cancellationToken);
         if (string.IsNullOrEmpty(payload?.SignedURL))
@@ -145,6 +145,29 @@ public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOp
         // (Supabase:Url, ServiceRegistration.cs) into the absolute URL an
         // admin's browser can load directly.
         return new Uri(httpClient.BaseAddress!, $"storage/v1{payload.SignedURL}").ToString();
+    }
+
+    // Diagnosed against a real deployment (2026-08-24): a bare
+    // `response.EnsureSuccessStatusCode()` discards Supabase Storage's
+    // response body on failure, so every rejection (missing bucket,
+    // disallowed MIME type, over the bucket's own size limit, ...) showed
+    // up in the API's logs as an indistinguishable "400 Bad Request" with
+    // no way to tell which. Supabase's error responses carry the real
+    // reason as JSON in the body; folding it into the thrown exception's
+    // Message means AvatarEndpoints.cs's/AdminAvatarEndpoints.cs's own
+    // `logger.LogError(ex, ...)` calls (docs/coding-guidelines.md: "log the
+    // full exception server-side") now actually surface it, without
+    // changing what's returned to the player — callers still only ever see
+    // the generic Results.Problem detail, never this Message.
+    private static async Task EnsureSuccessAsync(
+        HttpResponseMessage response, string operationDescription, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        throw new HttpRequestException(
+            $"Supabase Storage {operationDescription} failed with {(int)response.StatusCode} {response.StatusCode}: {body}");
     }
 
     private sealed record SignedUrlResponse(string? SignedURL);
