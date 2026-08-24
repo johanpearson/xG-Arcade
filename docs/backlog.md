@@ -8212,3 +8212,132 @@ unchanged from before this refactor.
   responsibilities drift, not just its line count.
 - `docs/`'s own accretion/bloat lens: re-confirmed clean, not re-litigated
   (see "Findings that turned out clean" above).
+
+## Epic 25 — Admin UX regrouping, player stats, and avatar uploads (2026-08-24 planning session)
+
+Product owner asked directly for three things in one session: the admin
+page (`AdminScreen.tsx`) feels scattered as one long scroll and should be
+grouped into a navigable set of sections; players should be able to see
+their own and other players' stats (best score, average score, rounds
+played); and players should be able to upload a profile avatar, gated
+behind admin approval so nothing inappropriate goes live. REQ-411/516/517/722
+added to `docs/requirements-document.md` v2.02 in the same session — see
+those entries for full acceptance criteria; each story below only repeats
+enough to scope the session, not the full REQ text.
+
+**S-177 · Admin screen grouped sub-navigation (REQ-516)**
+Replace `AdminScreen.tsx`'s current single vertical stack of independent
+sections with a grouped nav (tabs or equivalent): **Users**
+(`AccountMetricsSection`, `UserDeletionSection`, `GuestClearSection` — plus
+a slot reserved for S-183's avatar moderation section, added in a later
+story, not this one), **Grid** (`UnverifiedDataSection`,
+`PlayerSuggestionsEntry`, `RoundControlSection`), **Path**
+(`XGPathCycleSection`), **Announcements** (`AnnouncementBannerSection`),
+**Issues** (`IncidentReportsEntry`). Pure frontend layout change — every
+section keeps its own independent `useAuthedFetch` instance and gating
+exactly as today (in particular the page-level `rowsHidden ||
+activeRoundHidden` access-denied check and the Production-only hiding of
+`RoundControlSection`/`UserDeletionSection` behind `activeRound !== null`
+are both unchanged, just now inside a specific group rather than always
+rendered). No new endpoints.
+*Accept:* selecting a group shows only that group's sections; switching
+groups does not re-fetch a section that already loaded data this page
+visit; a non-admin still sees the page-level access-denied message before
+any group renders; `RoundControlSection`/`UserDeletionSection` are still
+entirely absent from the DOM in Production, now within the "Users"/"Grid"
+groups rather than always-rendered.
+*Deps:* none.
+
+**S-178 · Backend player stats aggregate endpoint (REQ-411)**
+`GET /users/{userId}/stats?gameKey=` returning, scoped to one `GameKey`:
+rounds played, best single round `FinalPoints`, average `FinalPoints`,
+and current all-time rank (omitted below REQ-409's 5-round minimum).
+Reuse `LeaderboardService`/`IGuessRepository`'s existing per-round-total
+and qualifying-round queries (REQ-408/409) rather than a new aggregate
+path — this is a read composed from data already computed for the
+leaderboard, not a new scoring concept. 401 with no session; 404 for a
+nonexistent `userId`; both the caller's own id and another player's id
+return the same shape (REQ-411 sets no privacy toggle).
+*Accept:* unit tests (`REQ411_*`) cover the zero-qualifying-rounds "no
+rounds played" shape (not `0`-filled) and the omitted-below-minimum rank;
+API tests cover 401/404 and that both self and other-player lookups
+return identical shapes.
+*Deps:* none.
+
+**S-179 · Frontend player stats/profile screen (REQ-411)**
+A stats/profile screen consuming S-178's endpoint: an entry point to view
+your own stats (from Settings or header nav, matching REQ-712/713's
+existing nav patterns), and a way to view another player's stats by
+selecting their `DisplayName` on the leaderboard (`LeaderboardScreen.tsx`'s
+rows currently render `DisplayName` as plain text — this story makes it a
+navigation target). Reuse the leaderboard's existing game-key switcher
+pattern for the per-`GameKey` scoping REQ-411 requires. Zero-rounds-played
+renders a distinct empty state, not a blank or `0`-filled screen.
+*Accept:* UI tests cover own-stats entry point, other-player navigation
+from a leaderboard row, the zero-rounds empty state, and per-game
+switching.
+*Deps:* S-178.
+
+**S-180 · ADR + backend avatar upload pipeline (REQ-722)**
+Write the ADR REQ-722 flags (Supabase Storage vs. Azure Blob — product
+direction from the 2026-08-24 planning session is Supabase Storage, to
+avoid adding Azure-specific code to `Core`/`Api` per ADR-0004; the ADR
+should record this choice and reasoning, not relitigate it) before or
+alongside implementation. Add an `AvatarSubmission` entity (mirroring
+`PlayerSuggestion`'s submit/review/decide shape — status `Pending`/
+`Approved`/`Rejected`, submitting `UserId`, image reference, timestamps)
+and an `IAvatarStorage` abstraction implemented against Supabase Storage,
+kept out of `XGArcade.Core`/`XGArcade.Api` proper the same way every other
+hosting-specific concern is (ADR-0004). `POST /users/me/avatar`: creates
+or replaces the caller's `Pending` submission (never two pending rows for
+one player); a prior `Approved` avatar stays visible to other players
+until the new submission is itself approved. Size/type limits enforced,
+specifics left to implementation.
+*Accept:* the ADR is written and referenced from REQ-722's own "Needs an
+ADR" note; unit tests cover replace-not-duplicate for a second pending
+upload and that approving a new submission supersedes an older `Approved`
+one; API tests cover 401 and the size/type rejection.
+*Deps:* none (may run before or alongside S-177/S-178, touches neither).
+
+**S-181 · Backend admin avatar moderation endpoints (REQ-517)**
+`GET /admin/avatar-submissions` (pending only, oldest first, image preview
+reference + submitter `DisplayName` + submission time — mirrors REQ-509's
+existing pending-suggestion ordering), plus approve/reject actions under
+the existing `"Admin"` policy. Approving supersedes any prior `Approved`
+row for that player; rejecting leaves a prior `Approved` avatar untouched;
+acting twice on an already-decided submission is rejected with a clear
+error, not a silent success (submissions are terminal once decided, per
+REQ-517's "Out of scope"). No reason/comment field on rejection.
+*Accept:* API tests cover the pending-only oldest-first ordering, 401/403
+under the Admin policy, and the reject-a-second-decision-on-the-same-row
+error case.
+*Deps:* S-180 (needs `AvatarSubmission` to exist).
+
+**S-182 · Frontend avatar upload UI in Settings (REQ-722)**
+A "My avatar" section in `SettingsScreen.tsx`, alongside REQ-714's
+existing display-name edit: upload control, and a display of whichever of
+the four states applies (none / pending / approved / rejected) with an
+image preview for pending/rejected. A rejected status never hides a
+separately-existing approved avatar from an earlier submission.
+*Accept:* UI tests cover each of the four states rendering distinctly,
+and that uploading while pending replaces rather than queues a second
+submission (matching S-180's backend behavior).
+*Deps:* S-180.
+
+**S-183 · Frontend admin avatar moderation section (REQ-517)**
+An avatar moderation section consuming S-181's endpoints, with image
+previews and approve/reject actions, slotted into S-177's "Users" admin
+nav group (the group reserved a slot for exactly this). Pending-count
+badge next to the group/section entry, mirroring REQ-512's existing
+suggestion-count badge pattern.
+*Accept:* UI tests cover the pending queue rendering with previews,
+approve/reject removing a row from the list, and the pending-count badge
+matching the number of rows returned; confirm the section renders inside
+the "Users" group, not as a standalone top-level section.
+*Deps:* S-177, S-181.
+
+**Also required, same iteration as S-180-183 land (not a separate story,
+per CLAUDE.md's legal-docs rule):** update `docs/legal/*.md` — user-
+uploaded images are a new category of collected data, and the privacy
+policy draft must reflect it before this ships to anyone but the product
+owner.
