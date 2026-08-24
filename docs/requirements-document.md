@@ -7623,7 +7623,9 @@ narrower, owner-scoped mediation shape on `IAvatarStorage`
 paragraph) for the fuller reasoning on why these two shapes coexist
 deliberately rather than one being reused for the other, and which one is
 canonical for any future "another player's avatar" surface. Built without a
-local `dotnet` SDK in-sandbox; CI verification pending as of this note.
+local `dotnet` SDK in-sandbox; confirmed via a real CI run (`ci.yml`,
+`workflow_dispatch`) on the final commit — backend, frontend unit, and E2E
+jobs all green.
 
 ---
 

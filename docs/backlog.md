@@ -8510,7 +8510,9 @@ extraction, no behavior change); (2) two test-coverage gaps on the new
 image endpoint — 401 with no bearer token, and 404 specifically for the
 "owned row, but the underlying storage object is gone" branch, distinct
 from the already-covered unknown-id/not-owned-id 404 cases. Built without
-a local `dotnet` SDK in-sandbox; CI verification pending as of this note.
+a local `dotnet` SDK in-sandbox; confirmed via a real CI run (`ci.yml`,
+`workflow_dispatch`) on the final commit — backend, frontend unit, and E2E
+jobs all green.
 
 **S-183 · Frontend admin avatar moderation section (REQ-517)**
 An avatar moderation section consuming S-181's endpoints, with image
