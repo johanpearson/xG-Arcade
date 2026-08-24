@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.06"
+version: "2.07"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -5720,10 +5720,59 @@ submission → 409, not a silent success) is enforced at the repository
 level (`IAvatarSubmissionRepository.ApproveAsync`/`RejectAsync` re-check
 `Status==Pending` inside the same tracked load before writing), not just
 in the endpoint. The "pending-count badge" criterion and every UI
-criterion remain unbuilt — S-183, a separate, not-yet-built story. Built
-without a local `dotnet` SDK in-sandbox — hand-traced against
+criterion were built subsequently by S-183 — see the status note below.
+Built without a local `dotnet` SDK in-sandbox — hand-traced against
 `AdminSuggestionEndpointTests`/`AvatarEndpointTests`'s existing patterns;
 CI verification pending as of this note.
+
+**Status note (2026-08-24, S-183 — frontend built, all acceptance criteria
+now satisfied):** a new `AvatarModerationSection.tsx`
+(`frontend/src/admin/`) consumes S-181's three endpoints
+(`fetchPendingAvatarSubmissions`/`approveAvatarSubmission`/
+`rejectAvatarSubmission`, `frontend/src/lib/admin.ts`, and the new
+`PendingAvatarSubmission` type in `frontend/src/lib/types.ts`) and renders
+unconditionally (registered in every environment, not gated behind the
+Non-Production-only `activeRound` probe `UserDeletionSection`/
+`RoundControlSection` share) inline in `AdminScreen.tsx`'s "Users" group
+(REQ-516), immediately below `AccountMetricsSection`. "Reviewing the
+queue" is satisfied: every pending submission lists an image preview
+(`<img src={imagePreviewUrl}>` — S-181's already-resolved, short-lived
+signed URL, never a storage key resolved client-side), the submitting
+player's `DisplayName` (falling back to "a deleted user" when null, per
+REQ-710, matching `SuggestionsScreen`'s `PendingSuggestionRow` convention
+exactly), and the submission time, oldest first (the backend's own
+ordering; this UI never re-sorts). Approve/reject are per-row actions with
+per-row action/error state (not a single panel-wide state), disabling only
+the acting row's own buttons while in flight. A `409` (already resolved by
+another admin) is tracked separately from a validation/network error and
+renders its own "Already resolved by another admin" message plus a
+"Refresh list" action, rather than looking like a random failure — the
+same distinct-conflict-state approach `SuggestionsScreen`'s
+`PlayerReviewPanel` already established, not a new pattern. The
+pending-count badge criterion is satisfied by an "Avatar moderation (N)"
+heading badge — mirroring `UnverifiedDataSection`'s own inline heading-
+badge convention (not `PlayerSuggestionsEntry`'s button-label badge, since
+this section has no separate click-through entry point) — with REQ-512's
+existing "absence not a 0 badge" convention applied: a count of 0 omits
+the "(N)" suffix but the section itself still renders, with an empty-state
+message. No new visual token: the only new CSS
+(`.admin-screen__avatar-row-summary`/`.admin-screen__avatar-preview`, a
+64px rounded image thumbnail) reuses existing spacing/color tokens and the
+8px radius already established elsewhere in this file. Verified with
+`AvatarModerationSection.test.tsx` (queue rendering with previews,
+approve/reject removing a row, the pending-count badge matching row count
+and omitting "(0)", the 409-conflict row state, 401 routing to
+`onAuthError`) and an extension of `AdminScreen.test.tsx` (confirms the
+section renders only inside the "Users" group — visible on that tab,
+hidden and not re-fetched on others, with no separate top-level nav tab
+of its own). 689/689 frontend tests passing; `tsc -b` and lint both
+clean. No backend changes — S-181's endpoints are untouched.
+`architecture-reviewer`: PASS, no ADR needed (pure frontend consumption of
+an already-documented COMP-14 endpoint, no component/data-flow boundary
+change). `quality-architect`: PASS, after one wording-drift finding (this
+REQ's own badge-placement bullet still said "nav entry"; fixed in a
+separate commit on the same branch, reflected above). CI verification via
+a `ci.yml` `workflow_dispatch` run was pending as of this note.
 
 ---
 

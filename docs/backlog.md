@@ -8486,6 +8486,35 @@ matching the number of rows returned; confirm the section renders inside
 the "Users" group, not as a standalone top-level section.
 *Deps:* S-177, S-181.
 
+*Built as (2026-08-24):* a new `AvatarModerationSection.tsx`
+(`frontend/src/admin/`) consumes S-181's three endpoints via three new
+`frontend/src/lib/admin.ts` functions and a new `PendingAvatarSubmission`
+type (`frontend/src/lib/types.ts`), rendered unconditionally (this
+endpoint is registered in every environment) inline in `AdminScreen.tsx`'s
+"Users" group, immediately below `AccountMetricsSection`. Each pending
+row shows an image preview, the submitter's display name (falling back to
+"a deleted user" per REQ-710, matching `SuggestionsScreen`'s existing
+convention), and the submission time, oldest first. Approve/reject are
+per-row actions with per-row action/error state; a `409` (already
+resolved by another admin) renders a distinct "Already resolved" message
+plus a "Refresh list" action rather than a generic error, mirroring
+`SuggestionsScreen`'s `PlayerReviewPanel` conflict handling. The
+pending-count badge is an "Avatar moderation (N)" heading badge —
+mirroring `UnverifiedDataSection`'s inline heading-badge convention
+rather than `PlayerSuggestionsEntry`'s button-label badge, since this
+section has no separate click-through entry point — omitting the "(N)"
+suffix at zero per REQ-512's convention. No new visual token: the only
+new CSS is a 64px rounded image thumbnail reusing existing spacing/color
+tokens. Verified with `AvatarModerationSection.test.tsx` (8 tests) and an
+extension of `AdminScreen.test.tsx` confirming the section renders only
+inside the "Users" group. 689/689 frontend tests passing; `tsc -b` and
+lint both clean; a `ci.yml` `workflow_dispatch` run (backend/frontend/E2E,
+run #616) passed in full. `architecture-reviewer`: PASS, no ADR needed.
+`quality-architect`: PASS, after one wording-drift finding (this story's
+own "nav entry" phrasing, and REQ-517's matching bullet, corrected in a
+separate commit to describe the heading-badge convention actually
+shipped).
+
 **Also required, same iteration as S-180-183 land (not a separate story,
 per CLAUDE.md's legal-docs rule):** update `docs/legal/*.md` — user-
 uploaded images are a new category of collected data, and the privacy
