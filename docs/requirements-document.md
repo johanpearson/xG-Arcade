@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.98"
+version: "1.99"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -5212,6 +5212,10 @@ result; Admin-policy-gated; registered and reachable in every environment
 including Production, unlike REQ-505/506)
 
 **REQ-514 – Admin UI for refreshing a Player from Wikidata**
+*(Status: Implemented, `PlayerRefreshSection.tsx`, wired into `AdminScreen.tsx`
+(design-document.md SCREEN-04). Verified locally: `npm run test` (45 files/
+657 tests incl. the 10 new for this section), `npx tsc -b`, `npm run lint`
+— all passed.)*
 > As an admin, I want to trigger REQ-513's Wikidata refresh for a specific
 > player and see what changed, from the admin page I already use for other
 > player-data corrections, so I don't have to script an HTTP request to
