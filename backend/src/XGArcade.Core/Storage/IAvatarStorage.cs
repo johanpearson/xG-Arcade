@@ -12,22 +12,25 @@ namespace XGArcade.Core.Storage;
 // existing (but not-to-be-copied-uncritically) placement directly inside
 // XGArcade.Core/Auth.
 //
-// Was "deliberately narrow: only what POST /users/me/avatar itself needs"
-// as of S-180/ADR-0087 — that ADR's own "Follow-up" section assigned
-// "resolve a stored key into a servable URL" to REQ-517/S-181 (the admin
-// queue/public-visible case). S-182 needs a *narrower* version of that
-// first: the owning player's own preview of their own Pending/Rejected/
-// Approved submission (REQ-722's "Seeing your own status" criterion) —
-// genuinely different from ADR-0087's deferred case, which was about a
-// signed/public URL usable by an admin reviewer or by other players.
-// DownloadAsync below streams bytes back through this backend instead
-// (never a signed URL handed to the client — ADR-0013's "backend
-// mediates, frontend never talks to the provider directly" convention,
-// same as SupabaseAvatarStorage's own upload/delete calls), so it doesn't
-// actually build the thing ADR-0087 deferred; it's a separate, smaller
-// need that happens to live on the same interface. S-181's admin-queue
-// view and any future "visible to other players" public case remain
-// genuinely deferred, unbuilt by this addition.
+// ADR-0087's "Follow-up" section assigned "resolve a stored key into a
+// servable URL" to REQ-517/S-181 (the admin queue/public-visible case) —
+// GetPreviewUrlAsync below is that anticipated addition, a short-lived
+// signed URL an admin's browser loads directly. S-182 (built in parallel,
+// merged afterward) needed a *narrower*, independent capability first: the
+// owning player's own preview of their own Pending/Rejected/Approved
+// submission (REQ-722's "Seeing your own status" criterion) — genuinely
+// different from what ADR-0087 deferred, since a signed URL handed to the
+// client would violate ADR-0013's "backend mediates, frontend never talks
+// to the provider directly" convention for that specific caller.
+// DownloadAsync below streams bytes back through this backend instead, so
+// it doesn't build the thing ADR-0087 deferred; it's a separate, smaller
+// need that happens to live on the same interface. Two different
+// mediation shapes (streamed bytes vs. signed URL) now coexist here
+// deliberately, for two different callers with different trust
+// boundaries — see ADR-0087's "Consequences" section for which pattern is
+// canonical for any future avatar-viewing surface (e.g. REQ-411 stats
+// eventually showing another player's Approved avatar) rather than
+// picking whichever one a later story happens to copy from.
 public interface IAvatarStorage
 {
     // Uploads image content and returns the storage key (object path) it
@@ -57,6 +60,24 @@ public interface IAvatarStorage
     // uses) rather than throwing — the caller (AvatarEndpoints) turns that
     // into a 404, same as an unknown/not-owned submission id.
     Task<AvatarImageContent?> DownloadAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    // REQ-517 (S-181): resolves a previously-uploaded image's storage key
+    // into a servable URL an admin's browser can load directly — never a
+    // bare public URL (this bucket has no public read policy any more than
+    // it has a public write one, ADR-0087), always a short-lived signed URL
+    // generated server-side per request, same "backend mediates, frontend
+    // never talks to the provider directly" pattern the rest of this
+    // interface already establishes for upload/delete. Called once per row
+    // by AdminAvatarEndpoints' GET /admin/avatar-submissions (REQ-517),
+    // never batched or cached — a fresh signed URL every time the queue is
+    // fetched, since the queue is expected to be small and this avoids any
+    // "is this signed URL still valid" staleness question entirely.
+    // Deliberately distinct from DownloadAsync above rather than reused for
+    // it: an admin reviewer is a different trust boundary than the
+    // submitting player, and a signed URL handed to an admin's browser is
+    // an acceptable exposure there in a way it would not be for a general
+    // "any authenticated player views their own image" path.
+    Task<string> GetPreviewUrlAsync(string storageKey, CancellationToken cancellationToken = default);
 }
 
 // REQ-722 (S-182): Content is the full image body — avatar images are

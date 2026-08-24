@@ -60,6 +60,106 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   frontend consuming an already-documented COMP-02 endpoint, no component/
   data-flow boundary change per its own `update_when` trigger. REQ-411/S-179.
 - 2026-08-24 — `docs/architecture-document.md`, `docs/requirements-document.md`,
+  `docs/backlog.md`, `docs/decisions/0087-avatar-storage-supabase.md`,
+  `docs/implementation-document.md` — S-181 (Epic 25, backend admin avatar
+  moderation, REQ-517) built:
+  `GET /admin/avatar-submissions`/`POST .../{id}/approve`/`POST
+  .../{id}/reject` (`XGArcade.Api.Admin.AdminAvatarEndpoints`), mirroring
+  `AdminSuggestionEndpoints`'s list/act-on-one-by-id/terminal-state-409
+  shape under the same `"Admin"` policy. `IAvatarSubmissionRepository`
+  gained `GetByIdAsync`/`GetAllPendingAsync` (oldest-first) and race-safe
+  `ApproveAsync`/`RejectAsync` (re-check `Status==Pending` inside the same
+  tracked load before writing, mirroring
+  `PlayerSuggestionRepository.ResolveAsync`); `ApproveAsync` supersedes
+  any prior `Approved` row for the same player by deleting it in the same
+  `SaveChangesAsync` (no new `AvatarSubmissionStatus` member — follows
+  `CreateOrReplacePendingAsync`'s existing "replace" precedent) and
+  best-effort deletes that row's now-orphaned image; `RejectAsync` never
+  touches a prior `Approved` row. `IAvatarStorage` gained
+  `GetPreviewUrlAsync` — ADR-0087's own anticipated Follow-up, not a new
+  structural decision (that ADR's Consequences section updated with a
+  "Follow-up (completed)" note) — implemented in `SupabaseAvatarStorage`
+  as a 5-minute Supabase Storage signed URL (`POST /storage/v1/object/sign/
+  {bucket}/{path}`), and as a deterministic placeholder in
+  `LocalE2EAvatarStorage`/the test suite's `FakeAvatarStorage`. New
+  `PendingAvatarSubmissionResponse` DTO exposes the resolved
+  `ImagePreviewUrl`, never `ImageStorageKey`. Doc updates: COMP-14 row
+  extended (`architecture-document.md` v1.13 → v1.14); status notes on
+  REQ-517 and REQ-722 (`requirements-document.md` v2.04 → v2.05)
+  recording what's built vs. still open (S-182/183's frontend, the
+  pending-count badge); a "Built as" note on `backlog.md`'s S-181 entry; a
+  one-line non-product-threshold note in `implementation-document.md` §5
+  (v1.06 → v1.07) recording the preview URL's 5-minute expiry. No
+  `docs/legal/*.md` change needed — S-180 already added the avatar
+  data-collection category those drafts needed. Built without a local
+  `dotnet` SDK in-sandbox (not available in this environment) — hand-traced
+  against `AdminSuggestionEndpointTests`/`AvatarEndpointTests`'s existing
+  patterns, following S-018/S-022/S-028/S-029's precedent for this gap; a
+  CI `workflow_dispatch` verification run against `ci.yml` is required
+  before this is considered done. **Doc-integrity bug found and fixed
+  during orchestration review (2026-08-24):** this story's own doc-sync
+  commit had accidentally deleted S-179's real, already-merged content
+  from four docs — its `CHANGELOG.md` entry outright, its `REQ-411`
+  status paragraph and Test-level bullet in `requirements-document.md`
+  (reverted to a stale pre-S-179 "backend only" state), its `/users`-
+  folder/`onSelectPlayer`/`userStats.ts` entries in
+  `implementation-document.md` §4, and its "Built as" note on
+  `backlog.md`'s own S-179 entry — likely from this branch having been
+  forked/merged before S-179 landed on `main`, with a later edit here
+  overwriting rather than layering on top. All four restored verbatim
+  from `origin/main` before this entry was written, with S-181's own
+  additions layered back on top; `requirements-document.md` and
+  `implementation-document.md`'s frontmatter versions (which had stayed
+  at S-179's already-bumped 2.04/1.06 despite this story's own further
+  content changes) bumped to 2.05/1.07 to actually reflect that.
+  REQ-517/ADR-0087/S-181.
+- 2026-08-24 — `docs/requirements-document.md`, `docs/backlog.md`,
+  `docs/implementation-document.md` — S-179 (Epic 25, frontend half of
+  REQ-411) built and doc-synced: a new `UserStatsScreen.tsx`
+  (`frontend/src/users/`, SCREEN-13) is a single read-only component for
+  both "own stats" and "another player's stats" — no own-vs-other concept
+  beyond the `userId`/`displayName` props it's handed — consuming S-178's
+  `GET /users/{userId}/stats?gameKey=` via a new `fetchUserStats`
+  (`frontend/src/lib/userStats.ts`) and `UserStatsResponse`
+  (`frontend/src/lib/types.ts`), reusing `LeaderboardScreen.tsx`'s existing
+  `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` tab pattern. Own-stats entry point:
+  an unconditional "My stats" link/section on `SettingsScreen.tsx` (not
+  admin-gated). Other-player entry point: `LeaderboardRowsList.tsx`'s
+  main-list row display names became `<button>` nav targets via a new
+  optional `onSelectPlayer(userId, displayName)` prop, threaded through all
+  four leaderboard-scope components and `LeaderboardScreen.tsx` up to
+  `App.tsx`. Judgement call, documented inline in
+  `LeaderboardRowsList.tsx`: the requesting user's own row, when already
+  visible in a loaded page, is clickable too, for list consistency — the
+  REQ-607 pinned "you" footer row stays plain text since Settings already
+  covers that destination. `App.tsx` gained a `'stats'` value on its
+  existing hand-rolled `Screen` union plus a `#/stats` hash entry
+  (ADR-0039 pattern), an in-memory `statsTarget`/`statsReturnScreen`
+  navigation seed (same pattern `leaderboardInitial`/`LeaderboardRoundTarget`
+  already established, ADR-0083), so "Back" returns to whichever screen
+  (Settings or Leaderboard) the player actually came from. Renders
+  roundsPlayed/bestFinalPoints/averageFinalPoints/rank when
+  `hasRoundsPlayed` is true (rank independently omitted, not shown as 0 or
+  an error, below REQ-409's 5-round minimum); a distinct "no rounds played
+  yet" empty state when it's false; 401 routes to `onAuthError`; a
+  nonexistent `userId` (404) is a distinct not-found state.
+  `docs/design-document.md` gained SCREEN-13 plus short SCREEN-03/SCREEN-08
+  addenda in an earlier commit on this same branch (v0.78, already landed
+  before this doc-sync pass). `architecture-reviewer`: PASS, no ADR needed
+  (narrow, spec-driven extension of already-decided patterns — ADR-0039
+  hash routing, ADR-0083 nav-seed). `quality-architect`: pass, after one
+  follow-up round closing a test gap. 681 frontend tests passing, 0
+  failures; `npx tsc -b` and lint both clean. No backend changes — S-178's
+  backend is untouched. Doc updates: REQ-411's status note
+  (`requirements-document.md`, v2.03 → v2.04) updated from "Implemented
+  (backend only)" to fully implemented, naming what S-179 built; a "Built
+  as" note on `backlog.md`'s S-179 entry; `implementation-document.md`
+  (v1.05 → v1.06) §4 gained a new `/users` folder entry plus short
+  additions to `/settings`, `/leaderboard`, and `/lib` recording the new
+  files. `docs/architecture-document.md` checked and left unchanged — pure
+  frontend consuming an already-documented COMP-02 endpoint, no component/
+  data-flow boundary change per its own `update_when` trigger. REQ-411/S-179.
+- 2026-08-24 — `docs/architecture-document.md`, `docs/requirements-document.md`,
   `docs/backlog.md`, `docs/legal/privacy-policy-draft.md`,
   `docs/legal/terms-of-service-draft.md`, `docs/implementation-document.md`
   — S-180 (Epic 25, backend half of REQ-722) built and doc-synced: an

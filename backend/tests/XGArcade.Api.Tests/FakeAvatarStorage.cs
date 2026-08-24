@@ -10,6 +10,11 @@ internal sealed class FakeAvatarStorage : IAvatarStorage
 {
     public List<string> UploadedContentTypes { get; } = [];
     public List<string> DeletedStorageKeys { get; } = [];
+    // REQ-517: every storage key GetPreviewUrlAsync was asked to resolve,
+    // in call order — lets AdminAvatarEndpoints tests assert no N+1/extra
+    // calls without depending on the (deterministic but arbitrary) URL
+    // shape below.
+    public List<string> PreviewUrlRequests { get; } = [];
 
     // REQ-722 (S-182): what UploadAsync "stored," keyed by the storage key
     // it returned — lets DownloadAsync below hand the same bytes/content
@@ -42,4 +47,10 @@ internal sealed class FakeAvatarStorage : IAvatarStorage
         Task.FromResult(StoredContent.TryGetValue(storageKey, out var stored)
             ? new AvatarImageContent(stored.Content, stored.ContentType)
             : null);
+
+    public Task<string> GetPreviewUrlAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        PreviewUrlRequests.Add(storageKey);
+        return Task.FromResult($"https://fake-storage.test/{storageKey}");
+    }
 }

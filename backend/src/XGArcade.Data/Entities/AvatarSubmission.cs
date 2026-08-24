@@ -38,11 +38,12 @@ public class AvatarSubmission
 
     public DateTime CreatedAt { get; set; }
 
-    // Set exactly once, by the admin resolve action (REQ-517/S-181), at the
-    // same moment Status moves off Pending — mirrors PlayerSuggestion.
-    // ResolvedByAdminId/ResolvedAt's own "who and when, on the row itself"
-    // shape (see that entity's own doc comment for the fuller rationale).
-    // Both null until then; this story (S-180) never sets either.
+    // Set exactly once, by the admin resolve action
+    // (REQ-517/S-181 — IAvatarSubmissionRepository.ApproveAsync/
+    // RejectAsync), at the same moment Status moves off Pending — mirrors
+    // PlayerSuggestion.ResolvedByAdminId/ResolvedAt's own "who and when, on
+    // the row itself" shape (see that entity's own doc comment for the
+    // fuller rationale). Both null until then.
     public Guid? ResolvedByAdminId { get; set; }
     public DateTime? ResolvedAt { get; set; }
 }

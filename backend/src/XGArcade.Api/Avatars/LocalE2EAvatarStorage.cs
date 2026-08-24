@@ -45,4 +45,12 @@ internal sealed class LocalE2EAvatarStorage : IAvatarStorage
     // not derived from any real avatar upload, purely a decodable stand-in.
     private static readonly byte[] PlaceholderPngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
+    // REQ-517: no live Supabase project in local-e2e mode either — a
+    // deterministic placeholder per storage key, same "app can still start
+    // without a real Supabase project" reasoning as the rest of this class.
+    // No E2E spec exercises the admin avatar moderation queue yet (no
+    // frontend UI — S-183), so this is never actually invoked today.
+    public Task<string> GetPreviewUrlAsync(string storageKey, CancellationToken cancellationToken = default) =>
+        Task.FromResult($"https://local-e2e.invalid/avatars/{storageKey}");
 }
