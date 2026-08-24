@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.95"
+version: "1.99"
 status: draft
-last_updated: 2026-08-22
+last_updated: 2026-08-24
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -5068,6 +5068,254 @@ to "Player suggestions" on `AdminScreen.tsx` when pending suggestions
 exist, and reflects an updated count after navigating back from
 resolving one on `SuggestionsScreen.tsx`; no badge/count is rendered for
 a non-admin or guest)
+
+**REQ-513 – Admin refresh of an existing Player's data from Wikidata**
+*(Status: Implemented, `POST /admin/players/{id}/refresh-from-wikidata`,
+`AdminEndpoints.cs`, ADR-0086; test coverage in `AdminEndpointTests.cs`/
+`PlayerRepositoryTests.cs`/`WikidataClientTests.cs` — not yet
+compiler-verified in this sandbox, no `dotnet` SDK available; confirm in
+CI before merge. No admin UI built for this yet, API only, matching
+REQ-501-503's own starting point before REQ-504 added a UI.)*
+> As an admin, I want to re-fetch a specific player's name, position, birth
+> year, and photo from Wikidata using the player's already-stored
+> `WikidataQid`, so a bad or stale value frozen in at creation (REQ-1207)
+> — e.g. a garbled name shown to a player as ground truth (#239) — can be
+> corrected without editing the database by hand.
+
+**Scope note (refresh from source, not free-text editing):** this is a
+re-fetch action, not a new data-entry path — the admin never types a
+corrected name/position/birth year/photo directly, only triggers a refresh
+against the player's own already-stored `WikidataQid`. Consistent with
+ADR-0032's trust model (all Wikidata-sourced data is treated as verified by
+default, with no human review step gating it), this REQ re-applies that
+same trust later, against the same already-trusted QID, rather than
+introducing a second, manual way to set these fields that could itself
+become a new source of error. If the re-fetched Wikidata value is itself
+wrong, that is a Wikidata data problem outside this REQ's scope — fixing it
+there, then re-running this action, is the intended remediation path. This
+REQ does not add manual-override support for `Player.FullName`/`Position`/
+`BirthYear`/`PhotoUrl` (there is no `PlayerOverride`-equivalent mechanism
+for these four scalar columns; see REQ-1207's scope note on why they live
+directly on `Player`, not as `PlayerAttribute` rows). This action never
+writes `PlayerNameIndex` — that table is populated only by a separate
+import pipeline (`PlayerNameIndexImporter`, ADR-0007/ADR-0053's
+autocomplete/correctness boundary); a stale entry there, if any, is a
+pre-existing, separate concern this REQ does not address.
+
+**Where it lives and environment gating:** `AdminEndpoints.cs` (REQ-501-503's
+file), behind the existing "Admin" authorization policy, same pattern as
+every other endpoint in that file. Unlike REQ-505/506 (round control, user
+deletion — deliberately non-Production-only testing tools, per ADR-0006),
+this action is registered and available in every environment, including
+Production, the same as REQ-501-503/509/510: its entire purpose is
+correcting real player data that goes wrong in production — restricting it
+to non-Production would defeat the requirement that prompted it.
+
+**Refreshing a player:**
+- Given an existing `Player` row identified by its id, with a non-null
+  `WikidataQid`
+- When an admin triggers a refresh for that player
+- Then the system re-queries Wikidata for that specific `WikidataQid`,
+  fetching the same four properties `Player` already stores at creation
+  (label → `FullName`, P413 → `Position`, P569 → `BirthYear`, P18 →
+  `PhotoUrl`) — no admin-supplied value for any of these fields is ever
+  accepted by this action
+
+**Only changed fields are written:**
+- Given the freshly-fetched value for a field is non-null/non-empty and
+  differs from the value currently stored on the `Player` row
+- Then that field is updated to the freshly-fetched value
+- Given the freshly-fetched value for a field is null/empty (Wikidata
+  currently has no binding for that property), regardless of what is
+  currently stored
+- Then that field is left unchanged — a missing binding is treated as "this
+  query returned no answer for this property," never as evidence the
+  existing stored value is wrong, the same "absence is not evidence of
+  wrongness" principle ADR-0046 already establishes for a guess-time
+  timeout; this action never wipes an existing value to null
+- Given the freshly-fetched value for a field is identical to the value
+  already stored
+- Then that field is not written — this action writes only the fields that
+  actually changed on a given refresh, never a blanket rewrite of all four
+- Given a refresh completes
+- Then the response indicates, per field, whether it changed and, if so,
+  its old and new value — so the admin can see exactly what was corrected,
+  not just an unconditional success message
+
+**No manual value acceptance / no reason field:**
+- Given this action re-applies data from a source already trusted by
+  default (ADR-0032), not a new manual admin assertion
+- Then, unlike `PlayerOverride`'s "correct" action (REQ-501), no `reason`
+  field is required or accepted — matching REQ-503's "approve" action,
+  which also requires no reason, for the same underlying reason: applying
+  already-trusted source data is not recording a new manual judgment
+
+**Error handling:**
+- Given a `Player` id that does not exist
+- Then the request is rejected with `404`
+- Given a `Player` id that exists but has a null `WikidataQid`
+- Then the request is rejected with `409` — there is no QID to refresh
+  from, and this action never falls back to a name-based search (that is
+  REQ-510's separate, existing capability, not this one)
+- Given the Wikidata query for the stored `WikidataQid` fails to complete
+  (times out or errors)
+- Then the request is rejected with `503`, "lookup unavailable, try
+  again" — the same contract REQ-509's `/admin/suggestions/{id}/lookup`
+  already establishes (ADR-0046) — never silently treated as "no fields
+  changed"
+- Given a caller with no valid session, or an authenticated caller not in
+  `Admin:UserIds`
+- Then the request is rejected `401`/`403` respectively, the same
+  authorization boundary every other `/admin/*` endpoint in this file
+  already enforces
+
+**Audit trail:**
+- Given `Player` has no admin-audit columns of its own (unlike
+  `PlayerOverride`'s `LockedByAdminId`/`LockedAt` or `PlayerSuggestion`'s
+  `ResolvedByAdminId`/`ResolvedAt`) — REQ-1207 added no such columns to
+  `Player` when it introduced `Position`/`BirthYear`, and this REQ does not
+  add them either; two new columns on `Player` for one narrow admin action
+  do not carry their weight relative to the alternative below
+- Then the action is recorded via a structured `ILogger` line at refresh
+  time (admin id, player id, `WikidataQid`, and each field's old/new
+  value) — the same "no row to attach an audit trail to → structured log
+  line instead" precedent REQ-503's "remove" action already established,
+  not a new general-purpose audit-log table
+
+**Relationship to REQ-1207's set-once contract (deliberate, scoped
+exception — not a silent contradiction):** REQ-1207 establishes that
+`Position`/`BirthYear` (and, by the same code path, `FullName`/`PhotoUrl`)
+are set once at `Player` row creation and never overwritten by any
+automatic sync/backfill/live-lookup path, with one narrow, already-recorded
+exception (the raw-URI `Position` bug fix). This REQ adds a second,
+equally narrow exception: an explicit, single-player, admin-triggered
+action — never an automatic background process. No automatic path (grid
+generation, cache warming, the guess-time live fallback, the position/
+birth-year backfill, the photo backfill) gains any new ability to overwrite
+an existing value as a result of this REQ — REQ-1207's set-once contract
+for every non-admin-triggered path is otherwise unchanged.
+
+**Out of scope for this REQ:** an admin UI/page for this action (API only,
+same starting point REQ-501-503 had before REQ-504/S-026 added a UI);
+bulk/multi-player refresh (single player per call only — REQ-503's
+"approve" bulk pattern is not extended here); a way to browse/search for
+which `Player` row to refresh (this REQ assumes the admin already knows the
+target `Player`'s id, e.g. from investigating a bug report — building a
+player-browsing admin view is a separate concern).
+
+**Test level:** Unit (per-field diff/no-op logic: a differing non-null
+fetched value overwrites, a null/empty fetched value never overwrites an
+existing value, an identical fetched value is a no-op for that field), API
+(404/409/503/401/403 error contract; a successful refresh persists only
+the fields that changed and returns a per-field changed/unchanged old/new
+result; Admin-policy-gated; registered and reachable in every environment
+including Production, unlike REQ-505/506)
+
+**REQ-514 – Admin UI for refreshing a Player from Wikidata**
+*(Status: Implemented, `PlayerRefreshSection.tsx`, wired into `AdminScreen.tsx`
+(design-document.md SCREEN-04). Verified locally: `npm run test` (45 files/
+657 tests incl. the 10 new for this section), `npx tsc -b`, `npm run lint`
+— all passed.)*
+> As an admin, I want to trigger REQ-513's Wikidata refresh for a specific
+> player and see what changed, from the admin page I already use for other
+> player-data corrections, so I don't have to script an HTTP request to
+> fix a bad or stale value I've found.
+
+**Scope note (UI over REQ-513, no new backend behavior):** this REQ adds no
+endpoint of its own — it is a UI surface over `POST
+/admin/players/{id}/refresh-from-wikidata` (REQ-513), the same relationship
+REQ-504 has to REQ-501-503/505/506. It follows REQ-504's own precedent of
+starting an admin capability as API-only and adding a UI once there's a
+concrete need to use it without scripting a request by hand.
+
+**Where it lives:** a new `PlayerRefreshSection` component
+(`frontend/src/admin/PlayerRefreshSection.tsx`), added to `AdminScreen.tsx`
+(SCREEN-04) as an independent section following the same
+own-fetch/own-state pattern every other section there already uses (e.g.
+`UnverifiedDataSection`, `UserDeletionSection`). Placed near
+`UnverifiedDataSection`, given both sections are about administering
+`Player`/`PlayerData` — exact ordering is a UI-polish detail, not part of
+this REQ's acceptance criteria. Unlike `RoundControlSection`/
+`UserDeletionSection`, this section is not gated by the non-Production-only
+`activeRound` probe: REQ-513's endpoint is registered and reachable in every
+environment including Production (matching REQ-501-503/509/510's own
+`AdminScreen.tsx` gating), so this section renders unconditionally, the
+same as `UnverifiedDataSection`/`AccountMetricsSection`.
+
+**Triggering a refresh:**
+- Given an admin viewing `AdminScreen.tsx`
+- When they type a `Player` id (a GUID, plain text input — no
+  player-search/browse UI is added by this REQ, matching REQ-513's own
+  "assumes the admin already knows the target Player's id" scope cut) and
+  submit
+- Then the UI calls REQ-513's endpoint for that id and, while the request is
+  in flight, disables the input/submit control and shows a pending state
+  (mirroring `UserDeletionSection`'s `deleting`/disabled-while-submitting
+  pattern) — there is no confirmation step before submitting, since this
+  action is non-destructive (it can only apply already-trusted Wikidata
+  data, per REQ-513's scope note) and does not need
+  `UserDeletionSection`'s "Yes, delete this user permanently" confirm/cancel
+  pattern
+
+**Displaying the result:**
+- Given a refresh request succeeds
+- Then the UI shows all four fields (`FullName`, `Position`, `BirthYear`,
+  `PhotoUrl`) from REQ-513's response, each clearly marked as changed or
+  unchanged — a changed field shows both its old and new value, an
+  unchanged field is visibly distinguished from a changed one (e.g. a
+  "Changed"/"Unchanged" label or equivalent styling using
+  `design-document.md` §2 tokens only) — this is not satisfied by a single
+  generic "success" message or by dumping the raw response as JSON, since
+  REQ-513's own stated purpose is giving the admin visibility into exactly
+  what changed
+- Given a refresh request succeeds and zero of the four fields changed
+- Then the UI still shows all four fields as unchanged (with their current
+  stored values, per REQ-513's response), not an empty or blank result
+
+**Error states:**
+- Given the submitted id does not correspond to an existing `Player`
+  (REQ-513's `404`)
+- Then the UI shows a message stating the player was not found, not a
+  generic error
+- Given the `Player` exists but has no `WikidataQid` (REQ-513's `409`)
+- Then the UI shows a message stating this player has no Wikidata id to
+  refresh from, not a generic error
+- Given the Wikidata lookup fails or times out (REQ-513's `503`)
+- Then the UI shows a message stating the lookup is unavailable and to try
+  again, not a generic error — mirroring how `describeError`/
+  `ApiError`-derived messaging is already used elsewhere in this directory
+  (e.g. `UserDeletionSection`) rather than introducing a second, separate
+  error-formatting convention
+- Given the request returns `401`
+- Then the same `onAuthError` re-authentication flow every other admin
+  section already uses on `401` fires (e.g. `UserDeletionSection`'s
+  `handleDeleteConfirmed`), not a section-local error message
+
+**Non-admin/guest access:**
+- Given a non-admin or guest reaches `AdminScreen.tsx` directly
+- Then this section is not reachable at all — it is part of the same
+  `rowsHidden || activeRoundHidden` page-wide access-denied gate every
+  other section on this screen already sits behind (REQ-504's
+  defense-in-depth), and there is no separate, standalone entry point to
+  it anywhere else in the UI
+
+**Out of scope for this REQ:** anything REQ-513 itself scoped out (bulk/
+multi-player refresh, a player-browsing/search UI, manual field editing);
+any change to REQ-513's backend behavior, response shape, or error
+contract; a new authorization policy (this reuses the existing "Admin"
+policy REQ-513's endpoint already enforces).
+
+**Test level:** Unit (Vitest/Testing Library, `PlayerRefreshSection.test.tsx`,
+matching this directory's existing `*.test.tsx` naming): submitting an id
+calls REQ-513's endpoint and shows a pending state; a successful response
+with at least one changed field renders all four fields with changed ones
+showing old/new values and unchanged ones visibly distinguished; a
+successful response with zero changed fields still renders all four fields
+as unchanged; each of 404/409/503 renders its own specific message (not a
+shared generic one); a 401 response triggers `onAuthError` rather than a
+section-local message; the section does not render (or is not reachable)
+for a non-admin/guest, consistent with `AdminScreen.test.tsx`'s existing
+access-denied coverage.
 
 ---
 

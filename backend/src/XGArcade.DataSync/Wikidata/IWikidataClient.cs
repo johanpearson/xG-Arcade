@@ -592,4 +592,49 @@ public interface IWikidataClient
     Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
         string playerName,
         CancellationToken cancellationToken = default);
+
+    // REQ-513 (GitHub issue #239): the admin single-player "refresh from
+    // Wikidata" action's own fetch — given a Player's ALREADY-STORED
+    // WikidataQid (never an admin-typed name/QID; contrast
+    // QueryPlayerCareerAndNationalityByNameAsync above, which starts from a
+    // free-text name because REQ-509/510 have no existing local Player row
+    // yet), re-fetches the same four properties `Player` already stores at
+    // creation time: label (FullName), P413 (Position), P569 (BirthYear),
+    // P18 (PhotoUrl). A VALUES-clause-over-one-QID query, the same bounded
+    // shape as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync (batch size of one is
+    // still within that "few-thousand-row, no ORDER BY/LIMIT/OFFSET"
+    // bounded-query class) — not the broad, unindexed population-wide scan
+    // QueryPlayerCareerAndNationalityByNameAsync's own by-NAME candidate
+    // search has to run (see that method's own doc comment/ADR-0062); this
+    // method already has an exact QID to look up, so it needs no candidate
+    // search at all.
+    //
+    // Never null: unlike QueryPlayerCareerAndNationalityByNameAsync (which
+    // returns null for "no footballer matches this name" — a genuine
+    // no-match outcome only possible when starting from a name), a VALUES
+    // clause over a single QID always yields exactly one result row
+    // regardless of whether that QID currently resolves to any bound
+    // property — so this always returns a (possibly all-null-fields)
+    // WikidataPlayerRefreshData rather than a nullable result. Each field is
+    // independently nullable — see WikidataPlayerRefreshData's own doc
+    // comment for why, and REQ-513's own "a null/missing Wikidata binding
+    // for a field never overwrites the existing Player value" acceptance
+    // criterion, which is the caller's (AdminEndpoints) job to apply, not
+    // this method's.
+    //
+    // Error contract — always throws WikidataQueryException on timeout/HTTP/
+    // parse failure, the same as every other by-QID/by-name lookup in this
+    // interface except the five swallow-to-[] intersection queries (see
+    // QueryCountryClubIntersectionAsync's own doc comment for why those
+    // five are the deliberate exception). REQ-513's own acceptance criteria
+    // are explicit that a failed refresh is reported to the admin as
+    // "lookup unavailable, try again" (503) — never silently treated as "no
+    // fields changed," the same ADR-0046 timeout-vs-no-match distinction
+    // REQ-509/510 already establish. The caller (AdminEndpoints) catches
+    // this and returns HTTP 503, the same shape
+    // AdminSuggestionEndpoints.cs's two /lookup endpoints already use.
+    Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
+        string wikidataQid,
+        CancellationToken cancellationToken = default);
 }

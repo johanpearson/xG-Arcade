@@ -63,6 +63,32 @@ public interface IPlayerRepository
     // not a Tier boundary).
     Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
         string normalizedFullName, CancellationToken cancellationToken = default);
+
+    // REQ-513 (GitHub issue #239): this pair is a DELIBERATE, NARROW
+    // EXCEPTION to this repository's own "Player fields are set only at
+    // creation, never touched again" rule (see
+    // GetOrCreatePlayersByWikidataQidAsync's own comment, and Player.cs's
+    // FullName/Position/BirthYear/PhotoUrl doc comments, all of which
+    // describe that set-once contract) — NOT a reversal of it. Every
+    // AUTOMATIC path (grid generation, cache warming, the guess-time live
+    // fallback, the position/birth-year/photo backfills) is completely
+    // unaffected and still never overwrites an existing Player value.
+    // GetPlayerForRefreshAsync/UpdatePlayerAsync exist ONLY for the
+    // explicit, single-player, ADMIN-TRIGGERED refresh action in
+    // AdminEndpoints (POST /admin/players/{id}/refresh-from-wikidata) — an
+    // admin re-applying already-trusted Wikidata source data against the
+    // player's own already-stored WikidataQid, never an admin-typed value
+    // (contrast REQ-501's PlayerOverride path).
+    //
+    // GetPlayerForRefreshAsync returns a TRACKED entity — unlike
+    // GetPlayerByIdAsync's AsNoTracking read — because its only caller needs
+    // to mutate the fields that differ from a fresh Wikidata fetch and then
+    // persist exactly that same entity instance via UpdatePlayerAsync
+    // (load-then-SaveChangesAsync, docs/coding-guidelines.md; never
+    // ExecuteUpdateAsync, which the InMemory test provider can't translate).
+    Task<Player?> GetPlayerForRefreshAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task UpdatePlayerAsync(Player player, CancellationToken cancellationToken = default);
 }
 
 // Bug-bundle fix (2026-07-27): one match's worth of the data needed to

@@ -37,7 +37,9 @@ public class Player
     // methods) and set once at player creation
     // (PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync, via
     // WikidataLookupService.PersistMatchesAsync), same as FullName never
-    // being re-synced on a later lookup. Deliberately a single scalar here,
+    // being re-synced on a later lookup — except the one narrow admin-
+    // triggered exception, see IPlayerRepository.GetPlayerForRefreshAsync.
+    // Deliberately a single scalar here,
     // NOT a PlayerAttribute row: PlayerAttribute's composite key
     // (PlayerId, AttributeType, AttributeValue) holds many rows per player
     // (one per career club/nationality/trophy) — a per-player photo has no
@@ -60,7 +62,9 @@ public class Player
     // resolve FullName/WikidataQid/PhotoUrl (WikidataClient's shared
     // BuildIntersectionQuery predicates) and set once at player creation
     // (PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync), same
-    // "never re-synced on a later lookup" rule as PhotoUrl above. A single
+    // "never re-synced on a later lookup" rule as PhotoUrl above — except
+    // the one narrow admin-triggered exception, see
+    // IPlayerRepository.GetPlayerForRefreshAsync. A single
     // scalar, not a PlayerAttribute row, for the same reason PhotoUrl isn't:
     // a player has at most one position, no natural multiplicity. Null
     // whenever Wikidata has no P413 statement for this player — never an
@@ -72,7 +76,9 @@ public class Player
     // same five queries already require for every matched player (ADR-0025's
     // male/born-1939-or-later pool filter) — extracting just the year, no
     // new SPARQL binding added for this field. Same set-once-at-creation
-    // rule as Position/PhotoUrl above. Deliberately not a full DateOnly/
+    // rule as Position/PhotoUrl above — except the one narrow admin-
+    // triggered exception, see IPlayerRepository.GetPlayerForRefreshAsync.
+    // Deliberately not a full DateOnly/
     // DateTime — REQ-1203's age/birth-year clue only ever needs the year.
     public int? BirthYear { get; set; }
 }

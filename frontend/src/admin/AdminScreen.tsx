@@ -7,6 +7,7 @@ import { PlayerSuggestionsEntry } from './PlayerSuggestionsEntry';
 import { IncidentReportsEntry } from './IncidentReportsEntry';
 import { AnnouncementBannerSection } from './AnnouncementBannerSection';
 import { UnverifiedDataSection } from './UnverifiedDataSection';
+import { PlayerRefreshSection } from './PlayerRefreshSection';
 import { AccountMetricsSection } from './AccountMetricsSection';
 import { XGPathCycleSection } from './XGPathCycleSection';
 import { RoundControlSection } from './RoundControlSection';
@@ -127,6 +128,18 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
         onAuthError={onAuthError}
         onRefresh={refreshUnverified}
       />
+
+      {/* REQ-513/514: own fetch/state (a single POST triggered by an
+          admin-typed Player id, no data loaded on mount), placed near
+          UnverifiedDataSection above since both sections are about
+          administering Player/PlayerData (REQ-514's own placement note) —
+          exact ordering is a UI-polish detail, not part of REQ-514's
+          acceptance criteria. Rendered unconditionally, same as
+          UnverifiedDataSection/AccountMetricsSection below — REQ-513's
+          endpoint is registered and reachable in every environment
+          including Production, not gated by the Non-Production-only
+          `activeRound` probe. */}
+      <PlayerRefreshSection accessToken={accessToken} onAuthError={onAuthError} />
 
       {/* REQ-507/508: unlike RoundControlSection/UserDeletionSection below,
           this section is NOT gated by `activeRound !== null` — that gate

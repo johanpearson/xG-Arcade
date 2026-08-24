@@ -10,6 +10,7 @@ import type {
   GuestAccountCountResponse,
   PendingSuggestion,
   PlayerOverride,
+  RefreshPlayerFromWikidataResponse,
   RemovePlayerDataResponse,
   UnverifiedPlayerData,
   WikidataPlayerLookupResult,
@@ -281,4 +282,24 @@ export async function commitPlayerSearch(
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+// REQ-513/514: a single-player, admin-triggered re-fetch of FullName/
+// Position/BirthYear/PhotoUrl from the player's own already-stored
+// WikidataQid — never a name-based search (that's lookupPlayerByName/
+// lookupSuggestionPlayer above). A 404 (no such Player), 409 (no
+// WikidataQid on record), and 503 (Wikidata lookup failed/timed out) are
+// all left to throw as an ApiError so the caller (PlayerRefreshSection) can
+// branch on `error.status` and render each as its own distinct, specific
+// message — same convention as lookupSuggestionPlayer/lookupPlayerByName
+// above, never a shared generic message for all three.
+export async function refreshPlayerFromWikidata(
+  accessToken: string,
+  playerId: string,
+): Promise<RefreshPlayerFromWikidataResponse> {
+  return apiRequest<RefreshPlayerFromWikidataResponse>(
+    accessToken,
+    `/admin/players/${playerId}/refresh-from-wikidata`,
+    { method: 'POST' },
+  );
 }
