@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using XGArcade.Storage.Supabase;
 using XGArcade.TestSupport;
@@ -89,5 +90,54 @@ public class SupabaseAvatarStorageTests
         var result = await storage.DeleteAsync("some-key");
 
         Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public async Task REQ722_DownloadAsync_ReturnsTheBytesAndContentType_OnASuccessfulResponse()
+    {
+        var imageBytes = Encoding.UTF8.GetBytes("fake-image-bytes");
+        var handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(imageBytes)
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("image/png") },
+            },
+        }));
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        var result = await storage.DownloadAsync("some-key");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Content, Is.EqualTo(imageBytes));
+        Assert.That(result.ContentType, Is.EqualTo("image/png"));
+    }
+
+    [Test]
+    public async Task REQ722_DownloadAsync_ReturnsNull_OnA404_RatherThanThrowing()
+    {
+        var handler = FakeHttpMessageHandler.ReturningStatus(HttpStatusCode.NotFound);
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        var result = await storage.DownloadAsync("unknown-key");
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ722_DownloadAsync_RequestsTheExpectedPath_BucketPlusStorageKey()
+    {
+        var handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(Encoding.UTF8.GetBytes("fake-image-bytes"))
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("image/jpeg") },
+            },
+        }));
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        await storage.DownloadAsync("some-key");
+
+        Assert.That(handler.LastRequest!.Method, Is.EqualTo(HttpMethod.Get));
+        Assert.That(handler.LastRequest.RequestUri!.AbsolutePath, Is.EqualTo("/storage/v1/object/avatars/some-key"));
     }
 }

@@ -139,6 +139,131 @@ public class AvatarSubmissionRepositoryTests
             "the Approved row and the new Pending row coexist");
     }
 
+    [Test]
+    public async Task REQ722_GetLatestRejectedAsync_ReturnsNull_WhenTheCallerHasNoRejectedRow()
+    {
+        var userId = Guid.NewGuid();
+        await _repository.CreateOrReplacePendingAsync(userId, "still-pending", DateTime.UtcNow);
+
+        var rejected = await _repository.GetLatestRejectedAsync(userId);
+
+        Assert.That(rejected, Is.Null);
+    }
+
+    // The one genuinely new piece of logic GetLatestRejectedAsync adds over
+    // GetPendingAsync/GetApprovedAsync above: OrderByDescending(CreatedAt) —
+    // a player can accumulate more than one Rejected row over time (each
+    // rejection is a permanent terminal record, never replaced/removed the
+    // way a superseded Pending row is), and "Seeing your own status" (REQ-722)
+    // means the most recent one.
+    [Test]
+    public async Task REQ722_GetLatestRejectedAsync_ReturnsTheMostRecentlyCreatedRejectedRow_WhenMoreThanOneExists()
+    {
+        var userId = Guid.NewGuid();
+        var olderRejected = new AvatarSubmission
+        {
+            Id = Guid.NewGuid(),
+            SubmittingUserId = userId,
+            ImageStorageKey = "older-rejected-image",
+            Status = AvatarSubmissionStatus.Rejected,
+            CreatedAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+            ResolvedByAdminId = Guid.NewGuid(),
+            ResolvedAt = new DateTime(2026, 7, 2, 0, 0, 0, DateTimeKind.Utc),
+        };
+        var newerRejected = new AvatarSubmission
+        {
+            Id = Guid.NewGuid(),
+            SubmittingUserId = userId,
+            ImageStorageKey = "newer-rejected-image",
+            Status = AvatarSubmissionStatus.Rejected,
+            CreatedAt = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            ResolvedByAdminId = Guid.NewGuid(),
+            ResolvedAt = new DateTime(2026, 8, 2, 0, 0, 0, DateTimeKind.Utc),
+        };
+        // Added out of chronological order, deliberately, so the assertion
+        // can't pass by coincidence of insertion order.
+        _dbContext.AvatarSubmissions.AddRange(newerRejected, olderRejected);
+        await _dbContext.SaveChangesAsync();
+
+        var rejected = await _repository.GetLatestRejectedAsync(userId);
+
+        Assert.That(rejected, Is.Not.Null);
+        Assert.That(rejected!.Id, Is.EqualTo(newerRejected.Id));
+        Assert.That(rejected.ImageStorageKey, Is.EqualTo("newer-rejected-image"));
+    }
+
+    [Test]
+    public async Task REQ722_GetLatestRejectedAsync_IgnoresAPendingOrApprovedRowForTheSamePlayer()
+    {
+        var userId = Guid.NewGuid();
+        var approvedSubmission = new AvatarSubmission
+        {
+            Id = Guid.NewGuid(),
+            SubmittingUserId = userId,
+            ImageStorageKey = "approved-image",
+            Status = AvatarSubmissionStatus.Approved,
+            CreatedAt = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            ResolvedByAdminId = Guid.NewGuid(),
+            ResolvedAt = new DateTime(2026, 8, 2, 0, 0, 0, DateTimeKind.Utc),
+        };
+        _dbContext.AvatarSubmissions.Add(approvedSubmission);
+        await _dbContext.SaveChangesAsync();
+        await _repository.CreateOrReplacePendingAsync(userId, "still-pending", new DateTime(2026, 8, 24, 0, 0, 0, DateTimeKind.Utc));
+
+        var rejected = await _repository.GetLatestRejectedAsync(userId);
+
+        Assert.That(rejected, Is.Null, "REQ-722: GetLatestRejectedAsync only matches Status == Rejected, never Pending/Approved");
+    }
+
+    [Test]
+    public async Task REQ722_GetByIdAsync_ReturnsTheRow_ForAKnownId_RegardlessOfStatus()
+    {
+        var pendingResult = await _repository.CreateOrReplacePendingAsync(Guid.NewGuid(), "pending-image", DateTime.UtcNow);
+        var approvedSubmission = new AvatarSubmission
+        {
+            Id = Guid.NewGuid(),
+            SubmittingUserId = Guid.NewGuid(),
+            ImageStorageKey = "approved-image",
+            Status = AvatarSubmissionStatus.Approved,
+            CreatedAt = DateTime.UtcNow,
+            ResolvedByAdminId = Guid.NewGuid(),
+            ResolvedAt = DateTime.UtcNow,
+        };
+        var rejectedSubmission = new AvatarSubmission
+        {
+            Id = Guid.NewGuid(),
+            SubmittingUserId = Guid.NewGuid(),
+            ImageStorageKey = "rejected-image",
+            Status = AvatarSubmissionStatus.Rejected,
+            CreatedAt = DateTime.UtcNow,
+            ResolvedByAdminId = Guid.NewGuid(),
+            ResolvedAt = DateTime.UtcNow,
+        };
+        _dbContext.AvatarSubmissions.AddRange(approvedSubmission, rejectedSubmission);
+        await _dbContext.SaveChangesAsync();
+
+        var foundPending = await _repository.GetByIdAsync(pendingResult.Submission.Id);
+        var foundApproved = await _repository.GetByIdAsync(approvedSubmission.Id);
+        var foundRejected = await _repository.GetByIdAsync(rejectedSubmission.Id);
+
+        Assert.That(foundPending, Is.Not.Null);
+        Assert.That(foundPending!.ImageStorageKey, Is.EqualTo("pending-image"));
+        Assert.That(foundApproved, Is.Not.Null);
+        Assert.That(foundApproved!.ImageStorageKey, Is.EqualTo("approved-image"));
+        Assert.That(foundRejected, Is.Not.Null);
+        Assert.That(foundRejected!.ImageStorageKey, Is.EqualTo("rejected-image"));
+    }
+
+    [Test]
+    public async Task REQ722_GetByIdAsync_ReturnsNull_ForAnUnknownId()
+    {
+        await _repository.CreateOrReplacePendingAsync(Guid.NewGuid(), "some-image", DateTime.UtcNow);
+
+        var found = await _repository.GetByIdAsync(Guid.NewGuid());
+
+        Assert.That(found, Is.Null);
+    }
+
     // REQ-517/S-181's own acceptance criterion ("Approving supersedes any
     // prior Approved row for that player... never leaving two Approved
     // rows") — S-181's actual admin approve endpoint doesn't exist yet, so
