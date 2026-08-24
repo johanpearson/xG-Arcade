@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.06"
+version: "1.07"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -537,7 +537,7 @@ Entities below are grouped by ownership: xG Grid game entities first,
 then xG Arcade (Core) entities. This grouping matters — see the note on
 `Round` and `Guess` below regarding ADR-0003.
 
-**Not yet fully documented here (S-180):** `AvatarSubmission`
+**Not yet fully documented here (S-180/S-181):** `AvatarSubmission`
 (`XGArcade.Data/Entities/AvatarSubmission.cs`, REQ-722/ADR-0087) — see
 that file directly for its full shape rather than a class listing below.
 REQ-722 leaves its "reasonable size/type limit" to this document
@@ -545,7 +545,11 @@ REQ-722 leaves its "reasonable size/type limit" to this document
 `AvatarEndpoints.MaxImageSizeBytes` is 5 MB, and
 `AvatarEndpoints.AllowedContentTypes` is `image/jpeg`, `image/png`,
 `image/webp` only — no `image/gif`, and no `image/svg+xml` in particular,
-since SVG can carry executable content.
+since SVG can carry executable content. REQ-517 (S-181) similarly leaves
+the admin-preview signed URL's expiry unspecified —
+`SupabaseAvatarStorage.PreviewUrlExpirySeconds` is 300 (5 minutes),
+generated fresh on every `GET /admin/avatar-submissions` request, never
+cached or persisted.
 
 
 

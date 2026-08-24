@@ -12,11 +12,11 @@ namespace XGArcade.Core.Storage;
 // existing (but not-to-be-copied-uncritically) placement directly inside
 // XGArcade.Core/Auth.
 //
-// Deliberately narrow: only what POST /users/me/avatar itself needs (store
-// a new image, best-effort delete a superseded one). Resolving a stored
-// key into something servable (a signed/public URL) is REQ-517/S-181's
-// future admin-approval-flow concern — its own addition to this interface
-// when that story is built, not pre-built speculatively here.
+// REQ-517/S-181 (ADR-0087's own "Follow-up" note, not a new structural
+// decision): GetPreviewUrlAsync below is that anticipated addition — the
+// admin moderation queue (XGArcade.Api.Admin.AdminAvatarEndpoints) needs a
+// way to resolve a Pending submission's ImageStorageKey into something an
+// admin's browser can actually load as an <img> src.
 public interface IAvatarStorage
 {
     // Uploads image content and returns the storage key (object path) it
@@ -34,4 +34,17 @@ public interface IAvatarStorage
     // contract XGArcade.Core.Auth.ISupabaseAuthClient.DeleteUserAsync uses
     // for REQ-710) — never throws for a not-found key.
     Task<bool> DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    // Resolves a previously-uploaded image's storage key into a servable
+    // URL an admin's browser can load directly — never a bare public URL
+    // (this bucket has no public read policy any more than it has a public
+    // write one, ADR-0087), always a short-lived signed URL generated
+    // server-side per request, same "backend mediates, frontend never
+    // talks to the provider directly" pattern the rest of this interface
+    // already establishes for upload/delete. Called once per row by
+    // AdminAvatarEndpoints' GET /admin/avatar-submissions (REQ-517), never
+    // batched or cached — a fresh signed URL every time the queue is
+    // fetched, since the queue is expected to be small and this avoids any
+    // "is this signed URL still valid" staleness question entirely.
+    Task<string> GetPreviewUrlAsync(string storageKey, CancellationToken cancellationToken = default);
 }

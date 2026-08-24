@@ -90,4 +90,40 @@ public class SupabaseAvatarStorageTests
 
         Assert.That(result, Is.False);
     }
+
+    // ---- REQ-517: GetPreviewUrlAsync ----------------------------------------
+
+    [Test]
+    public async Task REQ517_GetPreviewUrlAsync_PostsToTheSignEndpoint_WithAnExpiresInBody()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(
+            HttpStatusCode.OK, """{"signedURL":"/object/sign/avatars/some-key?token=abc123"}""");
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        var url = await storage.GetPreviewUrlAsync("some-key");
+
+        Assert.That(handler.LastRequest!.Method, Is.EqualTo(HttpMethod.Post));
+        Assert.That(handler.LastRequest.RequestUri!.AbsolutePath, Is.EqualTo("/storage/v1/object/sign/avatars/some-key"));
+        Assert.That(handler.LastRequestBody, Does.Contain("expiresIn"));
+        Assert.That(url, Is.EqualTo("https://example.supabase.co/storage/v1/object/sign/avatars/some-key?token=abc123"),
+            "REQ-517: the relative signedURL Supabase returns must be resolved to an absolute URL an admin's browser can load directly");
+    }
+
+    [Test]
+    public void REQ517_GetPreviewUrlAsync_Throws_WhenSupabaseRejectsTheSignRequest()
+    {
+        var handler = FakeHttpMessageHandler.ReturningStatus(HttpStatusCode.Forbidden);
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        Assert.ThrowsAsync<HttpRequestException>(async () => await storage.GetPreviewUrlAsync("some-key"));
+    }
+
+    [Test]
+    public void REQ517_GetPreviewUrlAsync_Throws_WhenTheResponseHasNoSignedUrl()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(HttpStatusCode.OK, """{}""");
+        var storage = new SupabaseAvatarStorage(BuildHttpClient(handler), new SupabaseAvatarBucketOptions("avatars"));
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await storage.GetPreviewUrlAsync("some-key"));
+    }
 }

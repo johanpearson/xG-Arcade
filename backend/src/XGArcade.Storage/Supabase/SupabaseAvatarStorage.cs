@@ -36,13 +36,24 @@ public record SupabaseAvatarBucketOptions(string BucketName);
 // sandbox (no network access to supabase.com here) — the request/response
 // shapes below follow Supabase Storage's publicly documented REST API
 // (object upload: POST /storage/v1/object/{bucket}/{path}; bulk delete:
-// DELETE /storage/v1/object/{bucket} with a JSON {"prefixes": [...]} body),
+// DELETE /storage/v1/object/{bucket} with a JSON {"prefixes": [...]} body;
+// signed URL: POST /storage/v1/object/sign/{bucket}/{path} with a JSON
+// {"expiresIn": <seconds>} body, returning {"signedURL": "/object/sign/
+// {bucket}/{path}?token=..."} — a path RELATIVE to /storage/v1, per
+// Supabase's documented createSignedUrl behavior, not an absolute URL),
 // the same "flagged for manual verification" caveat SupabaseAuthClient.cs
 // already carries throughout for its own unverified Supabase calls (e.g.
 // SignInAnonymouslyAsync/LinkEmailPasswordAsync). Flagged for manual
 // verification against a real Supabase project before this ships.
 public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOptions bucketOptions) : IAvatarStorage
 {
+    // REQ-517: short-lived on purpose — this is a per-request admin-queue
+    // preview, never persisted or reused across requests (IAvatarStorage.
+    // GetPreviewUrlAsync's own doc comment), so there's no reason to make
+    // it long-lived and every reason (least-privilege exposure of an
+    // otherwise-private bucket object) not to.
+    private const int PreviewUrlExpirySeconds = 300;
+
     public async Task<string> UploadAsync(Stream content, string contentType, CancellationToken cancellationToken = default)
     {
         // A fresh, unguessable object path per upload — never derived from
@@ -82,4 +93,28 @@ public class SupabaseAvatarStorage(HttpClient httpClient, SupabaseAvatarBucketOp
         // DeleteUserAsync's own belt-and-braces shape.
         return response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound;
     }
+
+    public async Task<string> GetPreviewUrlAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        var requestPath = $"storage/v1/object/sign/{bucketOptions.BucketName}/{storageKey}";
+
+        using var response = await httpClient.PostAsJsonAsync(
+            requestPath, new { expiresIn = PreviewUrlExpirySeconds }, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<SignedUrlResponse>(cancellationToken: cancellationToken);
+        if (string.IsNullOrEmpty(payload?.SignedURL))
+        {
+            throw new InvalidOperationException(
+                $"Supabase Storage did not return a signedURL when signing object {storageKey}.");
+        }
+
+        // payload.SignedURL is relative to /storage/v1 (see this class's
+        // own doc comment) — combined with the HttpClient's own BaseAddress
+        // (Supabase:Url, ServiceRegistration.cs) into the absolute URL an
+        // admin's browser can load directly.
+        return new Uri(httpClient.BaseAddress!, $"storage/v1{payload.SignedURL}").ToString();
+    }
+
+    private sealed record SignedUrlResponse(string? SignedURL);
 }
