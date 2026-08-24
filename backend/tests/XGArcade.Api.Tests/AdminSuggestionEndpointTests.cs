@@ -144,6 +144,21 @@ public class AdminSuggestionEndpointTests
         return suggestionId;
     }
 
+    // REQ-515: seeds a local Player row for a given WikidataQid, the same
+    // real-XGArcadeDbContext-backed-repository seeding shape every other
+    // Seed*Async helper in this file already uses (no fake IPlayerRepository
+    // — GetPlayerByWikidataQidAsync is a simple DB read with nothing external
+    // to fake).
+    private async Task<Guid> SeedPlayerWithWikidataQidAsync(string wikidataQid, string fullName)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var player = new Player { Id = Guid.NewGuid(), FullName = fullName, WikidataQid = wikidataQid };
+        dbContext.Players.Add(player);
+        await dbContext.SaveChangesAsync();
+        return player.Id;
+    }
+
     private HttpClient CreateAdminClient()
     {
         var client = _factory.CreateClient();
@@ -270,6 +285,69 @@ public class AdminSuggestionEndpointTests
         var response = await client.PostAsync($"/admin/suggestions/{Guid.NewGuid()}/lookup", null);
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // ---- REQ-515: ExistingPlayerId on the suggestion-scoped lookup ---------
+
+    [Test]
+    public async Task REQ515_Lookup_ReturnsExistingPlayerId_WhenLocalPlayerAlreadyExistsForFoundWikidataQid()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var existingPlayerId = await SeedPlayerWithWikidataQidAsync("Q188207", "Clarence Seedorf");
+        _fakeWikidataClient.SetCareerLookup("Clarence Seedorf", new WikidataPlayerCareerLookupResult(
+            "Q188207", "Clarence Seedorf", "Netherlands",
+            ["AC Milan"]));
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<WikidataPlayerLookupResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Found, Is.True);
+        Assert.That(body.ExistingPlayerId, Is.EqualTo(existingPlayerId),
+            "REQ-515: a matching local Player row for the found WikidataQid must surface its id");
+    }
+
+    [Test]
+    public async Task REQ515_Lookup_ReturnsNullExistingPlayerId_WhenFoundButNoLocalPlayerYet()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        _fakeWikidataClient.SetCareerLookup("Clarence Seedorf", new WikidataPlayerCareerLookupResult(
+            "Q188207", "Clarence Seedorf", "Netherlands",
+            ["AC Milan"]));
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<WikidataPlayerLookupResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Found, Is.True);
+        Assert.That(body.ExistingPlayerId, Is.Null,
+            "REQ-515: Found=true with no matching local Player row yet must leave ExistingPlayerId null");
+    }
+
+    [Test]
+    public async Task REQ515_Lookup_ReturnsNullExistingPlayerId_WhenNotFound()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        // Deliberately not calling SetCareerLookup — the fake's
+        // QueryPlayerCareerAndNationalityByNameAsync returns null for any
+        // name it wasn't configured for, exercising the Found=false path.
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<WikidataPlayerLookupResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Found, Is.False);
+        Assert.That(body.ExistingPlayerId, Is.Null,
+            "REQ-515: a Found=false response must leave ExistingPlayerId null, consistent with every other field");
     }
 
     // ---- REQ-509: commit ----------------------------------------------------
@@ -746,6 +824,63 @@ public class AdminSuggestionEndpointTests
         Assert.That(loggerProvider.Entries, Has.Some.Matches<(LogLevel Level, string Message)>(
             e => e.Level == LogLevel.Warning && e.Message.Contains("Robert Pires")),
             "the exception must be logged at Warning server-side, with the player name for later diagnosis");
+    }
+
+    // ---- REQ-515: ExistingPlayerId on the standalone search lookup ---------
+    // Same three cases as the suggestion-scoped lookup above, proving
+    // LookupPlayerAsync's shared behavior with no endpoint-specific
+    // special-casing (REQ-515's own acceptance criterion).
+
+    [Test]
+    public async Task REQ515_StandaloneLookup_ReturnsExistingPlayerId_WhenLocalPlayerAlreadyExistsForFoundWikidataQid()
+    {
+        var existingPlayerId = await SeedPlayerWithWikidataQidAsync("Qpires", "Robert Pires");
+        _fakeWikidataClient.SetCareerLookup("Robert Pires", new WikidataPlayerCareerLookupResult(
+            "Qpires", "Robert Pires", "France", ["Arsenal"]));
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<WikidataPlayerLookupResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Found, Is.True);
+        Assert.That(body.ExistingPlayerId, Is.EqualTo(existingPlayerId),
+            "REQ-515: a matching local Player row for the found WikidataQid must surface its id, identically on the standalone search endpoint");
+    }
+
+    [Test]
+    public async Task REQ515_StandaloneLookup_ReturnsNullExistingPlayerId_WhenFoundButNoLocalPlayerYet()
+    {
+        _fakeWikidataClient.SetCareerLookup("Robert Pires", new WikidataPlayerCareerLookupResult(
+            "Qpires", "Robert Pires", "France", ["Arsenal"]));
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<WikidataPlayerLookupResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Found, Is.True);
+        Assert.That(body.ExistingPlayerId, Is.Null,
+            "REQ-515: Found=true with no matching local Player row yet must leave ExistingPlayerId null, identically on the standalone search endpoint");
+    }
+
+    [Test]
+    public async Task REQ515_StandaloneLookup_ReturnsNullExistingPlayerId_WhenNotFound()
+    {
+        // Deliberately not calling SetCareerLookup — see the identical
+        // suggestion-scoped test above for why this exercises Found=false.
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<WikidataPlayerLookupResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Found, Is.False);
+        Assert.That(body.ExistingPlayerId, Is.Null,
+            "REQ-515: a Found=false response must leave ExistingPlayerId null, identically on the standalone search endpoint");
     }
 
     [Test]
