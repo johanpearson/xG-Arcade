@@ -1535,9 +1535,24 @@ section-hiding is unaffected: round control and user deletion still fully
 unmount (not merely hide behind an unselected tab) when
 `ASPNETCORE_ENVIRONMENT == Production`, nested inside their respective
 group exactly as before. No section below moved groups relative to its
-REQ; only the page's outer layout changed. A slot is reserved, not yet
-built, in the "Users" group for REQ-517's avatar-moderation section
-(S-183).
+REQ; only the page's outer layout changed. A slot was reserved
+in the "Users" group for REQ-517's avatar-moderation section; S-183 built
+it (2026-08-24), rendered directly below the account-metrics section
+(before user deletion). Each pending row is a plain-list item (reusing
+this screen's existing `admin-screen__row`/`admin-screen__list` treatment,
+no new list styling) showing a 64px rounded image preview (`8px` radius,
+matching every other rounded element already in this file; `object-fit:
+cover` so a non-square upload doesn't distort), the submitter's display
+name, and the submission time, with Approve/Reject buttons per row (the
+existing `admin-screen__inline-form-actions` side-by-side treatment, not
+the stacked confirm-step pattern `UserDeletionSection` uses, since these
+are routine per-row actions rather than a rare destructive one). No new
+token was introduced. The section's own heading carries the pending-count
+badge ("Avatar moderation (N)", omitting "(N)" at zero) — the same inline
+heading-badge convention `UnverifiedDataSection`'s "Unverified data (N)"
+heading already established one group over, chosen over REQ-512's
+button-label badge convention (`PlayerSuggestionsEntry`) because this
+section has no separate click-through screen to badge the button of.
 
 **S-026 status note:** this section previously described only the
 unverified-data review list as an aspirational mock (`[Approve]`/

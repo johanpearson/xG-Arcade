@@ -11,6 +11,7 @@ import { AccountMetricsSection } from './AccountMetricsSection';
 import { XGPathCycleSection } from './XGPathCycleSection';
 import { RoundControlSection } from './RoundControlSection';
 import { UserDeletionSection } from './UserDeletionSection';
+import { AvatarModerationSection } from './AvatarModerationSection';
 import './AdminScreen.css';
 
 export interface AdminScreenProps {
@@ -143,16 +144,20 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
 
       {/* Users: account metrics (REQ-507) — which composes REQ-508's
           guest-clear section internally, kept as-is rather than split out —
-          and user deletion (REQ-506, Production-gated below, same as
-          RoundControlSection's own gating in the Grid group). Leaves a
-          natural insertion point for REQ-517's avatar-moderation section
-          (S-183, a later story) — no avatar-moderation UI built yet. */}
+          user deletion (REQ-506, Production-gated below, same as
+          RoundControlSection's own gating in the Grid group), and avatar
+          moderation (REQ-517, S-183 — rendered unconditionally, see its own
+          render-site comment below). */}
       <div className="admin-screen__group" hidden={activeGroup !== 'users'}>
         <AccountMetricsSection accessToken={accessToken} onAuthError={onAuthError} />
 
         {activeRound !== null && <UserDeletionSection accessToken={accessToken} onAuthError={onAuthError} />}
-        {/* REQ-517 (S-183, not yet built): avatar-moderation section's
-            insertion point. */}
+
+        {/* REQ-517 (S-183): avatar moderation — always registered, in every
+            environment (including Production), unlike UserDeletionSection
+            above — so rendered unconditionally, not nested inside the
+            `activeRound !== null` (Non-Production-only) gate. */}
+        <AvatarModerationSection accessToken={accessToken} onAuthError={onAuthError} />
       </div>
 
       {/* Grid: unverified data review (REQ-503), player suggestions entry

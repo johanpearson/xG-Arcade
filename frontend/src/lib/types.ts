@@ -737,3 +737,22 @@ export interface CustomLeague {
   name: string;
   inviteCode: string;
 }
+
+// REQ-517 (S-183): a single pending avatar submission, as returned by
+// GET /admin/avatar-submissions — mirrors PendingAvatarSubmissionResponse
+// (backend/src/XGArcade.Api/Admin/AdminAvatarEndpoints.cs) exactly, oldest
+// first (the backend already sorts; this UI never re-sorts). imagePreviewUrl
+// is already a resolved, short-lived (5 min) signed URL — safe to use
+// directly as an <img src>, never a storage key to resolve client-side.
+// submittingUserDisplayName is null exactly when the submitting user has
+// since been deleted (REQ-710 anonymizes rather than hard-deletes), same
+// null-means-deleted convention PendingSuggestion.submittingUserDisplayName
+// above already establishes — render with the same "a deleted user"
+// fallback SuggestionsScreen's PendingSuggestionRow uses, for consistency.
+export interface PendingAvatarSubmission {
+  id: string;
+  imagePreviewUrl: string;
+  submittingUserId: string;
+  submittingUserDisplayName: string | null;
+  createdAt: string;
+}
