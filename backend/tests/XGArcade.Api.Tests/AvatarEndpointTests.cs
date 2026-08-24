@@ -28,6 +28,13 @@ public class AvatarEndpointTests
     {
         _fakeAvatarStorage.UploadedContentTypes.Clear();
         _fakeAvatarStorage.DeletedStorageKeys.Clear();
+        // NUnit's default fixture lifecycle shares one AvatarEndpointTests
+        // instance (and so one _fakeAvatarStorage) across every test in this
+        // class — without resetting this here, ThrowOnUpload set by
+        // REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails
+        // would stay true for every test that runs after it in the fixture,
+        // breaking their own seed uploads.
+        _fakeAvatarStorage.ThrowOnUpload = false;
 
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -200,6 +207,35 @@ public class AvatarEndpointTests
         var body = await response.Content.ReadFromJsonAsync<SubmitAvatarResponse>();
         Assert.That(body!.Status, Is.EqualTo(nameof(AvatarSubmissionStatus.Pending)));
         Assert.That(_fakeAvatarStorage.UploadedContentTypes, Is.EqualTo(new[] { contentType }));
+    }
+
+    // ---- REQ-722: storage failure (the "Failed to fetch" bug fix) --------
+
+    // Before this fix, AvatarStorage.UploadAsync's exception propagated
+    // unhandled out of the handler while `file`'s multipart body was still
+    // being read — the one call in this file with no try/catch, unlike the
+    // superseded-image DeleteAsync below it. Reproduced here via
+    // FakeAvatarStorage.ThrowOnUpload rather than a real network failure
+    // (this suite never touches real storage); the client-visible symptom
+    // this test guards against is documented on the handler's own catch
+    // block in AvatarEndpoints.cs.
+    [Test]
+    public async Task REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        _fakeAvatarStorage.ThrowOnUpload = true;
+
+        var response = await client.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/jpeg"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Avatar upload unavailable"));
+        // Never the raw exception message — this is a player-facing
+        // endpoint, not the /internal/* narrow exception
+        // docs/coding-guidelines.md carves out.
+        Assert.That(problem.Detail, Does.Not.Contain("Simulated"));
     }
 
     // REQ-722's own "Given a player already has a submission in Pending

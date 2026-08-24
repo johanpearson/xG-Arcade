@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-24 — `docs/requirements-document.md` (v2.08 → v2.09) — bug fix:
+  `POST /users/me/avatar` returned a generic browser "Failed to fetch" (no
+  diagnosable detail) whenever the Supabase Storage upload call failed,
+  because `AvatarEndpoints.cs`'s handler was the one place in that file
+  with no `try`/`catch` around an external-dependency call, letting the
+  exception propagate unhandled mid-request-body-read. Now caught and
+  returned as `Results.Problem` (503, "Avatar upload unavailable"),
+  matching the `GuessEndpoints.cs`/`InternalRoundEndpoints.cs`
+  external-dependency-failure convention. New test:
+  `REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails`
+  (REQ-722).
 - 2026-08-24 — `docs/requirements-document.md` (v2.06 → v2.07),
   `docs/backlog.md`, `docs/design-document.md` (v0.78 → v0.79) — S-183
   (Epic 25, frontend half of REQ-517) built and doc-synced: a new

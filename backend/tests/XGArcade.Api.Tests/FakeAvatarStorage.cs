@@ -24,8 +24,19 @@ internal sealed class FakeAvatarStorage : IAvatarStorage
     // touching real storage.
     public Dictionary<string, (byte[] Content, string ContentType)> StoredContent { get; } = [];
 
+    // REQ-722 (Avatar upload "Failed to fetch" fix): lets
+    // REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails
+    // simulate a real SupabaseAvatarStorage failure (unreachable, bucket
+    // misconfigured, timeout) without touching real storage — same
+    // "hand-rolled fake, not a mocking framework" constraint this class's
+    // own doc comment already carries.
+    public bool ThrowOnUpload { get; set; }
+
     public Task<string> UploadAsync(Stream content, string contentType, CancellationToken cancellationToken = default)
     {
+        if (ThrowOnUpload)
+            throw new HttpRequestException("Simulated Supabase Storage upload failure.");
+
         UploadedContentTypes.Add(contentType);
         var storageKey = Guid.NewGuid().ToString("N");
 

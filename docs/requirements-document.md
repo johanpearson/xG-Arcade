@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.08"
+version: "2.09"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -7678,6 +7678,26 @@ canonical for any future "another player's avatar" surface. Built without a
 local `dotnet` SDK in-sandbox; confirmed via a real CI run (`ci.yml`,
 `workflow_dispatch`) on the final commit — backend, frontend unit, and E2E
 jobs all green.
+
+**Status note (2026-08-24 — bug fix, "Failed to fetch" on upload):** a
+player-reported "Failed to fetch" on `POST /users/me/avatar` traced to the
+handler's `avatarStorage.UploadAsync` call being the only external-dependency
+call in `AvatarEndpoints.cs` with no `try`/`catch` — any failure calling
+Supabase Storage (unreachable, bucket misconfigured, timeout) threw
+unhandled while `file`'s multipart body was still being read, which Kestrel
+can turn into a bare connection reset instead of a clean HTTP response;
+`fetch()` in the browser surfaces that as an undiagnosable generic
+`TypeError: Failed to fetch` rather than a `throwApiError`-visible message.
+Fixed by wrapping the call and returning `Results.Problem` (503, "Avatar
+upload unavailable") on failure, matching this codebase's established
+external-dependency convention (`GuessEndpoints.cs`'s `LiveLookupUnavailable`
+case, `InternalRoundEndpoints.cs`'s round-generation catch blocks) — no
+acceptance criterion above changes, this only makes an already-implied
+failure mode ("the upload didn't succeed") fail with a message the player
+and `describeError`/`SettingsScreen.tsx` can actually surface instead of an
+opaque network error. Covered by
+`REQ722_Avatar_Post_ReturnsServiceUnavailable_WhenStorageUploadFails` in
+`AvatarEndpointTests.cs`.
 
 ---
 

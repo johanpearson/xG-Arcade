@@ -88,9 +88,36 @@ public static class AvatarEndpoints
             // REQ-722: no guest exclusion — see this file's own doc comment.
 
             string storageKey;
-            await using (var stream = file.OpenReadStream())
+            try
             {
+                await using var stream = file.OpenReadStream();
                 storageKey = await avatarStorage.UploadAsync(stream, file.ContentType, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // Unlike DeleteAsync's best-effort delete below, a failed
+                // upload has nothing to fall back to — this call was the
+                // only outstanding write, so any failure (Supabase Storage
+                // unreachable, misconfigured bucket, timeout) must abort the
+                // request with a client-appropriate summary rather than
+                // propagate unhandled. An unhandled exception here throws
+                // while `file`'s request body is still being read, which
+                // Kestrel can turn into a bare connection reset instead of a
+                // clean response — surfacing to the browser as a generic
+                // "Failed to fetch" with no diagnosable detail at all. Same
+                // "external dependency failure -> 503, please retry"
+                // convention as GuessEndpoints.cs's LiveLookupUnavailable
+                // case and InternalRoundEndpoints.cs's round-generation
+                // catch blocks; detail is a generic summary, never
+                // ex.Message, per docs/coding-guidelines.md's default rule
+                // (this is a player-facing endpoint, not the narrow
+                // /internal/* exception carved out there).
+                logger.LogError(ex, "Failed to upload avatar image to storage for user {UserId}.", user.Id);
+
+                return Results.Problem(
+                    title: "Avatar upload unavailable",
+                    detail: "We couldn't upload your image right now. Please try again.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
             var result = await avatarSubmissionRepository.CreateOrReplacePendingAsync(
