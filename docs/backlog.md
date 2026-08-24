@@ -8477,8 +8477,9 @@ submission (matching S-180's backend behavior).
 An avatar moderation section consuming S-181's endpoints, with image
 previews and approve/reject actions, slotted into S-177's "Users" admin
 nav group (the group reserved a slot for exactly this). Pending-count
-badge next to the group/section entry, mirroring REQ-512's existing
-suggestion-count badge pattern.
+badge next to the section's own heading (this section renders inline, not
+behind a separate nav entry), mirroring REQ-512's existing pending-count
+convention.
 *Accept:* UI tests cover the pending queue rendering with previews,
 approve/reject removing a row from the list, and the pending-count badge
 matching the number of rows returned; confirm the section renders inside

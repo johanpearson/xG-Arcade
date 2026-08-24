@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.05"
+version: "2.06"
 status: draft
 last_updated: 2026-08-24
 owner: Johan
@@ -5681,9 +5681,12 @@ unaffected by switching groups away from and back to it).
   policy every other admin endpoint in §4.5 already uses
 - Given at least one submission is pending
 - Then the admin page shows a pending-count badge next to this section's
-  nav entry, mirroring REQ-512's existing badge for player suggestions —
-  no separate REQ is needed for the badge itself, it reuses that pattern
-  directly
+  own heading — this section renders inline under REQ-516's "Users" group
+  rather than behind a separate click-through entry point, so the badge
+  sits on the heading itself rather than on a nav entry — mirroring
+  REQ-512's existing "(N)"/no-"(0)" pending-count convention for player
+  suggestions; no separate REQ is needed for the badge itself, it reuses
+  that convention directly
 
 **Out of scope for this REQ:** automated image content scanning (human
 review via this queue is the only moderation mechanism for v1); a reason/
