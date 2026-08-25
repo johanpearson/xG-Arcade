@@ -135,6 +135,88 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
   });
 
+  // REQ-722/S-184: the new profile header — own avatar + plain-text display
+  // name, first thing under the "Settings" heading.
+  describe('profile header (REQ-722)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('REQ722_SettingsScreen_RendersProfileHeader_WithCurrentAvatarAndDisplayName', async () => {
+      vi.stubGlobal('URL', {
+        ...URL,
+        createObjectURL: vi.fn(() => 'blob:mock-preview-url'),
+        revokeObjectURL: vi.fn(),
+      });
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar/')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            blob: () => Promise.resolve(new Blob(['fake-image'], { type: 'image/png' })),
+          } as unknown as Response);
+        }
+        if (url.includes('/users/me/avatar')) {
+          return jsonResponse({
+            pending: null,
+            rejected: null,
+            approved: { id: 'a1', createdAt: '2026-08-01T00:00:00Z', imageUrl: '/users/me/avatar/a1/image' },
+          });
+        }
+        return jsonResponse({});
+      });
+
+      renderSettingsScreen({ displayName: 'Robin' }, fetchMock);
+
+      const header = screen.getByTestId('settings-profile-header');
+      expect(header).toHaveTextContent('Robin');
+      expect(await screen.findByTestId('settings-profile-avatar-image')).toHaveAttribute(
+        'src',
+        'blob:mock-preview-url',
+      );
+      expect(screen.queryByTestId('settings-profile-avatar-placeholder')).not.toBeInTheDocument();
+    });
+
+    it('REQ722_SettingsScreen_RendersPlaceholderInProfileHeader_WhenNoApprovedAvatarExists', async () => {
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) =>
+        String(input).includes('/users/me/avatar')
+          ? jsonResponse({ pending: null, rejected: null, approved: null })
+          : jsonResponse({}),
+      );
+
+      renderSettingsScreen({ displayName: 'Robin' }, fetchMock);
+
+      expect(await screen.findByTestId('settings-profile-avatar-placeholder')).toBeInTheDocument();
+      expect(screen.queryByTestId('settings-profile-avatar-image')).not.toBeInTheDocument();
+    });
+
+    it('REQ722_SettingsScreen_ProfileHeaderName_IsPlainTextNotAnInput', () => {
+      renderSettingsScreen({ displayName: 'Robin' });
+
+      const header = screen.getByTestId('settings-profile-header');
+      // The name in the profile header is plain text, not a form control —
+      // the ONLY "Display name" input on the page remains the existing edit
+      // form further down, untouched by this addition.
+      expect(header.querySelector('input')).toBeNull();
+      expect(screen.getAllByLabelText('Display name')).toHaveLength(1);
+    });
+
+    it('REQ722_SettingsScreen_ProfileHeader_IsFirstSectionUnderSettingsHeading', () => {
+      renderSettingsScreen({ displayName: 'Robin', isGuest: true, isAdmin: true });
+
+      const heading = screen.getByRole('heading', { name: 'Settings' });
+      const header = screen.getByTestId('settings-profile-header');
+      // heading.compareDocumentPosition(header) with the
+      // DOCUMENT_POSITION_FOLLOWING bit set means header comes after
+      // heading — true either way here; the real assertion is that no
+      // OTHER section (guest-claim, stats link, admin link, etc.) comes
+      // between them.
+      expect(heading.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(heading.nextElementSibling).toBe(header);
+    });
+  });
+
   // REQ-411 (S-179): the own-stats entry point — unconditional (not
   // isAdmin/isGuest-gated), unlike the "Admin" link above.
   it('REQ-411: renders a "My stats" link that calls onOpenStats when clicked, for both a guest and a claimed, non-admin account', async () => {

@@ -24,15 +24,19 @@ public interface IAvatarSubmissionRepository
     // admin queue view, neither built by this story.
     Task<AvatarSubmission?> GetPendingAsync(Guid submittingUserId, CancellationToken cancellationToken = default);
 
-    // REQ-722: the caller's own current Approved row, if any — "a prior
-    // Approved avatar stays visible to other players until the new
-    // submission is itself approved" (REQ-722's "Replacing an approved
-    // avatar" criterion). Not read by POST /users/me/avatar itself (this
-    // endpoint never touches an Approved row at all), but needed by
+    // REQ-722: the current Approved row for the given submittingUserId, if
+    // any — "a prior Approved avatar stays visible to other players until
+    // the new submission is itself approved" (REQ-722's "Replacing an
+    // approved avatar" criterion). Not read by POST /users/me/avatar itself
+    // (this endpoint never touches an Approved row at all), but needed by
     // S-181's future approve action (to know which prior Approved row, if
-    // any, a fresh approval supersedes) and by a future "see your own
-    // avatar status" read — added here now so neither of those stories
-    // needs to add this lookup itself.
+    // any, a fresh approval supersedes), by GET /users/me/avatar's "see
+    // your own avatar status" read, and — as of REQ-722/S-184 — by GET
+    // /users/{userId}/avatar/image (AvatarEndpoints.cs), which calls this
+    // with an arbitrary TARGET userId, not just the caller's own. Always
+    // generic on submittingUserId; "caller's own" was never enforced by
+    // this method itself, only by which id a given call site happens to
+    // pass in.
     Task<AvatarSubmission?> GetApprovedAsync(Guid submittingUserId, CancellationToken cancellationToken = default);
 
     // REQ-722 (S-182): the caller's own most-recently-created Rejected row,

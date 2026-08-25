@@ -8561,3 +8561,79 @@ per CLAUDE.md's legal-docs rule):** update `docs/legal/*.md` — user-
 uploaded images are a new category of collected data, and the privacy
 policy draft must reflect it before this ships to anyone but the product
 owner.
+
+**S-184 · Other-players avatar view + Settings profile header (REQ-722)**
+Close REQ-722's last unbuilt criterion, "No avatar / rejected state, as
+seen by other players" — flagged in S-182's own status note as having "no
+assigned story yet." Add a read surface that renders another player's
+`Approved` avatar, or a placeholder when none exists, and never a
+`Pending`/`Rejected` image — wired into `UserStatsScreen.tsx` (S-179),
+which today renders no avatar at all. Also add a small profile header to
+`SettingsScreen.tsx` (avatar + display name, self-view) since Settings
+already resolves the caller's own approved-avatar image for the existing
+"My avatar" section.
+*Accept:* API tests cover 200-with-image-bytes for a caller requesting a
+*different* user's avatar, 404 when the target has no `Approved` avatar
+(never uploaded, or only `Pending`/`Rejected`), and 401 unauthenticated. UI
+tests cover the placeholder rendering when no avatar exists and that the
+component works identically for both a viewer's own id and another
+player's.
+*Deps:* S-180, S-181, S-182 (needs `AvatarSubmission`, the approval flow,
+and the existing avatar object-URL plumbing to exist).
+
+*Built as (2026-08-25):* `GET /users/{userId}/avatar/image`
+(`XGArcade.Api.Avatars.AvatarEndpoints`) — the deliberate opposite of the
+owner-only `GET /users/me/avatar/{id}/image`: the caller is only verified
+as logged-in (401 if not, via the existing `ResolveCurrentUserAsync`
+helper), never compared against `{userId}`. Reuses
+`IAvatarSubmissionRepository.GetApprovedAsync`/`IAvatarStorage.DownloadAsync`
+as-is — no new repository or storage logic, since both were already
+generic on `submittingUserId` (only `GetApprovedAsync`'s doc comment was
+stale, describing it as "the caller's own"; corrected in the same story).
+Collapses "never uploaded," "only `Pending`," and "only `Rejected`" into
+the same 404, matching REQ-722's own single no-avatar-state framing. 3 new
+backend tests in `AvatarEndpointTests.cs` (200 cross-user fetch, 404
+no-approved-avatar covering both the no-submissions and
+rejected-only cases, 401 unauthenticated).
+
+Frontend: a new shared `PlayerAvatar.tsx`/`.css`
+(`frontend/src/components/`) — a small circular thumbnail for *any*
+`userId` (own or another player's, no own-vs-other concept, mirroring
+`UserStatsScreen.tsx`'s own pattern), fetching via a new
+`fetchUserAvatarImageObjectUrl` (`lib/avatar.ts`) and degrading quietly to
+a placeholder silhouette on any failure (a 404, or any other error) — no
+visible error, no broken-image icon. Wired into `UserStatsScreen.tsx`'s
+header next to the "{DisplayName}'s stats" heading, closing REQ-722's last
+open criterion. A new profile header on `SettingsScreen.tsx` (first thing
+under the "Settings" heading, above the guest-claim section) shows the
+account's own avatar and display name as plain text — not editable, the
+existing "Display name" section stays the only place that changes —
+reusing the `approvedImageUrl` this screen already resolves for its
+existing "Currently visible to other players" status row, rather than
+mounting `PlayerAvatar` and re-fetching the same image a second time
+through the cross-user endpoint.
+
+Quality-review fix pass (same iteration): the placeholder silhouette SVG
+had been copy-pasted a third time (`CellState.tsx`'s pre-existing
+`CellPlaceholderAvatar`, REQ-216; `PlayerAvatar.tsx`; `SettingsScreen.tsx`'s
+new `ProfileAvatarPreview`) — extracted into a shared
+`PersonSilhouetteIcon.tsx` (`frontend/src/components/`) per
+`docs/coding-guidelines.md`'s rule-of-three, each call site keeping its own
+wrapper/className/sizing/`aria-hidden` treatment unchanged.
+`SettingsScreen.css`'s new `.settings-screen__profile-name` 16px font-size
+was flagged and resolved as reuse of this same file's existing 16px
+precedent, not a fabricated token — this codebase has no font-size/
+type-scale token in `design-document.md` §2 to swap to instead.
+`IAvatarSubmissionRepository.GetApprovedAsync`'s stale "caller's own" doc
+comment corrected to generic. `docs/design-document.md` updated in the same
+iteration (§2 placeholder-shape reuse note, SCREEN-13 and SCREEN-08
+sections, v0.79 → v0.80). 711/711 frontend tests passing (verified
+in-sandbox with a real `npm run test` run); `npx tsc -b` and `npm run lint`
+both clean. Backend built without a local `dotnet` SDK in-sandbox —
+hand-traced against `AvatarEndpointTests.cs`'s existing patterns, not
+locally run; a CI verification run is still needed before this is
+considered fully done. `architecture-reviewer`: PASS, no ADR needed — this
+is the exact follow-up ADR-0087's own "Consequences" section already
+anticipated (COMP-14 already names `DownloadAsync` as the canonical shape
+for "any future avatar-viewing surface," explicitly citing this case).
+`quality-architect`: PASS, after the fix pass above.

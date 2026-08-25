@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
 import { fetchUserStats } from '../lib/userStats';
+import { PlayerAvatar } from '../components/PlayerAvatar';
 import type { UserStatsResponse } from '../lib/types';
 // REQ-410/ADR-0043 (S-087): the same client-side `GameKey` constants
 // GameSelectScreen/HeaderNav/LeaderboardScreen already use — no new/
@@ -113,12 +114,20 @@ export function UserStatsScreen({ accessToken, userId, displayName, onAuthError,
         <button type="button" className="user-stats-screen__back" onClick={onBack}>
           Back
         </button>
-        {/* REQ-411: the viewed player's DisplayName in the heading, so it's
-            unambiguous whose stats are on screen whether this is "own
-            stats" or "another player's" — same heading either way, no
-            separate "Your stats" copy branch (this screen has no concept of
-            "is this me" beyond the userId/displayName props it was handed). */}
-        <h2 className="user-stats-screen__title">{displayName}&apos;s stats</h2>
+        {/* REQ-722/S-184: the viewed player's avatar, alongside the heading —
+            SCREEN-13's own status note (design-document.md) records this
+            addition. Same component, same read-only "no own-vs-other
+            concept" rule as the heading text next to it: renders identically
+            whether userId is the viewer's own account or another player's. */}
+        <div className="user-stats-screen__identity">
+          <PlayerAvatar accessToken={accessToken} userId={userId} displayName={displayName} />
+          {/* REQ-411: the viewed player's DisplayName in the heading, so it's
+              unambiguous whose stats are on screen whether this is "own
+              stats" or "another player's" — same heading either way, no
+              separate "Your stats" copy branch (this screen has no concept of
+              "is this me" beyond the userId/displayName props it was handed). */}
+          <h2 className="user-stats-screen__title">{displayName}&apos;s stats</h2>
+        </div>
       </div>
       {/* ADR-0021/design-document.md SCREEN-03: same "lowest total wins"
           framing the leaderboard already leads with, under the header —

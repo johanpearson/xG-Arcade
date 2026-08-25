@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.07"
+version: "1.08"
 status: draft
-last_updated: 2026-08-24
+last_updated: 2026-08-25
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -425,7 +425,17 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      /grid and /path; relocated here from
                                      /grid specifically so xG Path's own
                                      module never imports from a peer game
-                                     module's directory
+                                     module's directory. S-184 (REQ-722,
+                                     2026-08-25) added PlayerAvatar.tsx/.css
+                                     (a small circular avatar thumbnail for
+                                     any userId, own or another player's,
+                                     backed by the new GET
+                                     /users/{userId}/avatar/image) and
+                                     PersonSilhouetteIcon.tsx (the shared
+                                     placeholder-avatar SVG, extracted from
+                                     /grid's CellState.tsx once PlayerAvatar
+                                     and SettingsScreen's new profile header
+                                     made it a third copy)
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
                                      Tier 0 slice — added S-011, global league
                                      only). S-121 split it (was 1,129 lines,
@@ -470,7 +480,15 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      unconditional "My stats" link/section
                                      (not admin-gated) opening /users'
                                      UserStatsScreen scoped to the caller's
-                                     own id
+                                     own id. S-184 (REQ-722, 2026-08-25)
+                                     added a profile header (own avatar +
+                                     plain-text display name) as the first
+                                     thing under the "Settings" heading,
+                                     rendered by a local ProfileAvatarPreview
+                                     helper that reuses this screen's
+                                     already-fetched approved-avatar object
+                                     URL rather than mounting
+                                     /components' PlayerAvatar a second time
     /users                         -> UserStatsScreen (SCREEN-13, REQ-411,
                                      S-179, 2026-08-24) — one read-only
                                      component for both "own stats" and
@@ -480,6 +498,11 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      /leaderboard's XG_GRID_GAME_KEY/
                                      XG_PATH_GAME_KEY tab pattern for the
                                      per-GameKey scoping REQ-411 requires.
+                                     S-184 (REQ-722, 2026-08-25) added
+                                     /components' PlayerAvatar next to the
+                                     "{DisplayName}'s stats" heading — the
+                                     "as seen by other players" avatar
+                                     surface REQ-722 had left unbuilt.
                                      Reached from /settings' "My stats" link
                                      (own stats) or a leaderboard row's
                                      display name (another player's,

@@ -31,6 +31,50 @@
   background: var(--color-surface-card);
 }
 
+/* REQ-722/S-184: the profile header — avatar + plain-text display name,
+   first thing under the "Settings" heading. Same
+   .settings-screen__section bordered-row shell every other section here
+   already uses, laid out as a row rather than that shell's usual stacked
+   content. */
+.settings-screen__section--profile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+/* Reuses PlayerAvatar.css's .player-avatar base rule (border-radius/
+   object-fit/border/background) — this class only supplies the fixed
+   64x64px dimension PlayerAvatar.tsx itself sets inline via its `size`
+   prop, since this preview isn't going through that component (see
+   ProfileAvatarPreview's own comment in SettingsScreen.tsx). Same 64px
+   value SCREEN-08's own "New layout value" note already documents for
+   .settings-screen__avatar-preview below — not a new dimension. */
+.settings-screen__profile-avatar {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+
+/* 16px, not a new value: docs/design-document.md §2 has no dedicated
+   font-size/type-scale token (only typeface roles — Display/Body/Data — and
+   color/spacing/animation tokens; every font-size in this codebase,
+   including every other rule in this file, is a literal px value reused by
+   precedent rather than backed by a CSS custom property). This specific
+   value already exists in this same file (.settings-screen__field input's
+   own font-size, above) — reused verbatim here rather than picking a new
+   number, same "New layout value... reused verbatim" convention this
+   screen's own avatar-dimension comments already use. Flagged back to
+   quality-architect/architecture-reviewer rather than inventing a
+   `--font-size-*` token that doesn't otherwise exist in this design
+   system. */
+.settings-screen__profile-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
 .settings-screen__admin-link {
   width: 100%;
   min-height: var(--touch-target-min);

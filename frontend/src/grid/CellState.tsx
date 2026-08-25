@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import { CategoryGlyph } from '../components/CategoryLabel';
+import { PersonSilhouetteIcon } from '../components/PersonSilhouetteIcon';
 import './CellState.css';
 
 export type RoundStatus = 'active' | 'closed';
@@ -466,13 +467,18 @@ function CellPhoto({ src, onError }: { src: string; onError: () => void }) {
 // above), the SVG-appropriate equivalent of CellPhoto's `alt=""` pairing.
 // The cell's own accessible name/text (GridCell.tsx's aria-label, or the
 // name rendered alongside this graphic) is unaffected either way.
+//
+// The `<svg>` glyph itself is PersonSilhouetteIcon (../components/) — this
+// was the original, standalone copy of that markup before REQ-722/S-184
+// added two more (PlayerAvatar.tsx, SettingsScreen.tsx's
+// ProfileAvatarPreview) and the third copy triggered extraction
+// (docs/coding-guidelines.md's Code health budget rule-of-three). This
+// wrapper `div`, its className, and its `aria-hidden` treatment are
+// unchanged by that extraction — only the inline SVG body moved.
 function CellPlaceholderAvatar() {
   return (
     <div className="cell-state__placeholder-avatar-slot" aria-hidden="true">
-      <svg className="cell-state__placeholder-avatar" viewBox="0 0 24 24" focusable="false">
-        <circle cx="12" cy="8" r="4" fill="currentColor" />
-        <path d="M4 21c0-4.42 3.58-8 8-8s8 3.58 8 8" fill="currentColor" />
-      </svg>
+      <PersonSilhouetteIcon className="cell-state__placeholder-avatar" />
     </div>
   );
 }

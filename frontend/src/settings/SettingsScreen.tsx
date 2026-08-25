@@ -3,10 +3,20 @@ import { ApiError, describeError } from '../lib/apiClient';
 import { claimAccount, updateDisplayName } from '../lib/auth';
 import { fetchAvatarImageObjectUrl, fetchAvatarStatus, submitAvatar } from '../lib/avatar';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
+import { PersonSilhouetteIcon } from '../components/PersonSilhouetteIcon';
 import type { AvatarStatusResponse, CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';
 import { GUEST_EXPIRY_COPY } from '../lib/guestExpiryCopy';
 import './SettingsScreen.css';
+// REQ-722/S-184: reused for the new profile header's avatar preview
+// (ProfileAvatarPreview below) — same classnames PlayerAvatar.tsx itself
+// renders with (.player-avatar/.player-avatar--placeholder/
+// .player-avatar__placeholder-svg), so this self-view's avatar looks
+// identical to PlayerAvatar's own rendering without actually mounting
+// PlayerAvatar (which would refetch via the cross-user
+// GET /users/{userId}/avatar/image endpoint this screen doesn't need — see
+// ProfileAvatarPreview's own comment below for why).
+import '../components/PlayerAvatar.css';
 
 // REQ-716: the toggle's own option list — order matches the three-state
 // spec exactly (System first/default, per ADR-0034).
@@ -124,6 +134,51 @@ function useAvatarObjectUrl(accessToken: string, imageUrl: string | null): strin
   }, [accessToken, imageUrl]);
 
   return objectUrl;
+}
+
+// REQ-722/S-184: the new profile header's avatar (rendered by
+// SettingsScreen below, first thing under the "Settings" heading). This is a
+// self-view — the account's OWN current avatar — so it reuses the
+// `approvedImageUrl` this screen already resolves via useAvatarObjectUrl
+// above for the "Currently visible to other players" status row further
+// down, rather than mounting `PlayerAvatar` (frontend/src/components/) and
+// re-fetching the same image a second time through the cross-user
+// GET /users/{userId}/avatar/image endpoint — this screen's own
+// already-fetched approved-image data is authoritative for "my own current
+// avatar." Shares PlayerAvatar.css's classnames so the rendered result — a
+// 64×64px circle, bordered/backed the same way, or the same placeholder
+// silhouette when there's no approved avatar yet — is visually identical to
+// what PlayerAvatar itself would render, without the duplicate fetch.
+// Decorative only (`alt=""`/`aria-hidden`), same pairing rule §6 requires —
+// the plain-text display name rendered alongside it (SettingsScreen's own
+// render below) carries the accessible identity.
+function ProfileAvatarPreview({ imageUrl }: { imageUrl: string | null }) {
+  if (!imageUrl) {
+    return (
+      <div
+        className="player-avatar player-avatar--placeholder settings-screen__profile-avatar"
+        data-testid="settings-profile-avatar-placeholder"
+        aria-hidden="true"
+      >
+        {/* Same glyph as PlayerAvatar.tsx's own placeholder — the shared
+            PersonSilhouetteIcon (../components/), extracted once this became
+            the third copy of the same inline SVG markup
+            (docs/coding-guidelines.md's Code health budget rule-of-three).
+            This wrapper's own className/testid/aria-hidden are unchanged. */}
+        <PersonSilhouetteIcon className="player-avatar__placeholder-svg" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      className="player-avatar settings-screen__profile-avatar"
+      src={imageUrl}
+      alt=""
+      aria-hidden="true"
+      data-testid="settings-profile-avatar-image"
+    />
+  );
 }
 
 // SCREEN-08 (design-document.md §3), REQ-713: the single "Settings" nav
@@ -377,6 +432,20 @@ export function SettingsScreen({
   return (
     <div className="settings-screen">
       <h2 className="settings-screen__title">Settings</h2>
+
+      {/* REQ-722/S-184: the profile header — the account's own current
+          avatar plus its current display name, as PLAIN TEXT (not an
+          editable field; the "Display name" section further down stays the
+          actual edit form, unchanged). Placed first, directly under the
+          "Settings" heading and above every other section (including the
+          guest-claim call-to-action below it), since this is purely
+          identity context for the rest of the screen, not an action of its
+          own. See design-document.md's SCREEN-08 section for the full
+          spec. */}
+      <section className="settings-screen__section settings-screen__section--profile" data-testid="settings-profile-header">
+        <ProfileAvatarPreview imageUrl={approvedImageUrl} />
+        <span className="settings-screen__profile-name">{displayName}</span>
+      </section>
 
       {/* REQ-717/ADR-0036: the claim/upgrade section — rendered only while
           the account is still a guest (isGuest), placed first since it's

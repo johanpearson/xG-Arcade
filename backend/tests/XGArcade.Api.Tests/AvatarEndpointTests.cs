@@ -488,4 +488,92 @@ public class AvatarEndpointTests
 
         Assert.That(imageResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
+
+    // ---- REQ-722: GET /users/{userId}/avatar/image — visible to other
+    // players, the "No avatar / rejected state, as seen by other players"
+    // criterion that S-182's own status note flagged as unbuilt. -----------
+
+    [Test]
+    public async Task REQ722_GetUserAvatarImage_Returns200AndImageBytes_WhenTargetUserHasApprovedAvatar_RequestedByDifferentUser()
+    {
+        var targetAuthProviderUserId = Guid.NewGuid();
+        var targetUserId = await SeedUserAsync(targetAuthProviderUserId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.AvatarSubmissions.Add(new AvatarSubmission
+            {
+                Id = Guid.NewGuid(),
+                SubmittingUserId = targetUserId,
+                ImageStorageKey = await _fakeAvatarStorage.UploadAsync(new MemoryStream(SmallImageBytes()), "image/png"),
+                Status = AvatarSubmissionStatus.Approved,
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
+                ResolvedByAdminId = Guid.NewGuid(),
+                ResolvedAt = DateTime.UtcNow.AddDays(-1),
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var requestingAuthProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(requestingAuthProviderUserId);
+        var requestingClient = CreateAuthenticatedClient(requestingAuthProviderUserId);
+
+        var response = await requestingClient.GetAsync($"/users/{targetUserId}/avatar/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("image/png"));
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        Assert.That(bytes, Is.EqualTo(SmallImageBytes()));
+    }
+
+    [Test]
+    public async Task REQ722_GetUserAvatarImage_Returns404_WhenTargetUserHasNoApprovedAvatar()
+    {
+        // Covers both "no submissions at all" (first user below) and "only
+        // a Pending/Rejected submission exists" (second user below) as one
+        // test — REQ-722 treats these as the same unified no-avatar state,
+        // and GetApprovedAsync's own query already only ever returns
+        // Approved rows, so there is nothing distinct to assert between the
+        // two causes beyond both reaching the same 404.
+        var requestingAuthProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(requestingAuthProviderUserId);
+        var requestingClient = CreateAuthenticatedClient(requestingAuthProviderUserId);
+
+        var noSubmissionsAuthProviderUserId = Guid.NewGuid();
+        var noSubmissionsUserId = await SeedUserAsync(noSubmissionsAuthProviderUserId);
+
+        var noSubmissionsResponse = await requestingClient.GetAsync($"/users/{noSubmissionsUserId}/avatar/image");
+        Assert.That(noSubmissionsResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+
+        var rejectedOnlyAuthProviderUserId = Guid.NewGuid();
+        var rejectedOnlyUserId = await SeedUserAsync(rejectedOnlyAuthProviderUserId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.AvatarSubmissions.Add(new AvatarSubmission
+            {
+                Id = Guid.NewGuid(),
+                SubmittingUserId = rejectedOnlyUserId,
+                ImageStorageKey = "rejected-only-key",
+                Status = AvatarSubmissionStatus.Rejected,
+                CreatedAt = DateTime.UtcNow,
+                ResolvedByAdminId = Guid.NewGuid(),
+                ResolvedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var rejectedOnlyResponse = await requestingClient.GetAsync($"/users/{rejectedOnlyUserId}/avatar/image");
+        Assert.That(rejectedOnlyResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    [Test]
+    public async Task REQ722_GetUserAvatarImage_Returns401_WhenCallerUnauthenticated()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/users/{Guid.NewGuid()}/avatar/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
 }
