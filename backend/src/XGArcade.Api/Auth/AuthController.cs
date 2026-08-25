@@ -484,6 +484,23 @@ public class AuthController(
             return NotFound();
         }
 
+        // REQ-714's 2026-08-25 "Guest exclusion" criterion — reverses this
+        // endpoint's original unrestricted scope: a guest (IsGuest = true)
+        // must claim their account (POST /auth/claim, REQ-717) before
+        // editing their display name. Enforced here server-side regardless
+        // of what the client sends, the same plain IsGuest gate REQ-215/
+        // REQ-903 already use for their own guest-exclusion paths
+        // (SuggestionEndpoints.cs/IncidentEndpoints.cs) — checked before the
+        // length bound below since it's the cheaper, more fundamental
+        // rejection reason.
+        if (user.IsGuest)
+        {
+            return Problem(
+                title: "Guest accounts cannot edit their display name",
+                detail: "Claim your account with an email and password to edit your display name.",
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
         // REQ-714/701: same length bound as Signup, checked before any
         // database write.
         var displayName = request.DisplayName.Trim();

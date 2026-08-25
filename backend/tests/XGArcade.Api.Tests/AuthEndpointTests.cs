@@ -1479,6 +1479,35 @@ public class AuthEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    // REQ-714's 2026-08-25 "Guest exclusion" criterion: a guest account
+    // (IsGuest = true) must be rejected with a 403 and claim-account
+    // guidance, enforced server-side regardless of what the client sends.
+    // Reuses SeedGuestUserAsync (REQ-717's own idiom for seeding a guest
+    // User row directly) rather than inventing a new guest-seeding helper.
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Returns403_WhenCallerIsGuest()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest("New Name"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Guest accounts cannot edit their display name"));
+        Assert.That(body.Detail, Does.Contain("Claim your account"));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var unchangedUser = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == guest.Id);
+        Assert.That(unchangedUser.DisplayName, Is.EqualTo(guest.DisplayName),
+            "a rejected guest edit must never change the stored display name");
+    }
+
     // REQ-710: self-service account deletion (S-025). Seeds a user directly
     // into the in-memory DB (same pattern as ProtectedEndpoint_Get tests
     // above) and mints its own JWT via LocalE2EAuth.MintToken for the
