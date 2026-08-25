@@ -227,6 +227,55 @@ public static class AvatarEndpoints
 
             return Results.Stream(new MemoryStream(image.Content), image.ContentType);
         }).RequireAuthorization();
+
+        // REQ-722 ("No avatar / rejected state, as seen by other players",
+        // S-182 status note flagged this as unbuilt with "no assigned story
+        // yet" — this is that story): streams a TARGET player's own current
+        // Approved avatar image, viewable by any authenticated player, not
+        // just the target themselves. This is the deliberate, narrow
+        // exception to the owner-only shape both endpoints above use — the
+        // owner-only endpoint's own doc comment already anticipated this
+        // exact follow-up ("any future 'visible to other players' endpoint
+        // needs their own separate authorization path — not this one —
+        // when those stories are built"). ResolveCurrentUserAsync is still
+        // called here, but only to confirm the CALLER is logged in (401 if
+        // not) — the caller is never compared against {userId}, unlike
+        // GET /users/me/avatar/{submissionId}/image's SubmittingUserId ==
+        // user.Id check. Anyone logged in may view anyone's Approved
+        // avatar; that is the entire point of this endpoint.
+        //
+        // Keyed by userId only, never a submissionId — this always resolves
+        // to the target's *current* Approved submission via
+        // GetApprovedAsync, not an arbitrary historical row. GetApprovedAsync
+        // only ever returns an Approved row by construction, so this never
+        // needs (and deliberately does not add) any separate check to
+        // exclude Pending/Rejected — REQ-722 treats "no Approved avatar" as
+        // a single no-avatar state regardless of whether the target user
+        // doesn't exist, has never submitted, or only has Pending/Rejected
+        // submissions; all three collapse into the same 404 below rather
+        // than being distinguished.
+        app.MapGet("/users/{userId:guid}/avatar/image", async (
+            Guid userId,
+            ClaimsPrincipal principal,
+            IUserRepository userRepository,
+            IAvatarSubmissionRepository avatarSubmissionRepository,
+            IAvatarStorage avatarStorage,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = await ResolveCurrentUserAsync(principal, userRepository, cancellationToken);
+            if (caller is null)
+                return Results.Unauthorized();
+
+            var submission = await avatarSubmissionRepository.GetApprovedAsync(userId, cancellationToken);
+            if (submission is null)
+                return Results.NotFound();
+
+            var image = await avatarStorage.DownloadAsync(submission.ImageStorageKey, cancellationToken);
+            if (image is null)
+                return Results.NotFound();
+
+            return Results.Stream(new MemoryStream(image.Content), image.ContentType);
+        }).RequireAuthorization();
     }
 
     // Shared by all three handlers above — resolves the caller from
