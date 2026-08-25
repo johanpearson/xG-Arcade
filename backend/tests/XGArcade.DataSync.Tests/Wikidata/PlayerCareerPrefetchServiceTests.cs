@@ -529,6 +529,124 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(allPlayerData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
     }
 
+    // ---- Skip-already-swept re-run behavior (REQ-110/ADR-0088/S-186) ----
+    // 2026-08-25 Supabase free-tier egress incident: a re-dispatch of this
+    // job previously repeated the FULL country/club pool sweep every time,
+    // even when nothing had changed. These tests prove a second run against
+    // an already-swept country/club is a true no-op on the expensive paths:
+    // no live Wikidata pool query, and (by construction — the dedup
+    // read-back only ever runs after a pool fetch inside SweepPoolAsync,
+    // which a skip never reaches) no GetPlayerAttributesAsync/
+    // GetCareerStintsByPlayerIdsAsync read either.
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryAlreadySwept_SkipsWithoutQueryingWikidataAgain()
+    {
+        await SeedCountryAsync("France", "Q142");
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        var service = BuildService();
+        var firstRun = await service.PrefetchAsync();
+        Assert.That(_wikidataClient.QueriedNationalityQids, Has.Count.EqualTo(1), "the first run must fetch the pool live");
+        Assert.That(firstRun.CountriesProcessed, Is.EqualTo(1));
+        Assert.That(firstRun.CountriesSkipped, Is.EqualTo(0));
+
+        var secondRun = await service.PrefetchAsync();
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Has.Count.EqualTo(1),
+            "a re-run of an already-swept country must NOT call fetchPoolAsync again");
+        Assert.That(secondRun.CountriesProcessed, Is.EqualTo(0), "the country was skipped, not re-processed");
+        Assert.That(secondRun.CountriesSkipped, Is.EqualTo(1));
+        Assert.That(secondRun.PlayersTouched, Is.EqualTo(0),
+            "no player was touched on the second run — proves SweepPoolAsync (and its dedup read-back) never ran");
+        Assert.That(secondRun.StintsAdded, Is.EqualTo(0));
+        Assert.That(secondRun.AttributesAdded, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_ClubAlreadySwept_SkipsWithoutQueryingWikidataAgain()
+    {
+        await SeedClubAsync("Celtic", "Q19593");
+        _wikidataClient.SetPoolForClub("Q19593", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Monaco", 1994, 1999, 105));
+
+        var service = BuildService();
+        var firstRun = await service.PrefetchAsync();
+        Assert.That(_wikidataClient.QueriedClubQids, Has.Count.EqualTo(1), "the first run must fetch the pool live");
+        Assert.That(firstRun.ClubsProcessed, Is.EqualTo(1));
+        Assert.That(firstRun.ClubsSkipped, Is.EqualTo(0));
+
+        var secondRun = await service.PrefetchAsync();
+
+        Assert.That(_wikidataClient.QueriedClubQids, Has.Count.EqualTo(1),
+            "a re-run of an already-swept club must NOT call fetchPoolAsync again");
+        Assert.That(secondRun.ClubsProcessed, Is.EqualTo(0), "the club was skipped, not re-processed");
+        Assert.That(secondRun.ClubsSkipped, Is.EqualTo(1));
+        Assert.That(secondRun.PlayersTouched, Is.EqualTo(0),
+            "no player was touched on the second run — proves SweepPoolAsync (and its dedup read-back) never ran");
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryAlreadySwept_DoesNotReWriteSweptAtTimestamp()
+    {
+        var france = await SeedCountryAsync("France", "Q142");
+        _wikidataClient.SetPoolForNationality("Q142", []);
+
+        var service = BuildService();
+        await service.PrefetchAsync();
+        var firstSweptAt = (await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == france.Id)).PlayerPoolSweptAt;
+
+        await service.PrefetchAsync();
+        var secondSweptAt = (await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == france.Id)).PlayerPoolSweptAt;
+
+        Assert.That(secondSweptAt, Is.EqualTo(firstSweptAt),
+            "a skipped row's PlayerPoolSweptAt must not be re-written — markSweptAsync must not run on a skip");
+    }
+
+    // Existing invalidation contract (ADR-0078) must keep forcing a real
+    // re-sweep after this fix — a null PlayerPoolSweptAt (e.g. after
+    // purge-player-pool or StaleClubAttributeCleaner) must NOT be treated as
+    // "already swept."
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryWithNullSweptAt_IsNotSkipped_StillQueriesWikidata()
+    {
+        await SeedCountryAsync("France", "Q142"); // PlayerPoolSweptAt starts null.
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var result = await BuildService().PrefetchAsync();
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Has.Count.EqualTo(1));
+        Assert.That(result.CountriesProcessed, Is.EqualTo(1));
+        Assert.That(result.CountriesSkipped, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ110_PrefetchAsync_CountryReSweptAfterInvalidation_QueriesWikidataAgain()
+    {
+        var france = await SeedCountryAsync("France", "Q142");
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var service = BuildService();
+        await service.PrefetchAsync();
+        Assert.That(_wikidataClient.QueriedNationalityQids, Has.Count.EqualTo(1));
+
+        // Simulates purge-player-pool's/StaleClubAttributeCleaner's own
+        // PlayerPoolSweptAt reset (the existing ADR-0078 invalidation
+        // contract this fix must not break) — load-then-save, same pattern
+        // those real call sites use (docs/coding-guidelines.md).
+        var tracked = await _dbContext.CountryDefinitions.SingleAsync(c => c.Id == france.Id);
+        tracked.PlayerPoolSweptAt = null;
+        await _dbContext.SaveChangesAsync();
+
+        var result = await service.PrefetchAsync();
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Has.Count.EqualTo(2),
+            "invalidating PlayerPoolSweptAt (as purge-player-pool/StaleClubAttributeCleaner already do) must force a real re-sweep");
+        Assert.That(result.CountriesProcessed, Is.EqualTo(1));
+        Assert.That(result.CountriesSkipped, Is.EqualTo(0));
+    }
+
     // Quality-gate fix (2026-08-18): the dedup HashSet<Guid> is built once
     // per country/club and passed BY REFERENCE into FetchAndPersistBatchAsync
     // across the WHOLE pool's set of CareerBatchSize-sized chunks — this
