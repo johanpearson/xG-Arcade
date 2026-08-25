@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-25 — `docs/decisions/0088-prefetch-skips-already-swept-pools-on-rerun.md`
+  (new ADR), `docs/requirements-document.md` (v2.14 → v2.15),
+  `docs/architecture-document.md` (v1.16 → v1.17) — documentation-sync pass
+  for S-186 (Supabase free-tier egress remediation: the org went over its
+  5GB/billing-cycle quota, 6.40GB/128%, after `prefetch-player-careers.yml`
+  was manually re-dispatched 9 times in ~36 hours on 2026-08-17/18, each
+  unconditionally re-sweeping ~200K players against Supabase Postgres with
+  no skip mechanism). `architecture-reviewer` and `quality-architect` both
+  passed the code diff (4 commits, already merged to this branch) with zero
+  code-change findings; only documentation gaps remained. Added ADR-0088,
+  recording `PlayerCareerPrefetchService.SweepAsync`'s new freshness-based
+  skip (a country/club with a non-null `PlayerPoolSweptAt` is skipped
+  entirely — no live Wikidata call, no dedup read-back — "ever swept" is
+  sufficient, no staleness window), explicitly distinguished from
+  ADR-0078's own pairwise skip rule in a different service. Added a dated
+  REQ-110 status note covering the skip's Given/When/Then and updated its
+  stale "Test level" paragraph with the 5 new `REQ110_*` tests in
+  `PlayerCareerPrefetchServiceTests.cs`. Added a dated REQ-722 status note
+  for the companion `Cache-Control`/`ETag` addition to both avatar
+  image-streaming endpoints (`private`, `max-age=86400`, per-endpoint
+  correct `ETag` source), covered by 2 new tests in
+  `AvatarEndpointTests.cs`. Updated COMP-07's row in
+  `docs/architecture-document.md` to note it now also *reads*
+  `PlayerPoolSweptAt`, not only writes it. Fixed a stray "Six" → "Five" in
+  `docs/backlog.md`'s S-186 "Built as" section (5 new tests, not 6).
+  REQ-110, REQ-722, ADR-0088.
 - 2026-08-25 — `docs/requirements-document.md` (v2.13 → v2.14),
   `docs/design-document.md` (v0.82 → v0.83) — same-day follow-up to the
   guest-banner collapse below (PR #287, merged): the toggle's visible text

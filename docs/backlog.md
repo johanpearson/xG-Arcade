@@ -8785,7 +8785,7 @@ new test that mutates `PlayerPoolSweptAt` back to `null` mid-test and
 confirms a second `PrefetchAsync` call queries Wikidata again.
 `PlayerCareerPrefetchResult` gained `CountriesSkipped`/`ClubsSkipped`
 (defaulted, backward compatible), surfaced in `prefetch-player-careers`'s
-own CLI summary line. Six new `REQ110_*` tests in
+own CLI summary line. Five new `REQ110_*` tests in
 `PlayerCareerPrefetchServiceTests.cs` cover the skip itself (both country
 and club), that a skip doesn't re-write the timestamp, that a null
 `PlayerPoolSweptAt` is never skipped, and the invalidation round-trip.
