@@ -481,6 +481,33 @@ export function SettingsScreen({
     }
   }
 
+  // REQ-714/REQ-722 (2026-08-25 quality-review fix): the pencil button's own
+  // click handler — toggles `editPanelOpen` same as before, but also clears
+  // both forms' stale success/error state (and any selected-but-not-yet-
+  // submitted avatar file) whenever the panel transitions CLOSED. Without
+  // this, "submit successfully (or fail) → close panel → reopen panel"
+  // immediately re-showed the previous submission's "Display name
+  // updated."/"Avatar submitted for review." (or error) banner on reopen,
+  // even though no new action had been taken — misleading, since those
+  // messages are meant to describe the result of the form's own most recent
+  // submit, not to persist across a close/reopen cycle. Only clears on
+  // close, not on open: reopening the panel with a still-fresh success/error
+  // message from moments ago (never having closed it) is unaffected.
+  function handleToggleEditPanel() {
+    setEditPanelOpen((open) => {
+      const next = !open;
+      if (!next) {
+        setError(null);
+        setSaved(false);
+        setAvatarError(null);
+        setAvatarSaved(false);
+        setAvatarFile(null);
+        if (avatarFileInputRef.current) avatarFileInputRef.current.value = '';
+      }
+      return next;
+    });
+  }
+
   return (
     <div className="settings-screen">
       <h2 className="settings-screen__title">Settings</h2>
@@ -513,7 +540,7 @@ export function SettingsScreen({
             aria-label="Edit profile"
             aria-expanded={editPanelOpen}
             data-testid="settings-profile-edit-button"
-            onClick={() => setEditPanelOpen((open) => !open)}
+            onClick={handleToggleEditPanel}
           >
             <EditPencilIcon />
           </button>

@@ -278,6 +278,74 @@ describe('SettingsScreen', () => {
       const editButton = screen.getByRole('button', { name: 'Edit profile' });
       expect(editButton).toHaveStyle({ minHeight: 'var(--touch-target-min)', minWidth: 'var(--touch-target-min)' });
     });
+
+    // quality-architect review (2026-08-25): closing the panel via the
+    // pencil button previously left `error`/`saved`/`avatarError`/
+    // `avatarSaved` untouched — only the two submit handlers themselves ever
+    // reset them — so "submit successfully → close → reopen" immediately
+    // re-showed the PREVIOUS submission's success banner on reopen, with no
+    // new action taken. handleToggleEditPanel now clears both forms'
+    // success/error state (and any selected-but-unsubmitted avatar file)
+    // whenever the panel transitions closed, not open — these two tests
+    // exercise that specifically for each form's success banner, the
+    // clearest reproduction of the bug.
+    it('REQ714_SettingsScreen_ClearsSuccessMessage_OnPanelReopen', async () => {
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        if (String(input).includes('/users/me/avatar')) {
+          return jsonResponse({ pending: null, rejected: null, approved: null });
+        }
+        return jsonResponse({ id: 'user-1', displayName: 'New Name' });
+      });
+      const user = userEvent.setup();
+      renderSettingsScreen({ displayName: 'Current Name' }, fetchMock);
+      await openEditPanel(user);
+
+      const input = screen.getByLabelText('Display name');
+      await user.clear(input);
+      await user.type(input, 'New Name');
+      await user.click(screen.getByRole('button', { name: 'Save name' }));
+
+      expect(await screen.findByText('Display name updated.')).toBeInTheDocument();
+
+      // Close the panel, then reopen it — no new submission happens in
+      // between, so the earlier success banner must not reappear.
+      await openEditPanel(user); // closes
+      await openEditPanel(user); // reopens
+
+      expect(screen.queryByText('Display name updated.')).not.toBeInTheDocument();
+    });
+
+    it('REQ722_SettingsScreen_ClearsSuccessMessage_OnPanelReopen', async () => {
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/users/me/avatar') && init?.method === 'POST') {
+          return jsonResponse({ id: 'new-1', status: 'Pending', createdAt: '2026-08-25T12:00:00Z' }, 201);
+        }
+        if (url.includes('/users/me/avatar')) {
+          return jsonResponse({ pending: null, rejected: null, approved: null });
+        }
+        return jsonResponse({});
+      });
+      const user = userEvent.setup();
+      renderSettingsScreen({ accessToken: 'token-abc' }, fetchMock);
+      await openEditPanel(user);
+      await screen.findByTestId('avatar-section-none');
+
+      const file = new File(['fake'], 'avatar.png', { type: 'image/png' });
+      const input = screen.getByTestId('avatar-section-upload-input') as HTMLInputElement;
+      await user.upload(input, file);
+      await user.click(screen.getByTestId('avatar-section-upload-button'));
+
+      expect(await screen.findByText('Avatar submitted for review.')).toBeInTheDocument();
+
+      // Close the panel, then reopen it — no new upload happens in between,
+      // so the earlier success banner must not reappear.
+      await openEditPanel(user); // closes
+      await openEditPanel(user); // reopens
+      await screen.findByTestId('avatar-section-upload-input');
+
+      expect(screen.queryByText('Avatar submitted for review.')).not.toBeInTheDocument();
+    });
   });
 
   // REQ-714/REQ-722 (2026-08-25, product-owner instruction): a guest
