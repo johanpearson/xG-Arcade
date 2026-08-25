@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-25 — `docs/requirements-document.md` (v2.12 → v2.13),
+  `docs/design-document.md` (v0.81 → v0.82) — the guest banner's REQ-718
+  7-day/30-day expiry sentence was always rendered, which forced the
+  banner onto two lines and took up disproportionate room on mobile
+  viewports (reported directly by the user). Made it a collapsible
+  disclosure, collapsed by default, behind a new toggle
+  (`.app__guest-banner-toggle`, `App.tsx`) using the same accessible
+  pattern `HeaderNav.tsx` already established (`aria-expanded`/
+  `aria-controls` on a real `<button>`). "Playing as {name}." and "Save
+  your progress" stay always-visible; `SettingsScreen.tsx`'s own copy of
+  this text is unaffected. REQ-718 rule 5 got a dated addendum narrowing
+  its "visible copy" criterion to "present and reachable in one tap," and
+  design-document.md's existing guest-banner note got a matching addendum.
+  No new tokens. Added one new `App.test.tsx` test for the toggle's
+  open/collapse behavior; full existing coverage (721 Vitest tests) stays
+  green, plus a clean `tsc -b`/`oxlint`.
 - 2026-08-25 — `docs/backlog.md`, `docs/requirements-document.md`
   (v2.10 → v2.12), `docs/implementation-document.md` (v1.08 → v1.09) — by
   direct product decision (johan.pearson), a guest

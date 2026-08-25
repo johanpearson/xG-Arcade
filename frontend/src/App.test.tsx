@@ -600,6 +600,28 @@ describe('App (REQ-718: guest logout confirmation and guest-expiry copy)', () =>
     expect(expiryCopy).toHaveTextContent(GUEST_EXPIRY_COPY);
   });
 
+  it('REQ-718 UI addendum (2026-08-25): the guest-expiry copy is collapsed by default and expands/collapses via its toggle', async () => {
+    vi.stubGlobal('fetch', stubFetchForGuestLogin());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await signInAsGuest(user);
+
+    const toggle = screen.getByTestId('guest-expiry-toggle');
+    const expiryCopy = screen.getByTestId('guest-expiry-copy');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(expiryCopy).not.toBeVisible();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(expiryCopy).toBeVisible();
+    expect(expiryCopy).toHaveTextContent(GUEST_EXPIRY_COPY);
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(expiryCopy).not.toBeVisible();
+  });
+
   it('REQ-718: the guest-expiry copy is absent from the banner (and Settings) for a non-guest account', async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.81"
+version: "0.82"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -3531,6 +3531,16 @@ Unchanged from v0.1:
   `border-hairline`, `accent-green-text`) and no new motion. Clicking it
   navigates to Settings (SCREEN-08), where the claim section above actually
   lives.
+  **2026-08-25 addendum (REQ-718 rule 5):** the REQ-718 7-day/30-day expiry
+  sentence between those two elements is now behind a collapsible toggle
+  (`.app__guest-banner-toggle`), collapsed by default, since always
+  rendering it forced the banner onto two lines on narrow/mobile
+  viewports — the same accessible disclosure pattern `HeaderNav.tsx`
+  already established (a real `<button>`, `aria-expanded`, `aria-controls`)
+  rather than a new widget. Still tokens-only: the toggle reuses
+  `--color-text-muted`/13px, the same pairing `.app__guest-banner-action`
+  beside it already uses, just without the underline so the two don't read
+  as the same kind of control.
 - ~~No SCREEN-xx spec exists for the post-login game-selection landing
   screen either~~ — **resolved 2026-07-26, see SCREEN-09.** Written ahead
   of the second game (xG Path) actually existing in code as a design-only
