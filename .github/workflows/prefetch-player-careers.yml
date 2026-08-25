@@ -41,15 +41,29 @@ name: prefetch-player-careers
 # count" monitoring guidance), so this reads as ordinary WDQS load
 # flakiness under a much heavier combined sweep, not a structural bug —
 # same class as this file's own earlier documented incident. Re-running is
-# idempotent and expected to converge, but note PlayerCareerPrefetchService
-# has NO skip-already-processed shortcut the way warm-grid-cache's
-# ConfirmedLowMatchPair/PairLookupFailure gives it — every re-run repeats
-# the FULL country+club pool sweep, so a retry costs roughly the same
-# wall-clock time as the original run, not a fast delta. Timeout raised
-# below to give real headroom given 88/90 minutes was uncomfortably tight.
+# idempotent and expected to converge. Timeout raised below to give real
+# headroom given 88/90 minutes was uncomfortably tight.
+#
+# 2026-08-25 status (REQ-110/ADR-0088/S-186, Supabase free-tier egress
+# incident): the "no skip-already-processed shortcut" gap flagged above no
+# longer applies — PlayerCareerPrefetchService now skips any country/club
+# whose pool was already fully swept (PlayerPoolSweptAt non-null), so a
+# retry after a transient failure like the above only re-sweeps what
+# actually failed, not the whole pool again. That gap, combined with 9
+# manual re-dispatches in ~36 hours chasing exactly this kind of transient
+# WDQS failure, is the confirmed root cause of a ~1.3GB single-day Supabase
+# egress spike that pushed the org over its free-tier quota. The
+# concurrency group below is the second, independent half of that fix: it
+# prevents a burst of re-dispatches from ever running two full sweeps
+# against Supabase in parallel again, queuing instead of cancelling since a
+# real in-flight sweep is expensive to redo.
 
 on:
   workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   prefetch-player-careers:

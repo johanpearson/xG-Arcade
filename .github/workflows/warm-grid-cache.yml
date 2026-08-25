@@ -32,6 +32,17 @@ on:
   schedule:
     - cron: "30 4 * * 0" # weekly, Sunday 04:30 UTC
 
+# REQ-110/ADR-0088/S-186 (2026-08-25, Supabase free-tier egress incident): a
+# burst of manual re-dispatches of this and the other three bulk Wikidata
+# jobs is a confirmed contributor to a real egress-quota incident — queue
+# (never cancel) a second dispatch instead of letting two full sweeps run
+# concurrently against Supabase. cancel-in-progress: false because a real
+# in-flight sweep is expensive to redo (this job's own idempotent-but-slow
+# nature, see the 2026-08-17 incident comment above).
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   warm-grid-cache:
     runs-on: ubuntu-latest
