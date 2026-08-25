@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-25 — `docs/backlog.md`, `docs/requirements-document.md`
+  (v2.09 → v2.10), `docs/architecture-document.md` (v1.15 → v1.16),
+  `docs/implementation-document.md` (v1.07 → v1.08) — S-184: `GET
+  /users/{userId}/avatar/image` plus a new `PlayerAvatar.tsx` component
+  close REQ-722's last open criterion, "No avatar / rejected state, as
+  seen by other players," rendering another player's approved avatar (or
+  a placeholder) on `UserStatsScreen.tsx`; a new Settings profile header
+  (self-view) was added in the same story. Added S-184 to `docs/backlog.md`
+  Epic 25 and a new REQ-722 status note closing out its last open scope.
+  `docs/architecture-document.md`'s COMP-14 row updated to name the new
+  fourth `AvatarEndpoints` handler (the "future avatar-viewing surface"
+  case ADR-0087's Consequences section already anticipated — no new ADR).
+  `docs/implementation-document.md` §4 `/components`/`/settings`/`/users`
+  entries updated for `PlayerAvatar.tsx`/`PersonSilhouetteIcon.tsx` and
+  the two screens that now consume them. `docs/legal/*.md` checked and
+  left unchanged — the privacy policy draft already discloses that an
+  approved avatar "is also visible to other players"; this story only adds
+  the read mechanism for already-disclosed sharing, not a new data
+  category. REQ-722, REQ-411 (S-184).
 - 2026-08-24 — `docs/requirements-document.md` — follow-up to the
   "Failed to fetch" fix below: a real dev deployment still returned "Avatar
   upload unavailable" (the new 503, working as designed) but the container

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.09"
+version: "2.10"
 status: draft
-last_updated: 2026-08-24
+last_updated: 2026-08-25
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -7720,6 +7720,29 @@ access to guess why. Nothing here changes what the player sees (still the
 same generic `Results.Problem` detail) or any acceptance criterion. Covered
 by `REQ722_UploadAsync_ThrownExceptionIncludesSupabasesResponseBody_ForDiagnosability`
 in `SupabaseAvatarStorageTests.cs`.
+
+**Status note (2026-08-25, S-184 — the last open criterion, "No avatar /
+rejected state, as seen by other players," is now built):** a new
+`GET /users/{userId}/avatar/image` (`AvatarEndpoints.cs`) lets any
+authenticated player fetch any other player's currently-`Approved` avatar —
+the caller is verified as logged-in only, never compared against
+`{userId}`, the deliberate opposite of the owner-only
+`GET /users/me/avatar/{id}/image`. Reuses
+`IAvatarSubmissionRepository.GetApprovedAsync`/`IAvatarStorage.DownloadAsync`
+unchanged; "never uploaded," "only `Pending`," and "only `Rejected`" all
+collapse into the same 404, matching this criterion's "a placeholder is
+shown instead" framing regardless of which no-avatar cause applies.
+Consumed by a new shared `PlayerAvatar.tsx` component
+(`frontend/src/components/`), now rendered in `UserStatsScreen.tsx`'s
+header (REQ-411, SCREEN-13) — the surface this REQ's own S-182 status note
+identified as not yet showing any avatar — so a viewed player's stats page
+now shows their avatar, own or another's, with the required placeholder
+fallback whenever no `Approved` avatar exists. A new Settings profile
+header (self-view only, SCREEN-08) was added in the same story but is not
+itself part of this criterion, since it never renders another player's
+avatar. See `docs/backlog.md` S-184 for the full build record. This closes
+out REQ-722's last remaining open scope; no open scope remains under this
+REQ.
 
 ---
 
