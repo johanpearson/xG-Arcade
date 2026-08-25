@@ -1,0 +1,35 @@
+/* REQ-722/S-184 — design-document.md's SCREEN-08 "New layout value" note
+   (64×64px circle, border-hairline border, surface-sunken backdrop) reused
+   verbatim here rather than a new dimension/token, matching
+   .settings-screen__avatar-preview's own rule
+   (frontend/src/settings/SettingsScreen.css) exactly, minus the fixed
+   64px (this component's own `size` prop controls the dimension inline,
+   defaulting to that same 64px value). */
+.player-avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--color-border-hairline);
+  background-color: var(--color-surface-sunken);
+  display: block;
+  flex-shrink: 0;
+}
+
+/* The no-avatar-yet/fetch-failed case — same silhouette shape as
+   frontend/src/grid/CellState.css's .cell-state__placeholder-avatar-slot/
+   .cell-state__placeholder-avatar (design-document.md §2's "Placeholder
+   avatar" entry), recreated at this component's own thumbnail scale rather
+   than that entry's full-bleed grid-cell footprint. Same token roles: `text-
+   muted` for the silhouette (quiet, secondary content — a placeholder is
+   not a status/error signal), `surface-sunken` for the backdrop (already
+   supplied by .player-avatar above, shared with the real-image case). */
+.player-avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-avatar__placeholder-svg {
+  width: 60%;
+  height: 60%;
+  color: var(--color-text-muted);
+}

@@ -51,3 +51,25 @@ export async function fetchAvatarImageObjectUrl(accessToken: string, imageUrl: s
   const blob = await response.blob();
   return URL.createObjectURL(blob);
 }
+
+// REQ-722/S-184: GET /users/{userId}/avatar/image — the other-players-facing
+// counterpart to fetchAvatarImageObjectUrl above. Any authenticated caller
+// may fetch any userId's currently-Approved avatar (404 if that user has no
+// Approved avatar), unlike fetchAvatarImageObjectUrl/GET
+// /users/me/avatar/{id}/image above, which only ever reads the CALLER's own
+// pending/rejected/approved submissions by their own id. Same
+// bearer-authenticated-raw-fetch-to-object-URL contract, reused verbatim
+// rather than diverging — including "the caller owns revoking the returned
+// URL" (see fetchAvatarImageObjectUrl's own comment above for the full
+// reasoning; not repeated here). Backed by
+// backend/src/XGArcade.Api/Avatars/AvatarEndpoints.cs's new
+// `GET /users/{userId}/avatar/image` route (REQ-722, PlayerAvatar's own
+// consumer — frontend/src/components/PlayerAvatar.tsx).
+export async function fetchUserAvatarImageObjectUrl(accessToken: string, userId: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/users/${userId}/avatar/image`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
