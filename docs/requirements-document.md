@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.10"
+version: "2.11"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -6496,6 +6496,22 @@ S-058, 2026-07-20)*
   every other screen reflects it immediately without a re-fetch. Covered by
   `UserRepositoryTests.cs`, `AuthEndpointTests.cs` (including an explicit
   exact-30-character boundary test), and `SettingsScreen.test.tsx`.
+- **Status note (2026-08-25 — product decision, reverses this REQ's
+  original unrestricted scope; not yet implemented):** a guest account
+  (`User.IsGuest = true`) can no longer edit their display name from
+  Settings. This REQ originally had no guest exclusion at all — `PUT
+  /auth/display-name` (`AuthController.UpdateDisplayName`) has no
+  `IsGuest` check today — and REQ-717's own "Display name" sub-section
+  explicitly said a guest could use this mechanism "exactly as any other
+  account can." The product owner (johan.pearson) reversed that directly,
+  in this Settings-redesign session: a guest must claim their account
+  (`POST /auth/claim`, REQ-717) before editing their display name. See
+  the new "Guest exclusion" criterion below for the required enforcement
+  shape, and REQ-717's own dated status note under its "Display name"
+  sub-section for the corresponding correction there. This is a narrow
+  business-rule change, following the same plain `IsGuest` gate
+  REQ-215/REQ-903 already use for their own guest-exclusion paths
+  elsewhere — not a new architectural pattern, so no ADR is needed.
 - **Context:** `frontend/src/settings/SettingsScreen.tsx` today only hosts
   the delete-account flow (REQ-710) plus, admin-only, a link to
   `AdminScreen` (REQ-504/713) — there is no way to change `User.DisplayName`
@@ -6534,9 +6550,27 @@ S-058, 2026-07-20)*
   clear error, before any database write, the same way REQ-701 already
   validates it at signup
 
+**Guest exclusion (added 2026-08-25):**
+- Given a logged-in GUEST account (`User.IsGuest = true`, REQ-717)
+- When they attempt to edit their display name (`PUT /auth/display-name`)
+- Then the request is rejected with a `403`, enforced server-side
+  regardless of what the client sends — same boundary rule REQ-215/
+  REQ-903 already establish for their own guest-exclusion paths
+- And the rejection tells the guest why, not a generic error — that they
+  must claim their account first (`POST /auth/claim`, REQ-717) before
+  they can edit their display name — the same "server's own detail text
+  shown inline" convention this Settings screen already uses elsewhere
+  (this REQ's own display-name conflict error, REQ-722's avatar upload
+  limit error)
+- And a non-guest (claimed) account is completely unaffected by this
+  criterion — the acceptance criteria above apply to it unmodified
+
 **Test level:** Unit (uniqueness check excludes the account's own row;
-length validation), API, UI (Settings screen edit form; conflict error
-shown inline, not a generic failure)
+length validation), API (a guest account, `IsGuest = true`, receives a
+`403` with claim-account guidance; a non-guest account is unaffected), UI
+(Settings screen edit form; conflict error shown inline, not a generic
+failure; a guest sees the claim-first guidance inline, not a generic
+error)
 
 **REQ-715 – Persistent login (remember-me) via refresh token** *(Status:
 Implemented, Tier 0, S-058, 2026-07-20)*
@@ -6798,6 +6832,24 @@ decision itself (added in the same session ADR-0036 was drafted).
 - And REQ-714's existing display-name-edit mechanism applies completely
   unmodified — a guest can set a real display name from Settings exactly
   as any other account can, with no second, guest-specific edit path
+- **Status note (2026-08-25, direct product-owner decision, johan.pearson,
+  this Settings-redesign session — corrects the criterion immediately
+  above):** the sentence above is superseded and no longer accurate. A
+  guest account (`IsGuest = true`) can no longer edit their display name
+  from Settings at all — they must claim their account first (`POST
+  /auth/claim`, this REQ's own claim mechanism, described above under
+  "Guest identity") before REQ-714's edit mechanism becomes available to
+  them. See REQ-714's own new "Guest exclusion" criterion for the
+  enforcement shape: a server-side `403` on `PUT /auth/display-name` for
+  any `IsGuest = true` caller, with the rejection telling the guest why
+  (claim first) rather than a generic error. Nothing else in this
+  "Display name" sub-section is affected — the auto-generated default
+  name on provisioning, and its 1-30 character bound, case-insensitive
+  uniqueness check, and collision-retry behavior, are all unchanged; only
+  the ability to *edit* it before claiming is removed. This is a narrow
+  business-rule reversal, following the same plain `IsGuest` gate
+  REQ-215/REQ-903 already use for their own guest-exclusion paths
+  elsewhere — not a new architectural pattern, so no ADR is needed here.
 
 **Scoring and uniqueness — no special-casing:**
 - Given a guest has submitted a guess
@@ -7560,7 +7612,11 @@ requirements document specifies WHAT and HOW TO VERIFY, not HOW TO BUILD.
 > admin checking it first so nothing inappropriate goes live.
 
 **Uploading:**
-- Given a logged-in player (guest or claimed account)
+- Given a logged-in player with a claimed (non-guest) account —
+  **corrected 2026-08-25, product decision** (this criterion originally
+  read "Given a logged-in player (guest or claimed account)," deliberately
+  inclusive of guests; see the dated status note below for the reversal
+  and its reasoning)
 - When they upload an image file within a reasonable size/type limit
   (exact limits left to implementation, matching this document's existing
   practice of leaving non-product thresholds to
@@ -7568,6 +7624,16 @@ requirements document specifies WHAT and HOW TO VERIFY, not HOW TO BUILD.
 - Then a new avatar submission is created in `Pending` status for that
   player, and it is not visible to any other player until an admin
   approves it (REQ-517)
+- Given a guest account (`IsGuest = true`, REQ-717) attempts to upload an
+  avatar
+- Then the request is rejected with a `403`, enforced server-side
+  regardless of what the client sends — same boundary rule REQ-215/
+  REQ-903 already establish for their own guest-exclusion paths
+- And the rejection tells the guest why, not a generic error — that they
+  must claim their account first (`POST /auth/claim`, REQ-717) before
+  they can upload an avatar — the same "server's own detail text shown
+  inline" convention already used elsewhere in Settings (REQ-714's
+  display-name conflict error, this REQ's own size/type-limit error)
 - Given a player already has a submission in `Pending` status
 - When they upload again
 - Then the prior pending submission is replaced by the new one — never
@@ -7607,9 +7673,12 @@ replaces it rather than creating a second one; approving a new submission
 while an older `Approved` one exists supersedes it, never leaving two
 `Approved` rows). API (`POST /users/me/avatar` returns 401 with no
 session; rejects a file outside the configured size/type limit with a
-clear error). UI (Settings shows the correct one of the four states with
-a preview where applicable; another player's view never renders a
-`Pending`/`Rejected` image, only `Approved` or the placeholder).
+clear error; returns 403 with claim-account guidance for a guest caller,
+`IsGuest = true`, and is unaffected for a claimed/non-guest caller). UI
+(Settings shows the correct one of the four states with a preview where
+applicable; another player's view never renders a `Pending`/`Rejected`
+image, only `Approved` or the placeholder; a guest sees the claim-first
+guidance, not a generic error, if they attempt to upload).
 
 **Needs an ADR:** the storage backend for uploaded images is a genuine
 "could reasonably have gone another way" structural decision (Supabase
@@ -7741,8 +7810,36 @@ fallback whenever no `Approved` avatar exists. A new Settings profile
 header (self-view only, SCREEN-08) was added in the same story but is not
 itself part of this criterion, since it never renders another player's
 avatar. See `docs/backlog.md` S-184 for the full build record. This closes
-out REQ-722's last remaining open scope; no open scope remains under this
-REQ.
+out REQ-722's last remaining open scope; no open scope remained under this
+REQ as of that story — see the status note immediately below for scope
+reopened since.
+
+**Status note (2026-08-25 — product decision, reverses the "Uploading"
+criterion's original guest inclusion; not yet implemented):** this REQ's
+"Uploading" criterion originally read "Given a logged-in player (guest or
+claimed account)," deliberately written to include guests — and was built
+that way: `backend/src/XGArcade.Api/Avatars/AvatarEndpoints.cs`'s
+top-of-file comment and its `POST /users/me/avatar` handler comment both
+explicitly document "no guest exclusion here... re-verified against the
+REQ text before writing this endpoint, not assumed by analogy." By
+explicit product decision (johan.pearson, this Settings-redesign
+session), that is reversed: a guest account (`IsGuest = true`) can no
+longer upload an avatar until they claim their account (`POST
+/auth/claim`, REQ-717). See the corrected "Uploading" criterion above for
+the required enforcement shape (403, server-side, with claim-first
+guidance shown inline, matching REQ-714's own new guest-exclusion
+criterion). **Implementer note:** `AvatarEndpoints.cs`'s own doc-comment
+reasoning quoted above is now superseded by this explicit product
+decision — it should be updated to reflect the new rule when the code
+changes, not left describing the old (now-incorrect) reasoning; that
+comment's prior "no guest exclusion, not assumed by analogy" conclusion
+was correct for its time (guests were deliberately included then, per a
+close reading of this REQ's text as it then stood) but no longer
+describes current product intent. This is a narrow business-rule change,
+following the same plain `IsGuest` gate REQ-215/REQ-903 already use for
+their own guest-exclusion paths elsewhere — not a new architectural
+pattern, so no ADR is needed. Not yet implemented as of this note —
+flagged for the next backend story touching `AvatarEndpoints.cs`.
 
 ---
 
