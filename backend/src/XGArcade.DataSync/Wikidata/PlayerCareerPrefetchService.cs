@@ -190,7 +190,6 @@ public class PlayerCareerPrefetchService(
         CancellationToken cancellationToken) =>
         SweepAsync(
             clubs, getWikidataQid: c => c.WikidataQid,
-            getSweptAt: c => c.PlayerPoolSweptAt,
             // Quality-gate fix (2026-08-18): deliberately uses club.Name
             // (this exact ClubDefinition row's own name), NOT
             // clubNameByClubQid — the opposite of PlayerCareerStint.ClubName's
@@ -207,6 +206,7 @@ public class PlayerCareerPrefetchService(
             // ClubDefinition.Name directly). See ADR-0077's correction note.
             // This selector is SweepAsync's attributeValue source.
             getName: c => c.Name,
+            getSweptAt: c => c.PlayerPoolSweptAt,
             fetchPoolAsync: (c, ct) => wikidataClient.QueryPlayerPoolByClubAsync(c.WikidataQid!, ct),
             logFetchFailed: (c, ex) => logger.LogWarning(ex,
                 "prefetch-player-careers: {Club} failed; continuing with the remaining clubs. " +
