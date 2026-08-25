@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.11"
+version: "2.12"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -6512,6 +6512,18 @@ S-058, 2026-07-20)*
   business-rule change, following the same plain `IsGuest` gate
   REQ-215/REQ-903 already use for their own guest-exclusion paths
   elsewhere — not a new architectural pattern, so no ADR is needed.
+- **Status note (2026-08-25 — follow-up: now implemented, S-185):** the
+  guest exclusion described immediately above is built.
+  `AuthController.UpdateDisplayName` (`PUT /auth/display-name`) now
+  returns a `403` with claim-first guidance for any `IsGuest = true`
+  caller, checked before the length-bound validation. The 403 plumbing is
+  shared with REQ-722's identical avatar-upload check (and REQ-215/
+  REQ-903's pre-existing ones) via a new
+  `backend/src/XGArcade.Api/Auth/GuestRejectionProblem.cs` helper. Covered
+  by `REQ714_UpdateDisplayName_Returns403_WhenCallerIsGuest`
+  (`AuthEndpointTests.cs`). See `docs/backlog.md` S-185 for the full build
+  record, including the frontend pencil-icon panel redesign built in the
+  same story.
 - **Context:** `frontend/src/settings/SettingsScreen.tsx` today only hosts
   the delete-account flow (REQ-710) plus, admin-only, a link to
   `AdminScreen` (REQ-504/713) — there is no way to change `User.DisplayName`
@@ -7840,6 +7852,26 @@ following the same plain `IsGuest` gate REQ-215/REQ-903 already use for
 their own guest-exclusion paths elsewhere — not a new architectural
 pattern, so no ADR is needed. Not yet implemented as of this note —
 flagged for the next backend story touching `AvatarEndpoints.cs`.
+
+**Status note (2026-08-25 — follow-up: now implemented, S-185):** the
+reversal above is built. `AvatarEndpoints.cs`'s `POST /users/me/avatar`
+handler now returns a `403` with claim-first guidance for any `IsGuest =
+true` caller (checked after resolving the caller so a guest gets a 403,
+not a 401, but before the storage upload call), and its top-of-file/
+handler comments quoted above are rewritten to describe the new rule
+rather than the superseded "no guest exclusion" reasoning. Shares its 403
+plumbing with REQ-714's identical display-name check (and REQ-215/
+REQ-903's pre-existing ones) via a new
+`backend/src/XGArcade.Api/Auth/GuestRejectionProblem.cs` helper, extracted
+once this pair of checks became the 4th/5th near-identical occurrence in
+the API. Covered by `REQ722_PostAvatar_Returns403_WhenCallerIsGuest`
+(`AvatarEndpointTests.cs`); the avatar suite's prior guest-allowed 201
+test was updated to match. On the frontend, the profile-header edit
+pencil (`SettingsScreen.tsx`, added by S-184) is never rendered while
+`isGuest` is true, with a muted claim-first hint shown in its place — see
+`docs/backlog.md` S-185 for the full build record, including a
+quality-review fix pass for a stale-success-message bug found while
+building this.
 
 ---
 

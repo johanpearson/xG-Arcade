@@ -14,6 +14,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-25 — `docs/backlog.md`, `docs/requirements-document.md`
+  (v2.10 → v2.12), `docs/implementation-document.md` (v1.08 → v1.09) — by
+  direct product decision (johan.pearson), a guest
+  account (`User.IsGuest = true`) can no longer edit its display name or
+  upload an avatar until it claims the account (`POST /auth/claim`,
+  REQ-717), reversing REQ-714/722's prior unrestricted-guest scope and
+  REQ-717's own "no guest-specific edit path" statement.
+  `requirements-writer` amended REQ-714/717/722 with dated status notes
+  and new guest-exclusion acceptance criteria (v2.10 → v2.11); this pass
+  adds S-185 to `docs/backlog.md` Epic 25 covering the implementation
+  (backend 403s on `PUT /auth/display-name`/`POST /users/me/avatar` via a
+  new shared `GuestRejectionProblem.cs` helper reused by REQ-215/REQ-903's
+  pre-existing checks too, plus a `SettingsScreen.tsx` pencil-icon edit
+  panel that hides for guests) and closes the loop with follow-up "now
+  implemented" status notes on REQ-714/REQ-722 pointing at S-185 (v2.11 →
+  v2.12). `docs/architecture-document.md` checked and left unchanged — no
+  new component boundary or cross-component data flow, just a plain
+  `IsGuest` gate matching REQ-215/REQ-903's existing pattern
+  (`architecture-reviewer`: PASS, no ADR needed).
+  `docs/design-document.md`'s SCREEN-08 section (already updated to v0.81
+  by the implementing agent) checked against the final
+  `SettingsScreen.tsx` post-fix and confirmed still accurate — no edit
+  needed. `docs/implementation-document.md` §4's `/settings` project-
+  structure entry updated to name the new pencil-toggle panel and the
+  shared `GuestRejectionProblem.cs` helper. REQ-714, REQ-717, REQ-722
+  (S-185).
+- 2026-08-25 — `docs/backlog.md`, `docs/requirements-document.md`
   (v2.09 → v2.10), `docs/architecture-document.md` (v1.15 → v1.16),
   `docs/implementation-document.md` (v1.07 → v1.08) — S-184: `GET
   /users/{userId}/avatar/image` plus a new `PlayerAvatar.tsx` component
