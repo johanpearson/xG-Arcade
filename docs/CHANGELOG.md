@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-25 — `docs/requirements-document.md` (v2.13 → v2.14),
+  `docs/design-document.md` (v0.82 → v0.83) — same-day follow-up to the
+  guest-banner collapse below (PR #287, merged): the toggle's visible text
+  label ("Guest account details") was itself wide enough to keep the
+  collapsed row wrapping onto two lines on common phone widths, defeating
+  the point of collapsing it — user feedback on the merged result. Replaced
+  with an icon-only button (a small caret swapping glyph on click, no
+  animation, per this banner's "no new motion" rule), accessible name moved
+  to `aria-label`, same icon-only-button pattern `SettingsScreen.tsx`'s
+  profile edit button already established. Also stepped the banner's own
+  gap/padding down one notch on the existing spacing scale
+  (`--space-2`/`--space-4` → `--space-1`/`--space-2`, no new tokens) so the
+  collapsed row fits on one line from ~375px viewports up instead of always
+  wrapping — verified against a static render of the banner markup at
+  320-412px widths (Playwright + the pre-installed Chromium). REQ-718 rule
+  5's addendum and design-document.md's guest-banner note both got a
+  same-day follow-up note describing the icon/spacing revision. Full
+  Vitest suite (721 tests) stays green, plus clean `tsc -b`/`oxlint`.
 - 2026-08-25 — `docs/requirements-document.md` (v2.12 → v2.13),
   `docs/design-document.md` (v0.81 → v0.82) — the guest banner's REQ-718
   7-day/30-day expiry sentence was always rendered, which forced the

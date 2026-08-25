@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.13"
+version: "2.14"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -7336,18 +7336,30 @@ touching `handleLogout`'s existing best-effort, non-blocking `POST
   always-visible expiry sentence forced the guest banner onto two lines,
   taking up disproportionate screen space — reported directly by the
   product owner. The sentence is now behind a collapsible disclosure
-  toggle ("Guest account details" / "Hide guest account details",
-  `aria-expanded`/`aria-controls`, same accessible pattern as `HeaderNav`'s
-  existing toggles), collapsed by default. This narrows rule 5's "visible
-  copy states..." criterion below: the copy is present and reachable in
-  one tap on every guest banner view, not necessarily rendered open by
-  default — the acceptance criterion is satisfied by the toggle disclosing
-  the exact, unmodified `GUEST_EXPIRY_COPY` sentence, not by it always
-  being on-screen without interaction. The "Playing as {name}." line and
-  "Save your progress" action are unaffected — always visible, never
-  collapsed. `SettingsScreen.tsx`'s own guest-expiry copy (reached only by
-  navigating to Settings, not passively taking up header room) is
-  unaffected by this addendum and stays always-visible there.
+  toggle, `aria-expanded`/`aria-controls`, same accessible pattern as
+  `HeaderNav`'s existing toggles, collapsed by default. This narrows rule
+  5's "visible copy states..." criterion below: the copy is present and
+  reachable in one tap on every guest banner view, not necessarily
+  rendered open by default — the acceptance criterion is satisfied by the
+  toggle disclosing the exact, unmodified `GUEST_EXPIRY_COPY` sentence, not
+  by it always being on-screen without interaction. The "Playing as
+  {name}." line and "Save your progress" action are unaffected — always
+  visible, never collapsed. `SettingsScreen.tsx`'s own guest-expiry copy
+  (reached only by navigating to Settings, not passively taking up header
+  room) is unaffected by this addendum and stays always-visible there.
+  **Same-day icon revision:** the toggle's initial text label ("Guest
+  account details" / "Hide guest account details") was itself wide enough
+  to keep the collapsed row wrapping onto two lines on common phone
+  widths, defeating the point of collapsing — replaced with an icon-only
+  button (a small right/down caret swapping on click, no animation, same
+  "no new motion" constraint as the rest of this banner), the accessible
+  name moved to `aria-label`. Verified against a static render of the
+  banner markup at 320-412px viewport widths: the collapsed row is a
+  single line from ~375px up (most current phones), still wraps
+  gracefully — never clips — below that. The banner's own gap/padding
+  were also tightened one step down the existing spacing scale
+  (`--space-2`/`--space-4` → `--space-1`/`--space-2`, no new tokens) to
+  make that single-line fit possible.
 
 **Test level:** Unit (`LastActiveAt` is set on account creation and
 updated on login/guest-creation/claim/guess-submission and on no other

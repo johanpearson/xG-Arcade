@@ -91,6 +91,21 @@ function screenForHash(hash: string): Screen | null {
   return HASH_TO_SCREEN[hash] ?? null;
 }
 
+// REQ-718 UI addendum (rule 5, 2026-08-25): the guest banner's disclosure
+// toggle icon — a small filled caret, decorative on its own (the wrapping
+// <button> carries the real accessible name via aria-label, same split as
+// SettingsScreen.tsx's EditPencilIcon). Right-pointing while collapsed
+// (points toward the hidden content), down-pointing once revealed — the
+// glyph itself swaps on click rather than animating/rotating, matching this
+// banner's existing "no new motion" constraint (design-document.md).
+function GuestBannerChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg className="app__guest-banner-toggle-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      <path d={open ? 'M6 9l6 6 6-6H6z' : 'M9 6l6 6-6 6V6z'} fill="currentColor" />
+    </svg>
+  );
+}
+
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
   const [screen, setScreen] = useState<Screen>(() => {
@@ -394,25 +409,34 @@ function App() {
       {accessToken && isGuest && (
         <div className="app__guest-banner">
           <span>Playing as {currentUser?.displayName ?? 'Guest'}.</span>
-          {/* REQ-718 UI addendum (rule 5, 2026-08-25): a collapsible
-              disclosure toggle, same accessible pattern as HeaderNav's
-              (a real focusable <button>, aria-expanded reflecting state,
-              aria-controls pointing at the sentence it reveals) — added
-              because the always-visible expiry sentence forced this banner
-              onto two lines on narrow/mobile viewports, taking up
-              disproportionate screen space. Collapsed by default; the
-              sentence itself stays mounted in the DOM at all times (only
-              its CSS display toggles) so GUEST_EXPIRY_COPY's text is never
-              re-fetched/re-rendered by the toggle, just shown or hidden. */}
+          {/* REQ-718 UI addendum (rule 5, 2026-08-25; icon revision
+              2026-08-25): a collapsible disclosure toggle, same accessible
+              pattern as HeaderNav's (a real focusable <button>,
+              aria-expanded reflecting state, aria-controls pointing at the
+              sentence it reveals) — added because the always-visible expiry
+              sentence forced this banner onto two lines on narrow/mobile
+              viewports, taking up disproportionate screen space. A small
+              chevron icon, not a text label — a visible "Guest account
+              details" label was itself wide enough to keep the collapsed
+              row wrapping onto two lines, defeating the point of collapsing
+              it; the accessible name lives entirely in aria-label instead,
+              same icon-only-button pattern SettingsScreen.tsx's profile
+              edit button already established (decorative inline SVG,
+              currentColor, aria-hidden, wrapped by a labelled button).
+              Collapsed by default; the sentence itself stays mounted in the
+              DOM at all times (only its CSS display toggles) so
+              GUEST_EXPIRY_COPY's text is never re-fetched/re-rendered by
+              the toggle, just shown or hidden. */}
           <button
             type="button"
             className="app__guest-banner-toggle"
             aria-expanded={guestExpiryOpen}
             aria-controls="guest-expiry-copy"
+            aria-label={guestExpiryOpen ? 'Hide guest account details' : 'Show guest account details'}
             onClick={() => setGuestExpiryOpen((open) => !open)}
             data-testid="guest-expiry-toggle"
           >
-            {guestExpiryOpen ? 'Hide guest account details' : 'Guest account details'}
+            <GuestBannerChevronIcon open={guestExpiryOpen} />
           </button>
           {/* REQ-718 UI addendum (rule 5, 2026-08-01): the actual 7-day/
               30-day policy, not a vague "temporary account" statement —
