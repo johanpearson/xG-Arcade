@@ -86,13 +86,16 @@ public static class SuggestionEndpoints
             // frontend advertises-but-disables the entry point for a guest,
             // but the restriction must be enforced here regardless of what
             // the client sent — a guest gets rejected even with a crafted
-            // direct request.
+            // direct request. GuestRejectionResult.Problem
+            // (XGArcade.Api.Auth.GuestRejectionProblem.cs) is the shared
+            // minimal-API 403 shape this check, IncidentEndpoints.cs's
+            // REQ-903 check, and AvatarEndpoints.cs's/AuthController.cs's
+            // REQ-722/REQ-714 checks all use.
             if (user.IsGuest)
             {
-                return Results.Problem(
+                return GuestRejectionResult.Problem(
                     title: "Guest accounts cannot submit suggestions",
-                    detail: "Register for a full account to suggest a correction.",
-                    statusCode: StatusCodes.Status403Forbidden);
+                    detail: "Register for a full account to suggest a correction.");
             }
 
             // Authoritative row/col category types, resolved server-side

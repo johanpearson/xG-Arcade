@@ -492,13 +492,13 @@ public class AuthController(
         // REQ-903 already use for their own guest-exclusion paths
         // (SuggestionEndpoints.cs/IncidentEndpoints.cs) — checked before the
         // length bound below since it's the cheaper, more fundamental
-        // rejection reason.
+        // rejection reason. GuestRejectionProblem (GuestRejectionProblem.cs)
+        // is the shared 403 shape all four of those call sites now use.
         if (user.IsGuest)
         {
-            return Problem(
+            return this.GuestRejectionProblem(
                 title: "Guest accounts cannot edit their display name",
-                detail: "Claim your account with an email and password to edit your display name.",
-                statusCode: StatusCodes.Status403Forbidden);
+                detail: "Claim your account with an email and password to edit your display name.");
         }
 
         // REQ-714/701: same length bound as Signup, checked before any

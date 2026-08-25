@@ -97,13 +97,15 @@ public static class AvatarEndpoints
             // after resolving the caller (so a guest gets a 403, not a 401)
             // but before the storage upload call, since it's a free,
             // local-only check and the upload is this handler's one
-            // external-dependency call.
+            // external-dependency call. GuestRejectionResult.Problem
+            // (XGArcade.Api.Auth.GuestRejectionProblem.cs) is the shared
+            // minimal-API 403 shape SuggestionEndpoints.cs/
+            // IncidentEndpoints.cs already use for their own guest checks.
             if (user.IsGuest)
             {
-                return Results.Problem(
+                return GuestRejectionResult.Problem(
                     title: "Guest accounts cannot upload an avatar",
-                    detail: "Claim your account with an email and password to upload an avatar.",
-                    statusCode: StatusCodes.Status403Forbidden);
+                    detail: "Claim your account with an email and password to upload an avatar.");
             }
 
             string storageKey;
