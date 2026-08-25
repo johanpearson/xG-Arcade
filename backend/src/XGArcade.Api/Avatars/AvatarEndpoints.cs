@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.Net.Http.Headers;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Storage;
 using XGArcade.Data.Entities;
@@ -47,6 +48,22 @@ public static class AvatarEndpoints
     // admin approval" premise assumes the file itself is inert until then).
     public static readonly IReadOnlySet<string> AllowedContentTypes =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "image/jpeg", "image/png", "image/webp" };
+
+    // Fix #4a (REQ-722/ADR-0087, S-186 Supabase free-tier egress
+    // remediation): both image-streaming endpoints below currently stream
+    // Supabase Storage bytes through this backend on every single request
+    // with zero caching, so a page that renders the same avatar repeatedly
+    // (e.g. a leaderboard with the same player appearing many times) pays a
+    // fresh IAvatarStorage.DownloadAsync (and its own Supabase Storage
+    // egress) every time. An avatar image is immutable once approved — a
+    // new upload creates a new AvatarSubmission with a new Id/storage key
+    // rather than mutating an existing row (REQ-722/ADR-0087's
+    // replace-not-mutate model) — so a day-plus browser cache lifetime is
+    // safe: the bytes behind a given submissionId can never change out from
+    // under an already-cached response. 1 day, not longer, so a
+    // (currently-unbuilt) future "delete/replace my avatar" flow doesn't
+    // leave a stale image cached for an inconveniently long time.
+    private const int AvatarImageCacheMaxAgeSeconds = 60 * 60 * 24;
 
     public static void MapAvatarEndpoints(this WebApplication app)
     {
@@ -222,6 +239,7 @@ public static class AvatarEndpoints
         app.MapGet("/users/me/avatar/{submissionId:guid}/image", async (
             Guid submissionId,
             ClaimsPrincipal principal,
+            HttpContext httpContext,
             IUserRepository userRepository,
             IAvatarSubmissionRepository avatarSubmissionRepository,
             IAvatarStorage avatarStorage,
@@ -246,7 +264,20 @@ public static class AvatarEndpoints
             if (image is null)
                 return Results.NotFound();
 
-            return Results.Stream(new MemoryStream(image.Content), image.ContentType);
+            // Fix #4a (S-186): `private` — never `public` — because this
+            // response is authorization-gated per request (a submissionId
+            // owned by a different player 404s above), so nothing but the
+            // requesting browser's own cache may store it; a shared/CDN
+            // cache serving this response to a different caller would be an
+            // authorization bypass. ETag is the submissionId itself — see
+            // AvatarImageCacheMaxAgeSeconds's own comment for why that's a
+            // safe, permanent identity for these bytes. Results.Stream's
+            // entityTag param also gets conditional-GET (If-None-Match ->
+            // 304) handling for free.
+            httpContext.Response.Headers.CacheControl = $"private, max-age={AvatarImageCacheMaxAgeSeconds}";
+            return Results.Stream(
+                new MemoryStream(image.Content), image.ContentType,
+                entityTag: new EntityTagHeaderValue($"\"{submissionId}\""));
         }).RequireAuthorization();
 
         // REQ-722 ("No avatar / rejected state, as seen by other players",
@@ -278,6 +309,7 @@ public static class AvatarEndpoints
         app.MapGet("/users/{userId:guid}/avatar/image", async (
             Guid userId,
             ClaimsPrincipal principal,
+            HttpContext httpContext,
             IUserRepository userRepository,
             IAvatarSubmissionRepository avatarSubmissionRepository,
             IAvatarStorage avatarStorage,
@@ -295,7 +327,22 @@ public static class AvatarEndpoints
             if (image is null)
                 return Results.NotFound();
 
-            return Results.Stream(new MemoryStream(image.Content), image.ContentType);
+            // Fix #4a (S-186): still `private`, not `public` — this
+            // endpoint is authorization-gated too (RequireAuthorization()
+            // below; only reachable with a valid bearer token), so the same
+            // "don't let a shared/CDN cache serve this to an unauthenticated
+            // caller" reasoning as the owner-only endpoint above applies
+            // here as well. Unlike that endpoint, THIS url is keyed by
+            // userId, not submissionId — the bytes behind it CAN change
+            // (a newer approved submission replaces the current one), so the
+            // ETag is the current submission's own Id, letting a cache
+            // correctly detect that change on revalidation rather than
+            // treating this url as permanently immutable the way the
+            // submissionId-keyed endpoint's own comment describes.
+            httpContext.Response.Headers.CacheControl = $"private, max-age={AvatarImageCacheMaxAgeSeconds}";
+            return Results.Stream(
+                new MemoryStream(image.Content), image.ContentType,
+                entityTag: new EntityTagHeaderValue($"\"{submission.Id}\""));
         }).RequireAuthorization();
     }
 
