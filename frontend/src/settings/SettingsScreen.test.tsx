@@ -83,6 +83,16 @@ function calledWithPathContaining(fetchMock: ReturnType<typeof vi.fn>, substring
   return fetchMock.mock.calls.some(([url]) => typeof url === 'string' && url.includes(substring));
 }
 
+// REQ-714/REQ-722 (2026-08-25 pencil-icon redesign): the display-name and
+// avatar forms/status rows now live inside an edit panel that only renders
+// after clicking the profile header's pencil ("Edit profile") button —
+// every test below that needs either form first opens the panel through
+// this helper, rather than finding those fields/testids immediately on
+// render the way the old always-visible standalone sections allowed.
+async function openEditPanel(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Edit profile' }));
+}
+
 describe('SettingsScreen', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -191,14 +201,19 @@ describe('SettingsScreen', () => {
       expect(screen.queryByTestId('settings-profile-avatar-image')).not.toBeInTheDocument();
     });
 
-    it('REQ722_SettingsScreen_ProfileHeaderName_IsPlainTextNotAnInput', () => {
+    it('REQ722_SettingsScreen_ProfileHeaderName_IsPlainTextNotAnInput', async () => {
+      const user = userEvent.setup();
       renderSettingsScreen({ displayName: 'Robin' });
 
       const header = screen.getByTestId('settings-profile-header');
       // The name in the profile header is plain text, not a form control —
       // the ONLY "Display name" input on the page remains the existing edit
-      // form further down, untouched by this addition.
+      // form in the pencil-toggled panel, untouched by this addition.
       expect(header.querySelector('input')).toBeNull();
+      expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
+
+      await openEditPanel(user);
+
       expect(screen.getAllByLabelText('Display name')).toHaveLength(1);
     });
 
@@ -214,6 +229,54 @@ describe('SettingsScreen', () => {
       // between them.
       expect(heading.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(heading.nextElementSibling).toBe(header);
+    });
+  });
+
+  // REQ-714/REQ-722 (2026-08-25 pencil-icon redesign): the pencil ("Edit
+  // profile") button on the profile header and the combined display-name/
+  // avatar edit panel it toggles.
+  describe('profile edit pencil/panel (REQ-714/REQ-722)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('REQ714_SettingsScreen_ShowsEditButton', () => {
+      renderSettingsScreen({ isGuest: false });
+
+      expect(screen.getByRole('button', { name: 'Edit profile' })).toBeInTheDocument();
+    });
+
+    it('REQ714_SettingsScreen_TogglesEditPanel_OnPencilClick', async () => {
+      const user = userEvent.setup();
+      renderSettingsScreen({ isGuest: false, displayName: 'Current Name' });
+
+      // Closed by default — neither form is visible until the pencil is
+      // clicked.
+      expect(screen.queryByTestId('settings-edit-panel')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
+
+      const editButton = screen.getByRole('button', { name: 'Edit profile' });
+      expect(editButton).toHaveAttribute('aria-expanded', 'false');
+
+      await user.click(editButton);
+
+      expect(screen.getByTestId('settings-edit-panel')).toBeInTheDocument();
+      expect(screen.getByLabelText('Display name')).toBeInTheDocument();
+      expect(editButton).toHaveAttribute('aria-expanded', 'true');
+
+      // Clicking again closes it — same button toggles both directions.
+      await user.click(editButton);
+
+      expect(screen.queryByTestId('settings-edit-panel')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
+      expect(editButton).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('REQ714_SettingsScreen_EditButton_MeetsTouchTargetMin', () => {
+      renderSettingsScreen({ isGuest: false });
+
+      const editButton = screen.getByRole('button', { name: 'Edit profile' });
+      expect(editButton).toHaveStyle({ minHeight: 'var(--touch-target-min)', minWidth: 'var(--touch-target-min)' });
     });
   });
 
@@ -237,9 +300,14 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('button', { name: 'My stats' })).toBeInTheDocument();
   });
 
-  // REQ-714: display-name edit form.
-  it('REQ-714: pre-fills the display-name field with the current name', () => {
+  // REQ-714: display-name edit form. All now behind the pencil-toggled
+  // edit panel (REQ-714/REQ-722, 2026-08-25 redesign) — each test opens it
+  // via openEditPanel before interacting with the form, same as a real
+  // user would.
+  it('REQ-714: pre-fills the display-name field with the current name', async () => {
+    const user = userEvent.setup();
     renderSettingsScreen({ displayName: 'Current Name' });
+    await openEditPanel(user);
 
     expect(screen.getByLabelText('Display name')).toHaveValue('Current Name');
   });
@@ -248,6 +316,7 @@ describe('SettingsScreen', () => {
     const fetchMock = vi.fn();
     const user = userEvent.setup();
     const { onDisplayNameUpdated } = renderSettingsScreen({ displayName: 'Current Name' }, fetchMock);
+    await openEditPanel(user);
 
     await user.clear(screen.getByLabelText('Display name'));
     await user.click(screen.getByRole('button', { name: 'Save name' }));
@@ -259,8 +328,10 @@ describe('SettingsScreen', () => {
     expect(onDisplayNameUpdated).not.toHaveBeenCalled();
   });
 
-  it('REQ-714: the display-name input has maxLength=30, the same length bound the client-side/server-side checks enforce (matching AuthScreen.tsx\'s signup field)', () => {
+  it('REQ-714: the display-name input has maxLength=30, the same length bound the client-side/server-side checks enforce (matching AuthScreen.tsx\'s signup field)', async () => {
+    const user = userEvent.setup();
     renderSettingsScreen({ displayName: 'Current Name' });
+    await openEditPanel(user);
 
     expect(screen.getByLabelText('Display name')).toHaveAttribute('maxLength', '30');
   });
@@ -283,6 +354,7 @@ describe('SettingsScreen', () => {
       { displayName: 'Current Name' },
       fetchMock,
     );
+    await openEditPanel(user);
 
     const input = screen.getByLabelText('Display name');
     fireEvent.change(input, { target: { value: thirtyCharacterName } });
@@ -313,6 +385,7 @@ describe('SettingsScreen', () => {
       },
       fetchMock,
     );
+    await openEditPanel(user);
 
     const input = screen.getByLabelText('Display name');
     await user.clear(input);
@@ -348,6 +421,7 @@ describe('SettingsScreen', () => {
     });
     const user = userEvent.setup();
     const { onDisplayNameUpdated } = renderSettingsScreen({ displayName: 'Current Name' }, fetchMock);
+    await openEditPanel(user);
 
     const input = screen.getByLabelText('Display name');
     await user.clear(input);
@@ -371,6 +445,7 @@ describe('SettingsScreen', () => {
       { displayName: 'Current Name' },
       fetchMock,
     );
+    await openEditPanel(user);
 
     const input = screen.getByLabelText('Display name');
     await user.clear(input);
@@ -395,6 +470,7 @@ describe('SettingsScreen', () => {
       .mockImplementation(() => jsonResponse({ id: 'user-1', displayName: 'Current Name' }));
     const user = userEvent.setup();
     const { onDisplayNameUpdated } = renderSettingsScreen({ displayName: 'Current Name' }, fetchMock);
+    await openEditPanel(user);
 
     await user.click(screen.getByRole('button', { name: 'Save name' }));
 
@@ -673,7 +749,9 @@ describe('SettingsScreen', () => {
         }
         return jsonResponse({});
       });
+      const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
 
       expect(await screen.findByTestId('avatar-section-none')).toHaveTextContent(
         "You haven't uploaded an avatar yet.",
@@ -697,7 +775,9 @@ describe('SettingsScreen', () => {
         }
         return jsonResponse({});
       });
+      const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
 
       const pending = await screen.findByTestId('avatar-section-pending');
       expect(pending).toHaveTextContent('Pending review');
@@ -727,6 +807,7 @@ describe('SettingsScreen', () => {
       );
       const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
       await screen.findByTestId('avatar-section-none');
 
       // 6 MB, over the 5 MB client-side pre-check bound — same MIME type
@@ -761,6 +842,7 @@ describe('SettingsScreen', () => {
       });
       const user = userEvent.setup();
       renderSettingsScreen({ accessToken: 'token-abc' }, fetchMock);
+      await openEditPanel(user);
       await screen.findByTestId('avatar-section-none');
 
       const file = new File(['fake'], 'avatar.png', { type: 'image/png' });
@@ -814,7 +896,9 @@ describe('SettingsScreen', () => {
         }
         return jsonResponse({});
       });
+      const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
 
       expect(await screen.findByTestId('avatar-section-pending')).toHaveTextContent('Pending review');
       expect(await screen.findByTestId('avatar-section-pending-image')).toHaveAttribute(
@@ -840,7 +924,9 @@ describe('SettingsScreen', () => {
         }
         return jsonResponse({});
       });
+      const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
 
       expect(await screen.findByTestId('avatar-section-rejected')).toHaveTextContent('Rejected');
       expect(await screen.findByTestId('avatar-section-rejected-image')).toHaveAttribute(
@@ -866,7 +952,9 @@ describe('SettingsScreen', () => {
         }
         return jsonResponse({});
       });
+      const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
 
       expect(await screen.findByTestId('avatar-section-approved')).toHaveTextContent(
         'Currently visible to other players',
@@ -899,7 +987,9 @@ describe('SettingsScreen', () => {
         }
         return jsonResponse({});
       });
+      const user = userEvent.setup();
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
 
       expect(await screen.findByTestId('avatar-section-rejected')).toHaveTextContent('Rejected');
       expect(await screen.findByTestId('avatar-section-approved')).toHaveTextContent(
@@ -933,6 +1023,7 @@ describe('SettingsScreen', () => {
       );
       const user = userEvent.setup({ applyAccept: false });
       renderSettingsScreen({}, fetchMock);
+      await openEditPanel(user);
       await screen.findByTestId('avatar-section-none');
 
       const gifFile = new File(['fake-gif-bytes'], 'avatar.gif', { type: 'image/gif' });
@@ -1006,6 +1097,7 @@ describe('SettingsScreen', () => {
       });
       const user = userEvent.setup();
       renderSettingsScreen({ accessToken: 'token-abc' }, fetchMock);
+      await openEditPanel(user);
 
       expect(await screen.findByTestId('avatar-section-pending')).toBeInTheDocument();
       await waitFor(() =>

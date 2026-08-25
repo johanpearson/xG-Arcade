@@ -181,6 +181,28 @@ function ProfileAvatarPreview({ imageUrl }: { imageUrl: string | null }) {
   );
 }
 
+// REQ-714/REQ-722 (2026-08-25, product-owner instruction, johan.pearson):
+// the profile header's edit affordance — a small pencil glyph, decorative
+// on its own (the wrapping <button> below carries the real "Edit profile"
+// accessible name via aria-label, since unlike PersonSilhouetteIcon's every
+// use so far, this one IS interactive, not a placeholder). Deliberately
+// inline here rather than a new file under ../components/ — this is the
+// only call site today, so extracting it would front-run
+// docs/coding-guidelines.md's rule-of-three (PersonSilhouetteIcon itself
+// was only extracted once a THIRD copy landed). No color/size token beyond
+// what SettingsScreen.css's .settings-screen__profile-edit-icon supplies
+// (currentColor, so it inherits the button's own text color).
+function EditPencilIcon() {
+  return (
+    <svg className="settings-screen__profile-edit-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      <path
+        d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25ZM19.71 7.04a1 1 0 0 0 0-1.41l-1.34-1.34a1 1 0 0 0-1.41 0l-1.34 1.34 2.75 2.75 1.34-1.34Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 // SCREEN-08 (design-document.md §3), REQ-713: the single "Settings" nav
 // entry's destination, consolidating what used to be two standalone
 // top-level header links — "Delete account" (REQ-710) and, admin-only,
@@ -206,6 +228,17 @@ function ProfileAvatarPreview({ imageUrl }: { imageUrl: string | null }) {
 // addition (same "built functionally, flagged as a doc gap" situation
 // AuthScreen.tsx's own top-of-file note already describes for the
 // login/signup screen as a whole).
+//
+// REQ-714/REQ-722 (2026-08-25, product-owner instruction, johan.pearson —
+// see design-document.md's SCREEN-08 entry for this date): the standalone
+// "Display name" and "My avatar" sections that used to sit further down
+// this screen, always visible, are now combined into a single inline edit
+// panel toggled by a pencil-icon button on the profile header
+// (`settings-screen__profile-edit-button` below) — same underlying forms,
+// state, and handlers (handleDisplayNameSubmit/handleAvatarSubmit
+// unchanged), just relocated and gated behind one explicit open/close
+// toggle (`editPanelOpen`) instead of two always-rendered bordered
+// sections.
 export function SettingsScreen({
   accessToken,
   isAdmin,
@@ -231,6 +264,14 @@ export function SettingsScreen({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // REQ-714/REQ-722 (2026-08-25): whether the combined display-name/avatar
+  // edit panel is open — toggled by the pencil button on the profile
+  // header below. Starts closed; only ever rendered/toggleable at all when
+  // `!isGuest` (see the pencil button's own `isGuest` guard further down),
+  // so this stays false for the lifetime of a guest's session on this
+  // screen regardless of its initial value.
+  const [editPanelOpen, setEditPanelOpen] = useState(false);
 
   // REQ-717/ADR-0036: the claim/upgrade form's own state, separate from the
   // display-name form above — a different submit action, a different error
@@ -433,19 +474,189 @@ export function SettingsScreen({
     <div className="settings-screen">
       <h2 className="settings-screen__title">Settings</h2>
 
-      {/* REQ-722/S-184: the profile header — the account's own current
-          avatar plus its current display name, as PLAIN TEXT (not an
-          editable field; the "Display name" section further down stays the
-          actual edit form, unchanged). Placed first, directly under the
-          "Settings" heading and above every other section (including the
-          guest-claim call-to-action below it), since this is purely
-          identity context for the rest of the screen, not an action of its
-          own. See design-document.md's SCREEN-08 section for the full
-          spec. */}
+      {/* REQ-722/S-184, REQ-714/REQ-722 (2026-08-25 pencil-icon redesign):
+          the profile header — the account's own current avatar plus its
+          current display name, as PLAIN TEXT (not an editable field —
+          editing now happens in the inline panel toggled by the pencil
+          button below, not inline in this row). Placed first, directly
+          under the "Settings" heading and above every other section
+          (including the guest-claim call-to-action below it), since this is
+          purely identity context for the rest of the screen, not an action
+          of its own. See design-document.md's SCREEN-08 section for the
+          full spec. */}
       <section className="settings-screen__section settings-screen__section--profile" data-testid="settings-profile-header">
         <ProfileAvatarPreview imageUrl={approvedImageUrl} />
         <span className="settings-screen__profile-name">{displayName}</span>
+        <button
+          type="button"
+          className="settings-screen__profile-edit-button"
+          aria-label="Edit profile"
+          aria-expanded={editPanelOpen}
+          data-testid="settings-profile-edit-button"
+          onClick={() => setEditPanelOpen((open) => !open)}
+        >
+          <EditPencilIcon />
+        </button>
       </section>
+
+      {/* REQ-714/REQ-722 (2026-08-25): the combined display-name/avatar edit
+          panel — only ever rendered while `editPanelOpen` is true, toggled by
+          the pencil button above. Positioned directly below the profile
+          header (rather than, say, at the bottom of the screen) so it reads
+          as clearly tied to the row that opened it. */}
+      {editPanelOpen && (
+        <section className="settings-screen__section settings-screen__section--edit-panel" data-testid="settings-edit-panel">
+          <div className="settings-screen__edit-panel-block">
+            <h3 className="settings-screen__section-title">Display name</h3>
+            <form className="settings-screen__display-name-form" onSubmit={handleDisplayNameSubmit}>
+              <label className="settings-screen__field">
+                <span>Display name</span>
+                <input
+                  type="text"
+                  maxLength={DISPLAY_NAME_MAX_LENGTH}
+                  value={newDisplayName}
+                  onChange={(event) => {
+                    setTouched(true);
+                    setSaved(false);
+                    setNewDisplayName(event.target.value);
+                  }}
+                  disabled={submitting}
+                />
+              </label>
+
+              {error && (
+                <p className="settings-screen__display-name-error" role="alert">
+                  {error}
+                </p>
+              )}
+
+              {saved && !error && (
+                <p className="settings-screen__display-name-success" role="status">
+                  Display name updated.
+                </p>
+              )}
+
+              <button type="submit" className="settings-screen__display-name-submit" disabled={submitting}>
+                {submitting ? 'Saving…' : 'Save name'}
+              </button>
+            </form>
+          </div>
+
+          {/* REQ-722/S-182: the avatar upload/status block — reuses the same
+              field/error/success/submit-button pattern the display-name
+              form above already established. Uploading and status-viewing
+              are both here, since REQ-722 has no separate "review" surface
+              for the player's own submissions the way REQ-517's admin queue
+              does. */}
+          <div className="settings-screen__edit-panel-block">
+            <h3 className="settings-screen__section-title">My avatar</h3>
+
+            <form className="settings-screen__avatar-form" onSubmit={handleAvatarSubmit}>
+              <label className="settings-screen__field">
+                <span>Upload a new avatar</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  ref={avatarFileInputRef}
+                  data-testid="avatar-section-upload-input"
+                  onChange={(event) => {
+                    setAvatarError(null);
+                    setAvatarSaved(false);
+                    setAvatarFile(event.target.files?.[0] ?? null);
+                  }}
+                  disabled={avatarSubmitting}
+                />
+              </label>
+
+              {avatarError && (
+                <p className="settings-screen__avatar-error" role="alert">
+                  {avatarError}
+                </p>
+              )}
+
+              {avatarSaved && !avatarError && (
+                <p className="settings-screen__avatar-success" role="status">
+                  Avatar submitted for review.
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="settings-screen__avatar-submit"
+                data-testid="avatar-section-upload-button"
+                disabled={avatarSubmitting}
+              >
+                {avatarSubmitting ? 'Uploading…' : 'Upload avatar'}
+              </button>
+            </form>
+
+            <div className="settings-screen__avatar-status">
+              {avatarStatusError && (
+                <p className="settings-screen__avatar-error" role="alert">
+                  {avatarStatusError}
+                </p>
+              )}
+
+              {/* REQ-722: all three rows below are independent, not a single
+                  mutually-exclusive switch — a Rejected row never implies the
+                  Approved row is hidden, and vice versa (see
+                  AvatarStatusResponse's own doc comment in lib/types.ts). */}
+              {avatarStatus?.pending && (
+                <div className="settings-screen__avatar-status-row" data-testid="avatar-section-pending">
+                  <span className="settings-screen__avatar-status-label">Pending review</span>
+                  {pendingImageUrl && (
+                    <img
+                      className="settings-screen__avatar-preview"
+                      src={pendingImageUrl}
+                      alt="Your pending avatar submission, awaiting admin review"
+                      data-testid="avatar-section-pending-image"
+                    />
+                  )}
+                </div>
+              )}
+
+              {avatarStatus?.rejected && (
+                <div className="settings-screen__avatar-status-row" data-testid="avatar-section-rejected">
+                  <span className="settings-screen__avatar-status-label settings-screen__avatar-status-label--rejected">
+                    Rejected
+                  </span>
+                  {rejectedImageUrl && (
+                    <img
+                      className="settings-screen__avatar-preview"
+                      src={rejectedImageUrl}
+                      alt="Your rejected avatar submission"
+                      data-testid="avatar-section-rejected-image"
+                    />
+                  )}
+                </div>
+              )}
+
+              {avatarStatus?.approved && (
+                <div className="settings-screen__avatar-status-row" data-testid="avatar-section-approved">
+                  <span className="settings-screen__avatar-status-label">Currently visible to other players</span>
+                  {approvedImageUrl && (
+                    <img
+                      className="settings-screen__avatar-preview"
+                      src={approvedImageUrl}
+                      alt="Your current avatar, visible to other players"
+                      data-testid="avatar-section-approved-image"
+                    />
+                  )}
+                </div>
+              )}
+
+              {avatarStatus &&
+                !avatarStatus.pending &&
+                !avatarStatus.rejected &&
+                !avatarStatus.approved && (
+                  <p className="settings-screen__avatar-empty" data-testid="avatar-section-none">
+                    You haven&apos;t uploaded an avatar yet.
+                  </p>
+                )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* REQ-717/ADR-0036: the claim/upgrade section — rendered only while
           the account is still a guest (isGuest), placed first since it's
@@ -565,157 +776,6 @@ export function SettingsScreen({
               <span>{option.label}</span>
             </label>
           ))}
-        </div>
-      </section>
-
-      <section className="settings-screen__section settings-screen__section--display-name">
-        <h3 className="settings-screen__section-title">Display name</h3>
-        <form className="settings-screen__display-name-form" onSubmit={handleDisplayNameSubmit}>
-          <label className="settings-screen__field">
-            <span>Display name</span>
-            <input
-              type="text"
-              maxLength={DISPLAY_NAME_MAX_LENGTH}
-              value={newDisplayName}
-              onChange={(event) => {
-                setTouched(true);
-                setSaved(false);
-                setNewDisplayName(event.target.value);
-              }}
-              disabled={submitting}
-            />
-          </label>
-
-          {error && (
-            <p className="settings-screen__display-name-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          {saved && !error && (
-            <p className="settings-screen__display-name-success" role="status">
-              Display name updated.
-            </p>
-          )}
-
-          <button type="submit" className="settings-screen__display-name-submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save name'}
-          </button>
-        </form>
-      </section>
-
-      {/* REQ-722/S-182: the avatar upload/status section — reuses
-          .settings-screen__section's existing bordered-row treatment plus
-          the same field/error/success/submit-button pattern the
-          display-name form above already established. Uploading and
-          status-viewing are both here, since REQ-722 has no separate
-          "review" surface for the player's own submissions the way
-          REQ-517's admin queue does. */}
-      <section className="settings-screen__section settings-screen__section--avatar">
-        <h3 className="settings-screen__section-title">My avatar</h3>
-
-        <form className="settings-screen__avatar-form" onSubmit={handleAvatarSubmit}>
-          <label className="settings-screen__field">
-            <span>Upload a new avatar</span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              ref={avatarFileInputRef}
-              data-testid="avatar-section-upload-input"
-              onChange={(event) => {
-                setAvatarError(null);
-                setAvatarSaved(false);
-                setAvatarFile(event.target.files?.[0] ?? null);
-              }}
-              disabled={avatarSubmitting}
-            />
-          </label>
-
-          {avatarError && (
-            <p className="settings-screen__avatar-error" role="alert">
-              {avatarError}
-            </p>
-          )}
-
-          {avatarSaved && !avatarError && (
-            <p className="settings-screen__avatar-success" role="status">
-              Avatar submitted for review.
-            </p>
-          )}
-
-          <button
-            type="submit"
-            className="settings-screen__avatar-submit"
-            data-testid="avatar-section-upload-button"
-            disabled={avatarSubmitting}
-          >
-            {avatarSubmitting ? 'Uploading…' : 'Upload avatar'}
-          </button>
-        </form>
-
-        <div className="settings-screen__avatar-status">
-          {avatarStatusError && (
-            <p className="settings-screen__avatar-error" role="alert">
-              {avatarStatusError}
-            </p>
-          )}
-
-          {/* REQ-722: all three rows below are independent, not a single
-              mutually-exclusive switch — a Rejected row never implies the
-              Approved row is hidden, and vice versa (see
-              AvatarStatusResponse's own doc comment in lib/types.ts). */}
-          {avatarStatus?.pending && (
-            <div className="settings-screen__avatar-status-row" data-testid="avatar-section-pending">
-              <span className="settings-screen__avatar-status-label">Pending review</span>
-              {pendingImageUrl && (
-                <img
-                  className="settings-screen__avatar-preview"
-                  src={pendingImageUrl}
-                  alt="Your pending avatar submission, awaiting admin review"
-                  data-testid="avatar-section-pending-image"
-                />
-              )}
-            </div>
-          )}
-
-          {avatarStatus?.rejected && (
-            <div className="settings-screen__avatar-status-row" data-testid="avatar-section-rejected">
-              <span className="settings-screen__avatar-status-label settings-screen__avatar-status-label--rejected">
-                Rejected
-              </span>
-              {rejectedImageUrl && (
-                <img
-                  className="settings-screen__avatar-preview"
-                  src={rejectedImageUrl}
-                  alt="Your rejected avatar submission"
-                  data-testid="avatar-section-rejected-image"
-                />
-              )}
-            </div>
-          )}
-
-          {avatarStatus?.approved && (
-            <div className="settings-screen__avatar-status-row" data-testid="avatar-section-approved">
-              <span className="settings-screen__avatar-status-label">Currently visible to other players</span>
-              {approvedImageUrl && (
-                <img
-                  className="settings-screen__avatar-preview"
-                  src={approvedImageUrl}
-                  alt="Your current avatar, visible to other players"
-                  data-testid="avatar-section-approved-image"
-                />
-              )}
-            </div>
-          )}
-
-          {avatarStatus &&
-            !avatarStatus.pending &&
-            !avatarStatus.rejected &&
-            !avatarStatus.approved && (
-              <p className="settings-screen__avatar-empty" data-testid="avatar-section-none">
-                You haven&apos;t uploaded an avatar yet.
-              </p>
-            )}
         </div>
       </section>
 

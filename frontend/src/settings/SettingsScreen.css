@@ -43,6 +43,73 @@
   padding: var(--space-3);
 }
 
+/* REQ-714/REQ-722 (2026-08-25 pencil-icon redesign): the edit-affordance
+   button on the profile header row — pushed to the row's trailing edge
+   (`margin-left: auto`) rather than the avatar/name's own `gap`, since it's
+   a separate action, not a third piece of identity content alongside them.
+   `--touch-target-min` square (§6 floor), no new tokens. */
+.settings-screen__profile-edit-button {
+  margin-left: auto;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.settings-screen__profile-edit-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* REQ-714/REQ-722 (2026-08-25): the guest-only hint explaining the absent
+   pencil button — `text-muted`, same token/size
+   `.settings-screen__claim-hint` already uses for its own muted body copy
+   directly below this in the DOM, no new token. */
+.settings-screen__profile-guest-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* REQ-714/REQ-722 (2026-08-25 pencil-icon redesign): the combined edit
+   panel toggled open by the pencil button above — same
+   `.settings-screen__section` bordered-row shell every other section here
+   already uses, now holding two stacked blocks (display name, avatar)
+   instead of two separate bordered sections. No new color/animation
+   tokens; no transition on open/close (this app's one deliberate bold
+   motion moment is the badge-dock reveal — see design-document.md §2 —
+   this toggle is a plain conditional render, not a second animated
+   moment). */
+.settings-screen__section--edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3);
+}
+
+.settings-screen__edit-panel-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* A hairline divider between the two blocks — same `border-hairline` token
+   already used for every section's own outer border, reused here rather
+   than introducing a new "internal divider" color. */
+.settings-screen__edit-panel-block + .settings-screen__edit-panel-block {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-hairline);
+}
+
 /* Reuses PlayerAvatar.css's .player-avatar base rule (border-radius/
    object-fit/border/background) — this class only supplies the fixed
    64x64px dimension PlayerAvatar.tsx itself sets inline via its `size`
@@ -148,18 +215,14 @@
   accent-color: var(--color-accent-green);
 }
 
-/* REQ-714: the display-name edit form's own section — reuses
-   .settings-screen__section's existing bordered-row treatment (same tokens
-   as the admin-link row above), plus the auth-screen__field-style label/
-   input pattern for consistency with AuthScreen.tsx's own display-name
-   field at signup. No new tokens. */
-.settings-screen__section--display-name {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3);
-}
-
+/* REQ-714: the display-name edit form's own field pattern — the
+   `auth-screen__field`-style label/input pattern for consistency with
+   AuthScreen.tsx's own display-name field at signup. No new tokens.
+   (2026-08-25: the standalone bordered `.settings-screen__section
+   --display-name` wrapper this comment used to describe was removed when
+   this form moved into the pencil-toggled `.settings-screen__section
+   --edit-panel` below — the form's own classes here are unchanged and
+   still used inside that panel.) */
 .settings-screen__section-title {
   margin: 0;
   font-family: var(--font-display);
@@ -276,22 +339,17 @@
   cursor: default;
 }
 
-/* REQ-722/S-182: the avatar upload/status section — reuses
-   .settings-screen__section's existing bordered-row treatment (same tokens
-   as the admin-link/appearance/display-name/claim rows above) plus the same
-   field/error/success/submit-button pattern the display-name form already
+/* REQ-722/S-182: the avatar upload/status block's own field/error/success/
+   submit-button pattern — the same one the display-name form above already
    established. The one genuinely new layout value this section introduces
    is .settings-screen__avatar-preview's thumbnail size below — no existing
    token covers an avatar-thumbnail dimension; recorded as a judgment call
    in design-document.md's SCREEN-08 (2026-08-24, REQ-722 addition), not
-   invented silently. No new color/animation tokens. */
-.settings-screen__section--avatar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3);
-}
-
+   invented silently. No new color/animation tokens.
+   (2026-08-25: the standalone bordered `.settings-screen__section--avatar`
+   wrapper this comment used to describe was removed when this block moved
+   into the pencil-toggled `.settings-screen__section--edit-panel` above —
+   the classes below are unchanged and still used inside that panel.) */
 .settings-screen__avatar-form {
   display: flex;
   flex-direction: column;
