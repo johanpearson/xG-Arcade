@@ -6,13 +6,20 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.Api.Avatars;
 
-// REQ-722/ADR-0087 (S-180): POST /users/me/avatar — a logged-in player
-// (guest or claimed account) uploads a profile avatar image, held Pending
-// until an admin approves it (REQ-517, S-181 — not this file). Unlike
-// REQ-215/REQ-903's non-guest-only rules (SuggestionEndpoints/
-// IncidentEndpoints), REQ-722 has no guest exclusion — deliberately no
-// `user.IsGuest` check here; re-verified against the REQ text before
-// writing this endpoint, not assumed by analogy to those two.
+// REQ-722/ADR-0087 (S-180): POST /users/me/avatar — a logged-in player with
+// a claimed (non-guest) account uploads a profile avatar image, held
+// Pending until an admin approves it (REQ-517, S-181 — not this file).
+//
+// REQ-722's "Uploading" criterion originally read "Given a logged-in player
+// (guest or claimed account)," deliberately inclusive of guests, and this
+// file was built that way with no `user.IsGuest` check at all. By explicit
+// product decision (johan.pearson, 2026-08-25 Settings-redesign session —
+// see REQ-722's dated status note), that is reversed: a guest (IsGuest =
+// true) can no longer upload an avatar until they claim their account
+// (POST /auth/claim, REQ-717). The check below is the same plain IsGuest
+// gate REQ-215/REQ-903 already use for their own guest-exclusion paths
+// (SuggestionEndpoints/IncidentEndpoints) — not a new pattern, so this file
+// now matches them rather than being the deliberate exception it used to be.
 //
 // Mirrors XGArcade.Api.Suggestions.SuggestionEndpoints/XGArcade.Api.
 // Incidents.IncidentEndpoints's minimal-API shape (ClaimsPrincipal +
@@ -85,7 +92,21 @@ public static class AvatarEndpoints
             if (user is null)
                 return Results.Unauthorized();
 
-            // REQ-722: no guest exclusion — see this file's own doc comment.
+            // REQ-722's 2026-08-25 "Guest exclusion" reversal — see this
+            // file's own top-of-file comment for the full history. Checked
+            // after resolving the caller (so a guest gets a 403, not a 401)
+            // but before the storage upload call, since it's a free,
+            // local-only check and the upload is this handler's one
+            // external-dependency call. GuestRejectionResult.Problem
+            // (XGArcade.Api.Auth.GuestRejectionProblem.cs) is the shared
+            // minimal-API 403 shape SuggestionEndpoints.cs/
+            // IncidentEndpoints.cs already use for their own guest checks.
+            if (user.IsGuest)
+            {
+                return GuestRejectionResult.Problem(
+                    title: "Guest accounts cannot upload an avatar",
+                    detail: "Claim your account with an email and password to upload an avatar.");
+            }
 
             string storageKey;
             try

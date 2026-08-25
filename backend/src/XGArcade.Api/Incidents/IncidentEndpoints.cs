@@ -110,12 +110,16 @@ public static class IncidentEndpoints
             // regardless of what the client UI shows, the same "advertised-
             // but-disabled, never trusted from the client" rule REQ-215
             // already established for a different write path.
+            // GuestRejectionResult.Problem
+            // (XGArcade.Api.Auth.GuestRejectionProblem.cs) is the shared
+            // minimal-API 403 shape SuggestionEndpoints.cs's own REQ-215
+            // check (and AvatarEndpoints.cs's/AuthController.cs's REQ-722/
+            // REQ-714 checks) also use.
             if (user.IsGuest)
             {
-                return Results.Problem(
+                return GuestRejectionResult.Problem(
                     title: "Guest accounts cannot file incident reports",
-                    detail: "Register for a full account to report a problem.",
-                    statusCode: StatusCodes.Status403Forbidden);
+                    detail: "Register for a full account to report a problem.");
             }
 
             // REQ-903's per-user rate limit, checked only once the caller is

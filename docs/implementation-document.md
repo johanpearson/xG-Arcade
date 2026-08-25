@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.08"
+version: "1.09"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -488,7 +488,25 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      helper that reuses this screen's
                                      already-fetched approved-avatar object
                                      URL rather than mounting
-                                     /components' PlayerAvatar a second time
+                                     /components' PlayerAvatar a second time.
+                                     S-185 (REQ-714/717/722, 2026-08-25)
+                                     replaced the previously always-visible
+                                     "Display name"/"My avatar" sections with
+                                     one panel (same underlying forms/state)
+                                     toggled by a new EditPencilIcon button on
+                                     the profile header, hidden entirely for a
+                                     guest account (isGuest) with a muted
+                                     claim-first hint shown in its place —
+                                     server-side enforcement is the new
+                                     backend/src/XGArcade.Api/Auth/
+                                     GuestRejectionProblem.cs helper's
+                                     403 check, now reused by
+                                     AuthController.UpdateDisplayName,
+                                     AvatarEndpoints's POST
+                                     /users/me/avatar, and the pre-existing
+                                     REQ-215/REQ-903 guest-exclusion checks
+                                     in SuggestionEndpoints.cs/
+                                     IncidentEndpoints.cs
     /users                         -> UserStatsScreen (SCREEN-13, REQ-411,
                                      S-179, 2026-08-24) — one read-only
                                      component for both "own stats" and

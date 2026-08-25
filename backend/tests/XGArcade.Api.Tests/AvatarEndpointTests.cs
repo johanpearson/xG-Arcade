@@ -125,18 +125,33 @@ public class AvatarEndpointTests
         Assert.That(_fakeAvatarStorage.UploadedContentTypes, Is.Empty);
     }
 
-    // ---- REQ-722: guests are allowed, unlike REQ-215/REQ-903 -------------
+    // ---- REQ-722's 2026-08-25 "Guest exclusion" reversal: guests are now
+    // rejected, matching REQ-215/REQ-903's own guest-exclusion paths -------
+    // (this REQ originally allowed guests here; that test previously lived
+    // at this name/location asserting 201 — now replaced, since the old
+    // assertion described behavior this REQ's own status note explicitly
+    // reverses, not a still-valid case alongside the new one.)
 
     [Test]
-    public async Task REQ722_Avatar_Post_GuestAccount_IsAllowed_UnlikeSuggestionsOrIncidentReports()
+    public async Task REQ722_PostAvatar_Returns403_WhenCallerIsGuest()
     {
         var authProviderUserId = Guid.NewGuid();
-        await SeedUserAsync(authProviderUserId, isGuest: true);
+        var userId = await SeedUserAsync(authProviderUserId, isGuest: true);
         var client = CreateAuthenticatedClient(authProviderUserId);
 
         var response = await client.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/jpeg"));
 
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Guest accounts cannot upload an avatar"));
+        Assert.That(problem.Detail, Does.Contain("Claim your account"));
+        Assert.That(_fakeAvatarStorage.UploadedContentTypes, Is.Empty,
+            "a rejected guest upload must never reach the storage call");
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await assertDbContext.AvatarSubmissions.CountAsync(a => a.SubmittingUserId == userId), Is.EqualTo(0),
+            "a rejected guest upload must never persist a submission row");
     }
 
     // ---- REQ-722: size/type validation -----------------------------------

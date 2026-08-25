@@ -8636,4 +8636,87 @@ considered fully done. `architecture-reviewer`: PASS, no ADR needed — this
 is the exact follow-up ADR-0087's own "Consequences" section already
 anticipated (COMP-14 already names `DownloadAsync` as the canonical shape
 for "any future avatar-viewing surface," explicitly citing this case).
+
+**S-185 · Guest exclusion from display-name/avatar editing + pencil-icon
+Settings redesign (REQ-714/717/722)**
+By direct product decision (johan.pearson, this Settings-redesign
+session), a guest account (`User.IsGuest = true`) can no longer edit its
+display name or upload an avatar until it claims the account (`POST
+/auth/claim`, REQ-717) — reversing REQ-714's and REQ-722's prior
+unrestricted-guest scope and REQ-717's own "no guest-specific edit path"
+statement. `requirements-writer` amended REQ-714/717/722 with dated status
+notes and new guest-exclusion acceptance criteria ahead of this story's
+implementation.
+*Accept:* API tests cover a `403` with claim-account guidance on both
+`PUT /auth/display-name` and `POST /users/me/avatar` for a guest caller,
+unaffected for a claimed/non-guest caller (REQ-714/722's own "Test level"
+sections). UI: the profile-header edit pencil is never rendered for a
+guest, with a muted claim-first hint shown in its place.
+*Deps:* S-180, S-181, S-182, S-184 (needs `POST /users/me/avatar`, `PUT
+/auth/display-name`, and S-184's profile header to exist).
+
+*Built as (2026-08-25):* Backend — `AuthController.UpdateDisplayName`
+(`PUT /auth/display-name`) and `AvatarEndpoints`'s `POST
+/users/me/avatar` each gained a server-side `if (user.IsGuest)` check
+returning a 403 with claim-first guidance, checked before either
+handler's own cheaper local validation (length bound / file size-type
+limit) — same plain `IsGuest` gate REQ-215's `SuggestionEndpoints.cs` and
+REQ-903's `IncidentEndpoints.cs` already use for their own
+guest-exclusion paths. `AvatarEndpoints.cs`'s top-of-file/handler comments
+(previously "no guest exclusion here, re-verified against the REQ text")
+rewritten to describe the reversal. New tests:
+`REQ714_UpdateDisplayName_Returns403_WhenCallerIsGuest`
+(`AuthEndpointTests.cs`), `REQ722_PostAvatar_Returns403_WhenCallerIsGuest`
+(`AvatarEndpointTests.cs`); the avatar suite's prior guest-allowed 201 test
+updated to match the reversed behavior.
+
+Quality-review fix pass (same iteration): this diff's two new `if
+(user.IsGuest) { return <403> }` sites became the 4th/5th near-identical
+occurrence in the API (alongside `SuggestionEndpoints.cs`'s REQ-215 and
+`IncidentEndpoints.cs`'s REQ-903 checks) — extracted into a shared
+`backend/src/XGArcade.Api/Auth/GuestRejectionProblem.cs`
+(`GuestRejectionResult.Problem` for the minimal-API/`IResult` sites,
+`ControllerBase.GuestRejectionProblem` extension for the one MVC/
+`IActionResult` site), per `docs/coding-guidelines.md`'s rule-of-three-not-
+five. Each of the 4 call sites keeps its own title/detail wording; only
+the `(title, detail) → 403 Problem` plumbing is shared. No response shape,
+status code, or copy changed at any site, so none of the 4 files' existing
+tests needed updates.
+
+Frontend — `frontend/src/settings/SettingsScreen.tsx` (SCREEN-08)
+restructured: the always-visible "Display name" (S-058) and "My avatar"
+(S-182) sections are removed as standalone sections and merged into one
+panel, toggled by a new pencil (`EditPencilIcon`) button
+(`aria-label="Edit profile"`, `aria-expanded`) on S-184's profile header —
+hidden entirely when `isGuest`, with a muted "Claim your account to edit
+your name or avatar." hint shown in its place. Same underlying
+forms/handlers/state (`handleDisplayNameSubmit`/`handleAvatarSubmit`)
+untouched, only relocated behind a new `editPanelOpen` toggle.
+Quality-review fix pass (same iteration): closing the panel previously
+left `error`/`saved`/`avatarError`/`avatarSaved` untouched — only the two
+submit handlers ever reset them — so "submit → close → reopen" re-showed
+the previous submission's stale success/error banner with no new action
+taken; fixed via a new `handleToggleEditPanel`, which clears both forms'
+success/error state (and any selected-but-unsubmitted avatar file) only
+when the panel transitions closed, not open. New tests:
+`REQ714_SettingsScreen_TogglesEditPanel_OnPencilClick`,
+`REQ714_SettingsScreen_EditButton_MeetsTouchTargetMin`,
+`REQ714_SettingsScreen_HidesEditButton_WhenGuest`,
+`REQ722_SettingsScreen_HidesEditButton_WhenGuest`,
+`REQ714_SettingsScreen_ClearsSuccessMessage_OnPanelReopen`,
+`REQ722_SettingsScreen_ClearsSuccessMessage_OnPanelReopen`. 720/720
+frontend tests passing (verified in-sandbox with a real `npm run test`
+run); `npx tsc -b` and `npm run lint` both clean. Backend built without a
+local `dotnet` SDK in-sandbox — hand-traced against
+`AuthEndpointTests.cs`'s/`AvatarEndpointTests.cs`'s existing patterns, not
+locally run; a CI verification run is still needed before this is
+considered fully done. `architecture-reviewer`: PASS, no ADR needed —
+reuses the existing plain `IsGuest` gate pattern REQ-215/REQ-903 already
+established, not a new structural mechanism. `quality-architect`: PASS
+after the two fix passes above (403-check duplication extraction,
+stale-panel-state bug) — separately suggested (non-blocking) extracting a
+`ProfileEditPanel` sub-component from `SettingsScreen.tsx`; noted as a
+future call, not done here. `docs/design-document.md`'s SCREEN-08 section
+updated in the same iteration (v0.80 → v0.81) describing the pencil-icon
+panel and guest gating.
 `quality-architect`: PASS, after the fix pass above.
