@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.79"
+version: "0.80"
 status: draft
-last_updated: 2026-08-24
+last_updated: 2026-08-25
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -443,6 +443,17 @@ recorded (not re-litigated) in REQ-216's own status note.
   scenario the correct-cell border was already built to survive
   regardless of stacking order) — see SCREEN-01a's own status note for the
   full detail and Grid.css's `.grid-table__cell--incorrect` rule.
+- **Reused at thumbnail scale (2026-08-25, REQ-722/S-184):** the same flat,
+  single-tone person-silhouette shape (circle head + rounded-shoulder body,
+  `text-muted` fill on a `surface-sunken` slot) is also the "no avatar"
+  fallback for `PlayerAvatar.tsx` (`frontend/src/components/`) and
+  `SettingsScreen.tsx`'s new profile header — a small circular thumbnail,
+  not this entry's full-bleed grid-cell footprint. `CellPlaceholderAvatar`
+  itself is not reused directly for that (its own doc comment scopes it to
+  the grid-cell treatment specifically); the shape is recreated at
+  thumbnail scale instead, same two color tokens, same decorative-only
+  (`aria-hidden`) treatment. See SCREEN-13 and SCREEN-08's own status notes
+  for where this shows up.
 
 ## 3. Key screens
 
@@ -2138,6 +2149,8 @@ screen shown right after login.
 ┌───────────────────────────────┐
 │ Settings                       │
 ├───────────────────────────────┤
+│ (o) Robin                       │   ← profile header, REQ-722, 2026-08-25
+├───────────────────────────────┤
 │ [ Admin ]      (admin-only)    │
 ├───────────────────────────────┤
 │ Display name                   │
@@ -2220,6 +2233,26 @@ its own stats). Opens SCREEN-13's stats/profile view scoped to the current
 account's own id. Placed above the admin-only link, since it applies to
 every account and the admin link doesn't.
 
+**Added 2026-08-25, REQ-722/S-184:** a profile header — `(o) Robin` in the
+wireframe above — placed first, directly under the "Settings" heading,
+above every other section including the guest-claim call-to-action. Shows
+the account's own current avatar (a 64×64px circle, the same already-
+documented dimension the "My avatar" section's preview thumbnails below use
+— see that section's own "New layout value" note; no new size introduced)
+next to the current display name, rendered as **plain text, not an
+editable field** — the existing "Display name" section further down stays
+exactly as-is, the only place that name can actually be changed. Reuses the
+avatar image this screen already resolves for the "Currently visible to
+other players" status row further down (`approvedImageUrl`) rather than
+re-fetching it a second time; when no approved avatar exists yet, shows the
+same placeholder silhouette `PlayerAvatar.tsx` (`frontend/src/components/`
+— see SCREEN-13's own status note above for that component's full spec)
+renders in that case, for visual consistency between the two surfaces.
+Tokens only, same
+`settings-screen__section` bordered-row shell (laid out as a row instead of
+that shell's usual stacked content) — no new color/animation tokens, only
+the already-flagged 64px avatar dimension reused a second time.
+
 **Added 2026-08-24, REQ-722/S-182:** a "My avatar" section, placed directly
 after the "Display name" section (both are account-identity edits) —
 uploading a new avatar and viewing the status of past submissions in one
@@ -2253,10 +2286,24 @@ tokens.
   - If none of the three exist: "You haven't uploaded an avatar yet." in
     `text-muted`, no preview — no placeholder-silhouette graphic reused
     here (unlike REQ-216's `CellPlaceholderAvatar`, which is a full-bleed
-    grid-cell treatment, not a small settings-page thumbnail); a future
-    pass may revisit this if a reusable avatar placeholder component gets
-    built for the other-players-facing surface REQ-722 still hasn't reached
-    (SCREEN-08's own status note below).
+    grid-cell treatment, not a small settings-page thumbnail). **Stale note
+    corrected, 2026-08-25, REQ-722/S-184:** this bullet originally ended
+    with "a future pass may revisit this if a reusable avatar placeholder
+    component gets built for the other-players-facing surface REQ-722
+    still hasn't reached" — that future pass has now happened.
+    `PlayerAvatar.tsx` (`frontend/src/components/`) is exactly that
+    reusable component: a small circular thumbnail (not
+    `CellPlaceholderAvatar`'s full-bleed grid-cell shape) that renders
+    another player's approved avatar (via the new
+    `GET /users/{userId}/avatar/image` endpoint) or the same person-
+    silhouette placeholder on any failure, and it's now used on SCREEN-13
+    (the other-players-facing surface this note was waiting on) and, as a
+    self-view, in this screen's own new profile header above. This
+    specific row — the "none of the three exist" case in the status list
+    right here — is left deliberately unchanged by that work: it still
+    shows plain text with no graphic, a judgment call to avoid silently
+    changing this row's established behavior as a side effect of a story
+    scoped to the profile header and SCREEN-13, not a remaining gap.
 - **New layout value (judgment call, not previously in this document):**
   the preview thumbnail is a 64×64px circle (`border-radius: 50%`,
   `object-fit: cover`), bordered with `border-hairline` and backed by
@@ -2872,7 +2919,7 @@ given.
 ```
 ┌───────────────────────────────┐
 │ Back                           │
-│ Alex's stats                   │
+│ (o) Alex's stats                │
 │ Lowest total wins               │
 ├───────────────────────────────┤
 │ [xG Grid] [xG Path]            │
@@ -2883,6 +2930,25 @@ given.
 │ All-time rank             #4   │
 └───────────────────────────────┘
 ```
+
+**Added 2026-08-25, REQ-722/S-184: `(o)` above is `PlayerAvatar.tsx`**
+(`frontend/src/components/`), the viewed player's avatar, placed directly
+beside the "{DisplayName}'s stats" heading — this is the "as seen by other
+players" surface REQ-722's own status note (S-182) had flagged as unbuilt
+("no surface anywhere in the frontend renders another player's avatar
+yet"). Same read-only, no-own-vs-other-concept rule as the rest of this
+screen: renders identically whether `userId` is the viewer's own account or
+another player's, and adds no interaction of its own (not clickable, no
+edit affordance here — editing stays exclusively in SCREEN-08's "My
+avatar" section). Reuses `PlayerAvatar`'s default 64×64px circle (the same
+dimension SCREEN-08's own "New layout value" note already documents for
+the avatar-upload preview thumbnails — not a new size). Decorative only
+(`alt=""`/`aria-hidden`) — the adjacent "{DisplayName}'s stats" heading
+text is what carries this player's accessible identity, same pairing rule
+§6 already requires. Degrades quietly to `PlayerAvatar`'s own placeholder
+silhouette (no visible error) whenever the viewed player has no currently-
+Approved avatar, or the fetch otherwise fails — never a broken-image icon,
+never blocking the rest of this screen's stats from rendering.
 
 - **Reached from two entry points, never a top-level nav entry.** Settings'
   "My stats" link (own stats — see SCREEN-08's own entry, updated alongside
