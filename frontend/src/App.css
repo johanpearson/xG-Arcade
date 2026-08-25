@@ -72,9 +72,35 @@
    row (basis: 100%) so it reads as a distinct statement rather than
    running on from "Playing as {name}." on the same line. Same font-size/
    color as the rest of the banner (inherited from .app__guest-banner) —
-   no new tokens. */
+   no new tokens.
+   REQ-718 UI addendum (rule 5, 2026-08-25): hidden by default (`display:
+   none`) — App.tsx's collapse toggle sets `--open` to reveal it. Hiding via
+   `display` rather than unmounting keeps the element itself always present
+   for App.test.tsx's existing text-content assertions; only its visibility
+   changes. This is what keeps the banner a single compact line on
+   mobile — the thing that was taking up disproportionate room before. */
 .app__guest-banner-expiry {
   flex-basis: 100%;
+  display: none;
+}
+
+.app__guest-banner-expiry--open {
+  display: block;
+}
+
+/* REQ-718 UI addendum (rule 5, 2026-08-25): same understated text-link
+   treatment as .app__guest-banner-action beside it (no new tokens), just
+   without the underline, so the two don't read as the same kind of action —
+   this one only toggles local visibility, it never navigates. */
+.app__guest-banner-toggle {
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-2);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .app__guest-banner-action {

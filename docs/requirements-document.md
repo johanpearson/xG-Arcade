@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.12"
+version: "2.13"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -7331,6 +7331,23 @@ touching `handleLogout`'s existing best-effort, non-blocking `POST
   `SettingsScreen.test.tsx` (2, the same expiry-copy present/absent check
   for the Settings guest section) — full suite green at 367/367 Vitest
   tests, clean `tsc -b`, clean `oxlint`.
+
+- **Rule 5 addendum (2026-08-25):** on narrow/mobile viewports the
+  always-visible expiry sentence forced the guest banner onto two lines,
+  taking up disproportionate screen space — reported directly by the
+  product owner. The sentence is now behind a collapsible disclosure
+  toggle ("Guest account details" / "Hide guest account details",
+  `aria-expanded`/`aria-controls`, same accessible pattern as `HeaderNav`'s
+  existing toggles), collapsed by default. This narrows rule 5's "visible
+  copy states..." criterion below: the copy is present and reachable in
+  one tap on every guest banner view, not necessarily rendered open by
+  default — the acceptance criterion is satisfied by the toggle disclosing
+  the exact, unmodified `GUEST_EXPIRY_COPY` sentence, not by it always
+  being on-screen without interaction. The "Playing as {name}." line and
+  "Save your progress" action are unaffected — always visible, never
+  collapsed. `SettingsScreen.tsx`'s own guest-expiry copy (reached only by
+  navigating to Settings, not passively taking up header room) is
+  unaffected by this addendum and stays always-visible there.
 
 **Test level:** Unit (`LastActiveAt` is set on account creation and
 updated on login/guest-creation/claim/guess-submission and on no other

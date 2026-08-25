@@ -151,6 +151,13 @@ function App() {
   // handleLogoutClick below. Never true for a non-guest account, since
   // that branch calls handleLogout directly and never sets this.
   const [guestLogoutConfirmOpen, setGuestLogoutConfirmOpen] = useState(false);
+  // REQ-718 UI addendum (rule 5, 2026-08-25): gates whether the guest
+  // banner's expiry sentence is shown — collapsed by default so the banner
+  // stays a single line on narrow/mobile viewports (see App.css's
+  // .app__guest-banner-expiry rule). Never persisted across sessions;
+  // resets to collapsed on every fresh mount, same as every other
+  // disclosure toggle in this codebase (HeaderNav's `open`/`gamesOpen`).
+  const [guestExpiryOpen, setGuestExpiryOpen] = useState(false);
   // REQ-903/ADR-0064: gates IncidentReportDialog, opened from the footer's
   // "Report a problem" button — deliberately state here (not inside any
   // one screen component) so it's reachable regardless of which screen is
@@ -387,13 +394,37 @@ function App() {
       {accessToken && isGuest && (
         <div className="app__guest-banner">
           <span>Playing as {currentUser?.displayName ?? 'Guest'}.</span>
+          {/* REQ-718 UI addendum (rule 5, 2026-08-25): a collapsible
+              disclosure toggle, same accessible pattern as HeaderNav's
+              (a real focusable <button>, aria-expanded reflecting state,
+              aria-controls pointing at the sentence it reveals) — added
+              because the always-visible expiry sentence forced this banner
+              onto two lines on narrow/mobile viewports, taking up
+              disproportionate screen space. Collapsed by default; the
+              sentence itself stays mounted in the DOM at all times (only
+              its CSS display toggles) so GUEST_EXPIRY_COPY's text is never
+              re-fetched/re-rendered by the toggle, just shown or hidden. */}
+          <button
+            type="button"
+            className="app__guest-banner-toggle"
+            aria-expanded={guestExpiryOpen}
+            aria-controls="guest-expiry-copy"
+            onClick={() => setGuestExpiryOpen((open) => !open)}
+            data-testid="guest-expiry-toggle"
+          >
+            {guestExpiryOpen ? 'Hide guest account details' : 'Guest account details'}
+          </button>
           {/* REQ-718 UI addendum (rule 5, 2026-08-01): the actual 7-day/
               30-day policy, not a vague "temporary account" statement —
               GUEST_EXPIRY_COPY is the single source of this sentence so it
               can never drift out of sync with rules 2/3's own numbers (see
               that constant's own comment). Never rendered for a non-guest
               account, same isGuest gate as the rest of this banner. */}
-          <span className="app__guest-banner-expiry" data-testid="guest-expiry-copy">
+          <span
+            id="guest-expiry-copy"
+            className={`app__guest-banner-expiry${guestExpiryOpen ? ' app__guest-banner-expiry--open' : ''}`}
+            data-testid="guest-expiry-copy"
+          >
             {GUEST_EXPIRY_COPY}
           </span>
           <button
