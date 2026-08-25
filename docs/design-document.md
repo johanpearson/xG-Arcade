@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.82"
+version: "0.83"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -3536,11 +3536,21 @@ Unchanged from v0.1:
   (`.app__guest-banner-toggle`), collapsed by default, since always
   rendering it forced the banner onto two lines on narrow/mobile
   viewports — the same accessible disclosure pattern `HeaderNav.tsx`
-  already established (a real `<button>`, `aria-expanded`, `aria-controls`)
-  rather than a new widget. Still tokens-only: the toggle reuses
-  `--color-text-muted`/13px, the same pairing `.app__guest-banner-action`
-  beside it already uses, just without the underline so the two don't read
-  as the same kind of control.
+  already established (a real `<button>`, `aria-expanded`, `aria-controls`).
+  **Same-day icon revision:** a first pass used a visible text label on the
+  toggle button, but the label itself was wide enough to keep the collapsed
+  row wrapping onto two lines — defeating the point. Replaced with an
+  icon-only `--touch-target-min` square button (same pattern as
+  SettingsScreen.tsx's pencil-icon edit button: a decorative inline SVG,
+  `currentColor`, `aria-hidden`, the accessible name on the wrapping
+  `<button>`'s `aria-label` instead of visible text) showing a small
+  right-pointing caret while collapsed, down-pointing once open — the glyph
+  swaps on click rather than animating, keeping this banner's existing "no
+  new motion" rule. The banner's own gap/padding also stepped down one
+  notch on the existing spacing scale (`--space-2`/`--space-4` →
+  `--space-1`/`--space-2`) so the collapsed row — "Playing as {name}." +
+  the icon + "Save your progress" — fits on a single line from ~375px
+  viewports up instead of always wrapping. No new tokens either revision.
 - ~~No SCREEN-xx spec exists for the post-login game-selection landing
   screen either~~ — **resolved 2026-07-26, see SCREEN-09.** Written ahead
   of the second game (xG Path) actually existing in code as a design-only

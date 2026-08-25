@@ -52,14 +52,21 @@
    nav row got a mobile collapse behind a toggle. */
 
 /* REQ-717/ADR-0036: a thin, low-effort nudge that the current session is a
-   guest — tokens only, no new values, no new motion. */
+   guest — tokens only, no new values, no new motion.
+   REQ-718 UI addendum (icon revision, 2026-08-25): gap/padding tightened
+   from --space-2/--space-4 to --space-1/--space-2 — still existing tokens,
+   just a step down the same scale — so the collapsed row ("Playing as
+   {name}." + the icon toggle + "Save your progress") fits on one line down
+   to ~375px viewports instead of always wrapping onto two. Verified against
+   a static render of this markup at 320-412px: single line from 375px up,
+   still wraps gracefully (flex-wrap) below that rather than clipping. */
 .app__guest-banner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
   background: var(--color-surface-sunken);
   border-bottom: 1px solid var(--color-border-hairline);
   font-size: 13px;
@@ -88,19 +95,33 @@
   display: block;
 }
 
-/* REQ-718 UI addendum (rule 5, 2026-08-25): same understated text-link
-   treatment as .app__guest-banner-action beside it (no new tokens), just
-   without the underline, so the two don't read as the same kind of action —
-   this one only toggles local visibility, it never navigates. */
+/* REQ-718 UI addendum (icon revision, 2026-08-25): an icon-only square
+   button, same `--touch-target-min` sizing/centering approach as
+   SettingsScreen.tsx's `.settings-screen__profile-edit-button` — a text
+   label here ("Guest account details") was itself wide enough to keep the
+   collapsed row wrapping onto two lines on narrow viewports, which defeated
+   the point of collapsing it. Deliberately compact (no horizontal padding
+   beyond the icon's own box) so it adds minimal width to the row; the touch
+   target stays the full accessible floor via width/height rather than
+   padding. */
 .app__guest-banner-toggle {
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
   min-height: var(--touch-target-min);
-  padding: 0 var(--space-2);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--color-text-muted);
-  font-family: var(--font-body);
-  font-size: 13px;
   cursor: pointer;
+}
+
+.app__guest-banner-toggle-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .app__guest-banner-action {
