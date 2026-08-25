@@ -8720,3 +8720,119 @@ future call, not done here. `docs/design-document.md`'s SCREEN-08 section
 updated in the same iteration (v0.80 → v0.81) describing the pencil-icon
 panel and guest gating.
 `quality-architect`: PASS, after the fix pass above.
+
+## Epic 26 — Supabase free-tier egress remediation (2026-08-25 incident)
+
+The Supabase org backing this project (free tier) is over its 5GB/billing-
+cycle egress quota (6.40GB used, 128%) and faces Fair Use Policy
+restrictions from 2026-09-24 if it stays over. Storage buckets are
+confirmed not the cause (Storage Size 0/1GB) — this is Postgres/API
+egress from GitHub Actions CLI jobs. Root cause, confirmed via GitHub
+Actions run history and source reading:
+`PlayerCareerPrefetchService` (backs `prefetch-player-careers.yml`) had no
+skip-already-processed shortcut, unlike every sibling bulk Wikidata job —
+every dispatch unconditionally re-swept every seeded country and club
+from scratch, including a full `GetPlayerAttributesAsync`/
+`GetCareerStintsByPlayerIdsAsync` dedup read-back against Supabase
+Postgres before writing anything. A player-pool purge on 2026-08-17 was
+followed by 9 manual re-dispatches in ~36 hours (chasing transient
+Wikidata/WDQS failures under the job's fail-loud-at-end contract), and one
+successful run alone persisted 193,382 players / 527,252 stints — the
+most likely explanation for the ~1.3GB single-day egress spike visible in
+the Supabase usage dashboard around 2026-08-18. Staying on the free tier
+is the highest priority right now; this is bug/reliability-hardening work
+on already-shipped jobs, not new feature scope.
+
+**S-186 · Stop repeated full-pool Wikidata sweeps + cache avatar images (REQ-110, REQ-722)**
+Four fixes in one story/PR: (1) give `PlayerCareerPrefetchService` a
+freshness-based skip using the `CountryDefinition`/
+`ClubDefinition.PlayerPoolSweptAt` timestamps ADR-0078 already stamps —
+mirroring `PlayerCacheWarmingService`'s existing
+confirmed-low-from-sweep short-circuit; (2) add a GitHub Actions
+`concurrency:` group (`cancel-in-progress: false`) to all 4 bulk Wikidata
+workflows so a burst of manual re-dispatches can never stack overlapping
+full sweeps against Supabase again; (3) narrow the dedup read-back
+queries' column projection, if low-risk given shared callers — otherwise
+skip and say so; (4a) add `Cache-Control`/`ETag` response headers to the
+two avatar image-streaming endpoints (`AvatarEndpoints.cs`), which
+currently stream Supabase Storage bytes through the backend with zero
+caching, for a companion frontend fix (`PlayerAvatar.tsx`) to rely on.
+*Accept:* a re-run of `prefetch-player-careers` against an already-swept
+country/club calls neither `fetchPoolAsync` nor the dedup repositories
+again (`REQ110_*` tests); the existing `PlayerPoolSweptAt` invalidation
+contract (`purge-player-pool`, `StaleClubAttributeCleaner`) still forces a
+real re-sweep after this change; all 4 workflow files gain a concurrency
+group; both avatar image endpoints return a `private` `Cache-Control`
+with a 1-day-plus `max-age` and an `ETag`, never `public` (both are
+authorization-gated per request).
+*Deps:* none — extends REQ-110's existing cache-warming/prefetch
+machinery and REQ-722's existing avatar-serving endpoints, no new REQ.
+
+*Built as (2026-08-25):* Fix #1 — `PlayerCareerPrefetchService.SweepAsync`
+gained a `getSweptAt` check ahead of `fetchPoolAsync`: a row whose
+`PlayerPoolSweptAt` is already non-null is skipped entirely (no live
+Wikidata call, no `markSweptAsync` re-write, and — since
+`GetPlayerAttributesAsync`/`GetCareerStintsByPlayerIdsAsync` only ever run
+inside `SweepPoolAsync`, reached only after a live fetch — no dedup
+read-back either). **Freshness-policy decision (flagged for ADR-0088):**
+"ever successfully swept" is sufficient, no staleness window — matches
+this data's own volatility (a Wikidata career history rarely changes
+retroactively) and mirrors ADR-0078's own precedent for the sibling
+`warm-grid-cache` job. The existing invalidation contract
+(`purge-player-pool`'s `ExecuteUpdateAsync` reset, `StaleClubAttributeCleaner`)
+is unchanged and still forces a real re-sweep — verified explicitly by a
+new test that mutates `PlayerPoolSweptAt` back to `null` mid-test and
+confirms a second `PrefetchAsync` call queries Wikidata again.
+`PlayerCareerPrefetchResult` gained `CountriesSkipped`/`ClubsSkipped`
+(defaulted, backward compatible), surfaced in `prefetch-player-careers`'s
+own CLI summary line. Six new `REQ110_*` tests in
+`PlayerCareerPrefetchServiceTests.cs` cover the skip itself (both country
+and club), that a skip doesn't re-write the timestamp, that a null
+`PlayerPoolSweptAt` is never skipped, and the invalidation round-trip.
+
+Fix #2 — `concurrency: { group: ${{ github.workflow }}, cancel-in-progress:
+false }` added to `prefetch-player-careers.yml`, `warm-grid-cache.yml`,
+`import-player-name-index.yml`, `backfill-player-photos.yml`; the first
+file's own stale "no skip-already-processed shortcut" incident comment
+updated to describe fix #1.
+
+Fix #3 — **skipped.** Both `IPlayerAttributeRepository
+.GetPlayerAttributesAsync` and `IPlayerCareerStintRepository
+.GetCareerStintsByPlayerIdsAsync` are shared with other callers
+(`WikidataLookupService` for the former; `PathEligibilityService`,
+`PathEndpoints`, `WikidataLookupService`, and
+`PlayerCareerStintRefreshService` for the latter), so narrowing either
+would mean adding new interface methods/DTOs rather than reshaping an
+existing shared contract — real, non-trivial scope for a secondary
+optimization. Fix #1 already eliminates the dominant cost (the dedup
+read-back only runs at all for a genuinely new or re-invalidated
+country/club now, not on every re-dispatch), which is what actually
+matters for the free-tier goal; narrowing the projection for that
+remaining, much smaller case was judged not worth the added surface
+area and risk in this story. Left as a follow-up if egress is still a
+concern after fix #1/#2 land.
+
+Fix #4a — `Cache-Control: private, max-age=86400` plus an `ETag` added to
+both `GET /users/me/avatar/{submissionId}/image` and `GET
+/users/{userId}/avatar/image` via `Results.Stream`'s `entityTag`
+parameter (also gets conditional-GET/304 handling for free) and a manual
+`httpContext.Response.Headers.CacheControl` assignment. Both stay
+`private` — never `public` — since both are authorization-gated per
+request (a `submissionId` owned by a different player 404s; the userId
+endpoint requires a valid bearer token), so a shared/CDN cache serving
+either response to a different caller would be an authorization bypass.
+The owner-only endpoint's `ETag` is the `submissionId` itself (permanently
+immutable, per REQ-722/ADR-0087's replace-not-mutate model); the
+userId-keyed endpoint's `ETag` is the *current* Approved submission's own
+`Id`, since that URL's content can change when a newer avatar is approved.
+Two new tests (`REQ722_AvatarImage_Get_SetsPrivateCacheControlAndETag`,
+`REQ722_GetUserAvatarImage_SetsPrivateCacheControlAndETag`) in
+`AvatarEndpointTests.cs`.
+
+Testing: no local `dotnet` SDK available in-sandbox (`which dotnet`
+confirmed absent) — all new/changed backend code was hand-traced against
+existing test patterns and the InMemory-provider repository behavior, not
+locally run; a CI verification run (`ci.yml` `workflow_dispatch`) is
+needed before this is considered fully done. `docs/decisions/0088-*.md`
+(the freshness-policy decision above) to be added by the orchestrator in
+the docs-sync pass, not by this story's implementation itself.
