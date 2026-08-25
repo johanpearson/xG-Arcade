@@ -60,6 +60,31 @@ namespace XGArcade.DataSync.Wikidata;
 // PlayerCacheWarmingService.WarmAsync's own comment for the read side of
 // this and ADR-0078's "For AI agents" section for the invalidation
 // contract this write side must never violate.
+//
+// REQ-110/ADR-0088/S-186 (2026-08-25, Supabase free-tier egress incident):
+// SweepAsync now ALSO reads that same PlayerPoolSweptAt signal, not just
+// writes it — a country/club whose PlayerPoolSweptAt is already non-null is
+// skipped entirely (no fetchPoolAsync call, no markSweptAsync re-write, and
+// critically no SweepPoolAsync — meaning no GetPlayerAttributesAsync/
+// GetCareerStintsByPlayerIdsAsync dedup read-back either, since those only
+// ever run after a pool is actually fetched). Before this, ADR-0078 only
+// taught PlayerCacheWarmingService to trust an already-swept pool; this
+// service itself had no equivalent shortcut and unconditionally re-swept
+// EVERY seeded country and club from scratch on every dispatch, repeating a
+// full read-and-write pass against Supabase Postgres regardless of whether
+// anything had actually changed since the last successful run. A burst of
+// 9 manual re-dispatches in ~36 hours (2026-08-17/18, chasing transient
+// WDQS failures) is the confirmed root cause of a ~1.3GB single-day egress
+// spike that pushed the org over its free-tier quota. "Ever successfully
+// swept" is treated as sufficient — no staleness window — matching this
+// data's own volatility (a Wikidata career history rarely changes
+// retroactively) and mirroring ADR-0078's own precedent for the sibling
+// warm-grid-cache job. Freshness is intentionally forced, not time-based:
+// the existing invalidation contract (StaleClubAttributeCleaner/
+// purge-player-pool clearing PlayerPoolSweptAt, per ADR-0078's "For AI
+// agents" section) is what makes a re-sweep happen again, not a calendar
+// window — the same contract this fix inherits unchanged. See ADR-0088 for
+// the full decision and alternatives considered.
 public class PlayerCareerPrefetchService(
     ICategoryValueRepository categoryValueRepository,
     IPlayerCareerStintRepository playerCareerStintRepository,
@@ -128,7 +153,8 @@ public class PlayerCareerPrefetchService(
 
         return new PlayerCareerPrefetchResult(
             countryOutcome.Processed, clubOutcome.PlayersTouched, clubOutcome.StintsAdded, countryOutcome.Failed,
-            careerBatchesFailed, clubOutcome.Processed, clubOutcome.Failed, clubOutcome.AttributesAdded);
+            careerBatchesFailed, clubOutcome.Processed, clubOutcome.Failed, clubOutcome.AttributesAdded,
+            countryOutcome.Skipped, clubOutcome.Skipped);
     }
 
     // S-165: supplies what genuinely differs from the club sweep below
@@ -138,12 +164,16 @@ public class PlayerCareerPrefetchService(
         CancellationToken cancellationToken) =>
         SweepAsync(
             countries, getWikidataQid: c => c.WikidataQid, getName: c => c.Name,
+            getSweptAt: c => c.PlayerPoolSweptAt,
             fetchPoolAsync: (c, ct) => wikidataClient.QueryPlayerPoolByNationalityAsync(c.WikidataQid!, c.UsesCountryForSportProperty, ct),
             logFetchFailed: (c, ex) => logger.LogWarning(ex,
                 "prefetch-player-careers: {Country} failed; continuing with the remaining countries. " +
                 "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed countries.",
                 c.Name),
             markSweptAsync: (c, ct) => categoryValueRepository.UpdateCountrySweptAtAsync(c.Id, DateTime.UtcNow, ct),
+            logSkipped: c => logger.LogDebug(
+                "prefetch-player-careers: {Country} skipped — already fully swept (ADR-0088); " +
+                "no Wikidata call, no dedup read-back.", c.Name),
             attributeType: NationalityAttributeType, clubNameByClubQid: clubNameByClubQid,
             startingPlayersTouched: 0, startingStintsAdded: 0, startingAttributesAdded: 0,
             logDone: (c, poolSize, touched, added, attrsAdded) => logger.LogInformation(
@@ -176,12 +206,16 @@ public class PlayerCareerPrefetchService(
             // ClubDefinition.Name directly). See ADR-0077's correction note.
             // This selector is SweepAsync's attributeValue source.
             getName: c => c.Name,
+            getSweptAt: c => c.PlayerPoolSweptAt,
             fetchPoolAsync: (c, ct) => wikidataClient.QueryPlayerPoolByClubAsync(c.WikidataQid!, ct),
             logFetchFailed: (c, ex) => logger.LogWarning(ex,
                 "prefetch-player-careers: {Club} failed; continuing with the remaining clubs. " +
                 "This run WILL fail at the end, but the job is idempotent — re-run it to fill in the failed clubs.",
                 c.Name),
             markSweptAsync: (c, ct) => categoryValueRepository.UpdateClubSweptAtAsync(c.Id, DateTime.UtcNow, ct),
+            logSkipped: c => logger.LogDebug(
+                "prefetch-player-careers: {Club} skipped — already fully swept (ADR-0088); " +
+                "no Wikidata call, no dedup read-back.", c.Name),
             attributeType: ClubAttributeType, clubNameByClubQid: clubNameByClubQid,
             startingPlayersTouched: startingPlayersTouched, startingStintsAdded: startingStintsAdded, startingAttributesAdded: startingAttributesAdded,
             logDone: (c, poolSize, touched, added, attrsAdded) => logger.LogInformation(
@@ -192,7 +226,7 @@ public class PlayerCareerPrefetchService(
 
     private readonly record struct SweepOutcome(
         int Processed, int Failed, IReadOnlyList<string> FailedNames,
-        int PlayersTouched, int StintsAdded, int AttributesAdded, int CareerBatchesFailed);
+        int PlayersTouched, int StintsAdded, int AttributesAdded, int CareerBatchesFailed, int Skipped = 0);
 
     // S-165: shared "fetch -> mark swept -> skip-empty -> dedup+chunk" shape
     // both sweeps use, extracted from two ~90-line near-identical foreach
@@ -200,16 +234,28 @@ public class PlayerCareerPrefetchService(
     // REQ-109: a null QID is a skip, not a failure. REQ-110/ADR-0078/S-160:
     // markSweptAsync only runs once fetchPoolAsync succeeds — never on the
     // null-QID skip or a caught exception — and an empty pool still counts.
+    // REQ-110/ADR-0088/S-186: a row whose getSweptAt is already non-null is
+    // skipped BEFORE fetchPoolAsync — no live Wikidata call, no
+    // markSweptAsync re-write (the existing timestamp already reflects a
+    // genuinely complete sweep — see ADR-0078's "For AI agents" section on
+    // when it's allowed to be set), and no SweepPoolAsync (the dedup
+    // read-back only ever happens inside SweepPoolAsync, which this skip
+    // never reaches). This is a pure re-run-cost fix, not a data-freshness
+    // change: getWikidataQid's null-QID skip above is checked first and
+    // still takes priority, matching every other precedence in this method.
     private async Task<SweepOutcome> SweepAsync<TRow>(
         IReadOnlyList<TRow> rows, Func<TRow, string?> getWikidataQid, Func<TRow, string> getName,
+        Func<TRow, DateTime?> getSweptAt,
         Func<TRow, CancellationToken, Task<IReadOnlyList<WikidataNameIndexEntry>>> fetchPoolAsync,
         Action<TRow, WikidataQueryException> logFetchFailed, Func<TRow, CancellationToken, Task> markSweptAsync,
+        Action<TRow> logSkipped,
         string attributeType, IReadOnlyDictionary<string, string> clubNameByClubQid,
         int startingPlayersTouched, int startingStintsAdded, int startingAttributesAdded,
         Action<TRow, int, int, int, int> logDone, CancellationToken cancellationToken)
     {
         var processed = 0;
         var failed = 0;
+        var skipped = 0;
         var failedNames = new List<string>();
         var playersTouched = startingPlayersTouched;
         var stintsAdded = startingStintsAdded;
@@ -222,6 +268,13 @@ public class PlayerCareerPrefetchService(
 
             if (getWikidataQid(row) is null)
                 continue;
+
+            if (getSweptAt(row) is not null)
+            {
+                skipped++;
+                logSkipped(row);
+                continue;
+            }
 
             IReadOnlyList<WikidataNameIndexEntry> pool;
             try
@@ -251,7 +304,7 @@ public class PlayerCareerPrefetchService(
             logDone(row, pool.Count, playersTouched, stintsAdded, attributesAdded);
         }
 
-        return new SweepOutcome(processed, failed, failedNames, playersTouched, stintsAdded, attributesAdded, careerBatchesFailed);
+        return new SweepOutcome(processed, failed, failedNames, playersTouched, stintsAdded, attributesAdded, careerBatchesFailed, skipped);
     }
 
     // S-165: byte-identical tail both sweeps share once a pool is fetched and

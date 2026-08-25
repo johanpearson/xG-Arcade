@@ -504,6 +504,37 @@ public class AvatarEndpointTests
         Assert.That(imageResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
 
+    // Fix #4a (S-186 Supabase free-tier egress remediation): both image
+    // endpoints stream Supabase Storage bytes through this backend with no
+    // caching today — an avatar is immutable once approved (a new upload
+    // creates a new AvatarSubmission with a new Id, REQ-722/ADR-0087's
+    // replace-not-mutate model), so a long private cache lifetime plus an
+    // ETag is safe. Must stay `private`, never `public`, since this
+    // endpoint is authorization-gated per submissionId — see this test's
+    // own sibling below for why the OTHER (userId-keyed) endpoint is
+    // private for a different reason.
+    [Test]
+    public async Task REQ722_AvatarImage_Get_SetsPrivateCacheControlAndETag()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var uploadResponse = await client.PostAsync("/users/me/avatar", BuildUploadContent(SmallImageBytes(), "image/png"));
+        var uploadBody = await uploadResponse.Content.ReadFromJsonAsync<SubmitAvatarResponse>();
+
+        var imageResponse = await client.GetAsync($"/users/me/avatar/{uploadBody!.Id}/image");
+
+        Assert.That(imageResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(imageResponse.Headers.CacheControl, Is.Not.Null);
+        Assert.That(imageResponse.Headers.CacheControl!.Private, Is.True,
+            "an owner-only, authorization-gated image response must never be marked public-cacheable");
+        Assert.That(imageResponse.Headers.CacheControl.Public, Is.False);
+        Assert.That(imageResponse.Headers.CacheControl.MaxAge, Is.GreaterThanOrEqualTo(TimeSpan.FromDays(1)));
+        Assert.That(imageResponse.Headers.ETag, Is.Not.Null);
+        Assert.That(imageResponse.Headers.ETag!.Tag, Is.EqualTo($"\"{uploadBody.Id}\""));
+    }
+
     // ---- REQ-722: GET /users/{userId}/avatar/image — visible to other
     // players, the "No avatar / rejected state, as seen by other players"
     // criterion that S-182's own status note flagged as unbuilt. -----------
@@ -539,6 +570,51 @@ public class AvatarEndpointTests
         Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("image/png"));
         var bytes = await response.Content.ReadAsByteArrayAsync();
         Assert.That(bytes, Is.EqualTo(SmallImageBytes()));
+    }
+
+    // Fix #4a (S-186): still `private`, not `public` — this endpoint is
+    // authorization-gated too (RequireAuthorization(), reachable only with
+    // a valid bearer token), so the same "no shared/CDN cache" reasoning
+    // as the owner-only endpoint's own sibling test applies. The ETag is
+    // the current Approved submission's own Id, not userId, since THIS
+    // url's content can change (a newer approval replaces the current one)
+    // — asserted here so a future accidental "cache forever" regression on
+    // this endpoint specifically gets caught.
+    [Test]
+    public async Task REQ722_GetUserAvatarImage_SetsPrivateCacheControlAndETag()
+    {
+        var targetAuthProviderUserId = Guid.NewGuid();
+        var targetUserId = await SeedUserAsync(targetAuthProviderUserId);
+        var approvedSubmissionId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.AvatarSubmissions.Add(new AvatarSubmission
+            {
+                Id = approvedSubmissionId,
+                SubmittingUserId = targetUserId,
+                ImageStorageKey = await _fakeAvatarStorage.UploadAsync(new MemoryStream(SmallImageBytes()), "image/png"),
+                Status = AvatarSubmissionStatus.Approved,
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
+                ResolvedByAdminId = Guid.NewGuid(),
+                ResolvedAt = DateTime.UtcNow.AddDays(-1),
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var requestingAuthProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(requestingAuthProviderUserId);
+        var requestingClient = CreateAuthenticatedClient(requestingAuthProviderUserId);
+
+        var response = await requestingClient.GetAsync($"/users/{targetUserId}/avatar/image");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(response.Headers.CacheControl, Is.Not.Null);
+        Assert.That(response.Headers.CacheControl!.Private, Is.True);
+        Assert.That(response.Headers.CacheControl.Public, Is.False);
+        Assert.That(response.Headers.CacheControl.MaxAge, Is.GreaterThanOrEqualTo(TimeSpan.FromDays(1)));
+        Assert.That(response.Headers.ETag, Is.Not.Null);
+        Assert.That(response.Headers.ETag!.Tag, Is.EqualTo($"\"{approvedSubmissionId}\""));
     }
 
     [Test]

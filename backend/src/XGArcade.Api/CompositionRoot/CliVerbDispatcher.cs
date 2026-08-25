@@ -395,10 +395,15 @@ public static class CliVerbDispatcher
         // REQ-110 follow-up: attribute(s) added is reported alongside
         // stint(s) added — both are combined totals across both sweeps, see
         // PlayerCareerPrefetchResult's own doc comment.
+        // REQ-110/ADR-0088/S-186: also reports how many countries/clubs were
+        // skipped entirely (already fully swept from a prior run, per
+        // ADR-0088) — visible confirmation in the CI log that a re-dispatch
+        // isn't paying the full Wikidata+Supabase cost again.
         Console.WriteLine(
             $"prefetch-player-careers: complete — {prefetchResult.CountriesProcessed} countr" +
             $"{(prefetchResult.CountriesProcessed == 1 ? "y" : "ies")} processed, " +
-            $"{prefetchResult.ClubsProcessed} club(s) processed, " +
+            $"{prefetchResult.CountriesSkipped} countr{(prefetchResult.CountriesSkipped == 1 ? "y" : "ies")} skipped (already swept), " +
+            $"{prefetchResult.ClubsProcessed} club(s) processed, {prefetchResult.ClubsSkipped} club(s) skipped (already swept), " +
             $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added, " +
             $"{prefetchResult.AttributesAdded} attribute(s) added.");
         return true;

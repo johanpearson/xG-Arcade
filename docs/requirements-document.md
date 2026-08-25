@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.14"
+version: "2.15"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -691,6 +691,34 @@ without erroring), API
   where only one side is swept still falls through to a live query, because
   a partial pool on either side leaves the true match count unknown, not
   merely "probably low"
+- **Status note (2026-08-25, S-186 — Supabase free-tier egress incident,
+  ADR-0088): `PlayerCareerPrefetchService` itself now also checks
+  `PlayerPoolSweptAt` before re-sweeping a country/club, not only
+  `PlayerCacheWarmingService`.** Root cause of a production Supabase
+  free-tier egress overage (6.40GB/5GB, 128%, current billing cycle): a
+  burst of 9 manual re-dispatches of `prefetch-player-careers.yml` in ~36
+  hours (2026-08-17/18) each unconditionally re-swept every seeded
+  country's and club's full player pool from scratch — a live Wikidata
+  query per row plus a full `GetPlayerAttributesAsync`/
+  `GetCareerStintsByPlayerIdsAsync` dedup read-back against Supabase
+  Postgres — with no skip mechanism at all, unlike every sibling bulk
+  Wikidata job. Given a country/club whose player pool was already fully
+  swept in a prior `prefetch-player-careers` run (`PlayerPoolSweptAt`
+  non-null), when the job is re-dispatched, then that country/club is
+  skipped entirely — no live Wikidata query and no Supabase read-back —
+  and counted in a new `CountriesSkipped`/`ClubsSkipped` total in the run
+  summary. Given a country/club whose pool has never been swept
+  (`PlayerPoolSweptAt` still null) or whose `PlayerPoolSweptAt` was reset
+  to null by REQ-111's cleaner or `purge-player-pool` (REQ-112/S-038),
+  when the job reaches it, then it is still queried normally — this
+  extension does not change the existing invalidation contract in any
+  way, only adds a new reader of the same signal. No staleness window:
+  "ever successfully swept" is sufficient, matching this data's own low
+  volatility (a Wikidata career history rarely changes retroactively) and
+  ADR-0078's own precedent for the sibling `warm-grid-cache` job. See
+  ADR-0088 for the full decision, alternatives considered, and how this is
+  explicitly distinguished from ADR-0078's own (pairwise, different
+  service) skip rule.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -749,6 +777,21 @@ unchanged. `StaleClubAttributeCleanerTests.cs` — cleaning a club (named or
 its `PlayerAttribute`/`PlayerData` rows. A `purge-player-pool` regression
 test — purging resets `PlayerPoolSweptAt` to `null` on every
 `CountryDefinition`/`ClubDefinition` row, not only deleting `Player` rows.
+**(ADR-0088 additions, S-186):** `PlayerCareerPrefetchServiceTests.cs` —
+`REQ110_PrefetchAsync_CountryAlreadySwept_SkipsWithoutQueryingWikidataAgain`
+and `REQ110_PrefetchAsync_ClubAlreadySwept_SkipsWithoutQueryingWikidataAgain`
+assert a row with a non-null `PlayerPoolSweptAt` issues zero calls to the
+mocked `IWikidataClient` and is not passed to the dedup repositories;
+`REQ110_PrefetchAsync_CountryAlreadySwept_DoesNotReWriteSweptAtTimestamp`
+asserts a skipped row's existing `PlayerPoolSweptAt` value is left exactly
+as it was, not re-stamped with a fresh timestamp;
+`REQ110_PrefetchAsync_CountryWithNullSweptAt_IsNotSkipped_StillQueriesWikidata`
+is the negative case, confirming a never-swept row is unaffected by the
+new check; `REQ110_PrefetchAsync_CountryReSweptAfterInvalidation_QueriesWikidataAgain`
+nulls `PlayerPoolSweptAt` mid-test (simulating REQ-111's cleaner or
+`purge-player-pool`) and confirms a second `PrefetchAsync` call queries
+Wikidata again for that row, proving the existing invalidation contract
+still forces a real re-sweep after this change.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched
@@ -7901,6 +7944,41 @@ pencil (`SettingsScreen.tsx`, added by S-184) is never rendered while
 `docs/backlog.md` S-185 for the full build record, including a
 quality-review fix pass for a stale-success-message bug found while
 building this.
+
+**Status note (2026-08-25, S-186 — Supabase free-tier egress incident:
+`Cache-Control`/`ETag` added to both avatar image-streaming endpoints.)**
+Direct follow-up to the same egress incident REQ-110's own 2026-08-25
+status note describes. Both `GET /users/me/avatar/{submissionId}/image`
+and `GET /users/{userId}/avatar/image` (`AvatarEndpoints.cs`) previously
+streamed Supabase Storage bytes through the backend on every single
+request with zero caching, so a page rendering the same avatar repeatedly
+(e.g. a leaderboard with the same player appearing many times) paid a
+fresh `IAvatarStorage.DownloadAsync` — and its own Supabase Storage
+egress — every time. An avatar image is immutable once approved
+(REQ-722/ADR-0087's replace-not-mutate model — a new upload creates a new
+`AvatarSubmission` with a new Id rather than mutating an existing row), so
+both endpoints now set `Cache-Control: private, max-age=86400` (1 day) plus
+a correct per-endpoint `ETag`, via `Results.Stream`'s `entityTag` parameter
+(which also gets conditional-GET/`If-None-Match` -> 304 handling for
+free). Both stay `private` — **never** `public` — since both endpoints are
+authorization-gated per request (the owner-only endpoint 404s for a
+`submissionId` the caller doesn't own; the userId-keyed endpoint requires a
+valid bearer token), so a shared/CDN cache serving either response to a
+different caller would be an authorization bypass. The two endpoints'
+`ETag` sources differ because their identity semantics differ: the
+owner-only endpoint's `ETag` is the `submissionId` itself, a permanently
+immutable identity, since a given submission's bytes can never change; the
+userId-keyed endpoint's `ETag` is the *current* `Approved` submission's own
+Id, recomputed per request, since a newer approval can replace which
+submission that URL resolves to. No acceptance criterion above changes —
+this is a caching/egress optimization on an already-built read path, not a
+behavior change to what is shown or to whom. Covered by 2 new tests in
+`backend/tests/XGArcade.Api.Tests/AvatarEndpointTests.cs`:
+`REQ722_AvatarImage_Get_SetsPrivateCacheControlAndETag` and
+`REQ722_GetUserAvatarImage_SetsPrivateCacheControlAndETag`. See
+`docs/backlog.md` Epic 26/S-186 for the full build record (this was fix
+#4a of that story; fix #1 is REQ-110's `PlayerCareerPrefetchService`
+skip, ADR-0088).
 
 ---
 

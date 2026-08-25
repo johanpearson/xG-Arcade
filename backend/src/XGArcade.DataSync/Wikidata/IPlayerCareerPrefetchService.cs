@@ -41,6 +41,14 @@ public interface IPlayerCareerPrefetchService
 // backward-compatibility reason ClubsProcessed/ClubsFailed were (ADR-0069):
 // any existing positional-constructor call site that predates this field
 // keeps compiling unchanged.
+//
+// REQ-110/ADR-0088/S-186 (2026-08-25): CountriesSkipped/ClubsSkipped count
+// rows this run skipped entirely because PlayerPoolSweptAt was already
+// non-null (a genuinely complete sweep from a prior run) — distinct from
+// CountriesProcessed/ClubsProcessed, which only count rows this run
+// actually fetched from Wikidata. Defaulted to 0 for the same
+// backward-compatibility reason as AttributesAdded above.
 public record PlayerCareerPrefetchResult(
     int CountriesProcessed, int PlayersTouched, int StintsAdded, int CountriesFailed, int CareerBatchesFailed,
-    int ClubsProcessed = 0, int ClubsFailed = 0, int AttributesAdded = 0);
+    int ClubsProcessed = 0, int ClubsFailed = 0, int AttributesAdded = 0,
+    int CountriesSkipped = 0, int ClubsSkipped = 0);
