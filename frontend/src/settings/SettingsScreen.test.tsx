@@ -240,7 +240,7 @@ describe('SettingsScreen', () => {
       vi.unstubAllGlobals();
     });
 
-    it('REQ714_SettingsScreen_ShowsEditButton', () => {
+    it('REQ714_SettingsScreen_ShowsEditButton_WhenNotGuest', () => {
       renderSettingsScreen({ isGuest: false });
 
       expect(screen.getByRole('button', { name: 'Edit profile' })).toBeInTheDocument();
@@ -277,6 +277,46 @@ describe('SettingsScreen', () => {
 
       const editButton = screen.getByRole('button', { name: 'Edit profile' });
       expect(editButton).toHaveStyle({ minHeight: 'var(--touch-target-min)', minWidth: 'var(--touch-target-min)' });
+    });
+  });
+
+  // REQ-714/REQ-722 (2026-08-25, product-owner instruction): a guest
+  // account cannot edit its display name or avatar until it claims the
+  // account (POST /auth/claim, REQ-717) — the server enforces this with a
+  // 403 on both PUT /auth/display-name and POST /users/me/avatar
+  // (AuthController.cs/AvatarEndpoints.cs, already merged into this branch
+  // separately); this screen's own part of that change is hiding the only
+  // client-side entry point to either form while isGuest is true, so a
+  // guest never even reaches a form that would just 403 anyway.
+  describe('guest gating of the edit pencil/panel (REQ-714/REQ-722)', () => {
+    it('REQ714_SettingsScreen_HidesEditButton_WhenGuest', () => {
+      renderSettingsScreen({ isGuest: true });
+
+      expect(screen.queryByRole('button', { name: 'Edit profile' })).not.toBeInTheDocument();
+      // Neither form's fields are reachable at all — not just the button,
+      // the whole panel they'd open into.
+      expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('avatar-section-upload-input')).not.toBeInTheDocument();
+    });
+
+    it('REQ722_SettingsScreen_HidesEditButton_WhenGuest', () => {
+      renderSettingsScreen({ isGuest: true });
+
+      expect(screen.queryByRole('button', { name: 'Edit profile' })).not.toBeInTheDocument();
+    });
+
+    it('REQ714_SettingsScreen_RendersGuestHint_WhenGuest', () => {
+      renderSettingsScreen({ isGuest: true });
+
+      expect(screen.getByTestId('settings-profile-guest-hint')).toHaveTextContent(
+        'Claim your account to edit your name or avatar.',
+      );
+    });
+
+    it('REQ714_SettingsScreen_RendersNoGuestHint_WhenNotGuest', () => {
+      renderSettingsScreen({ isGuest: false });
+
+      expect(screen.queryByTestId('settings-profile-guest-hint')).not.toBeInTheDocument();
     });
   });
 

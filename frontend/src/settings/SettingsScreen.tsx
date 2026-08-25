@@ -238,7 +238,18 @@ function EditPencilIcon() {
 // state, and handlers (handleDisplayNameSubmit/handleAvatarSubmit
 // unchanged), just relocated and gated behind one explicit open/close
 // toggle (`editPanelOpen`) instead of two always-rendered bordered
-// sections.
+// sections. Same session, a second, independent change: the pencil button
+// itself is never rendered while `isGuest` is true — REQ-714/REQ-722 were
+// both updated the same day to require server-side 403 enforcement
+// (`PUT /auth/display-name`, `POST /users/me/avatar`) once a guest
+// attempts either action; hiding the only client-side entry point to both
+// forms is this screen's part of that change, following the same "no
+// visible entry point when not applicable" pattern REQ-504's admin-link
+// gating and REQ-713's delete-account framing already use elsewhere on
+// this screen — not a substitute for the server-side check (a
+// backend-implementer agent's own parallel change, already merged into
+// this branch as of this commit), a second, independent layer in front of
+// it.
 export function SettingsScreen({
   accessToken,
   isAdmin,
@@ -487,23 +498,52 @@ export function SettingsScreen({
       <section className="settings-screen__section settings-screen__section--profile" data-testid="settings-profile-header">
         <ProfileAvatarPreview imageUrl={approvedImageUrl} />
         <span className="settings-screen__profile-name">{displayName}</span>
-        <button
-          type="button"
-          className="settings-screen__profile-edit-button"
-          aria-label="Edit profile"
-          aria-expanded={editPanelOpen}
-          data-testid="settings-profile-edit-button"
-          onClick={() => setEditPanelOpen((open) => !open)}
-        >
-          <EditPencilIcon />
-        </button>
+        {/* REQ-714/REQ-722 (2026-08-25, product-owner instruction): no
+            pencil button at all while isGuest is true — a guest has no
+            client-side way to open the edit panel, matching the new
+            server-side 403 on both PUT /auth/display-name and
+            POST /users/me/avatar. This is the only visibility gate on the
+            button itself; the panel it opens has no separate isGuest check
+            of its own since it can never open for a guest in the first
+            place. */}
+        {!isGuest && (
+          <button
+            type="button"
+            className="settings-screen__profile-edit-button"
+            aria-label="Edit profile"
+            aria-expanded={editPanelOpen}
+            data-testid="settings-profile-edit-button"
+            onClick={() => setEditPanelOpen((open) => !open)}
+          >
+            <EditPencilIcon />
+          </button>
+        )}
       </section>
 
+      {/* REQ-714/REQ-722 (2026-08-25, product-owner instruction): a short,
+          muted hint explaining why no pencil button appears above, for a
+          guest specifically — placed directly under the profile header,
+          before the claim section itself. Not fully redundant with the
+          claim section's own "Save your progress" copy right below it: that
+          copy sells claiming generally (keeping scores, logging in
+          elsewhere); this one answers the narrower, more immediate question
+          a guest might have looking at this exact row ("where did the edit
+          button go?"). `text-muted`, the same existing token
+          `.settings-screen__claim-hint`/`.settings-screen__avatar-empty`
+          already use for muted body copy — no new token. */}
+      {isGuest && (
+        <p className="settings-screen__profile-guest-hint" data-testid="settings-profile-guest-hint">
+          Claim your account to edit your name or avatar.
+        </p>
+      )}
+
       {/* REQ-714/REQ-722 (2026-08-25): the combined display-name/avatar edit
-          panel — only ever rendered while `editPanelOpen` is true, toggled by
-          the pencil button above. Positioned directly below the profile
-          header (rather than, say, at the bottom of the screen) so it reads
-          as clearly tied to the row that opened it. */}
+          panel — only ever rendered while `editPanelOpen` is true, which in
+          turn can only ever become true via the pencil button above, itself
+          never rendered for a guest. No separate `!isGuest` check is needed
+          here as a result, but the panel is still positioned directly below
+          the profile header/guest hint (rather than, say, at the bottom of
+          the screen) so it reads as clearly tied to the row that opened it. */}
       {editPanelOpen && (
         <section className="settings-screen__section settings-screen__section--edit-panel" data-testid="settings-edit-panel">
           <div className="settings-screen__edit-panel-block">
