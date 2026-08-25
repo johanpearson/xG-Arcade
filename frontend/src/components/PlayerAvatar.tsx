@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchUserAvatarImageObjectUrl } from '../lib/avatar';
+import { PersonSilhouetteIcon } from './PersonSilhouetteIcon';
 import './PlayerAvatar.css';
 
 // REQ-722/S-184: the other-players-facing avatar thumbnail
@@ -93,13 +94,15 @@ export function PlayerAvatar({ accessToken, userId, displayName, size = DEFAULT_
         {/* Same flat, single-tone person-silhouette shape as
             frontend/src/grid/CellState.tsx's CellPlaceholderAvatar
             (design-document.md §2's "Placeholder avatar (REQ-216)" entry) —
-            recreated at thumbnail scale here rather than reusing that
+            rendered at thumbnail scale here rather than reusing that
             component directly, since its own doc comment scopes it to the
-            full-bleed grid-cell treatment specifically. */}
-        <svg className="player-avatar__placeholder-svg" viewBox="0 0 24 24" focusable="false">
-          <circle cx="12" cy="8" r="4" fill="currentColor" />
-          <path d="M4 21c0-4.42 3.58-8 8-8s8 3.58 8 8" fill="currentColor" />
-        </svg>
+            full-bleed grid-cell treatment specifically. The glyph itself is
+            the shared PersonSilhouetteIcon (extracted once this became the
+            third copy of the same inline SVG markup —
+            docs/coding-guidelines.md's Code health budget rule-of-three);
+            this component still owns its own wrapper/sizing/color via
+            .player-avatar__placeholder-svg. */}
+        <PersonSilhouetteIcon className="player-avatar__placeholder-svg" />
       </div>
     );
   }

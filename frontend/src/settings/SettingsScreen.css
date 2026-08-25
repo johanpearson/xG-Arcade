@@ -56,6 +56,18 @@
   flex-shrink: 0;
 }
 
+/* 16px, not a new value: docs/design-document.md §2 has no dedicated
+   font-size/type-scale token (only typeface roles — Display/Body/Data — and
+   color/spacing/animation tokens; every font-size in this codebase,
+   including every other rule in this file, is a literal px value reused by
+   precedent rather than backed by a CSS custom property). This specific
+   value already exists in this same file (.settings-screen__field input's
+   own font-size, above) — reused verbatim here rather than picking a new
+   number, same "New layout value... reused verbatim" convention this
+   screen's own avatar-dimension comments already use. Flagged back to
+   quality-architect/architecture-reviewer rather than inventing a
+   `--font-size-*` token that doesn't otherwise exist in this design
+   system. */
 .settings-screen__profile-name {
   font-family: var(--font-display);
   font-size: 16px;

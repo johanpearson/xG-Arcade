@@ -3,6 +3,7 @@ import { ApiError, describeError } from '../lib/apiClient';
 import { claimAccount, updateDisplayName } from '../lib/auth';
 import { fetchAvatarImageObjectUrl, fetchAvatarStatus, submitAvatar } from '../lib/avatar';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
+import { PersonSilhouetteIcon } from '../components/PersonSilhouetteIcon';
 import type { AvatarStatusResponse, CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';
 import { GUEST_EXPIRY_COPY } from '../lib/guestExpiryCopy';
@@ -159,10 +160,12 @@ function ProfileAvatarPreview({ imageUrl }: { imageUrl: string | null }) {
         data-testid="settings-profile-avatar-placeholder"
         aria-hidden="true"
       >
-        <svg className="player-avatar__placeholder-svg" viewBox="0 0 24 24" focusable="false">
-          <circle cx="12" cy="8" r="4" fill="currentColor" />
-          <path d="M4 21c0-4.42 3.58-8 8-8s8 3.58 8 8" fill="currentColor" />
-        </svg>
+        {/* Same glyph as PlayerAvatar.tsx's own placeholder — the shared
+            PersonSilhouetteIcon (../components/), extracted once this became
+            the third copy of the same inline SVG markup
+            (docs/coding-guidelines.md's Code health budget rule-of-three).
+            This wrapper's own className/testid/aria-hidden are unchanged. */}
+        <PersonSilhouetteIcon className="player-avatar__placeholder-svg" />
       </div>
     );
   }
