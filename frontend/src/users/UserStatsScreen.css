@@ -34,6 +34,15 @@
   cursor: pointer;
 }
 
+/* REQ-722/S-184: the avatar + heading row — tokens only, no new dimension
+   (PlayerAvatar.tsx's own 64px default), same design-document.md SCREEN-13
+   addition note as this file's own status note explains. */
+.user-stats-screen__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .user-stats-screen__title {
   margin: 0;
   font-family: var(--font-display);

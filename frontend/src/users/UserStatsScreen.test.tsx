@@ -207,6 +207,62 @@ describe('UserStatsScreen', () => {
     expect(tabs).toEqual(['xG Grid', 'xG Path']);
   });
 
+  it('REQ722_UserStatsScreen_RendersPlayerAvatar_InHeader', async () => {
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:mock-avatar-url'),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        if (String(input).includes('/avatar/image')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            blob: () => Promise.resolve(new Blob(['fake-image'], { type: 'image/png' })),
+          } as unknown as Response);
+        }
+        return jsonResponse({
+          hasRoundsPlayed: false,
+          roundsPlayed: 0,
+          bestFinalPoints: null,
+          averageFinalPoints: null,
+          rank: null,
+        });
+      }),
+    );
+
+    renderUserStatsScreen({ userId: 'user-42', displayName: 'Robin' });
+
+    const avatar = await screen.findByTestId('player-avatar-image');
+    expect(avatar).toHaveAttribute('src', 'blob:mock-avatar-url');
+    expect(screen.getByRole('heading', { name: "Robin's stats" })).toBeInTheDocument();
+  });
+
+  it('REQ722_UserStatsScreen_RendersPlaceholderAvatar_WhenTargetUserHasNoApprovedAvatar', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        if (String(input).includes('/avatar/image')) {
+          return jsonResponse({ title: 'Not Found' }, 404);
+        }
+        return jsonResponse({
+          hasRoundsPlayed: false,
+          roundsPlayed: 0,
+          bestFinalPoints: null,
+          averageFinalPoints: null,
+          rank: null,
+        });
+      }),
+    );
+
+    renderUserStatsScreen();
+
+    expect(await screen.findByTestId('player-avatar-placeholder')).toBeInTheDocument();
+    expect(screen.queryByTestId('player-avatar-image')).not.toBeInTheDocument();
+  });
+
   it('REQ-411: clicking "Back" calls onBack', async () => {
     vi.stubGlobal(
       'fetch',
