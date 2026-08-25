@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.80"
+version: "0.81"
 status: draft
 last_updated: 2026-08-25
 owner: Johan
@@ -2145,18 +2145,20 @@ screen shown right after login.
 
 ### SCREEN-08: Settings
 
+**Non-guest, edit panel closed (default state):**
+
 ```
 ┌───────────────────────────────┐
 │ Settings                       │
 ├───────────────────────────────┤
-│ (o) Robin                       │   ← profile header, REQ-722, 2026-08-25
+│ (o) Robin               ( ✎ )  │   ← profile header + pencil, REQ-714/722, 2026-08-25
+├───────────────────────────────┤
+│ [ My stats ]                   │
 ├───────────────────────────────┤
 │ [ Admin ]      (admin-only)    │
 ├───────────────────────────────┤
-│ Display name                   │
-│ [__________________]           │
-│         [ Save name ]          │
-│         Display name updated.  │
+│ Appearance                      │
+│ (o) System  ( ) Light ( ) Dark │
 ├───────────────────────────────┤
 │ Delete account                 │
 │ This permanently deletes your  │
@@ -2168,6 +2170,55 @@ screen shown right after login.
 │         [Cancel] [Delete my    │
 │                    account     │
 │                    permanently]│
+└───────────────────────────────┘
+```
+
+**Non-guest, edit panel open (after tapping the pencil):**
+
+```
+┌───────────────────────────────┐
+│ Settings                       │
+├───────────────────────────────┤
+│ (o) Robin               ( ✎ )  │   ← same button, aria-expanded=true
+├───────────────────────────────┤
+│ Display name                   │
+│ [__________________]           │
+│         [ Save name ]          │
+│         Display name updated.  │
+│ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  │   ← hairline divider, one panel, two blocks
+│ My avatar                      │
+│ [ Upload a new avatar... ]     │
+│         [ Upload avatar ]      │
+│ (o) Pending review              │
+├───────────────────────────────┤
+│ [ My stats ]                   │
+│  ⋮  (rest unchanged)           │
+└───────────────────────────────┘
+```
+
+**Guest (no edit affordance at all):**
+
+```
+┌───────────────────────────────┐
+│ Settings                       │
+├───────────────────────────────┤
+│ (o) Guest8317                   │   ← no pencil button for a guest
+│ Claim your account to edit     │
+│ your name or avatar.           │
+├───────────────────────────────┤
+│ Save your progress             │
+│ You're playing as a guest. Add │
+│ an email and password to keep  │
+│ your scores and log back in    │
+│ from any device.                │
+│ Guest accounts are removed...  │
+│ [ Email       ]                │
+│ [ Password    ]                │
+│ [ Confirm pw. ]                │
+│         [ Save my progress ]   │
+├───────────────────────────────┤
+│ [ My stats ]                   │
+│  ⋮  (rest unchanged)           │
 └───────────────────────────────┘
 ```
 
@@ -2203,7 +2254,11 @@ the caller's own state updates immediately from the server's confirmed
 response, with no page reload or refetch needed for the new name to show
 up everywhere else it's read. No new tokens — reuses `settings-screen__section`'s
 existing bordered-row treatment plus the same field/input pattern
-`AuthScreen.tsx` already established.
+`AuthScreen.tsx` already established. **Relocated 2026-08-25 — this
+standalone section no longer exists as such; see the dated "pencil-icon
+redesign" entry near the end of this SCREEN-08 section for where this form
+lives now.** The form itself (1-30 char bound, conflict-error handling,
+success copy) is unchanged, only its container.
 
 **Added 2026-07-21, REQ-717/ADR-0036:** a "Save your progress" claim/upgrade
 section, rendered first (above the admin-only link), only while the
@@ -2225,6 +2280,14 @@ submit-button pattern as the display-name section above it. **Not yet
 given a wireframe in this document** — built functionally with the
 existing token system only, same "flagged, not silently left out of sync"
 treatment as this document's other unreviewed-screen gaps (see §7).
+**Given a wireframe 2026-08-25** — see the "Guest" variant near the top of
+this SCREEN-08 entry, and the dated "pencil-icon redesign" entry near the
+end for the small muted hint now shown alongside it, explaining the
+missing edit pencil. (This section's own "rendered first" wording above
+predates REQ-722/S-184's profile header, added later the same day as this
+paragraph's original date — the profile header is what's actually first
+now, with this claim section immediately after it, so "first" here should
+be read as "first among guest-only content," not "first on the screen.")
 
 **Added 2026-08-24, REQ-411/S-179:** a "My stats" link, in its own bordered
 row — same plain-link treatment as the admin-only "Admin" link above it,
@@ -2251,7 +2314,12 @@ renders in that case, for visual consistency between the two surfaces.
 Tokens only, same
 `settings-screen__section` bordered-row shell (laid out as a row instead of
 that shell's usual stacked content) — no new color/animation tokens, only
-the already-flagged 64px avatar dimension reused a second time.
+the already-flagged 64px avatar dimension reused a second time. **Gained a
+pencil/edit-button same day, later in this same 2026-08-25 session — see
+the dated "pencil-icon redesign" entry near the end of this SCREEN-08
+section**, which also corrects "the existing 'Display name' section
+further down stays exactly as-is" above: that section no longer exists in
+that always-visible form as of the same day.
 
 **Added 2026-08-24, REQ-722/S-182:** a "My avatar" section, placed directly
 after the "Display name" section (both are account-identity edits) —
@@ -2260,7 +2328,12 @@ place, since REQ-722 has no separate "review my own submissions" surface
 the way REQ-517's admin queue does. Same `settings-screen__section`
 bordered-row treatment and field/error/success/submit-button pattern the
 display-name form above already established — no new color/animation
-tokens.
+tokens. **Relocated 2026-08-25 — this standalone section no longer exists
+as such; see the dated "pencil-icon redesign" entry near the end of this
+SCREEN-08 section for where this form/status-row content lives now** (the
+bullets immediately below, describing the upload form and the three status
+rows, are otherwise unchanged and still accurate to the current
+implementation — only the outer container moved).
 
 - A file input (`accept="image/jpeg,image/png,image/webp"`, a client-side
   nicety only — the server's own limits, 5 MB and
@@ -2331,6 +2404,56 @@ tokens.
   sub-second gap in normal operation, not a designed "loading" visual);
   flagged here rather than silently built with no record, per this
   document's own practice for other unreviewed gaps (§7).
+
+**Added 2026-08-25, REQ-714/REQ-722 (pencil-icon redesign + guest gating,
+product-owner instruction, johan.pearson):** two related layout changes,
+built and shipped together (`frontend/src/settings/SettingsScreen.tsx`).
+This entry is the authoritative current description of the "Display name"
+and "My avatar" content — the two dated entries above that originally
+described them as standalone bordered sections are now historical only,
+each with a forward-pointer added here rather than rewritten in place, to
+preserve the chronological build record this document otherwise keeps.
+
+1. **Edit pencil + combined panel.** The always-visible "Display name" and
+   "My avatar" sections are replaced by a single pencil (✎) icon-button on
+   the profile header row (`( ✎ )` in the wireframes above), labeled
+   `aria-label="Edit profile"` (a real accessible name, not
+   decorative-only — unlike this codebase's other placeholder icons, e.g.
+   `PersonSilhouetteIcon`, this one is interactive). Clicking it reveals an
+   inline panel directly below the profile header, holding both forms as
+   two stacked blocks separated by a `border-hairline` divider — Display
+   name first, My avatar second, same relative order the two standalone
+   sections had. Clicking the pencil again closes the panel. No new
+   color/spacing tokens: the panel reuses the same `settings-screen__section`
+   bordered-row shell every other section already uses; the pencil button
+   is a `--touch-target-min` square (§6 floor) with no border/background of
+   its own, `currentColor`-tinted so it inherits `text-primary`. **No
+   transition/animation on open or close** — a plain conditional
+   show/hide, deliberately not a second signature motion moment alongside
+   the badge-dock reveal (§2's "one bold interaction" rule).
+2. **Guest gating.** The pencil button is never rendered at all while the
+   account is a guest (`isGuest`) — the same "no visible entry point when
+   not applicable" pattern REQ-504's admin-link gating and REQ-713's own
+   framing already use elsewhere on this screen, not a new pattern. This
+   mirrors new server-side enforcement (a `403` on both
+   `PUT /auth/display-name` and `POST /users/me/avatar` once a guest
+   attempts either, per REQ-714/REQ-722's own 2026-08-25 "Guest exclusion"
+   status notes) — hiding the client-side entry point is a second,
+   independent layer in front of that check, not a replacement for it. A
+   short, muted hint — "Claim your account to edit your name or avatar." —
+   renders next to the profile header instead, `text-muted` (an existing
+   token, the same one `.settings-screen__claim-hint`/
+   `.settings-screen__avatar-empty` already use for muted body copy; no new
+   token). **Judgment call:** this hint is not fully redundant with the
+   "Save your progress" claim section immediately below it — that section
+   sells claiming generally (keep scores, log in elsewhere); this hint
+   answers the narrower, more immediate question of why no pencil button
+   appears on the row a claimed account would see one on. The claim
+   section's own position (rendered first among guest-only content,
+   immediately after the profile header/hint) is unchanged from its
+   2026-07-21 placement — it was already directly below the profile header
+   once REQ-722/S-184 added that header above it, so no reordering was
+   needed to keep the two next to each other.
 
 ### SCREEN-09: Game select (post-login landing)
 
