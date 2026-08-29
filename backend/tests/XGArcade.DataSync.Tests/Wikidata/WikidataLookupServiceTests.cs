@@ -118,6 +118,26 @@ public class WikidataLookupServiceTests
         }
         """;
 
+    // S-187 follow-up (REQ-1203, 2026-08-29): same player (Q1519), same
+    // club, same StartYear (2010) as SingleHenryMatchWithCareerStintJson,
+    // but no endTime/numberOfMatches bound — the "still at this club"
+    // shape Wikidata returns before a real-world transfer happens. Paired
+    // with SingleHenryMatchWithCareerStintJson (the later, completed fetch)
+    // to prove PersistCareerStintsAsync completes the existing row in place
+    // rather than inserting a second one.
+    private const string SingleHenryOngoingCareerStintJson = """
+        {
+          "results": {
+            "bindings": [
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "startTime": { "type": "literal", "value": "2010-08-01T00:00:00Z" }
+              }
+            ]
+          }
+        }
+        """;
+
     // A single, chronologically EARLIER stint for the same player (Q1519)
     // than SingleHenryMatchWithCareerStintJson's 2010-2015 — used to prove
     // the re-sequencing behavior when a later-discovered stint precedes an
@@ -671,6 +691,37 @@ public class WikidataLookupServiceTests
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
         Assert.That(stints, Has.Count.EqualTo(1));
+    }
+
+    // S-187 follow-up (REQ-1203, 2026-08-29, architecture-reviewer finding —
+    // "close the third duplicate-stint door"): WikidataLookupService
+    // .PersistCareerStintsAsync's own copy of the completion fix
+    // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId already got —
+    // a later fetch that fills in a previously-null EndYear/AppearanceCount
+    // for the SAME (ClubName, StartYear) must complete the existing row in
+    // place, never insert a second row for the same real stint.
+    [Test]
+    public async Task REQ1203_LookupAndPersistAsync_LaterFetchFillsInEndYear_CompletesExistingRowInPlace_NoDuplicate()
+    {
+        var ongoingService = BuildService(SingleHenryOngoingCareerStintJson);
+        await ongoingService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var stintBefore = await _dbContext.PlayerCareerStints.SingleAsync(s => s.PlayerId == player.Id);
+        Assert.That(stintBefore.EndYear, Is.Null);
+        Assert.That(stintBefore.AppearanceCount, Is.Null);
+
+        var completedService = BuildService(SingleHenryMatchWithCareerStintJson);
+        await completedService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
+        Assert.That(stints, Has.Count.EqualTo(1),
+            "a stint completing (EndYear/AppearanceCount now bound) must update the existing row, not insert a second one");
+        Assert.That(stints[0].Id, Is.EqualTo(stintBefore.Id), "completion updates the SAME row in place, never a new Id");
+        Assert.That(stints[0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(stints[0].StartYear, Is.EqualTo(2010));
+        Assert.That(stints[0].EndYear, Is.EqualTo(2015));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(100));
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,

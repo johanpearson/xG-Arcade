@@ -352,4 +352,44 @@ public class PlayerCareerStintRefreshServiceTests
         Assert.That(stints[0].Id, Is.EqualTo(existingStintId));
         Assert.That(stints[0].AppearanceCount, Is.EqualTo(254));
     }
+
+    // S-187 follow-up (REQ-1203, 2026-08-29, quality-architect finding —
+    // "add a direct no-op proof test"): a direct unit test on
+    // BuildNewStintsByPlayerId itself (not routed through
+    // RefreshCareerStintsAsync's full repository round trip) proving an
+    // identical re-fetch is a TRUE no-op — both output collections empty —
+    // so no repository write would even be attempted, not just "the end
+    // state looks unchanged after a write" (which
+    // REQ1203_S187_RefreshCareerStintsAsync_FetchedStintIdenticalToStored_RemainsANoOp
+    // above already proves the end-to-end version of). Requires
+    // XGArcade.DataSync's AssemblyInfo.cs InternalsVisibleTo grant — added
+    // alongside this test, since BuildNewStintsByPlayerId is internal and no
+    // test previously called it directly.
+    [Test]
+    public void REQ1203_BuildNewStintsByPlayerId_IdenticalRefetchInput_ReturnsTrueNoOp()
+    {
+        const string qid = "Q1519";
+        var playerId = Guid.NewGuid();
+        var existingStintId = Guid.NewGuid();
+
+        var stintsByQid = new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>
+        {
+            [qid] = [new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254)],
+        };
+        var qidToPlayerId = new Dictionary<string, Guid> { [qid] = playerId };
+        var existingStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
+        {
+            [playerId] = [new PlayerCareerStint
+            {
+                Id = existingStintId, PlayerId = playerId, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254,
+            }],
+        };
+        IReadOnlyDictionary<string, string> clubNameByClubQid = new Dictionary<string, string>();
+
+        var reconciliation = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
+            stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
+
+        Assert.That(reconciliation.NewStintsByPlayerId, Is.Empty, "an identical re-fetch must queue zero new-row inserts");
+        Assert.That(reconciliation.CompletionsByStintId, Is.Empty, "an identical re-fetch must queue zero completions — a true no-op, no write attempted");
+    }
 }

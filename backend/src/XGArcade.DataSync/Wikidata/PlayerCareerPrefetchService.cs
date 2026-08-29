@@ -313,8 +313,14 @@ public class PlayerCareerPrefetchService(
         // (rows are the exact same object instances iterated below) is all
         // this HashSet needs; CountryDefinition/ClubDefinition define no
         // value-equality override.
+        //
+        // getWikidataQid(r) is not null (defensive hardening, 2026-08-29,
+        // quality-architect finding): can't currently manifest as a bug — a
+        // swept row can't have a null QID given how ReferenceDataSeeder
+        // seeds CountryDefinition/ClubDefinition — but keeps this selection
+        // aligned with the main loop's own null-QID skip below regardless.
         var selectedForResweep = maxToResweep > 0
-            ? rows.Where(r => getSweptAt(r) is not null)
+            ? rows.Where(r => getSweptAt(r) is not null && getWikidataQid(r) is not null)
                 .OrderBy(getSweptAt)
                 .Take(maxToResweep)
                 .ToHashSet()

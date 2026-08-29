@@ -129,6 +129,17 @@ public class PlayerCareerStintRefreshService(
     // anything else. Internal, not private: XGArcade.DataSync is a shared
     // assembly between the two callers.
     //
+    // S-187 follow-up (2026-08-29, architecture-reviewer finding — "third
+    // duplicate-stint door"): the per-candidate no-op/insert/complete
+    // decision itself now lives in CareerStintReconciler.Reconcile, shared
+    // with WikidataLookupService.PersistCareerStintsAsync's own local loop
+    // (that method's WikidataCareerStintEntry vs. CareerStintQualifiers
+    // input shapes differ too much from this method's to share the whole
+    // per-player loop, only the one-candidate-in/one-outcome-out decision
+    // itself) — so all three reconciliation call sites now apply the exact
+    // same rule instead of the third one having its own, easy-to-drift-apart
+    // copy.
+    //
     // clubNameByClubQid (bug fix, 2026-08-04, xG Path duplicate-node bug,
     // REQ-1203 follow-up, ADR-0059): canonicalizes each fetched stint's
     // ClubName to the matching seeded ClubDefinition.Name whenever the
@@ -209,14 +220,18 @@ public class PlayerCareerStintRefreshService(
                     : s.ClubName;
                 var key = (clubName, s.StartYear);
 
-                if (existingByKey.TryGetValue(key, out var existingStint))
-                {
-                    if (existingStint.EndYear == s.EndYear && existingStint.AppearanceCount == s.AppearanceCount)
-                        continue; // Identical to what's stored — no-op, exactly as before S-187.
+                // S-187 follow-up: shared with WikidataLookupService
+                // .PersistCareerStintsAsync via CareerStintReconciler — see
+                // its own doc comment for the full "why."
+                var decision = CareerStintReconciler.Reconcile(existingByKey, clubName, s.StartYear, s.EndYear, s.AppearanceCount);
+                if (decision.Outcome == CareerStintReconciler.Outcome.NoOp)
+                    continue; // Identical to what's stored — no-op, exactly as before S-187.
 
+                if (decision.Outcome == CareerStintReconciler.Outcome.Complete)
+                {
                     // S-187: completes the existing row in place — never a
                     // new row for what matched on (ClubName, StartYear).
-                    completionsByStintId[existingStint.Id] = new PlayerCareerStintCompletion(s.EndYear, s.AppearanceCount);
+                    completionsByStintId[decision.ExistingStintId] = new PlayerCareerStintCompletion(s.EndYear, s.AppearanceCount);
                     continue;
                 }
 
