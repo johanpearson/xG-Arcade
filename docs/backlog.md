@@ -9093,3 +9093,14 @@ verification run (`ci.yml` `workflow_dispatch`) is needed before this
 is considered fully done. ADR-0092 (this story's cadence/cutoff
 decisions above) to be added by the orchestrator in the docs-sync pass,
 not written by this story's implementation itself.
+
+*Built as, follow-up (2026-08-29, commit `0bcc10d`):* `quality-architect`
+flagged the 22 new test methods across `RecentTransferSweepServiceTests.cs`
+(10 cases) and `WikidataClientTests.cs` (12 cases, `S188_`-prefixed) as
+violating `docs/coding-guidelines.md`'s `REQ###_MethodUnderTest_ExpectedOutcome`
+naming convention — a pure rename to `REQ110_`, matching the established
+sibling precedent (`REQ110_PrefetchAsync_*`), no test body/assertion/
+behavior changed. Both `architecture-reviewer` and `quality-architect`
+returned PASS on the full diff. See ADR-0092 for the Grid-vs-Path
+freshness-asymmetry trade-off this story deliberately leaves open, rather
+than re-explaining it here.
