@@ -15,22 +15,26 @@ namespace XGArcade.DataSync.Wikidata;
 // Path/COMP-11's own byproduct data, via the exact same
 // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId/
 // CareerStintReconciler machinery ADR-0091 already established, reused
-// verbatim, never reimplemented). It deliberately does NOT write
-// PlayerAttribute/PlayerData (xG Grid/COMP-06's own guess-correctness
-// answer key — ADR-0007's autocomplete/correctness separation means only
-// PlayerAttribute/PlayerOverride ever back a guess verdict), and it
-// deliberately does NOT touch
+// verbatim, never reimplemented) — PLUS, as of S-189/ADR-0093, a
+// PlayerAttribute/PlayerData row for each genuinely NEW arrival (xG
+// Grid/COMP-06's own guess-correctness answer key — ADR-0007's
+// autocomplete/correctness separation means only
+// PlayerAttribute/PlayerOverride ever back a guess verdict). A departure
+// still writes/removes nothing on PlayerAttribute — Grid's "ever played for
+// this club" answer semantics mean a player who left is still correctly a
+// valid answer forever, so only arrivals ever touch this table. See
+// ADR-0093 for why this closes the "Grid-vs-Path freshness asymmetry"
+// ADR-0092 originally left open, and for the targeted
+// ConfirmedLowMatchPair/PairLookupFailure invalidation
+// (IPlayerDataQualityRepository.ClearMatchPairAsync) that makes writing
+// PlayerAttribute here safe. This service still deliberately does NOT touch
 // CountryDefinition/ClubDefinition.PlayerPoolSweptAt at all — writing that
 // column here would incorrectly tell ADR-0088's skip-forever check that
 // this club's FULL pool was re-verified, when only a narrow recent-activity
-// slice actually was. A freshly-transferred player therefore becomes
-// visible to xG Path (career-stint clues, target eligibility) via this
-// service well before ADR-0090's rotation would reach that club, but does
-// NOT become a valid xG Grid guess answer for that club any sooner than
-// ADR-0090's own rotation (or a full prefetch-player-careers run) would
-// make them — a known, deliberate scope boundary stated here explicitly,
-// not an oversight; see this story's own PR description/commit message for
-// the full reasoning and whether a follow-up story is warranted.
+// slice actually was. A freshly-transferred player becomes visible to both
+// xG Path (career-stint clues, target eligibility) AND xG Grid (a valid
+// guess answer for this club) via this service, well before ADR-0090's
+// rotation would otherwise reach that club.
 public interface IRecentTransferSweepService
 {
     // lookbackDays must be positive — the cutoff threaded into both
@@ -58,6 +62,9 @@ public interface IRecentTransferSweepService
 // counter) — a departure this run resolves by filling in an existing row's
 // EndYear/AppearanceCount via UpdateCareerStintCompletionsAsync (ADR-0091),
 // not by inserting a new row, so it would otherwise be invisible in a
-// StintsAdded-only summary.
+// StintsAdded-only summary. AttributesAdded (S-189) mirrors
+// PlayerCareerPrefetchResult.AttributesAdded — every genuinely new arrival
+// gets exactly one new PlayerAttribute row; a departure or an
+// already-attributed arrival contributes 0.
 public record RecentTransferSweepResult(
-    int ClubsProcessed, int ClubsFailed, int PlayersTouched, int StintsAdded, int StintsCompleted);
+    int ClubsProcessed, int ClubsFailed, int PlayersTouched, int StintsAdded, int StintsCompleted, int AttributesAdded);

@@ -117,6 +117,43 @@ public class PlayerDataQualityRepository(XGArcadeDbContext dbContext) : IPlayerD
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    // S-189: see this method's own interface doc comment for the full "why
+    // both orderings" reasoning. Deletes 0-1 ConfirmedLowMatchPair row(s)
+    // and 0-1 PairLookupFailure row(s) — the composite PK on each table
+    // means at most one row can match a single (type,value)x(type,value)
+    // pair per ordering, so at most one row per table matches across both
+    // orderings combined. One SaveChangesAsync call covers both tables
+    // (load-then-SaveChangesAsync, docs/coding-guidelines.md) — skipped
+    // entirely when neither table had anything to remove.
+    public async Task ClearMatchPairAsync(
+        string attributeTypeA, string attributeValueA,
+        string attributeTypeB, string attributeValueB,
+        CancellationToken cancellationToken = default)
+    {
+        var staleConfirmedLow = await dbContext.ConfirmedLowMatchPairs
+            .Where(c =>
+                (c.FirstAttributeType == attributeTypeA && c.FirstAttributeValue == attributeValueA &&
+                 c.SecondAttributeType == attributeTypeB && c.SecondAttributeValue == attributeValueB) ||
+                (c.FirstAttributeType == attributeTypeB && c.FirstAttributeValue == attributeValueB &&
+                 c.SecondAttributeType == attributeTypeA && c.SecondAttributeValue == attributeValueA))
+            .ToListAsync(cancellationToken);
+        if (staleConfirmedLow.Count > 0)
+            dbContext.ConfirmedLowMatchPairs.RemoveRange(staleConfirmedLow);
+
+        var staleLookupFailures = await dbContext.PairLookupFailures
+            .Where(f =>
+                (f.FirstAttributeType == attributeTypeA && f.FirstAttributeValue == attributeValueA &&
+                 f.SecondAttributeType == attributeTypeB && f.SecondAttributeValue == attributeValueB) ||
+                (f.FirstAttributeType == attributeTypeB && f.FirstAttributeValue == attributeValueB &&
+                 f.SecondAttributeType == attributeTypeA && f.SecondAttributeValue == attributeValueA))
+            .ToListAsync(cancellationToken);
+        if (staleLookupFailures.Count > 0)
+            dbContext.PairLookupFailures.RemoveRange(staleLookupFailures);
+
+        if (staleConfirmedLow.Count > 0 || staleLookupFailures.Count > 0)
+            await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
         int top, CancellationToken cancellationToken = default)
     {

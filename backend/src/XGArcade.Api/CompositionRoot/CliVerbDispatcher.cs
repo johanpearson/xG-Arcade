@@ -498,11 +498,21 @@ public static class CliVerbDispatcher
         var sweepCategoryValueRepository = new CategoryValueRepository(sweepDbContext);
         var sweepPlayerCareerStintRepository = new PlayerCareerStintRepository(sweepDbContext);
         var sweepPlayerRepository = new PlayerRepository(sweepDbContext);
+        // S-189 (ADR-0093): new here — PersistClubTransfersAsync now also
+        // writes PlayerAttribute/PlayerData for a genuinely new arrival and
+        // invalidates any now-stale ConfirmedLowMatchPair/PairLookupFailure
+        // pair via IPlayerDataQualityRepository. Same by-hand construction
+        // as every other repository here, since this verb runs before
+        // WebApplication.CreateBuilder.
+        var sweepPlayerAttributeRepository = new PlayerAttributeRepository(sweepDbContext);
+        var sweepPlayerDataRepository = new PlayerDataRepository(sweepDbContext);
+        var sweepPlayerDataQualityRepository = new PlayerDataQualityRepository(sweepDbContext);
 
         var sweepWikidataClient = BuildWikidataClient(sweepLoggerFactory);
 
         var sweepService = new RecentTransferSweepService(
             sweepCategoryValueRepository, sweepPlayerCareerStintRepository, sweepPlayerRepository,
+            sweepPlayerAttributeRepository, sweepPlayerDataRepository, sweepPlayerDataQualityRepository,
             sweepWikidataClient, sweepLoggerFactory.CreateLogger<RecentTransferSweepService>());
 
         // Deliberately unhandled — SweepAsync throws only after every seeded
@@ -516,7 +526,7 @@ public static class CliVerbDispatcher
             $"sweep-recent-transfers: complete — lookback {lookbackDays} day(s), " +
             $"{sweepResult.ClubsProcessed} club(s) processed, {sweepResult.ClubsFailed} club(s) failed, " +
             $"{sweepResult.PlayersTouched} player(s) touched, {sweepResult.StintsAdded} stint(s) added, " +
-            $"{sweepResult.StintsCompleted} stint(s) completed.");
+            $"{sweepResult.StintsCompleted} stint(s) completed, {sweepResult.AttributesAdded} attribute(s) added.");
         return true;
     }
 
