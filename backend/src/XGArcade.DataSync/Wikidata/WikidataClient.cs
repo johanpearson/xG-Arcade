@@ -564,6 +564,71 @@ public class WikidataClient(
             SparqlResponseParsers.ParseNameIndexBindings, cancellationToken);
     }
 
+    // S-188: see IWikidataClient's own doc comment for the full "why."
+    //
+    // Two HTTP round trips, not one — WDQS has no single-query way to
+    // express "either P580 or P582 is >= cutoff" without a UNION whose two
+    // branches would still need the different MANDATORY-vs-OPTIONAL binding
+    // shapes BuildRecentClubArrivalsQuery/BuildRecentClubDeparturesQuery's
+    // own doc comments explain (which qualifier is the FILTER target versus
+    // just an OPTIONAL enrichment) — a single combined query was judged not
+    // meaningfully cheaper than two small ones and considerably harder to
+    // reason about. Reuses _queryTimeout (15s) for both — same cheap,
+    // indexed, single-club-scoped shape as QueryPlayerPoolByClubAsync just
+    // above, not the broad population-wide scans that earn a wider budget
+    // elsewhere in this class.
+    public async Task<RecentClubTransferLookupResult> QueryRecentClubTransfersAsync(
+        string clubWikidataQid, string clubName, DateTime sinceUtc, CancellationToken cancellationToken = default)
+    {
+        if (!WikidataQid.IsValid(clubWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
+
+        var arrivalsQuery = SparqlQueryBuilders.BuildRecentClubArrivalsQuery(clubWikidataQid, sinceUtc);
+        var arrivals = await RunThrowingQueryAsync(
+            arrivalsQuery, _queryTimeout, $"Wikidata recent-arrivals query for club {clubWikidataQid}",
+            response => SparqlResponseParsers.ParseRecentClubTransferBindings(response, clubName, clubWikidataQid),
+            cancellationToken);
+
+        var departuresQuery = SparqlQueryBuilders.BuildRecentClubDeparturesQuery(clubWikidataQid, sinceUtc);
+        var departures = await RunThrowingQueryAsync(
+            departuresQuery, _queryTimeout, $"Wikidata recent-departures query for club {clubWikidataQid}",
+            response => SparqlResponseParsers.ParseRecentClubTransferBindings(response, clubName, clubWikidataQid),
+            cancellationToken);
+
+        return MergeRecentClubTransferResults(arrivals, departures);
+    }
+
+    // S-188: merges the two independent per-direction parse results into
+    // one RecentClubTransferLookupResult — see that record's own doc
+    // comment for why a merged shape, not two separate return values.
+    // Concatenates (never overwrites) a QID's stint list across both
+    // directions — a player who both departed and arrived at the same club
+    // within the same lookback window (a very short loan, or two distinct
+    // real spells) legitimately produces entries from both queries, and
+    // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId's own
+    // (ClubName, StartYear)-keyed reconciliation is what dedupes/completes
+    // them correctly downstream, not this merge step.
+    private static RecentClubTransferLookupResult MergeRecentClubTransferResults(
+        SparqlResponseParsers.RecentClubTransferParseResult arrivals,
+        SparqlResponseParsers.RecentClubTransferParseResult departures)
+    {
+        var stintsByQid = new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>();
+        foreach (var (qid, entries) in arrivals.StintsByQid)
+            stintsByQid[qid] = entries;
+        foreach (var (qid, entries) in departures.StintsByQid)
+        {
+            stintsByQid[qid] = stintsByQid.TryGetValue(qid, out var existing)
+                ? existing.Concat(entries).ToList()
+                : entries;
+        }
+
+        var playerNamesByQid = new Dictionary<string, string>(arrivals.PlayerNamesByQid);
+        foreach (var (qid, name) in departures.PlayerNamesByQid)
+            playerNamesByQid.TryAdd(qid, name);
+
+        return new RecentClubTransferLookupResult(stintsByQid, playerNamesByQid);
+    }
+
     // REQ-214 backfill (S-045): batched, direct-by-QID photo lookup — see
     // IWikidataClient's own doc comment for why this is a different query
     // shape from the intersection queries above and why its error contract

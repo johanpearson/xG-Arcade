@@ -464,6 +464,48 @@ public interface IWikidataClient
         string clubWikidataQid,
         CancellationToken cancellationToken = default);
 
+    // S-188 (docs/backlog.md, Epic 26 — Supabase free-tier egress
+    // remediation): RecentTransferSweepService's own per-club fetch — a
+    // cheap, targeted, DATE-FILTERED alternative to
+    // QueryPlayerPoolByClubAsync's full unbounded pool scan above, meant to
+    // reflect a transfer that just happened (e.g. around a transfer-window
+    // deadline day) without waiting on ADR-0090's multi-month rotation for
+    // that club to come back around. Runs BOTH
+    // BuildRecentClubArrivalsQuery (pq:P580, "joined since sinceUtc") and
+    // BuildRecentClubDeparturesQuery (pq:P582, "departure recorded since
+    // sinceUtc") and merges them into one result — see
+    // RecentClubTransferLookupResult's own doc comment for why a single
+    // merged dictionary, not two separate return values.
+    //
+    // clubName is caller-supplied (the seeded ClubDefinition's own Name),
+    // NOT derived from Wikidata's own label — see
+    // SparqlQueryBuilders.BuildRecentClubArrivalsQuery's own doc comment for
+    // why: the caller already knows exactly which club this is, so there is
+    // no ambiguous label to canonicalize the way
+    // QueryPlayerCareerStintsByQidsAsync's free ?club binding needs to.
+    //
+    // sinceUtc is threaded into both underlying queries' FILTER clauses
+    // unchanged — the caller (RecentTransferSweepService) is responsible for
+    // computing it (DateTime.UtcNow minus a lookback window) and for
+    // treating it as already UTC.
+    //
+    // Error contract — throws WikidataQueryException on timeout/HTTP/parse
+    // failure from EITHER underlying query, the same throw-on-failure shape
+    // as QueryPlayerPoolByClubAsync/QueryPlayerCareerStintsByQidsAsync (not
+    // the five swallow-to-[] intersection queries above) — this is a batch
+    // job whose success metric is a transfer count, so a swallowed failure
+    // would be indistinguishable from "no recent transfers." The caller
+    // (RecentTransferSweepService) treats one club's failure as recoverable
+    // (log, continue with the remaining clubs, fail the run loudly at the
+    // end), the same established pattern
+    // PlayerCareerPrefetchService.SweepAsync already uses for its own
+    // per-row fetch failures.
+    Task<RecentClubTransferLookupResult> QueryRecentClubTransfersAsync(
+        string clubWikidataQid,
+        string clubName,
+        DateTime sinceUtc,
+        CancellationToken cancellationToken = default);
+
     // ADR-0056: xG Path's familiarity signal — Wikipedia sitelink count per
     // QID, the same VALUES-clause-over-a-bounded-QID-batch shape as
     // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync.

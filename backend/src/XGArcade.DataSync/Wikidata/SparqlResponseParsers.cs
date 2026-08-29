@@ -328,6 +328,79 @@ internal static class SparqlResponseParsers
         return merged;
     }
 
+    // S-188: RecentTransferSweepService's own parser, for
+    // BuildRecentClubArrivalsQuery/BuildRecentClubDeparturesQuery's shared
+    // response shape (?player ?playerLabel ?startTime ?endTime
+    // ?numberOfMatches). Same per-row triple pattern and NULL-vs-populated
+    // AppearanceCount merge/dedup rule as ParseCareerStintBindings above
+    // (reuses MergeCareerStintEntries directly rather than a second,
+    // easy-to-drift-apart copy), but differs in two ways that reflect the
+    // underlying query's own differences:
+    //   - clubName/clubQid are CALLER-supplied parameters, not read off the
+    //     response — this query never projects ?club/?clubLabel at all
+    //     (see BuildRecentClubArrivalsQuery's own doc comment for why: the
+    //     caller already knows exactly which club this is), so every
+    //     produced WikidataCareerStintEntry carries the caller's own
+    //     already-canonical ClubDefinition.Name, never a Wikidata-raw label
+    //     needing the QID-based canonicalization
+    //     PlayerCareerStintRefreshService.BuildNewStintsByPlayerId performs
+    //     for ParseCareerStintBindings' own output.
+    //   - ?playerLabel is captured into a second, parallel dictionary
+    //     (PlayerNamesByQid) — ParseCareerStintBindings discards it, since
+    //     that method's own callers already know every player's name from
+    //     an earlier pool-query pass. This query has no earlier pass (an
+    //     arriving player may be entirely new to this codebase), so this is
+    //     the only place their FullName is ever available, needed for
+    //     IPlayerRepository.GetOrCreatePlayersByWikidataQidAsync's
+    //     PlayerCreationRequest.
+    //
+    // A row with no startTime bound is skipped, same "StartYear is
+    // non-nullable, nothing valid to key on" reasoning as
+    // ParseCareerStintBindings — see BuildRecentClubDeparturesQuery's own
+    // doc comment for why this can legitimately happen there (its own
+    // FILTER is on ?endTime, not ?startTime).
+    internal static RecentClubTransferParseResult ParseRecentClubTransferBindings(
+        SparqlResponse? response, string clubName, string clubQid)
+    {
+        var playerNamesByQid = new Dictionary<string, string>();
+        if (response?.Results?.Bindings is null)
+            return new RecentClubTransferParseResult(new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>(), playerNamesByQid);
+
+        var rawEntriesByQid = new Dictionary<string, List<WikidataCareerStintEntry>>();
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+
+            var qid = playerValue.Value.Split('/').Last();
+
+            if (binding.TryGetValue("playerLabel", out var labelValue) && !string.IsNullOrWhiteSpace(labelValue.Value))
+                playerNamesByQid.TryAdd(qid, labelValue.Value);
+
+            if (!binding.TryGetValue("startTime", out var startTimeValue) || !TryParseXsdDateTimeYear(startTimeValue.Value, out var startYear))
+                continue;
+
+            int? endYear = binding.TryGetValue("endTime", out var endTimeValue)
+                && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
+                    ? parsedEndYear
+                    : null;
+            int? appearanceCount = binding.TryGetValue("numberOfMatches", out var numberOfMatchesValue)
+                && int.TryParse(numberOfMatchesValue.Value, out var parsedAppearanceCount)
+                    ? parsedAppearanceCount
+                    : null;
+
+            if (!rawEntriesByQid.TryGetValue(qid, out var entries))
+                rawEntriesByQid[qid] = entries = [];
+
+            entries.Add(new WikidataCareerStintEntry(clubName, startYear, endYear, appearanceCount, clubQid));
+        }
+
+        var stintsByQid = rawEntriesByQid.ToDictionary(
+            kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)MergeCareerStintEntries(kv.Value));
+        return new RecentClubTransferParseResult(stintsByQid, playerNamesByQid);
+    }
+
     // Legal-suffix variants Wikidata is observed to use interchangeably for
     // what is the same real club (e.g. "Liverpool" vs "Liverpool F.C.",
     // both attested as ?clubLabel values for the same P54 statement shape —
@@ -632,6 +705,17 @@ internal static class SparqlResponseParsers
     // the leading 4 digits rather than parsing the full timestamp.
     private static bool TryParseXsdDateTimeYear(string xsdDateTime, out int year) =>
         int.TryParse(xsdDateTime.AsSpan(0, Math.Min(4, xsdDateTime.Length)), out year);
+
+    // S-188: ParseRecentClubTransferBindings' own return shape — one call's
+    // worth of stints-by-QID (already canonicalized to the caller's own
+    // clubName, see that method's own doc comment) plus the player names
+    // needed to get-or-create a brand-new Player row for an arrival this
+    // codebase has never seen before. WikidataClient.QueryRecentClubTransfersAsync
+    // merges one of these per direction (arrivals/departures) into the
+    // single public RecentClubTransferLookupResult its own callers see.
+    internal sealed record RecentClubTransferParseResult(
+        IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> StintsByQid,
+        IReadOnlyDictionary<string, string> PlayerNamesByQid);
 
     internal sealed record SparqlResponse([property: JsonPropertyName("results")] SparqlResults? Results);
 
