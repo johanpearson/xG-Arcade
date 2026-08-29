@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-29 — `NOTES.md` only (no requirements/architecture/implementation
+  change) — fixed `.github/actions/trigger-round-generation/action.yml`'s
+  retry loop, shared by both `generate-grid-round.yml` and
+  `generate-path-round.yml` (S-176): its success check
+  `[ "$http_status" -lt 400 ]` treated curl's `"000"` (no-response) status
+  as a numeric `0`, so a total connection failure was silently reported as
+  a successful round generation with no retry — the workflow run went
+  green while no round was actually generated. Fixed by also requiring
+  `>= 200`, which excludes `000` without changing how real 2xx/3xx/4xx/5xx
+  responses are handled. Pure bash fix, no REQ/ADR change — see NOTES.md's
+  2026-08-29 entry for the repro and verification transcript.
 - 2026-08-25 — `docs/decisions/0088-prefetch-skips-already-swept-pools-on-rerun.md`
   (new ADR), `docs/requirements-document.md` (v2.14 → v2.15),
   `docs/architecture-document.md` (v1.16 → v1.17) — documentation-sync pass

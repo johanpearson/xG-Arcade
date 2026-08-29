@@ -70,7 +70,15 @@ runs:
             echo "[$game_key] Attempt $attempt/$max_attempts — response body:"
             cat response.json
 
-            if [ "$http_status" -lt 400 ]; then
+            # curl reports "000" (not a real HTTP status) when it never got a
+            # response at all — a connection failure, DNS error, or proxy
+            # rejection. "000" -lt 400 is true (0 < 400), so a plain
+            # less-than check silently treated a totally failed request as
+            # success and returned immediately without retrying, leaving the
+            # workflow green while no round was ever generated. Requiring
+            # >= 200 as well excludes "000" (and any other non-response
+            # code) from the success path.
+            if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 400 ]; then
               return 0
             fi
 
