@@ -14,6 +14,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-29 — `NOTES.md` only (no requirements/architecture/implementation
+  change) — fixed the actual cause of `generate-grid-round.yml`/
+  `generate-path-round.yml` failing on every run:
+  `.github/actions/trigger-round-generation/action.yml`'s
+  `inputs.backend-hostname.description` and
+  `inputs.internal-job-token.description` contained literal
+  `${{ secrets.DEV_BACKEND_HOSTNAME }}`/`${{ secrets.INTERNAL_JOB_TOKEN }}`
+  expressions (added as documentation), but a composite action's own
+  manifest has no `secrets` context — GitHub's loader evaluates `${{ }}`
+  anywhere in the file, including plain description text, so the whole
+  action failed with `Unrecognized named-value: 'secrets'` and never even
+  reached the retry loop below. Predates and is independent of the
+  `000`-status retry fix in the entry below (that fix was real but wasn't
+  the actual blocker — see NOTES.md's 2026-08-29 "failed to load at all"
+  entry for the full story and the general lesson about verifying an
+  action.yml's shell logic vs. verifying it loads at all). Fixed by
+  rewriting both descriptions as plain text, no `${{ }}`.
+- 2026-08-29 — `NOTES.md` only (no requirements/architecture/implementation
   change) — fixed `.github/actions/trigger-round-generation/action.yml`'s
   retry loop, shared by both `generate-grid-round.yml` and
   `generate-path-round.yml` (S-176): its success check

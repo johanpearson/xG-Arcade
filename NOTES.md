@@ -1818,3 +1818,48 @@ standalone script and exercising `000`/`200`/`500` cases directly (see this
 commit's message for the transcript). If this recurs, check whether the
 runner's egress/proxy is rejecting the request before assuming the backend
 itself is unhealthy — a `000` status means the request never arrived.
+
+### `trigger-round-generation/action.yml` failed to load at all — the actual cause of "the workflow is broken" (2026-08-29)
+
+The `000`-status fix above shipped and merged (PR #292) without noticing
+that `generate-grid-round.yml`/`generate-path-round.yml` were never getting
+far enough to hit that retry loop in the first place. A real CI run
+surfaced the actual failure:
+
+```
+Unrecognized named-value: 'secrets'. Located at position 1 within
+expression: secrets.DEV_BACKEND_HOSTNAME
+Unrecognized named-value: 'secrets'. Located at position 1 within
+expression: secrets.INTERNAL_JOB_TOKEN
+Failed to load .../.github/actions/trigger-round-generation/action.yml
+```
+
+Cause: the action's own `inputs.backend-hostname.description` and
+`inputs.internal-job-token.description` strings contained literal
+`${{ secrets.DEV_BACKEND_HOSTNAME }}` / `${{ secrets.INTERNAL_JOB_TOKEN }}`
+template expressions — added purely as documentation, to show the caller
+what secret feeds this input. GitHub's action-manifest loader evaluates
+`${{ }}` expressions everywhere in an action.yml, including plain
+`description:` text, not just in `runs.steps`. A composite action's own
+manifest is evaluated in a context that has `inputs` and `github` but
+**no `secrets`** (secrets only exist inside the *caller* workflow, which is
+why `secrets.DEV_BACKEND_HOSTNAME`/`secrets.INTERNAL_JOB_TOKEN` are valid
+in `generate-grid-round.yml`/`generate-path-round.yml`'s own `with:` block
+but not here) — so the whole action failed to load, on every single run,
+for both games. This predates the `000`-status fix entirely; it was
+introduced when this action was first extracted (S-176) and had gone
+unnoticed because nothing in this sandbox can actually execute a GitHub
+Actions runner to load the manifest — the earlier fix was verified by
+extracting the bash logic into a standalone script, which never exercises
+YAML/expression loading at all. **Lesson: verifying a shell script's logic
+in isolation does not verify the action.yml it lives in actually loads —
+those are two different failure surfaces, and only a real CI run (or the
+GitHub Actions extension's own workflow linter) catches the second one.**
+Fixed by rewriting both descriptions as plain text that names the
+secret by convention (`secrets.DEV_BACKEND_HOSTNAME`/
+`secrets.INTERNAL_JOB_TOKEN`) without wrapping it in `${{ }}`, so it reads
+as documentation instead of being parsed as an expression. If a future
+composite action's description needs to reference a caller-side secret by
+name for documentation purposes, write it as plain text (no `${{ }}`) —
+description fields are never a place to reference `secrets`, `env`, or any
+context not actually available to the action's own manifest.
