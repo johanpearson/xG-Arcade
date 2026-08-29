@@ -3433,6 +3433,274 @@ public class WikidataClientTests
             "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 
+    // ---- QueryRecentClubTransfersAsync (S-188, Epic 26) ----
+    // A THIRD freshness mechanism alongside ADR-0088/ADR-0090's work on
+    // PlayerCareerPrefetchService — see IRecentTransferSweepService's own
+    // doc comment for the full "why." Two HTTP round trips per call
+    // (arrivals then departures, in that order) — tests below use a
+    // sequenced handler where the two calls need to be distinguished.
+
+    private static FakeHttpMessageHandler BuildSequencedJsonHandler(params string[] jsonBodies)
+    {
+        var index = 0;
+        return new FakeHttpMessageHandler((_, _) =>
+        {
+            var json = jsonBodies[Math.Min(index, jsonBodies.Length - 1)];
+            index++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/sparql-results+json"),
+            });
+        });
+    }
+
+    // Same raw-query-then-strip-then-unescape extraction as
+    // ExtractSentSparqlQuery above, applied to EVERY request a handler
+    // receives (not just the last one) — QueryRecentClubTransfersAsync
+    // sends two requests per call (arrivals then departures, in that
+    // order), so tests below need both, in call order.
+    private static (FakeHttpMessageHandler Handler, List<string> Queries) BuildRecordingHandler(string json)
+    {
+        var queries = new List<string>();
+        var handler = new FakeHttpMessageHandler((request, _) =>
+        {
+            var rawQuery = request.RequestUri!.Query.TrimStart('?');
+            var queryParam = rawQuery.Split('&')[0];
+            queries.Add(Uri.UnescapeDataString(queryParam["query=".Length..]));
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/sparql-results+json"),
+            });
+        });
+        return (handler, queries);
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_SentQueries_UseFullStatementPathForP54_NotTruthyShortcut()
+    {
+        var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.That(queries, Has.Count.EqualTo(2), "arrivals then departures — two round trips");
+        foreach (var sentQuery in queries)
+        {
+            Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+            Assert.That(sentQuery, Does.Contain("?clubStatement ps:P54 wd:Q9617."));
+            Assert.That(sentQuery, Does.Contain("MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }"));
+            Assert.That(sentQuery, Does.Not.Contain("wdt:P54"),
+                "P54 must never use the truthy shortcut — see BuildRecentClubArrivalsQuery's own comment for why (pq:P580/pq:P582 qualifiers don't even exist under wdt:)");
+        }
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_ArrivalsQuery_FiltersOnStartTimeSinceCutoff()
+    {
+        var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var arrivalsQuery = queries[0];
+        Assert.That(arrivalsQuery, Does.Contain("?clubStatement pq:P580 ?startTime."));
+        Assert.That(arrivalsQuery, Does.Contain("FILTER(?startTime >= \"2026-07-01T00:00:00Z\"^^xsd:dateTime)"));
+        Assert.That(arrivalsQuery, Does.Contain("OPTIONAL { ?clubStatement pq:P582 ?endTime. }"));
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_DeparturesQuery_FiltersOnEndTimeSinceCutoff()
+    {
+        var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var departuresQuery = queries[1];
+        Assert.That(departuresQuery, Does.Contain("?clubStatement pq:P582 ?endTime."));
+        Assert.That(departuresQuery, Does.Contain("FILTER(?endTime >= \"2026-07-01T00:00:00Z\"^^xsd:dateTime)"));
+        Assert.That(departuresQuery, Does.Contain("OPTIONAL { ?clubStatement pq:P580 ?startTime. }"));
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_SentQueries_MatchExpectedShapeByteForByte()
+    {
+        var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        const string expectedArrivalsQuery = """
+            SELECT ?player ?playerLabel ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:Q9617.
+              ?clubStatement pq:P580 ?startTime.
+              FILTER(?startTime >= "2026-07-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        const string expectedDeparturesQuery = """
+            SELECT ?player ?playerLabel ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:Q9617.
+              ?clubStatement pq:P582 ?endTime.
+              FILTER(?endTime >= "2026-07-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+
+        Assert.That(queries[0], Is.EqualTo(expectedArrivalsQuery));
+        Assert.That(queries[1], Is.EqualTo(expectedDeparturesQuery));
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_ArrivalRow_UsesCallerSuppliedClubName_NotAWikidataLabel()
+    {
+        const string arrivalsJson = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "startTime": { "type": "literal", "value": "2026-07-01T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        const string departuresJson = """{ "results": { "bindings": [] } }""";
+        var handler = BuildSequencedJsonHandler(arrivalsJson, departuresJson);
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.That(result.StintsByQid, Contains.Key("Q1519"));
+        var entry = result.StintsByQid["Q1519"].Single();
+        Assert.That(entry.ClubName, Is.EqualTo("Arsenal"), "no ?clubLabel is ever projected — ClubName always comes from the caller");
+        Assert.That(entry.ClubQid, Is.EqualTo("Q9617"));
+        Assert.That(entry.StartYear, Is.EqualTo(2026));
+        Assert.That(result.PlayerNamesByQid["Q1519"], Is.EqualTo("Thierry Henry"));
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_ArrivalAndDepartureForSamePlayer_MergesBothStints()
+    {
+        const string arrivalsJson = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "startTime": { "type": "literal", "value": "2026-07-15T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        const string departuresJson = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "startTime": { "type": "literal", "value": "1999-08-03T00:00:00Z" }, "endTime": { "type": "literal", "value": "2026-07-20T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var handler = BuildSequencedJsonHandler(arrivalsJson, departuresJson);
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.That(result.StintsByQid["Q1519"], Has.Count.EqualTo(2),
+            "an arrival (new spell) and a departure (an old spell's end date filling in) for the same player both survive the merge — reconciliation, not this merge step, decides what to do with them");
+        Assert.That(result.StintsByQid["Q1519"].Select(e => e.StartYear), Is.EquivalentTo(new[] { 2026, 1999 }));
+    }
+
+    [Test]
+    public async Task S188_QueryRecentClubTransfersAsync_DepartureRowWithNoStartTime_IsSkipped()
+    {
+        const string arrivalsJson = """{ "results": { "bindings": [] } }""";
+        const string departuresJson = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "endTime": { "type": "literal", "value": "2026-07-20T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var handler = BuildSequencedJsonHandler(arrivalsJson, departuresJson);
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.That(result.StintsByQid, Is.Empty,
+            "no StartYear -> no (ClubName, StartYear) key to reconcile against, see BuildRecentClubDeparturesQuery's own comment");
+    }
+
+    [Test]
+    public void S188_QueryRecentClubTransfersAsync_HttpErrorOnArrivalsCall_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Test]
+    public void S188_QueryRecentClubTransfersAsync_HttpErrorOnDeparturesCall_ThrowsWikidataQueryException()
+    {
+        // BuildSequencedJsonHandler only varies the JSON body, not the
+        // status code, so a dedicated two-response handler is used instead:
+        // arrivals succeeds (200), departures fails (500).
+        var index = 0;
+        var mixedHandler = new FakeHttpMessageHandler((_, _) =>
+        {
+            index++;
+            return Task.FromResult(index == 1
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "results": { "bindings": [] } }""", System.Text.Encoding.UTF8, "application/sparql-results+json"),
+                }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+        });
+        var client = new WikidataClient(BuildHttpClient(mixedHandler));
+
+        Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Test]
+    public void S188_QueryRecentClubTransfersAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Test]
+    public void S188_QueryRecentClubTransfersAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryRecentClubTransfersAsync("Q9617", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Test]
+    public void S188_QueryRecentClubTransfersAsync_InvalidClubQid_ThrowsArgumentException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""")));
+
+        Assert.ThrowsAsync<ArgumentException>(
+            () => client.QueryRecentClubTransfersAsync("not-a-qid", "Arsenal", new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
     // ---- QueryPlayerPositionsAndBirthYearsByQidsAsync (REQ-1207 backfill) --
     // positionLabel-specific coverage: the query-shape/error-contract tests
     // for this method never existed before this bug-bundle fix (the batch
