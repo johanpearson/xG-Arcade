@@ -243,6 +243,84 @@ public class PlayerDataQualityRepositoryTests
         Assert.That(rows[0].ConsecutiveFailureCount, Is.EqualTo(1));
     }
 
+    // ---- S-189/ADR-0093: targeted match-pair invalidation (ClearMatchPairAsync) ----
+
+    [Test]
+    public async Task REQ110_ClearMatchPairAsync_DeletesConfirmedLowMatchPair_WhenStoredInTheGivenOrder()
+    {
+        await _repository.RecordConfirmedLowAsync("nationality", "France", "club", "Arsenal", matchCount: 1);
+
+        await _repository.ClearMatchPairAsync("nationality", "France", "club", "Arsenal");
+
+        Assert.That(await _repository.IsConfirmedLowAsync("nationality", "France", "club", "Arsenal"), Is.False);
+    }
+
+    [Test]
+    public async Task REQ110_ClearMatchPairAsync_DeletesConfirmedLowMatchPair_WhenStoredInTheReversedOrder()
+    {
+        // Recorded with club First/nationality Second — the opposite of
+        // PlayerCacheWarmingService's own Country-x-Club convention.
+        // ClearMatchPairAsync's caller (RecentTransferSweepService) has no
+        // way to know which order a given pair was originally recorded
+        // under, so both must be checked.
+        await _repository.RecordConfirmedLowAsync("club", "Arsenal", "nationality", "France", matchCount: 1);
+
+        await _repository.ClearMatchPairAsync("nationality", "France", "club", "Arsenal");
+
+        Assert.That(await _repository.IsConfirmedLowAsync("club", "Arsenal", "nationality", "France"), Is.False);
+    }
+
+    [Test]
+    public async Task REQ110_ClearMatchPairAsync_DeletesPairLookupFailure_InEitherOrder()
+    {
+        await _repository.RecordTechnicalFailureAsync("club", "Arsenal", "nationality", "France");
+
+        await _repository.ClearMatchPairAsync("nationality", "France", "club", "Arsenal");
+
+        Assert.That(
+            await _repository.IsPersistentTechnicalFailureAsync("club", "Arsenal", "nationality", "France", threshold: 1),
+            Is.False);
+    }
+
+    [Test]
+    public async Task REQ110_ClearMatchPairAsync_ClearsBothTablesInOneCall()
+    {
+        await _repository.RecordConfirmedLowAsync("nationality", "France", "club", "Arsenal", matchCount: 1);
+        await _repository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal");
+
+        await _repository.ClearMatchPairAsync("nationality", "France", "club", "Arsenal");
+
+        Assert.That(await _dbContext.ConfirmedLowMatchPairs.AnyAsync(), Is.False);
+        Assert.That(await _dbContext.PairLookupFailures.AnyAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task REQ110_ClearMatchPairAsync_IsNoOp_WhenNoMatchingRowExistsInEitherTable()
+    {
+        Assert.DoesNotThrowAsync(async () =>
+            await _repository.ClearMatchPairAsync("nationality", "France", "club", "Arsenal"));
+        Assert.That(await _dbContext.ConfirmedLowMatchPairs.AnyAsync(), Is.False);
+        Assert.That(await _dbContext.PairLookupFailures.AnyAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task REQ110_ClearMatchPairAsync_LeavesUnrelatedPairsUntouched()
+    {
+        await _repository.RecordConfirmedLowAsync("nationality", "France", "club", "Arsenal", matchCount: 1);
+        // Same nationality, different club — must survive.
+        await _repository.RecordConfirmedLowAsync("nationality", "France", "club", "Barcelona", matchCount: 2);
+        // Same club, different nationality — must survive.
+        await _repository.RecordConfirmedLowAsync("nationality", "Spain", "club", "Arsenal", matchCount: 3);
+
+        await _repository.ClearMatchPairAsync("nationality", "France", "club", "Arsenal");
+
+        var rows = await _dbContext.ConfirmedLowMatchPairs.ToListAsync();
+        Assert.That(rows, Has.Count.EqualTo(2));
+        Assert.That(rows.Select(r => r.SecondAttributeValue), Is.EquivalentTo(new[] { "Barcelona", "Arsenal" }));
+        Assert.That(await _repository.IsConfirmedLowAsync("nationality", "France", "club", "Barcelona"), Is.True);
+        Assert.That(await _repository.IsConfirmedLowAsync("nationality", "Spain", "club", "Arsenal"), Is.True);
+    }
+
     // ---- audit-club-gaps diagnostic (GetUnseededClubCandidatesAsync) -------
 
     [Test]

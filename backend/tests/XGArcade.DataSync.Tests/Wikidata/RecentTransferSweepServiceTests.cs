@@ -11,12 +11,22 @@ namespace XGArcade.DataSync.Tests.Wikidata;
 // same real-InMemory-repository-plus-FakeWikidataClient pattern as
 // PlayerCareerPrefetchServiceTests/PlayerCareerStintRefreshServiceTests
 // (docs/coding-guidelines.md "don't over-mock").
+//
+// S-189: _playerAttributeRepository/_playerDataRepository/
+// _playerDataQualityRepository are new here — real InMemory-backed
+// repositories, same "don't over-mock" pattern as every other repository
+// in this fixture, needed now that PersistClubTransfersAsync also writes
+// PlayerAttribute/PlayerData and invalidates ConfirmedLowMatchPair/
+// PairLookupFailure rows.
 public class RecentTransferSweepServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
+    private IPlayerDataRepository _playerDataRepository = null!;
+    private IPlayerDataQualityRepository _playerDataQualityRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
     [SetUp]
@@ -29,6 +39,9 @@ public class RecentTransferSweepServiceTests
         _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
+        _playerDataRepository = new PlayerDataRepository(_dbContext);
+        _playerDataQualityRepository = new PlayerDataQualityRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
 
@@ -36,7 +49,8 @@ public class RecentTransferSweepServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private RecentTransferSweepService BuildService() =>
-        new(_categoryValueRepository, _playerCareerStintRepository, _playerRepository, _wikidataClient,
+        new(_categoryValueRepository, _playerCareerStintRepository, _playerRepository,
+            _playerAttributeRepository, _playerDataRepository, _playerDataQualityRepository, _wikidataClient,
             NullLogger<RecentTransferSweepService>.Instance);
 
     private async Task<ClubDefinition> SeedClubAsync(string name, string wikidataQid)
@@ -255,5 +269,146 @@ public class RecentTransferSweepServiceTests
 
         var clubs = await _categoryValueRepository.GetClubsAsync();
         Assert.That(clubs.Single(c => c.WikidataQid == "Q9617").PlayerPoolSweptAt, Is.Null);
+    }
+
+    // ---- S-189/ADR-0093: arrivals also write PlayerAttribute/PlayerData ----
+
+    [Test]
+    public async Task REQ110_SweepAsync_ArrivalForNewPlayer_AlsoWritesPlayerAttributeAndPairedPlayerData()
+    {
+        var club = await SeedClubAsync("Arsenal", "Q9617");
+        _wikidataClient.SetRecentClubTransfers("Q9617", new RecentClubTransferLookupResult(
+            new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>
+            {
+                ["Q1519"] = [new WikidataCareerStintEntry(club.Name, 2026, null, null, club.WikidataQid)],
+            },
+            new Dictionary<string, string> { ["Q1519"] = "Thierry Henry" }));
+
+        var result = await BuildService().SweepAsync(30);
+
+        // S-188's own existing behavior must still hold unchanged.
+        Assert.That(result.StintsAdded, Is.EqualTo(1));
+        // S-189's new behavior.
+        Assert.That(result.AttributesAdded, Is.EqualTo(1));
+
+        var player = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("club", "Arsenal");
+        Assert.That(attributes.Select(a => a.PlayerId), Is.EquivalentTo(new[] { player!.Id }));
+
+        var playerData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id && d.Field == "club").ToListAsync();
+        Assert.That(playerData, Has.Count.EqualTo(1));
+        Assert.That(playerData[0].Value, Is.EqualTo("Arsenal"));
+        Assert.That(playerData[0].Source, Is.EqualTo("wikidata"));
+        Assert.That(playerData[0].Confidence, Is.EqualTo("verified"));
+    }
+
+    [Test]
+    public async Task REQ110_SweepAsync_ArrivalForPlayerAlreadyHavingTheClubAttribute_DoesNotWriteDuplicateAttribute()
+    {
+        var club = await SeedClubAsync("Arsenal", "Q9617");
+        var player = await SeedPlayerAsync("Q1519", "Thierry Henry");
+        // Simulates the attribute already being known from an earlier
+        // prefetch-player-careers run, with no matching PlayerCareerStint
+        // row yet for THIS (later) spell — a genuinely new stint for an
+        // already-attributed club.
+        await _playerAttributeRepository.AddPlayerAttributeAsync(
+            new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+
+        _wikidataClient.SetRecentClubTransfers("Q9617", new RecentClubTransferLookupResult(
+            new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>
+            {
+                ["Q1519"] = [new WikidataCareerStintEntry(club.Name, 2026, null, null, club.WikidataQid)],
+            },
+            new Dictionary<string, string> { ["Q1519"] = "Thierry Henry" }));
+
+        var result = await BuildService().SweepAsync(30);
+
+        Assert.That(result.StintsAdded, Is.EqualTo(1), "the new stint itself must still be inserted");
+        Assert.That(result.AttributesAdded, Is.EqualTo(0), "the already-existing attribute must not be counted as newly added");
+
+        var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("club", "Arsenal");
+        Assert.That(attributes, Has.Count.EqualTo(1), "the already-existing attribute must not be duplicated");
+
+        var playerData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id && d.Field == "club").ToListAsync();
+        Assert.That(playerData, Is.Empty, "no new PlayerData row is written when the paired PlayerAttribute is a duplicate");
+    }
+
+    // A departure alone (no accompanying arrival in the same run) must
+    // never write OR remove a PlayerAttribute row — Grid's "ever played for
+    // this club" answer semantics mean a player who left is still correctly
+    // a valid answer forever, so a departure has nothing to do here.
+    [Test]
+    public async Task REQ110_SweepAsync_DepartureCompletingExistingStint_NeverWritesOrRemovesPlayerAttribute()
+    {
+        var club = await SeedClubAsync("Arsenal", "Q9617");
+        var player = await SeedPlayerAsync("Q1519", "Thierry Henry");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = null, AppearanceCount = null }]);
+
+        _wikidataClient.SetRecentClubTransfers("Q9617", new RecentClubTransferLookupResult(
+            new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>
+            {
+                ["Q1519"] = [new WikidataCareerStintEntry(club.Name, 1999, 2007, 254, club.WikidataQid)],
+            },
+            new Dictionary<string, string> { ["Q1519"] = "Thierry Henry" }));
+
+        var result = await BuildService().SweepAsync(30);
+
+        Assert.That(result.StintsCompleted, Is.EqualTo(1));
+        Assert.That(result.AttributesAdded, Is.EqualTo(0));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Is.Empty, "a departure alone must never create a PlayerAttribute row");
+    }
+
+    // ---- S-189/ADR-0093: targeted ConfirmedLowMatchPair/PairLookupFailure invalidation ----
+
+    // A new (club, "Arsenal") attribute for a player who already has
+    // nationality "France" must clear the STALE (nationality=France) x
+    // (club=Arsenal) marker in both tables, while leaving pairs that don't
+    // involve both this player's OTHER attribute AND this club untouched —
+    // a different club paired with the same nationality, and a different
+    // nationality paired with the same club, must both survive.
+    [Test]
+    public async Task REQ110_SweepAsync_NewArrivalAttribute_ClearsStaleMatchPairsForPlayersOtherAttributes_LeavesUnrelatedPairsUntouched()
+    {
+        var club = await SeedClubAsync("Arsenal", "Q9617");
+        var player = await SeedPlayerAsync("Q1519", "Thierry Henry");
+        await _playerAttributeRepository.AddPlayerAttributeAsync(
+            new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+
+        // The pair this new arrival's attribute must invalidate.
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Arsenal", matchCount: 1);
+        await _playerDataQualityRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal");
+
+        // Unrelated pairs that must survive: same nationality, different
+        // club; same club, different (unheld) nationality.
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Barcelona", matchCount: 2);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "Spain", "club", "Arsenal", matchCount: 3);
+
+        _wikidataClient.SetRecentClubTransfers("Q9617", new RecentClubTransferLookupResult(
+            new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>
+            {
+                ["Q1519"] = [new WikidataCareerStintEntry(club.Name, 2026, null, null, club.WikidataQid)],
+            },
+            new Dictionary<string, string> { ["Q1519"] = "Thierry Henry" }));
+
+        var result = await BuildService().SweepAsync(30);
+
+        Assert.That(result.AttributesAdded, Is.EqualTo(1));
+
+        Assert.That(
+            await _playerDataQualityRepository.IsConfirmedLowAsync("nationality", "France", "club", "Arsenal"),
+            Is.False, "the stale confirmed-low marker for the exact pair this arrival affected must be cleared");
+        Assert.That(
+            await _playerDataQualityRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1),
+            Is.False, "the stale technical-failure marker for the exact pair this arrival affected must be cleared");
+
+        Assert.That(
+            await _playerDataQualityRepository.IsConfirmedLowAsync("nationality", "France", "club", "Barcelona"),
+            Is.True, "a different club paired with the same nationality must be untouched");
+        Assert.That(
+            await _playerDataQualityRepository.IsConfirmedLowAsync("nationality", "Spain", "club", "Arsenal"),
+            Is.True, "a different nationality (not held by this player) paired with the same club must be untouched");
     }
 }
