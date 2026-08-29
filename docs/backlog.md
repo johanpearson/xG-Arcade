@@ -8973,3 +8973,123 @@ implementation itself: ADR-0090 (piece 1, rotating bounded re-sweep)
 and ADR-0091 (piece 2, career-stint completion's narrow exception to
 the "additive only" contract, covering all three reconciliation call
 sites after the follow-up commit above).
+
+**S-188 · Date-filtered recent-transfer sweep, a third freshness mechanism (REQ-110)**
+Follow-up to S-186/S-187: ADR-0090's rotation is deliberately slow (a
+full cycle is on the order of a season) — fine for general drift, but
+useless for reflecting a transfer that just happened around a
+transfer-window deadline day. Adds a cheap, targeted, DATE-FILTERED
+SPARQL query per seeded club instead of waiting out the rotation: two
+new query builders, `BuildRecentClubArrivalsQuery` (`pq:P580` "joined
+since" `FILTER`, mandatory bind) and `BuildRecentClubDeparturesQuery`
+(`pq:P582` "departure recorded since" `FILTER`, mandatory bind;
+`?startTime` OPTIONAL), both using the full `p:P54`/`ps:P54` statement
+path (never the truthy `wdt:P54` shortcut — the `pq:P580`/`pq:P582`
+qualifiers this query reads don't even exist under it). WDQS filters by
+date server-side, so the result set is naturally bounded by real
+transfer activity per club, not squad size — cheap even run often.
+
+New `IWikidataClient.QueryRecentClubTransfersAsync(clubQid, clubName,
+sinceUtc, ct)` runs both queries per club and merges the results into
+one `RecentClubTransferLookupResult` (`StintsByQid` +
+`PlayerNamesByQid` — the latter captured here since, unlike every other
+career-stint query, there is no earlier pool-query pass that already
+knows an arriving player's name). `clubName` is caller-supplied
+(`ClubDefinition.Name`), never derived from a Wikidata label — this
+query never projects `?club`/`?clubLabel` at all, since the caller
+already knows exactly which club it's iterating.
+
+New `RecentTransferSweepService`/`IRecentTransferSweepService`, one per
+seeded `ClubDefinition`: an arrival get-or-creates the `Player`
+(`GetOrCreatePlayersByWikidataQidAsync`, same precedent as
+`PlayerCareerPrefetchService.FetchAndPersistBatchAsync`) and reconciles
+via `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId` — reused
+verbatim, not reimplemented, so an arrival that matches no existing
+`(ClubName, StartYear)` row inserts, and a departure that matches an
+existing row completes it in place via `CareerStintReconciler.Reconcile`
+(`UpdateCareerStintCompletionsAsync`, ADR-0091), never duplicating.
+**Deliberate scope boundary:** this service only ever writes
+`PlayerCareerStint` (xG Path's own byproduct data) — it does NOT write
+`PlayerAttribute`/`PlayerData` (xG Grid's own guess-correctness answer
+key, ADR-0007) and does NOT touch
+`CountryDefinition`/`ClubDefinition.PlayerPoolSweptAt` at all (writing
+that column here would incorrectly tell ADR-0088's skip-forever check
+that this club's FULL pool was re-verified, when only a narrow
+recent-activity slice actually was). A freshly-transferred player
+therefore becomes visible to xG Path sooner, but does not become a
+valid xG Grid guess answer for that club any sooner than ADR-0090's own
+rotation (or a full `prefetch-player-careers` run) would make them —
+flagged here for the product owner/orchestrator as a candidate
+follow-up, not addressed by this story.
+
+New CLI verb `sweep-recent-transfers [lookbackDays]` (optional single
+argument, default 30 days — a full typical transfer window's worth of
+overlap for an operator dispatching once around a deadline day, per
+the "prefix-match, validate and throw" shape ADR-0090/S-187 already
+moved `prefetch-player-careers` onto). New workflow
+`sweep-recent-transfers.yml`, `workflow_dispatch` ONLY — deliberately
+no cron, even though the per-run cost is small (~15 clubs x 2 queries =
+~30 small WDQS-filtered SPARQL queries, plus a handful of Postgres
+reads/writes for whatever a real transfer window actually produced):
+this is a brand-new, unproven query shape (never run against the real
+`query.wikidata.org` endpoint from this sandbox), following
+`prefetch-player-careers.yml`'s own bootstrapping precedent (manual-only
+until a real run's cost/behavior is confirmed, cron added later once
+proven); and the underlying product need is inherently event-driven
+(around a ~4-6-week transfer window, twice a year), so a 365-day/year
+cron would mostly find nothing — unnecessary operational surface for no
+added freshness benefit outside those windows. Standard
+`concurrency: { group: ${{ github.workflow }}, cancel-in-progress: false }`
+guard, same as every other bulk Wikidata workflow.
+
+**Cutoff strategy:** `lookbackDays` (a CLI-supplied window, cutoff =
+`DateTime.UtcNow.AddDays(-lookbackDays)`) was chosen over "since this
+club's own `PlayerPoolSweptAt`" — the latter would tie this
+mechanism's freshness window to ADR-0090's own rotation state (which
+can be up to ~15 weeks stale for a club not yet due), making the
+result set's size and the mechanism's actual behavior unpredictable
+and non-obvious to reason about; a fixed, operator-chosen day count is
+simpler to reason about and more directly useful for someone
+dispatching this specifically because a deadline day is approaching,
+regardless of how recently the rotation last touched any given club.
+
+*Accept:* the arrivals/departures query builders' generated SPARQL
+(full statement path, correct `FILTER` clause per direction, no
+`ORDER BY`/`LIMIT`/`OFFSET`) is covered byte-for-byte; an arrival for a
+brand-new player creates the `Player` row and inserts a stint; a
+departure completing an existing ongoing stint updates it in place
+(never duplicates) via the shared `CareerStintReconciler` machinery; an
+identical re-fetch is a true no-op; `lookbackDays`/club name/QID are
+threaded correctly per seeded club; one club's failure doesn't stop the
+rest but still fails the run at the end (idempotent re-run); this
+service never writes `PlayerPoolSweptAt`.
+
+*Deps:* reuses S-187/ADR-0091's `CareerStintReconciler`/
+`BuildNewStintsByPlayerId` machinery and `IPlayerCareerStintRepository`
+unchanged — no new REQ; uses REQ-110.
+
+*Built as (2026-08-29):* as described above —
+`SparqlQueryBuilders.BuildRecentClubArrivalsQuery`/
+`BuildRecentClubDeparturesQuery`,
+`SparqlResponseParsers.ParseRecentClubTransferBindings` (+
+`RecentClubTransferParseResult`), `IWikidataClient`/`WikidataClient
+.QueryRecentClubTransfersAsync` (+ new `RecentClubTransferLookupResult`
+public record), `IRecentTransferSweepService`/`RecentTransferSweepService`,
+`CliVerbDispatcher.HandleSweepRecentTransfersAsync`,
+`sweep-recent-transfers.yml`. All four `IWikidataClient` fakes
+(`XGArcade.DataSync.Tests`, `XGArcade.Games.XGGrid.Tests`,
+`AdminSuggestionEndpointTests.cs`, `AdminEndpointTests.cs`) updated with
+the new interface member. Tests: `WikidataClientTests.cs`
+(`S188_QueryRecentClubTransfersAsync_*`, 12 cases covering SPARQL
+shape, response parsing/merging, and the error contract) and new
+`RecentTransferSweepServiceTests.cs` (10 cases covering arrival/
+departure/no-op reconciliation, cutoff threading, partial failure, and
+the `PlayerPoolSweptAt` scope boundary).
+
+Testing: no local `dotnet` SDK available in-sandbox — all new/changed
+backend code was hand-traced against existing test patterns and the
+InMemory-provider repository behavior, not locally run; a CI
+verification run (`ci.yml` `workflow_dispatch`) is needed before this
+is considered fully done. ADR-0092 (this story's cadence/cutoff
+decisions above) to be added by the orchestrator in the docs-sync pass,
+not written by this story's implementation itself.
