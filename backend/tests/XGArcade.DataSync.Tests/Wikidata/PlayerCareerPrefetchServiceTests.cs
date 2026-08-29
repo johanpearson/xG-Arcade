@@ -756,6 +756,15 @@ public class PlayerCareerPrefetchServiceTests
         var oldest = await SeedAlreadySweptCountryAsync("Spain", "Q29", DateTime.UtcNow.AddDays(-90));
         var middle = await SeedAlreadySweptCountryAsync("Germany", "Q183", DateTime.UtcNow.AddDays(-45));
         var newest = await SeedAlreadySweptCountryAsync("Italy", "Q38", DateTime.UtcNow.AddDays(-1));
+        // Captured as primitives immediately after seeding: oldest/middle/newest
+        // are tracked entities sharing the test's _dbContext, and
+        // UpdateCountrySweptAtAsync's tracked query below returns these SAME
+        // object instances (EF Core's identity map) and mutates
+        // PlayerPoolSweptAt on them in place. Comparing against the entities
+        // directly post-sweep would compare the new value against itself.
+        var oldestOriginalSweptAt = oldest.PlayerPoolSweptAt;
+        var middleOriginalSweptAt = middle.PlayerPoolSweptAt;
+        var newestOriginalSweptAt = newest.PlayerPoolSweptAt;
         _wikidataClient.SetPoolForNationality("Q29", [new WikidataNameIndexEntry("Q100", "Someone Spanish", 1990, "Spain")]);
         _wikidataClient.SetPoolForNationality("Q183", [new WikidataNameIndexEntry("Q200", "Someone German", 1990, "Germany")]);
 
@@ -780,9 +789,9 @@ public class PlayerCareerPrefetchServiceTests
         var reloadedOldest = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == oldest.Id);
         var reloadedMiddle = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == middle.Id);
         var reloadedNewest = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == newest.Id);
-        Assert.That(reloadedOldest.PlayerPoolSweptAt, Is.GreaterThan(oldest.PlayerPoolSweptAt), "a re-swept row's timestamp must be refreshed");
-        Assert.That(reloadedMiddle.PlayerPoolSweptAt, Is.GreaterThan(middle.PlayerPoolSweptAt), "a re-swept row's timestamp must be refreshed");
-        Assert.That(reloadedNewest.PlayerPoolSweptAt, Is.EqualTo(newest.PlayerPoolSweptAt), "a skipped row's timestamp must NOT be re-written");
+        Assert.That(reloadedOldest.PlayerPoolSweptAt, Is.GreaterThan(oldestOriginalSweptAt), "a re-swept row's timestamp must be refreshed");
+        Assert.That(reloadedMiddle.PlayerPoolSweptAt, Is.GreaterThan(middleOriginalSweptAt), "a re-swept row's timestamp must be refreshed");
+        Assert.That(reloadedNewest.PlayerPoolSweptAt, Is.EqualTo(newestOriginalSweptAt), "a skipped row's timestamp must NOT be re-written");
     }
 
     [Test]
