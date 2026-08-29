@@ -237,10 +237,12 @@ public class ReferenceDataSeederTests
         // ADR-0061 grew the seeded pool from 1 (Ballon d'Or, S-031) to 3 —
         // hardcoded, not read back from ReferenceDataSeeder itself, same
         // "catch a future accidental change" reasoning as the Country/Club
-        // counts above. This count is itself load-bearing: it's what
-        // crosses GridGameModule.SelectPairing's `trophyCount >= size`
-        // feasibility check for the default GridSize = 3 (see
-        // GridGameModuleTests' own REQ108_SelectPairing_* coverage).
+        // counts above. This count matters for how often a Trophy header
+        // gets drawn at all: ADR-0089's combined-pool selection makes a
+        // header's odds of being a given type proportional to that type's
+        // pool size, so a larger seeded trophy pool means Trophy headers
+        // appear more often, with no code change needed (see
+        // GridGenerationServiceTests' own REQ108_* coverage).
         Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(3));
     }
 

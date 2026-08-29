@@ -208,13 +208,13 @@ public static class ReferenceDataSeeder
     // fix on the next seed run with no migration needed.
     //
     // Growing the trophy pool from 1 to 3 has a real, foreseeable production
-    // consequence, not just a data change: it clears
-    // GridGameModule.SelectPairing's `trophyCount >= size` feasibility check
-    // for the default GridSize = 3, so Country x Trophy and Club x Trophy
-    // become selectable in production for the first time (Trophy x Trophy
-    // still needs trophyCount >= size * 2 = 6, stays infeasible for now).
-    // See GridGameModule.SelectPairing's own comment and ADR-0061's own
-    // "ADR-0035 follow-up resolved in the same story" note.
+    // consequence, not just a data change: since ADR-0089, a header's odds
+    // of being a given category type are proportional to that type's seeded
+    // pool size (drawn from one combined Country+Club+Trophy pool), so
+    // Trophy headers — and therefore Country x Trophy / Club x Trophy
+    // grids — appear meaningfully more often now than with the original
+    // single-trophy pool. See GridGenerationService's own doc comment and
+    // ADR-0061's own "ADR-0035 follow-up resolved in the same story" note.
     private static readonly (string Name, string WikidataQid, bool IsTeamTrophy)[] Trophies =
     [
         ("Ballon d'Or", "Q166177", false),

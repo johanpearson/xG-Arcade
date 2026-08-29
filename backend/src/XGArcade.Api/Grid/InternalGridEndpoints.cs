@@ -43,9 +43,9 @@ public static class InternalGridEndpoints
 
             // Tier 0 has no admin-driven template management (REQ-102's full
             // scope) — find-or-create a template for this size on demand.
-            // Which pairing (Country x Club or Club x Club, S-030) the
-            // generated instance actually uses is chosen inside
-            // GenerateInstanceAsync, not by the template itself.
+            // Which category type (Country/Club/Trophy) each row/column
+            // header actually ends up as is chosen per header inside
+            // GenerateInstanceAsync (ADR-0089), not by the template itself.
             var template = await GridTemplateResolver.GetOrCreateBySizeAsync(gridInstanceRepository, request.Size, cancellationToken);
 
             GameInstance instance;

@@ -23,8 +23,8 @@ public class AuthController(
     Random? random = null) : ControllerBase
 {
     // REQ-717: GenerateUniqueGuestDisplayNameAsync's source of candidate
-    // numbers. Optional constructor param (same seam GridGameModule's
-    // SelectPairing already uses for its own Random.Shared dependency) so a
+    // numbers. Optional constructor param (same seam
+    // GridGenerationService uses for its own Random.Shared dependency) so a
     // test can pin the exact sequence of candidates drawn — e.g. to cover
     // "collides once, then succeeds on retry" deterministically, which
     // Random.Shared can't express since it isn't seedable. No DI
