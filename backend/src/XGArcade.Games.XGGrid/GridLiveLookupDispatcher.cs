@@ -101,14 +101,14 @@ public class GridLiveLookupDispatcher(
         {
             var country = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
                 .FirstOrDefault(c => c.Name == categoryValue);
-            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid, country.UsesCountryForSportProperty);
+            return country is null ? null : new CategoryCandidate(country.Name, categoryType, country.WikidataQid, country.UsesCountryForSportProperty);
         }
 
         if (categoryType == CategoryPairingRules.Club)
         {
             var club = (await categoryValueRepository.GetClubsAsync(cancellationToken))
                 .FirstOrDefault(c => c.Name == categoryValue);
-            return club is null ? null : new CategoryCandidate(club.Name, club.WikidataQid);
+            return club is null ? null : new CategoryCandidate(club.Name, categoryType, club.WikidataQid);
         }
 
         if (categoryType == CategoryPairingRules.Trophy)
@@ -118,7 +118,7 @@ public class GridLiveLookupDispatcher(
             // ADR-0061: trophy.IsTeamTrophy threaded through, same as
             // country.UsesCountryForSportProperty above — see
             // CategoryCandidate's own doc comment.
-            return trophy is null ? null : new CategoryCandidate(trophy.Name, trophy.WikidataQid, IsTeamTrophy: trophy.IsTeamTrophy);
+            return trophy is null ? null : new CategoryCandidate(trophy.Name, categoryType, trophy.WikidataQid, IsTeamTrophy: trophy.IsTeamTrophy);
         }
 
         return null;
@@ -141,22 +141,34 @@ public class GridLiveLookupDispatcher(
     // (no longer) controls: both origins persist the same starting
     // Confidence now, but the value is still threaded through for
     // logging/future re-differentiation.
+    // ADR-0089: before per-header type mixing, S-031's SelectPairing always
+    // kept Trophy as the *second* type in a mixed pairing (Country/Club
+    // always first), so only three (rowType, colType) orderings could ever
+    // reach here. Now that each row/column header picks its own type
+    // independently, a Country row can land next to a Trophy column OR a
+    // Trophy row can land next to a Country column — both must resolve to
+    // the same underlying Wikidata query, just with the two candidates
+    // swapped into WikidataLookupService's fixed (Country/Club first,
+    // Trophy second) parameter order. Each branch below normalizes by
+    // TYPE, not by row/col position, before delegating — do not reintroduce
+    // a row/col-position-based assumption here.
     public async Task<IReadOnlyList<Player>?> LookupMatchesAsync(
         string rowCategoryType, CategoryCandidate row,
         string colCategoryType, CategoryCandidate col,
         WikidataLookupOrigin origin,
         CancellationToken cancellationToken)
     {
-        if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Club)
+        if (IsPairOfTypes(rowCategoryType, colCategoryType, CategoryPairingRules.Country, CategoryPairingRules.Club))
         {
-            // REQ-114/ADR-0035: row.UsesCountryForSportProperty threads
+            var (country, club) = rowCategoryType == CategoryPairingRules.Country ? (row, col) : (col, row);
+            // REQ-114/ADR-0035: country.UsesCountryForSportProperty threads
             // CategoryCandidate's copy of CountryDefinition's per-row query-
             // property flag through — LookupAndPersistAsync itself decides
             // P27 vs. P1532 from it, so this call site needs no pairing-
             // specific branching of its own.
             return await wikidataLookupService.LookupAndPersistAsync(
-                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid, UsesCountryForSportProperty = row.UsesCountryForSportProperty },
-                new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                new CountryDefinition { Name = country.Name, WikidataQid = country.WikidataQid, UsesCountryForSportProperty = country.UsesCountryForSportProperty },
+                new ClubDefinition { Name = club.Name, WikidataQid = club.WikidataQid },
                 origin,
                 cancellationToken);
         }
@@ -170,39 +182,33 @@ public class GridLiveLookupDispatcher(
                 cancellationToken);
         }
 
-        // S-031/REQ-108: SelectPairing always keeps Trophy as the *second*
-        // type in a mixed pairing (Country/Club always first) — only these
-        // three orderings are ever produced, never Trophy first.
-        //
-        // REQ-114/ADR-0035/ADR-0061: row.UsesCountryForSportProperty and
-        // col.IsTeamTrophy are now BOTH threaded through here, matching the
+        // REQ-114/ADR-0035/ADR-0061: country.UsesCountryForSportProperty and
+        // trophy.IsTeamTrophy are both threaded through here, matching the
         // Country x Club branch above's pattern exactly —
         // LookupAndPersistTrophyCountryAsync's own dispatch (ADR-0061)
         // branches on both flags together, so this call site needs no
         // pairing-specific branching of its own, same precedent as Country x
-        // Club. Before ADR-0061, row.UsesCountryForSportProperty was
-        // deliberately NOT threaded through here (LookupAndPersistTrophyCountryAsync
-        // had no P1532-aware counterpart yet, and the branch was unreachable
-        // in production anyway with only one trophy seeded) — that gap is
-        // now closed; do not silently drop this threading again.
-        if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Trophy)
+        // Club.
+        if (IsPairOfTypes(rowCategoryType, colCategoryType, CategoryPairingRules.Country, CategoryPairingRules.Trophy))
         {
+            var (country, trophy) = rowCategoryType == CategoryPairingRules.Country ? (row, col) : (col, row);
             return await wikidataLookupService.LookupAndPersistTrophyCountryAsync(
-                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid, IsTeamTrophy = col.IsTeamTrophy },
-                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid, UsesCountryForSportProperty = row.UsesCountryForSportProperty },
+                new TrophyDefinition { Name = trophy.Name, WikidataQid = trophy.WikidataQid, IsTeamTrophy = trophy.IsTeamTrophy },
+                new CountryDefinition { Name = country.Name, WikidataQid = country.WikidataQid, UsesCountryForSportProperty = country.UsesCountryForSportProperty },
                 origin,
                 cancellationToken);
         }
 
-        // ADR-0061: col.IsTeamTrophy threaded through the same way as the
+        // ADR-0061: trophy.IsTeamTrophy threaded through the same way as the
         // Country x Trophy branch above — LookupAndPersistTrophyClubAsync's
         // own dispatch branches on it (no club-side P27-vs-P1532 style split
         // needed, see that method's own doc comment).
-        if (rowCategoryType == CategoryPairingRules.Club && colCategoryType == CategoryPairingRules.Trophy)
+        if (IsPairOfTypes(rowCategoryType, colCategoryType, CategoryPairingRules.Club, CategoryPairingRules.Trophy))
         {
+            var (club, trophy) = rowCategoryType == CategoryPairingRules.Club ? (row, col) : (col, row);
             return await wikidataLookupService.LookupAndPersistTrophyClubAsync(
-                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid, IsTeamTrophy = col.IsTeamTrophy },
-                new ClubDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                new TrophyDefinition { Name = trophy.Name, WikidataQid = trophy.WikidataQid, IsTeamTrophy = trophy.IsTeamTrophy },
+                new ClubDefinition { Name = club.Name, WikidataQid = club.WikidataQid },
                 origin,
                 cancellationToken);
         }
@@ -212,14 +218,19 @@ public class GridLiveLookupDispatcher(
             // Trophy x Trophy has no dedicated IWikidataLookupService method
             // (S-031 scoped the two new methods to Country/Club x Trophy
             // only, per docs/backlog.md — a live-lookup fallback for this
-            // pairing remains unreachable in practice, see SelectPairing's
-            // own comment: it needs trophyCount >= size * 2, which the
-            // ADR-0061 trophy-pool expansion to 3 still doesn't clear).
-            // Falls through to `return null` below, same as any other
-            // not-yet-handled pairing — fails closed, never throws.
+            // pairing remains unreachable in practice for any realistic
+            // trophy pool size). Falls through to `return null` below, same
+            // as any other not-yet-handled pairing — fails closed, never
+            // throws.
             return null;
         }
 
         return null;
     }
+
+    // ADR-0089: order-independent "is this pair {typeA, typeB} in either
+    // position" check — every cross-type branch above needs this now that a
+    // header's type no longer implies a fixed row/col position.
+    private static bool IsPairOfTypes(string rowCategoryType, string colCategoryType, string typeA, string typeB) =>
+        (rowCategoryType == typeA && colCategoryType == typeB) || (rowCategoryType == typeB && colCategoryType == typeA);
 }

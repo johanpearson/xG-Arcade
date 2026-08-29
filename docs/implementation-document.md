@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.09"
+version: "1.10"
 status: draft
-last_updated: 2026-08-25
+last_updated: 2026-08-29
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1362,16 +1362,21 @@ for each cell (row, col) in NxN:
     if attempts exceeded: abort generation, log error, alert admin
 ```
 
-**Tier 0 status (S-007):** the pseudocode above is the full/long-term
-shape (independent per-cell retry, any category type on either axis,
-alerting an admin on abort). `GridGameModule.GenerateInstanceAsync`
-(`XGArcade.Games.XGGrid`) currently implements a narrower, structurally
-different-but-equivalent algorithm: row headers are N unique countries
-picked once up front (never retried individually — REQ-107's ban can
-never fire on a country picked alone), then column headers are picked one
-club at a time from the shuffled candidate pool and accepted only once
-validated against *every already-fixed row header* in one pass (all N
-match-counts computed together, not cell-by-cell) — a rejected club
+**Tier 0 status (S-007, updated 2026-08-29, ADR-0089):** the pseudocode
+above is the full/long-term shape (independent per-cell retry, any
+category type on either axis, alerting an admin on abort).
+`GridGenerationService.GenerateInstanceAsync` (`XGArcade.Games.XGGrid`)
+currently implements a narrower, structurally different-but-equivalent
+algorithm: row headers are N candidates drawn from one shuffled, combined
+Country+Club+Trophy pool (each header keeps its own `CategoryType` per
+ADR-0089 — no longer "N unique countries" fixed by a per-instance
+pairing), picked once up front and never retried individually, then
+column headers are picked one candidate at a time from that same combined
+pool (minus already-used row values, filtered by `(CategoryType, Name)`
+per REQ-102) and accepted only once validated against *every already-fixed
+row header* in one pass (all N match-counts computed together, not
+cell-by-cell, with REQ-107's Country×Country ban checked per (row,
+candidate) pair before that row's match-count query) — a rejected
 candidate is discarded and never revisited, and `attempts` counts
 column-candidates tried, not individual cell retries. Both shapes satisfy
 REQ-101/102's actual acceptance criteria (all N×N cells valid, N unique
@@ -1390,20 +1395,40 @@ or (as of S-008) `POST /internal/generate-round`
 `GridGenerationException` — and, as of the 2026-07-12 fix, any other
 exception too — and surfaces it the same way), no separate alerting
 channel exists yet.
-This shape is also Tier 0-scoped to (up to) five possible pairings, chosen
-once per instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
-Country (rows) × Club (columns), Club × Club (S-030), Country × Trophy,
-Club × Trophy, or Trophy × Trophy (S-031, REQ-108, Trophy always kept
-second in a mixed pairing) — never a mixed axis *within* one grid, so the
-"whichever category types this GridTemplate allows" line above still
-doesn't vary within a single grid, only across grids. **Updated (2026-08-09,
-ADR-0061):** `ReferenceDataSeeder` now seeds three trophies (Ballon d'Or,
-FIFA World Cup, UEFA Champions League), so `trophyCount(3)` clears `size`
-for the default `GridSize = 3` — Country × Trophy and Club × Trophy are now
+**Superseded by ADR-0089 (2026-08-29) — kept for history, not deleted; see
+below.** This shape used to be Tier 0-scoped to (up to) five possible
+pairings, chosen once per instance by `SelectPairing`
+(`GridGameModule.GenerateInstanceAsync`): Country (rows) × Club (columns),
+Club × Club (S-030), Country × Trophy, Club × Trophy, or Trophy × Trophy
+(S-031, REQ-108, Trophy always kept second in a mixed pairing) — never a
+mixed axis *within* one grid. **Updated (2026-08-09, ADR-0061):**
+`ReferenceDataSeeder` now seeds three trophies (Ballon d'Or, FIFA World
+Cup, UEFA Champions League), so `trophyCount(3)` cleared `size` for the
+default `GridSize = 3` — Country × Trophy and Club × Trophy became
 REACHABLE and actually chosen in production, not just mechanically wired
-up (see `SelectPairing`'s own comment and REQ-108's status note). Trophy ×
-Trophy still needs `trophyCount >= size * 2 = 6` and remains structurally
-infeasible for now.
+up. Trophy × Trophy still needed `trophyCount >= size * 2 = 6` and
+remained structurally infeasible at that point.
+
+**Current shape (2026-08-29, ADR-0089):** `SelectPairing`/`PoolFor` and
+their per-pairing feasibility thresholds no longer exist. There is no
+fixed per-instance pairing at all — each row and column header
+independently draws its own category type (Country/Club/Trophy) from one
+shuffled, combined pool of all three reference tables concatenated
+together, so a header's odds of being a given type are naturally
+proportional to that type's seeded pool size (today: 45 countries, 21
+clubs, 3 trophies) rather than an even 3-way split or a fixed feasibility
+table. A single grid can now mix category types freely across both axes
+(e.g. a Country row next to a Trophy column) — the "whichever category
+types this GridTemplate allows" line above no longer implies one shared
+type per axis. Growing the trophy pool further now increases Trophy
+headers' selection odds automatically, with no code change and no
+threshold to recheck (previously, growing the pool required rechecking
+`SelectPairing`'s own hardcoded thresholds, e.g. `trophyCount >= size * 2`
+for Trophy×Trophy — ADR-0061's reference to that threshold is now
+historical, see that ADR's own 2026-08-29 status note). REQ-107's
+Country×Country ban moved into `PickHeadersAsync`'s per-row loop, checked
+per (row header, column candidate) pair before that row's match-count
+query, rather than once per call against a globally-fixed pairing.
 
 **REQ-110 (S-036):** `PlayerCacheWarmingService` (`XGArcade.Games.XGGrid`)
 iterates every Country × Club and Club × Club pair the reference tables can

@@ -7,11 +7,12 @@ namespace XGArcade.Data.Entities;
 // generation/orchestration logic lives, not where the EF entity classes do.
 // Tier 0: AllowedCategoryTypes is always ["country", "club"] — the field
 // exists so the shape matches implementation-document.md §5 and doesn't
-// need a later migration, but it's not actually read by GridGameModule's
-// SelectPairing (which decides row/column category types itself, now
-// including Trophy pairings as of docs/backlog.md S-030/S-031, REQ-107/
-// REQ-108) — a known, harmless gap between this field and what's actually
-// generated, not something this story's scope covers closing.
+// need a later migration, but it's not actually read by
+// GridGenerationService (which decides each row/column header's own
+// category type independently, per ADR-0089, including Trophy headers as of
+// docs/backlog.md S-030/S-031, REQ-107/REQ-108) — a known, harmless gap
+// between this field and what's actually generated, not something this
+// story's scope covers closing.
 public class GridTemplate
 {
     public Guid Id { get; set; }

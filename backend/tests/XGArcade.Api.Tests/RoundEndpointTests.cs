@@ -99,11 +99,32 @@ public class RoundEndpointTests
         using var scope = (factory ?? _factory).Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
 
-        var countries = Enumerable.Range(0, size)
-            .Select(i => new CountryDefinition { Id = Guid.NewGuid(), Name = $"Country{i}", WikidataQid = $"Qc{i}" })
+        // ADR-0089: headers now pick their category type independently, so a
+        // Club header can land on BOTH axes (Club x Club), not just paired
+        // against a Country header as under the old per-instance pairing —
+        // every same-type pair this fixture's clubs could now be drawn into
+        // needs its own cached match below, and every WikidataQid must be
+        // real-format (^Q\d+$, see WikidataQid.IsValid) since a live lookup
+        // that used to be structurally unreachable (Club x Club needed
+        // 2 x size clubs under the old SelectPairing, more than this fixture
+        // ever seeded) can now actually fire and validate the QID format.
+        //
+        // CI-found fix (2026-08-29): countries/clubs seeded at exactly
+        // `size` (no trophies at all in this fixture) hits a real deficit,
+        // not just "zero slack" — Country x Country is banned, so ANY
+        // country row dooms every remaining country candidate; whenever the
+        // row draw picks a 2-of-one-type + 1-of-the-other split (roughly
+        // 90% of all 3-header draws from a 2-type, 3-each pool), only
+        // `clubCount - (clubs used as rows)` candidates stay valid, which
+        // can drop below `size`. Widened to `size + 3` (clubs specifically
+        // need >= 2*size - 1 to guarantee no deficit under this worst case
+        // — see NOTES.md's 2026-08-29 entry for the derivation) so
+        // generation always succeeds regardless of the random split.
+        var countries = Enumerable.Range(0, size + 3)
+            .Select(i => new CountryDefinition { Id = Guid.NewGuid(), Name = $"Country{i}", WikidataQid = $"Q1{i}" })
             .ToList();
-        var clubs = Enumerable.Range(0, size)
-            .Select(i => new ClubDefinition { Id = Guid.NewGuid(), Name = $"Club{i}", WikidataQid = $"Qk{i}" })
+        var clubs = Enumerable.Range(0, size + 3)
+            .Select(i => new ClubDefinition { Id = Guid.NewGuid(), Name = $"Club{i}", WikidataQid = $"Q2{i}" })
             .ToList();
         dbContext.CountryDefinitions.AddRange(countries);
         dbContext.ClubDefinitions.AddRange(clubs);
@@ -112,10 +133,25 @@ public class RoundEndpointTests
         {
             foreach (var club in clubs)
             {
-                var player = new Player { Id = Guid.NewGuid(), FullName = $"{country.Name}-{club.Name}", WikidataQid = $"Qp-{country.Name}-{club.Name}" };
+                var player = new Player { Id = Guid.NewGuid(), FullName = $"{country.Name}-{club.Name}", WikidataQid = $"Q3{country.Name}-{club.Name}" };
                 dbContext.Players.Add(player);
                 dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = country.Name });
                 dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = club.Name });
+            }
+        }
+
+        // Every distinct pair of clubs also gets a matching player, same
+        // "AttributeType = club" x2 shape GridGenerationServiceTests.cs
+        // already established for Club x Club — covers any (Club, Club)
+        // cell the new per-header mixing might now produce.
+        for (var i = 0; i < clubs.Count; i++)
+        {
+            for (var j = i + 1; j < clubs.Count; j++)
+            {
+                var player = new Player { Id = Guid.NewGuid(), FullName = $"{clubs[i].Name}-{clubs[j].Name}", WikidataQid = $"Q4{clubs[i].Name}-{clubs[j].Name}" };
+                dbContext.Players.Add(player);
+                dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubs[i].Name });
+                dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubs[j].Name });
             }
         }
 

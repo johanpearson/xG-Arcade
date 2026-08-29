@@ -83,9 +83,13 @@ public class XGPathGameModuleTests
     // Deterministic stand-in for Random.Shared: always picks the first
     // remaining candidate. PickDistinct removes each pick from its working
     // list before the next call, so this still yields distinct results —
-    // it just removes any dependency on RNG behavior from every test below,
-    // the same "pin selection for tests" precedent GridGameModuleTests'
-    // FixedChoiceRandom sets for GridGameModule's own Random? param.
+    // it just removes any dependency on RNG behavior from every test below.
+    // Safe here because PickDistinct calls Next(maxValue) directly to pick
+    // an index (a documented, always-overridable Random primitive) —
+    // unlike GridGenerationServiceTests, which deliberately avoids pinning
+    // Random.Shuffle's output this way, since Shuffle's internal algorithm
+    // isn't part of Random's documented override contract the same way
+    // Next(int) is (see that file's own header comment, ADR-0089).
     private sealed class SequentialRandom : Random
     {
         public override int Next(int maxValue) => 0;

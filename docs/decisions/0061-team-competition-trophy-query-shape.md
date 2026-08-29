@@ -228,3 +228,22 @@ them into one branch or assume they always agree. If you touch
 threaded through per this ADR's decision — do not silently drop it back
 to always-`P27`. If code you are about to write would contradict this
 decision, stop and flag it rather than silently working around it.
+
+## Status note (2026-08-29, follow-up)
+
+ADR-0089 removed `GridGenerationService.SelectPairing` entirely, along
+with the per-pairing feasibility thresholds it used (`trophyCount >=
+size`, `trophyCount >= size * 2`, etc.). The "ADR-0035 follow-up resolved
+in the same story" note above, which said seeding World Cup/Champions
+League "crosses `SelectPairing`'s `trophyCount >= size` feasibility check
+for the default `GridSize = 3`," is now a historical description of a
+mechanism that no longer exists — see REQ-107's own 2026-08-29 status
+note and ADR-0089 for the mechanism that replaced it (each header now
+draws independently from one combined pool, so a header's odds of being
+Trophy-typed scale with the trophy pool's size rather than crossing a
+fixed threshold). This does not change anything else in this ADR: the
+query shape itself (the `P1344`/`P3450`/`P1346`/`P1532` three-way join,
+`UsesCountryForSportProperty` dispatch, the two new intersection query
+methods) is completely unaffected by ADR-0089, which only changed how a
+header's category type is *selected*, never how a chosen Trophy pairing
+is *queried*.

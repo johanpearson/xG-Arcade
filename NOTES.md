@@ -1863,3 +1863,94 @@ composite action's description needs to reference a caller-side secret by
 name for documentation purposes, write it as plain text (no `${{ }}`) —
 description fields are never a place to reference `secrets`, `env`, or any
 context not actually available to the action's own manifest.
+
+### ADR-0089's real CI run found a sharper "ran out of candidates" deficit than the ADR's own residual-risk note described (2026-08-29)
+
+A real `ci.yml` run of ADR-0089's per-header category mixing (11 failures,
+none of them compile errors — the multi-agent-authored diff built clean on
+the first real `dotnet build`) surfaced two distinct, unrelated gaps, both
+fixed on the same branch before merge:
+
+1. **Test-fixture gap, `RoundEndpointTests.cs`/`GridEndpointTests.cs`
+   (10 of the 11 failures).** Both files' `SeedFullyMatchedReferenceDataAsync`
+   seeded Country/Club `WikidataQid`s in an invalid format (`"Qc{i}"`/
+   `"Qk{i}"` — `WikidataQid.IsValid` requires `^Q\d+$`) and only cached
+   Country×Club match data, never Club×Club. Under the OLD per-instance
+   `SelectPairing`, this fixture's club count (equal to grid size) made
+   Club×Club structurally infeasible (needed `2 × size`), so this never
+   mattered — every grid this fixture ever produced was Country×Club,
+   fully covered by the cached data. ADR-0089 removed that structural
+   gate: a Club header can now land on both axes freely, and when it does,
+   the fixture's uncached Club×Club pair falls through to a live Wikidata
+   lookup, which immediately throws on the malformed QID before any HTTP
+   call — surfacing as a 500 from `/internal/generate-round`/
+   `/internal/grid/generate` instead of the expected 200. Fixed by using
+   valid-format QIDs and seeding a matching player for every distinct club
+   pair, mirroring the Club×Club seeding shape `GridGenerationServiceTests.cs`
+   already established. **Lesson: a test fixture that happens to avoid a
+   code path only because of an old feasibility gate is a latent bug
+   waiting for that gate to be removed — grep for every place a "this
+   pairing is structurally impossible given our seed sizes" assumption
+   might be baked into a fixture before removing the gate that made it
+   true.**
+
+2. **A real deficit in the algorithm's own worst case, not just "zero
+   slack" (1 of the 11 failures, a brand-new REQ-107 mixing test).**
+   `GridLiveLookupDispatcher` has no live-lookup support for Trophy×Trophy
+   at all (deliberate — REQ-107 treats it as an ordinary low-match
+   rejection, not a categorical ban). Combined with the Country×Country
+   ban, this means whenever a size-3 grid's row draw happens to land
+   exactly one header of each type (1 Country + 1 Trophy + 1 Club), the
+   remaining Country candidates are banned AND the remaining Trophy
+   candidates are unusable — only leftover Clubs can ever fill a column
+   slot. With this test's clubs seeded at exactly `size` (3), that leaves
+   only `size - 1` = 2 valid candidates for 3 needed slots: a genuine
+   deficit (2 < 3), not the "zero slack" (valid == needed) case ADR-0089's
+   own "Negative / trade-offs accepted" section anticipated. Fixed by
+   raising the test's club count to 6 (worst case then leaves 5 valid
+   candidates). **Not a production risk today** — Tier 0's real reference
+   pool has ~21 clubs against `GridSize = 3`, comfortably above this
+   deficit threshold — but worth re-deriving by hand (same discipline as
+   ADR-0027/ADR-0023's "For AI agents" sections) if `GridSize` is ever
+   raised, or if the club pool is ever pruned, since the threshold that
+   matters is specifically `clubCount - 1 >= GridSize` under a
+   one-of-each-type worst-case draw. If this residual risk needs
+   addressing more thoroughly than reference-pool sizing (e.g. Trophy×Trophy
+   support, or row-header retry — both already named as ADR-0089
+   follow-ups), that's the next lever.
+
+**Follow-up, same day: fix #1 above was necessary but not sufficient.**
+A second real CI run against the QID/Club×Club fix still failed the same
+10 `RoundEndpointTests.cs`/`GridEndpointTests.cs` tests — with the QID
+`ArgumentException` gone, but replaced by the exact same
+`GridGenerationException: "Ran out of candidates before completing the
+grid."` fix #2 above already diagnosed, just via a different type
+combination. `SeedFullyMatchedReferenceDataAsync` seeds countries and
+clubs at exactly `size` each with **no trophies at all**. Country×Country
+is banned, so any Country row dooms every remaining Country candidate —
+whenever the random row draw lands a 2-of-one-type + 1-of-the-other split
+(9 of the 20 equally-likely 3-header draws from this 3-country/3-club
+pool are "2 country + 1 club," another 9 are "2 club + 1 country" — 90%
+of all draws, not a tail case), only `clubCount - (clubs used as rows)`
+candidates stay valid for the column pool. With `clubCount == size`, a
+"2 country + 1 club" draw leaves exactly `size - 1` valid clubs for
+`size` needed slots — a deficit on the overwhelmingly likely outcome, not
+the rare one. This is why the failure looked so consistent across
+different tests: it wasn't one unlucky draw, it was almost every draw.
+
+General rule derived by hand (worth re-deriving, not re-guessing, if
+`GridSize` or this fixture's seed counts ever change): with only Country
+and Club types available (no Trophy), the club pool alone must satisfy
+`clubCount >= 2 * GridSize - 1` to guarantee no deficit under the worst
+"1 country row consumed, `GridSize - 1` club rows consumed" split — for
+`GridSize = 3` that's `clubCount >= 5`. Fixed by widening both
+`countries` and `clubs` in `SeedFullyMatchedReferenceDataAsync` from
+`size` to `size + 3` (6 when size=3, comfortably above the 5 needed).
+**Broader lesson for this whole ADR: any test fixture seeding
+reference-data pools sized at exactly (or barely above) `GridSize`
+needs re-deriving under the new per-header-mixing math, not just
+patched reactively per failure — the safe margin depends on which
+category types are present and which cross-type pairings actually have
+live-lookup/cache support (Trophy×Trophy does not), not on the old
+per-instance-pairing feasibility thresholds these fixtures were
+originally sized against.**

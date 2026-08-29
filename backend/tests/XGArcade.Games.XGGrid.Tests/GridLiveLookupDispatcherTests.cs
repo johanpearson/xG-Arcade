@@ -171,18 +171,20 @@ public class GridLiveLookupDispatcherTests
     }
 
     [Test]
-    public async Task REQ211_TryRefreshCellAsync_CellCategoryTypeUnhandled_SkipsLiveLookup_DoesNotThrow()
+    public async Task REQ211_TryRefreshCellAsync_CellCategoryValuesUnresolved_SkipsLiveLookup_DoesNotThrow()
     {
-        // TryRefreshCellAsync's guard: Tier 0's live fallback knows how to
-        // re-run Country(rows) x Club(cols) (S-007) and, as of S-030,
-        // Club x Club — but the mirrored Club(rows) x Country(cols) shape
-        // (never produced by GridGenerationService's SelectPairing, but not
-        // otherwise impossible for a cell to have) isn't special-cased
-        // either, and must gracefully skip the fallback (return false)
-        // rather than throw. Neither "SomeRow" nor "SomeCol" is seeded in
-        // any reference table either, so ResolveCandidateAsync alone would
-        // already fail this pairing closed — this test's point is that
-        // either way, the result is a clean false, never a throw.
+        // TryRefreshCellAsync's guard: ResolveCandidateAsync fails closed
+        // (returns null) for a category value that isn't a row in its
+        // reference table, regardless of which axis it's on or which type
+        // pairing it belongs to — neither "SomeRow" nor "SomeCol" is seeded
+        // anywhere here, so this never even reaches LookupMatchesAsync's own
+        // dispatch. (Since ADR-0089, a Club(rows) x Country(cols) cell with
+        // real, resolvable values IS a pairing GridLiveLookupDispatcher can
+        // resolve — it normalizes by CategoryType, not row/col position, the
+        // same as GridGenerationService's own per-header selection — so this
+        // test deliberately uses unresolvable values to exercise the "can't
+        // even resolve the candidates" guard specifically, not "an unhandled
+        // type combination.")
         var cell = BuildCell(CategoryPairingRules.Club, "SomeRow", CategoryPairingRules.Country, "SomeCol");
         var dispatcher = BuildDispatcher();
 
@@ -228,11 +230,11 @@ public class GridLiveLookupDispatcherTests
     [Test]
     public async Task REQ211_TryRefreshCellAsync_TrophyTrophyCellUnhandledByFallback_SkipsLiveLookup_DoesNotThrow()
     {
-        // Trophy x Trophy has no dedicated IWikidataLookupService method
-        // (never generated in practice — see GridGenerationService's own
-        // SelectPairing comment — but not otherwise impossible for a cell
-        // to have) and must gracefully skip the fallback (return false)
-        // rather than throw.
+        // Trophy x Trophy has no dedicated IWikidataLookupService method —
+        // unlike the other cross-type pairings, this one has no live-lookup
+        // path in either row/col order (LookupMatchesAsync's own comment) —
+        // and must gracefully skip the fallback (return false) rather than
+        // throw.
         SeedTrophy("Ballon d'Or");
         SeedTrophy("Golden Boot");
         var cell = BuildCell(CategoryPairingRules.Trophy, "Ballon d'Or", CategoryPairingRules.Trophy, "Golden Boot");

@@ -1609,6 +1609,23 @@ ADR-0052 in place (a dated status note), not a new ADR number.
 `architecture-reviewer` caught the doc claiming otherwise before this was
 considered done.
 
+**Follow-up (2026-08-29, ADR-0089):** the "Ran out of candidates before
+completing the grid" incident that opened this entry (2026-07-13) is now
+fixed at its structural root, not just mitigated. This entry's own fixes
+(wider reference pool, proactive cache warming, confirmed-low/technical-
+failure tracking) reduced how often an unlucky row-header set exhausted
+the column pool, but never removed the underlying fragility: every row
+header was still forced to share one homogeneous category type, fixed for
+the whole instance and never reconsidered. ADR-0089 replaces
+`GridGenerationService.SelectPairing`'s per-instance pairing choice with
+each row/column header independently picking its own category type from
+one combined Country/Club/Trophy pool, so a data-sparse header of one type
+no longer dooms the whole generation attempt when a different type would
+have worked. `MinValidAnswers` (S-014's playtested value) is unaffected.
+See `docs/decisions/0089-grid-per-header-category-mixing.md` for the full
+decision and rejected alternatives, and REQ-107's own 2026-08-29 status
+note for the requirements-level description.
+
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked
 S-036's new club QIDs against live Wikidata pages (this sandbox can't —

@@ -25,6 +25,28 @@ namespace XGArcade.Games.XGGrid.Tests;
 // over-mock"): real, InMemory-backed repositories (same setup as
 // XGArcade.DataSync.Tests/Wikidata/WikidataLookupServiceTests.cs) plus a
 // small hand-rolled FakeWikidataLookupService for the live-lookup fallback.
+//
+// ADR-0089 (2026-08-29): GridGenerationService no longer picks one pairing
+// type (e.g. Country x Club) for the whole instance via the now-removed
+// SelectPairing/PoolFor — every row/column header independently draws from
+// one combined Country+Club+Trophy pool. That means, unlike before this
+// ADR, this test file can no longer assume "the row axis is always type X"
+// just because only type X and type Y were seeded in some ratio — a header
+// slot can land on ANY seeded candidate, of any type, with no guaranteed
+// split. Every test below is deliberately built one of two ways to stay
+// genuinely deterministic under that real randomness (there is no dotnet
+// SDK in this sandbox to verify a Random-override trick against .NET's
+// actual Random.Shuffle algorithm, so none of these tests rely on one):
+//   (a) seed only ONE category type at all, removing type-selection
+//       ambiguity entirely (a homogeneous pool has no "wrong" split), or
+//   (b) seed few enough distinct candidates (usually exactly one of each
+//       type involved) that there is no ambiguity about which candidate
+//       could play which role, and assert on the resulting SET of header
+//       values/types rather than hard-coding which one landed as the row
+//       vs. the column.
+// A dedicated test-writer pass owns new REQ-107-mixing-specific coverage
+// beyond what's adapted here (see the backend-implementer handoff for this
+// change).
 public class GridGenerationServiceTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -56,25 +78,6 @@ public class GridGenerationServiceTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
-    // S-030's SelectPairing coin-flips between Country x Club and Club x
-    // Club whenever the seeded reference data can support either — every
-    // pre-existing test in this file (written before Club x Club existed)
-    // asserts a specific Country x Club outcome, so BuildService pins that
-    // choice by default (nextValue: 0) rather than letting Random.Shared
-    // make those tests flaky. Most REQ107_/REQ211_-named Club x Club tests
-    // below instead seed too few countries for Country x Club to be
-    // feasible at all, forcing Club x Club regardless of the injected
-    // Random — the more robust technique, since it also covers
-    // SelectPairing's "only one pairing feasible" branches. The one
-    // exception is REQ107_GenerateInstanceAsync_BothPairingsFeasible_
-    // CoinFlipsBetweenCountryClubAndClubClub below, which explicitly passes
-    // nextValue: 1 to exercise the "both feasible, coin-flip picks Club x
-    // Club" branch that no data-starved test can reach.
-    private sealed class FixedChoiceRandom(int nextValue) : Random
-    {
-        public override int Next(int maxValue) => nextValue;
-    }
-
     // ADR-0023: maxDuration defaults to a generous 10 minutes so none of the
     // pre-existing tests below (none of which advance a fake clock) can
     // ever trip the deadline-abort branch by accident — only tests that
@@ -91,7 +94,7 @@ public class GridGenerationServiceTests
             _gridInstanceRepository, _categoryValueRepository, _playerAttributeRepository, dispatcher,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGenerationService>.Instance,
-            random ?? new FixedChoiceRandom(0),
+            random,
             timeProvider);
     }
 
@@ -232,32 +235,45 @@ public class GridGenerationServiceTests
     [Test]
     public async Task REQ101_GridGeneration_DiscardsCellWithFewerThanMinimumAnswers()
     {
-        var template = SeedTemplate(size: 1);
-        SeedCountry("France");
-        // Four candidates below MinValidAnswers, plus exactly one that meets
-        // it. Whichever order the service's internal shuffle tries them in,
-        // only "GoodClub" can ever be accepted — so asserting the final
-        // header is "GoodClub" proves the too-few-answers candidates were
-        // discarded and retried past, not that they got lucky first.
+        // ADR-0089: pure Club x Club (no countries at all) rather than the
+        // pre-ADR-0089 Country x Club shape — with header selection now
+        // drawing from a combined pool, a single seeded country would
+        // itself be just another candidate that could land on either axis
+        // (see this file's own header comment). "GoodClub" is a universal
+        // hub — every other club has a below-threshold match count against
+        // it, and every OTHER pair (weak-vs-weak) also stays below
+        // threshold — so no matter which single candidate the shuffle picks
+        // as the row, the retry loop must reject every weak candidate
+        // before finally accepting GoodClub, proving the discard/retry
+        // logic works regardless of which axis GoodClub ends up on.
         SeedClub("WeakClub0");
         SeedClub("WeakClub1");
         SeedClub("WeakClub2");
         SeedClub("WeakClub3");
         SeedClub("GoodClub");
-        SeedCachedMatches("France", "WeakClub0", 0);
-        SeedCachedMatches("France", "WeakClub1", 1);
-        SeedCachedMatches("France", "WeakClub2", 2);
-        SeedCachedMatches("France", "WeakClub3", 2);
-        SeedCachedMatches("France", "GoodClub", 3);
-        var service = BuildService(minValidAnswers: 3, maxAttempts: 5);
+        var template = SeedTemplate(size: 1);
+        SeedCachedClubClubMatches("GoodClub", "WeakClub0", 3);
+        SeedCachedClubClubMatches("GoodClub", "WeakClub1", 3);
+        SeedCachedClubClubMatches("GoodClub", "WeakClub2", 3);
+        SeedCachedClubClubMatches("GoodClub", "WeakClub3", 3);
+        SeedCachedClubClubMatches("WeakClub0", "WeakClub1", 0);
+        SeedCachedClubClubMatches("WeakClub0", "WeakClub2", 1);
+        SeedCachedClubClubMatches("WeakClub0", "WeakClub3", 1);
+        SeedCachedClubClubMatches("WeakClub1", "WeakClub2", 0);
+        SeedCachedClubClubMatches("WeakClub1", "WeakClub3", 2);
+        SeedCachedClubClubMatches("WeakClub2", "WeakClub3", 0);
+        var service = BuildService(minValidAnswers: 3, maxAttempts: 10);
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Cells, Has.Count.EqualTo(1));
-        Assert.That(instance.Cells[0].RowCategoryValue, Is.EqualTo("France"));
-        Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("GoodClub"));
+        Assert.That(
+            new[] { instance.Cells[0].RowCategoryValue, instance.Cells[0].ColCategoryValue },
+            Does.Contain("GoodClub"),
+            "whichever candidate the shuffle picked as the row, every weak-vs-weak candidate is below MinValidAnswers, " +
+            "so only GoodClub can ever complete the grid");
     }
 
     [Test]
@@ -267,7 +283,11 @@ public class GridGenerationServiceTests
         SeedCountry("France");
         // Five club candidates, none ever satisfying MinValidAnswers=5 (all
         // cached at 0) — with MaxAttempts=3, the loop must abort before
-        // exhausting the candidate pool.
+        // exhausting the candidate pool. Only France is a country, so
+        // regardless of which single candidate the shuffle picks as the row,
+        // every remaining candidate is a genuine cache-miss-or-zero-match —
+        // this test only asserts on the exception, never on which axis
+        // anything landed on.
         for (var i = 0; i < 5; i++)
         {
             SeedClub($"NeverEnoughClub{i}");
@@ -296,11 +316,8 @@ public class GridGenerationServiceTests
         // No SeedCachedMatches call — every candidate is a genuine cache
         // miss, forcing GetMatchCountAsync down the live-lookup path
         // (FakeWikidataLookupService's onCalled hook below) every time,
-        // same as the incident's cold-cache scenario. None of them have any
-        // configured match either, so every one is rejected on its own
-        // terms too — the point of this test is that the deadline trips
-        // first, not that a candidate would eventually have been rejected
-        // anyway.
+        // same as the incident's cold-cache scenario, regardless of which
+        // candidate the shuffle happens to pick as the row.
         var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
         var wikidataLookupService = new FakeWikidataLookupService(
             onCalled: () => clock.Advance(TimeSpan.FromSeconds(20)));
@@ -317,25 +334,24 @@ public class GridGenerationServiceTests
     }
 
     // ADR-0023: MaxDuration must never interfere with an ordinary, fast
-    // generation — only a genuinely slow/stuck one. Uses a finite-but-generous
-    // MaxDuration (not BuildService's 10-minute test default, which would mask
-    // a bad comparison/units bug) and only cached matches, so the whole run
-    // costs microseconds against the real system clock, well under the
-    // deadline. Complements the abort test above rather than duplicating it —
-    // that test proves the deadline trips when it should; this one proves it
-    // stays quiet when it shouldn't trip.
+    // generation — only a genuinely slow/stuck one.
+    //
+    // ADR-0089: pure Club x Club — a fully-connected 4-club pool where every
+    // pair meets MinValidAnswers, so the grid completes regardless of which
+    // 2 of the 4 candidates the shuffle draws as rows vs. columns (see this
+    // file's own header comment on why a mixed Country/Club pool can't
+    // safely make that same "any split works" guarantee once the shared
+    // pool of candidates is what's drawn from, not a fixed axis).
     [Test]
     public async Task REQ101_GridGeneration_FastSuccessfulRun_WellUnderMaxDuration_SucceedsUnaffected()
     {
         var template = SeedTemplate(size: 2);
-        SeedCountry("France");
-        SeedCountry("Spain");
-        SeedClub("Arsenal");
-        SeedClub("Barcelona");
-        SeedCachedMatches("France", "Arsenal", 2);
-        SeedCachedMatches("France", "Barcelona", 2);
-        SeedCachedMatches("Spain", "Arsenal", 2);
-        SeedCachedMatches("Spain", "Barcelona", 2);
+        var clubNames = new[] { "ClubA", "ClubB", "ClubC", "ClubD" };
+        foreach (var clubName in clubNames)
+            SeedClub(clubName);
+        for (var i = 0; i < clubNames.Length; i++)
+            for (var j = i + 1; j < clubNames.Length; j++)
+                SeedCachedClubClubMatches(clubNames[i], clubNames[j], count: 2);
         var service = BuildService(minValidAnswers: 2, maxAttempts: 20, maxDuration: TimeSpan.FromSeconds(5));
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
@@ -348,27 +364,24 @@ public class GridGenerationServiceTests
 
     // ADR-0023's deadline check (`_timeProvider.GetUtcNow() >= deadline`) is
     // deliberately inclusive — landing exactly ON the deadline must still
-    // abort, not be allowed one more attempt. Distinct from the test above:
-    // that one advances the clock well past the deadline (40s against a 30s
-    // budget) before the trip is observed; this one lands the clock on
-    // exactly the deadline after a single attempt and proves the very next
-    // check aborts before a second live lookup is ever attempted. If the
-    // check were `>` instead of `>=`, this test would instead see a second
-    // live lookup happen and, once the two-club pool is exhausted, a
-    // "Ran out of candidates" GridGenerationException instead — a different
-    // message this test's assertions would catch.
+    // abort, not be allowed one more attempt.
+    //
+    // ADR-0089: three clubs, no countries — with only one type present,
+    // whichever single candidate lands as the row, the other two are both
+    // genuine cache misses (no SeedCachedClubClubMatches call at all), so
+    // the "exactly one live lookup runs, then the deadline aborts before a
+    // second" assertion holds regardless of the split. Because which
+    // specific pair gets tried can't be pinned down, the call-count
+    // assertion sums every possible (clubX, clubY) ordering rather than
+    // naming one pair, mirroring how the pre-ADR-0089 version of this test
+    // already summed over "whichever of the two clubs got tried."
     [Test]
     public async Task REQ101_GridGeneration_AbortsWithGridGenerationException_WhenClockLandsExactlyOnDeadline()
     {
         var template = SeedTemplate(size: 1);
-        SeedCountry("France");
         SeedClub("ClubA");
         SeedClub("ClubB");
-        // Neither club has cached matches or a configured live match — both
-        // are genuine cache misses forced through the live-lookup path, and
-        // both would be rejected on their own terms too. The point is
-        // whether a second attempt is even tried once the clock lands
-        // exactly on the deadline after the first.
+        SeedClub("ClubC");
         var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
         var wikidataLookupService = new FakeWikidataLookupService(
             onCalled: () => clock.Advance(TimeSpan.FromSeconds(20)));
@@ -383,9 +396,12 @@ public class GridGenerationServiceTests
         Assert.That(ex!.Message, Does.Contain("exceeding"));
         Assert.That(ex.Message, Does.Contain("found 0/1 valid headers in 1 attempts"),
             "must abort on the very next check after landing exactly on the deadline, before a second live lookup");
-        Assert.That(
-            wikidataLookupService.GetCallCount("France", "ClubA") + wikidataLookupService.GetCallCount("France", "ClubB"),
-            Is.EqualTo(1), "only the first candidate's live lookup should ever run — the second must never be attempted");
+        var totalClubClubCalls =
+            wikidataLookupService.GetClubClubCallCount("ClubA", "ClubB") + wikidataLookupService.GetClubClubCallCount("ClubB", "ClubA") +
+            wikidataLookupService.GetClubClubCallCount("ClubA", "ClubC") + wikidataLookupService.GetClubClubCallCount("ClubC", "ClubA") +
+            wikidataLookupService.GetClubClubCallCount("ClubB", "ClubC") + wikidataLookupService.GetClubClubCallCount("ClubC", "ClubB");
+        Assert.That(totalClubClubCalls, Is.EqualTo(1),
+            "exactly one live lookup (whichever pair the shuffle picked) should ever run — a second must never be attempted");
     }
 
     // S-030: PickHeadersAsync's deadline check is shared code, not
@@ -393,14 +409,12 @@ public class GridGenerationServiceTests
     // dispatch (IGridLiveLookupDispatcher.LookupMatchesAsync) branches by
     // category type, so this confirms the deadline also trips when that
     // dispatch routes through LookupAndPersistClubClubAsync, not just the
-    // Country x Club branch the test above exercises.
+    // Country x Club branch the test above exercises. Zero countries
+    // seeded, so every candidate is a Club — no type-mixing ambiguity here.
     [Test]
     public async Task REQ101_GridGeneration_ClubClubPairing_AbortsWithGridGenerationException_WhenMaxDurationExceeded()
     {
         var template = SeedTemplate(size: 1);
-        // Zero countries seeded -> Country x Club is infeasible, forcing
-        // Club x Club regardless of the injected Random (same technique the
-        // other Club x Club tests in this file use).
         for (var i = 0; i < 4; i++)
             SeedClub($"SlowClub{i}");
         var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
@@ -426,7 +440,11 @@ public class GridGenerationServiceTests
         SeedClub("Arsenal");
         // No cached PlayerAttribute rows for France/Arsenal at all — this is
         // a pure cache miss, so the live lookup is the only source of match
-        // data for this candidate.
+        // data for this candidate. Only 2 total candidates exist, so
+        // whichever one the shuffle picks as the row, the pairing under
+        // test is always France x Arsenal — only the axis assignment is
+        // unknown, which is why the cell assertion below checks the pair as
+        // a set rather than a specific row/column.
         _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakeLivePlayers("Arsenal", 3));
         var service = BuildService(minValidAnswers: 3, maxAttempts: 5);
 
@@ -435,14 +453,21 @@ public class GridGenerationServiceTests
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Cells, Has.Count.EqualTo(1));
-        Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("Arsenal"));
+        Assert.That(
+            new[] { instance.Cells[0].RowCategoryValue, instance.Cells[0].ColCategoryValue },
+            Is.EquivalentTo(new[] { "France", "Arsenal" }));
         Assert.That(await _playerAttributeRepository.CountPlayersWithBothAttributesAsync(
             "nationality", "France", "club", "Arsenal"), Is.EqualTo(3),
             "a live lookup persists immediately, same request, same as the real WikidataLookupService (ADR-0010) — " +
             "not left for the cache to somehow already have known about");
         // ADR-0029: a generation-time cache-miss is a routine sync, trusted
         // as ground truth — distinct from REQ-211's guess-time fallback,
-        // which stays reviewable (see GridLiveLookupDispatcherTests).
+        // which stays reviewable (see GridLiveLookupDispatcherTests). Keyed
+        // by domain name (country, club), not by GridGenerationService's
+        // internal row/col labels, so this holds regardless of which axis
+        // France/Arsenal ended up on (GridLiveLookupDispatcher normalizes
+        // by CategoryType before calling into WikidataLookupService — see
+        // ADR-0089).
         Assert.That(_wikidataLookupService.GetLastOrigin("France", "Arsenal"), Is.EqualTo(WikidataLookupOrigin.Sync));
         // REQ-110 (2026-07-28 "cache-warming-specific timeout" extension):
         // round generation's own live-lookup call site must keep passing (or
@@ -472,21 +497,31 @@ public class GridGenerationServiceTests
 
     // ---- REQ-102: configurable grid size -----------------------------------
 
+    // ADR-0089: pure Club x Club, fully cross-matched — with header
+    // selection now drawing every row AND column from one combined pool
+    // (rather than a fixed Country-rows/Club-columns split), a mixed
+    // Country+Club seed here would make the exact row/column split
+    // (and therefore which cells even exist) genuinely random and, for a
+    // size >= 2 grid, sometimes impossible to complete at all (a row/column
+    // split with 2+ countries on one side and 1+ country on the other hits
+    // REQ-107's ban with no valid substitute once the pool is exhausted —
+    // see this file's own header comment). A single homogeneous type has no
+    // such failure mode (Club x Club is never banned), so this keeps the
+    // test's actual point — configurable size, N unique headers per axis,
+    // no row/column overlap — genuinely deterministic regardless of shuffle
+    // order.
     [TestCase(3)]
     [TestCase(4)]
     [TestCase(5)]
     public async Task REQ102_GenerateInstanceAsync_ProducesExactlySizeSquaredCellsWithUniqueRowAndColumnValues(int size)
     {
         var template = SeedTemplate(size);
-        var countryNames = Enumerable.Range(0, size).Select(i => $"Country{i}").ToList();
-        var clubNames = Enumerable.Range(0, size).Select(i => $"Club{i}").ToList();
-        foreach (var countryName in countryNames)
-            SeedCountry(countryName);
+        var clubNames = Enumerable.Range(0, size * 2).Select(i => $"Club{i}").ToList();
         foreach (var clubName in clubNames)
             SeedClub(clubName);
-        foreach (var countryName in countryNames)
-            foreach (var clubName in clubNames)
-                SeedCachedMatches(countryName, clubName, count: 2);
+        for (var i = 0; i < clubNames.Count; i++)
+            for (var j = i + 1; j < clubNames.Count; j++)
+                SeedCachedClubClubMatches(clubNames[i], clubNames[j], count: 2);
         var service = BuildService(minValidAnswers: 2, maxAttempts: 50);
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
@@ -522,39 +557,53 @@ public class GridGenerationServiceTests
         Assert.That(isAllowed, Is.True);
     }
 
+    // ADR-0089: replaces the pre-ADR-0089
+    // REQ107_GenerateInstanceAsync_NeverProducesCountryCountryPairing test,
+    // whose Country+Club seed shape became flaky once header selection
+    // started drawing every row AND column from one combined pool — a
+    // row/column split with 2+ countries on one side and 1+ on the other
+    // now hits the ban with no valid substitute left (see this file's own
+    // header comment), so that seed shape can no longer honestly claim
+    // "never" without actually controlling which candidates land on which
+    // axis. This version instead FORCES the exact scenario REQ-107 exists
+    // to prevent — a row and its only remaining column candidate are both
+    // Country-typed — and proves the per-row check in
+    // GridGenerationService.TryComputeMatchCountsAsync rejects it before
+    // ever touching a match-count query (REQ-107's ordering requirement,
+    // and the position ADR-0089 moved this check to). Two countries, no
+    // clubs, size 1: whichever one the shuffle draws as the row, the other
+    // is the sole column candidate — always a Country x Country attempt.
     [Test]
-    public async Task REQ107_GenerateInstanceAsync_NeverProducesCountryCountryPairing()
+    public async Task REQ107_GenerateInstanceAsync_RejectsCountryCountryCandidate_ViaPerRowCheckBeforeMatchCountQuery()
     {
-        var template = SeedTemplate(size: 2);
+        var template = SeedTemplate(size: 1);
         SeedCountry("France");
         SeedCountry("Spain");
-        SeedClub("Arsenal");
-        SeedClub("Barcelona");
-        SeedCachedMatches("France", "Arsenal", 2);
-        SeedCachedMatches("France", "Barcelona", 2);
-        SeedCachedMatches("Spain", "Arsenal", 2);
-        SeedCachedMatches("Spain", "Barcelona", 2);
-        var service = BuildService(minValidAnswers: 2, maxAttempts: 20);
+        var service = BuildService(minValidAnswers: 1, maxAttempts: 10);
 
-        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var ex = Assert.ThrowsAsync<GridGenerationException>(async () =>
+            await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
 
-        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
-        Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Country));
+        Assert.That(ex!.Message, Does.Contain("Ran out of candidates"),
+            "the sole column candidate must be rejected by the REQ-107 pairing check, not accepted, leaving the pool exhausted");
+        Assert.That(
+            _wikidataLookupService.GetCallCount("France", "Spain") + _wikidataLookupService.GetCallCount("Spain", "France"),
+            Is.EqualTo(0),
+            "REQ-107's Country x Country check must reject the candidate before any matching-count query " +
+            "(cache check or live lookup) ever runs for it");
     }
 
     // ---- REQ-107/S-030: Club x Club pairing --------------------------------
 
+    // Zero countries/trophies seeded — every candidate is a Club, so there
+    // is no type-selection ambiguity to control for here (see this file's
+    // own header comment); this test needed no changes for ADR-0089 beyond
+    // no longer describing its determinism in terms of the removed
+    // SelectPairing.
     [Test]
     public async Task REQ107_GenerateInstanceAsync_ClubClubGrid_ProducesExactlySizeSquaredCellsWithUniqueRowAndColumnValues()
     {
         var template = SeedTemplate(size: 3);
-        // Zero countries seeded at all -> Country x Club is infeasible
-        // (countryCount=0 < size=3), so SelectPairing deterministically
-        // picks Club x Club regardless of the injected Random, once >= 2 *
-        // size = 6 distinct clubs exist (REQ-102's no-shared-header rule
-        // needs 2x, not just size, distinct clubs for Club x Club).
         var clubNames = Enumerable.Range(0, 6).Select(i => $"Club{i}").ToList();
         foreach (var clubName in clubNames)
             SeedClub(clubName);
@@ -570,7 +619,7 @@ public class GridGenerationServiceTests
         Assert.That(instance!.Cells, Has.Count.EqualTo(9));
         Assert.That(instance.Cells, Has.All.Matches<GridCell>(
             c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Club),
-            "SelectPairing must have picked Club x Club, not Country x Club, given zero seeded countries");
+            "with zero countries/trophies seeded, every header must be a Club");
         Assert.That(instance.Cells, Has.None.Matches<GridCell>(
             c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Country),
             "Country x Country must never be produced (REQ-107), regardless of pairing choice");
@@ -583,219 +632,149 @@ public class GridGenerationServiceTests
             "REQ-102: no row category value may equal a column category value — the constraint Club x Club actually needs 2xSize clubs for");
     }
 
-    [Test]
-    public async Task REQ107_GenerateInstanceAsync_BothPairingsFeasible_CoinFlipsBetweenCountryClubAndClubClub()
-    {
-        // Unlike every other Club x Club test in this file, both pairings
-        // are feasible here (1 country, 2 clubs) — SelectPairing's
-        // random-coin-flip branch (both feasible) only fires in this shape;
-        // every other test either pins FixedChoiceRandom(0)'s default
-        // (Country x Club) or starves countries to force Club x Club
-        // deterministically regardless of the random draw. This is the only
-        // test that actually exercises the "both feasible, _random.Next(2)
-        // resolves to Club x Club" branch — without it, a bug that always
-        // resolved to Country x Club even when the draw should pick
-        // Club x Club (e.g. a swapped ternary) would go uncaught.
-        var template = SeedTemplate(size: 1);
-        SeedCountry("France");
-        SeedClub("Arsenal");
-        SeedClub("Barcelona");
-        SeedCachedMatches("France", "Arsenal", 2);
-        SeedCachedClubClubMatches("Arsenal", "Barcelona", 2);
-        var service = BuildService(minValidAnswers: 2, maxAttempts: 20, random: new FixedChoiceRandom(1));
-
-        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
-
-        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
-        Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Club),
-            "with both pairings feasible, FixedChoiceRandom(1) must steer SelectPairing to Club x Club, not the Country x Club default");
-    }
-
     // ---- REQ-108/S-031: Trophy category ------------------------------------
-    // Originally (S-031), production only ever seeded one trophy (Ballon
-    // d'Or, ReferenceDataSeeder) — trophyCount(1) could never clear `size`
-    // for any realistic grid size, so a Trophy pairing structurally never got
-    // selected in production. The tests immediately below inject a larger
-    // fake trophy pool (SeedTrophy, 3+ values) to prove the mechanism itself
-    // works, independent of whether production data happened to trigger it
-    // yet — that separation still matters even now that ADR-0061 grew the
-    // real seeded pool to 3 (see the "---- ADR-0061" section further below
-    // for tests against that specific, now-reachable real-seed-data shape).
 
+    // ADR-0089: size 1, exactly one Country and one Trophy candidate —
+    // whichever the shuffle draws as the row, the pairing under test is
+    // always Country x Trophy (just with an unknown axis assignment), so
+    // the assertion checks the resulting type/value SETS rather than a
+    // specific row or column.
     [Test]
     public async Task REQ108_GenerateInstanceAsync_TrophyCountryPairing_ProducesGridUsingTrophyCategoryType()
     {
-        // Zero clubs seeded -> every Club-involving pairing is infeasible.
-        // Three trophies (>= size but < 2*size) makes Trophy x Trophy
-        // infeasible too, leaving Country x Trophy as the only feasible
-        // pairing — deterministic regardless of the injected Random.
-        var template = SeedTemplate(size: 2);
+        var template = SeedTemplate(size: 1);
         SeedCountry("France");
-        SeedCountry("Spain");
-        var trophyNames = Enumerable.Range(0, 3).Select(i => $"Trophy{i}").ToList();
-        foreach (var trophyName in trophyNames)
-            SeedTrophy(trophyName);
-        foreach (var countryName in new[] { "France", "Spain" })
-            foreach (var trophyName in trophyNames)
-                SeedCachedTrophyCountryMatches(trophyName, countryName, count: 2);
+        SeedTrophy("Ballon d'Or");
+        SeedCachedTrophyCountryMatches("Ballon d'Or", "France", count: 2);
         var service = BuildService(minValidAnswers: 2, maxAttempts: 20);
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.Count.EqualTo(4));
-        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Trophy),
-            "SelectPairing must have picked Country x Trophy — Trophy always second, per the Country/Club-first precedent");
-        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
-        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
-        Assert.That(rowValues, Has.Count.EqualTo(2), "REQ-102: N unique row categories");
-        Assert.That(colValues, Has.Count.EqualTo(2), "REQ-102: N unique column categories");
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        var cell = instance.Cells[0];
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Country, CategoryPairingRules.Trophy }));
+        Assert.That(
+            new[] { cell.RowCategoryValue, cell.ColCategoryValue },
+            Is.EquivalentTo(new[] { "France", "Ballon d'Or" }));
     }
 
+    // Mirror of the Country x Trophy test above — one Club, one Trophy.
     [Test]
     public async Task REQ108_GenerateInstanceAsync_TrophyClubPairing_ProducesGridUsingTrophyCategoryType()
     {
-        // Zero countries seeded -> every Country-involving pairing is
-        // infeasible. Three trophies (>= size but < 2*size) makes
-        // Trophy x Trophy infeasible too, leaving Club x Trophy as the only
-        // feasible pairing — deterministic regardless of the injected Random.
-        var template = SeedTemplate(size: 2);
+        var template = SeedTemplate(size: 1);
         SeedClub("Arsenal");
-        SeedClub("Barcelona");
-        var trophyNames = Enumerable.Range(0, 3).Select(i => $"Trophy{i}").ToList();
-        foreach (var trophyName in trophyNames)
-            SeedTrophy(trophyName);
-        foreach (var clubName in new[] { "Arsenal", "Barcelona" })
-            foreach (var trophyName in trophyNames)
-                SeedCachedTrophyClubMatches(trophyName, clubName, count: 2);
-        var service = BuildService(minValidAnswers: 2, maxAttempts: 20);
-
-        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
-
-        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
-        Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.Count.EqualTo(4));
-        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Trophy),
-            "SelectPairing must have picked Club x Trophy — Trophy always second, per the Country/Club-first precedent");
-        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
-        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
-        Assert.That(rowValues, Has.Count.EqualTo(2), "REQ-102: N unique row categories");
-        Assert.That(colValues, Has.Count.EqualTo(2), "REQ-102: N unique column categories");
-    }
-
-    [Test]
-    public async Task REQ108_SelectPairing_ExactlyOneTrophySeeded_TrophyPairingNeverSelected()
-    {
-        // Pure mechanism coverage (no longer "matching real seed data" —
-        // see the ADR-0061 section below for tests against the actual,
-        // now-3-trophy production shape): with only one trophy in the pool
-        // and size >= 2, trophyCount(1) can never clear `size` for any mixed
-        // pairing, nor `size * 2` for Trophy x Trophy — so every Trophy
-        // pairing is infeasible and Country x Club is the only choice,
-        // regardless of the injected Random.
-        var template = SeedTemplate(size: 2);
-        SeedCountry("France");
-        SeedCountry("Spain");
-        SeedClub("Arsenal");
-        SeedClub("Barcelona");
         SeedTrophy("Ballon d'Or");
-        SeedCachedMatches("France", "Arsenal", 2);
-        SeedCachedMatches("France", "Barcelona", 2);
-        SeedCachedMatches("Spain", "Arsenal", 2);
-        SeedCachedMatches("Spain", "Barcelona", 2);
+        SeedCachedTrophyClubMatches("Ballon d'Or", "Arsenal", count: 2);
         var service = BuildService(minValidAnswers: 2, maxAttempts: 20);
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Trophy || c.ColCategoryType == CategoryPairingRules.Trophy),
-            "with only one trophy in the pool, Trophy can never be selected for any realistic grid size");
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        var cell = instance.Cells[0];
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Club, CategoryPairingRules.Trophy }));
+        Assert.That(
+            new[] { cell.RowCategoryValue, cell.ColCategoryValue },
+            Is.EquivalentTo(new[] { "Arsenal", "Ballon d'Or" }));
     }
 
     // ---- ADR-0061: real (3-trophy) seeded-pool reachability ----------------
-    // Before ADR-0061, REQ108_SelectPairing_ExactlyOneTrophySeeded_TrophyPairingNeverSelected
-    // above documented that production's real seeded pool (1 trophy) could
-    // never make a Trophy pairing reachable. ADR-0061 grew that pool to 3
-    // (Ballon d'Or, FIFA World Cup, UEFA Champions League) — these tests
-    // prove the REVERSED consequence: Country x Trophy/Club x Trophy are now
-    // reachable for the default GridSize = 3, while Trophy x Trophy (needing
-    // trophyCount >= size * 2 = 6) still isn't.
+    // Before ADR-0089, this section proved SelectPairing's removed
+    // feasibility formula (trophyCount >= size) made Country x Trophy/
+    // Club x Trophy newly reachable once ReferenceDataSeeder grew from 1 to
+    // 3 trophies. That formula no longer exists — a lone trophy candidate
+    // can always be drawn as a header now, win or lose on its own match
+    // data like anything else (there is no more per-type feasibility gate
+    // to "unlock"). What's still worth proving is that a Country/Club x
+    // Trophy grid can actually be produced and dispatched correctly against
+    // the real 3-trophy shape — the tests below do that with size 1 (one
+    // Country/Club candidate against the full 3-trophy pool) so the
+    // candidate that isn't the row is guaranteed to always find at least
+    // one matching Trophy partner, regardless of which specific candidate
+    // the shuffle draws as the row (see each test's own comment for why).
 
     [Test]
-    public async Task REQ108_SelectPairing_MatchingRealSeedDataTrophyCount_ThreeTrophiesSeeded_CountryTrophyPairingIsNowSelectable()
+    public async Task REQ108_GenerateInstanceAsync_ThreeTrophiesSeeded_CountryTrophyPairingSucceeds()
     {
-        // The real ReferenceDataSeeder shape as of ADR-0061: exactly three
-        // trophies, matching names/flags. Zero clubs seeded -> every
-        // Club-involving pairing is infeasible; countryCount(3) and
-        // trophyCount(3) both clear the default GridSize = 3, so
-        // Country x Trophy is the only feasible pairing — deterministic
-        // regardless of the injected Random.
-        var template = SeedTemplate(size: 3);
+        // Whichever the shuffle draws as the row — France, or one of the 3
+        // trophies — the grid still completes: if France is the row, any of
+        // the 3 trophies (all fully matched against France) can complete
+        // it; if a trophy is the row, France is the only viable column
+        // candidate (the other 2 trophies have no trophy-trophy match data
+        // seeded and are rejected by MinValidAnswers, not by any pairing
+        // ban), and it always finds it before the pool of 3 remaining
+        // candidates is exhausted. Either way, "France" always ends up as
+        // one of the two header values.
+        var template = SeedTemplate(size: 1);
         SeedCountry("France");
-        SeedCountry("Spain");
-        SeedCountry("Brazil");
         SeedTrophy("Ballon d'Or", isTeamTrophy: false);
         SeedTrophy("FIFA World Cup", isTeamTrophy: true);
         SeedTrophy("UEFA Champions League", isTeamTrophy: true);
-        var trophyNames = new[] { "Ballon d'Or", "FIFA World Cup", "UEFA Champions League" };
-        foreach (var countryName in new[] { "France", "Spain", "Brazil" })
-            foreach (var trophyName in trophyNames)
-                SeedCachedTrophyCountryMatches(trophyName, countryName, count: 2);
+        foreach (var trophyName in new[] { "Ballon d'Or", "FIFA World Cup", "UEFA Champions League" })
+            SeedCachedTrophyCountryMatches(trophyName, "France", count: 2);
         var service = BuildService(minValidAnswers: 2, maxAttempts: 20);
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Trophy),
-            "with the real (now 3-trophy) seeded pool, Country x Trophy must be selectable for a size-3 grid — this reverses S-031's original 'structurally dormant' consequence");
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        var cell = instance.Cells[0];
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Country, CategoryPairingRules.Trophy }),
+            "with the real (now 3-trophy) seeded pool, a Country x Trophy grid must be producible");
+        Assert.That(new[] { cell.RowCategoryValue, cell.ColCategoryValue }, Does.Contain("France"));
     }
 
+    // Mirror of the Country x Trophy test above — one Club against the full
+    // 3-trophy pool.
     [Test]
-    public async Task REQ108_SelectPairing_MatchingRealSeedDataTrophyCount_ThreeTrophiesSeeded_ClubTrophyPairingIsNowSelectable()
+    public async Task REQ108_GenerateInstanceAsync_ThreeTrophiesSeeded_ClubTrophyPairingSucceeds()
     {
-        // Mirror of the Country x Trophy test above — zero countries seeded
-        // -> every Country-involving pairing is infeasible, leaving
-        // Club x Trophy as the only feasible pairing.
-        var template = SeedTemplate(size: 3);
-        SeedClub("Arsenal");
-        SeedClub("Barcelona");
+        var template = SeedTemplate(size: 1);
         SeedClub("Real Madrid");
         SeedTrophy("Ballon d'Or", isTeamTrophy: false);
         SeedTrophy("FIFA World Cup", isTeamTrophy: true);
         SeedTrophy("UEFA Champions League", isTeamTrophy: true);
-        var trophyNames = new[] { "Ballon d'Or", "FIFA World Cup", "UEFA Champions League" };
-        foreach (var clubName in new[] { "Arsenal", "Barcelona", "Real Madrid" })
-            foreach (var trophyName in trophyNames)
-                SeedCachedTrophyClubMatches(trophyName, clubName, count: 2);
+        foreach (var trophyName in new[] { "Ballon d'Or", "FIFA World Cup", "UEFA Champions League" })
+            SeedCachedTrophyClubMatches(trophyName, "Real Madrid", count: 2);
         var service = BuildService(minValidAnswers: 2, maxAttempts: 20);
 
         var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
-            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Trophy),
-            "with the real (now 3-trophy) seeded pool, Club x Trophy must be selectable for a size-3 grid");
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        var cell = instance.Cells[0];
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Club, CategoryPairingRules.Trophy }),
+            "with the real (now 3-trophy) seeded pool, a Club x Trophy grid must be producible");
+        Assert.That(new[] { cell.RowCategoryValue, cell.ColCategoryValue }, Does.Contain("Real Madrid"));
     }
 
+    // Trophy x Trophy needs 2xSize distinct trophies (REQ-102's no-shared-
+    // header rule) — three trophies still doesn't clear that for a size-3
+    // grid. Zero countries/clubs seeded, so the combined pool is exactly 3
+    // candidates == template.Size: every one of them is necessarily drawn
+    // as a row (no randomness in this specific outcome — there is no other
+    // candidate available to be anything else), which leaves the column
+    // candidate pool empty after REQ-102's dedup filter. That trips
+    // GridGenerationService's new combined-pool-size check on the column
+    // side (ADR-0089) — the replacement for SelectPairing's removed
+    // `trophyCount >= size * 2` feasibility formula.
     [Test]
-    public void REQ108_SelectPairing_MatchingRealSeedDataTrophyCount_ThreeTrophiesSeeded_TrophyTrophyPairingStillInfeasible()
+    public void REQ108_GenerateInstanceAsync_ThreeTrophiesSeeded_TrophyTrophyPairingStillInfeasible()
     {
-        // Trophy x Trophy needs trophyCount >= size * 2 = 6 — three trophies
-        // still doesn't clear that, even though it now clears the plain
-        // `>= size` bar Country x Trophy/Club x Trophy need. Zero countries
-        // and zero clubs seeded, so no other pairing is feasible either —
-        // GenerateInstanceAsync must abort with GridGenerationException
-        // rather than silently produce a Trophy x Trophy grid.
         var template = SeedTemplate(size: 3);
         SeedTrophy("Ballon d'Or", isTeamTrophy: false);
         SeedTrophy("FIFA World Cup", isTeamTrophy: true);
@@ -817,7 +796,7 @@ public class GridGenerationServiceTests
         SeedCachedMatches("France", "Arsenal", 3);
         // "PhantomClub" has abundant matching data in PlayerAttribute but was
         // never added as a ClubDefinition row — it must never be considered
-        // as a candidate, however good its match count.
+        // as a candidate, however good its match count, on either axis.
         SeedCachedMatches("France", "PhantomClub", 10);
         var service = BuildService(minValidAnswers: 1, maxAttempts: 5);
 
@@ -825,8 +804,9 @@ public class GridGenerationServiceTests
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells[0].ColCategoryValue, Is.EqualTo("Arsenal"));
-        Assert.That(instance.Cells.Select(c => c.ColCategoryValue), Does.Not.Contain("PhantomClub"));
+        var cell = instance!.Cells[0];
+        Assert.That(new[] { cell.RowCategoryValue, cell.ColCategoryValue }, Is.EquivalentTo(new[] { "France", "Arsenal" }));
+        Assert.That(new[] { cell.RowCategoryValue, cell.ColCategoryValue }, Does.Not.Contain("PhantomClub"));
     }
 
     [Test]
@@ -835,12 +815,18 @@ public class GridGenerationServiceTests
         var template = SeedTemplate(size: 1);
         // No resolved WikidataQid yet (REQ-109) — must not crash generation.
         SeedCountry("Ruritania", wikidataQid: null);
-        SeedClub("NoDataClub");   // cache miss; live lookup is skipped (null country QID) -> 0 matches, discarded
-        SeedClub("GoodClub");     // cache hit -> accepted without ever needing a live lookup
+        SeedClub("NoDataClub");   // cache miss + null country QID -> live lookup skipped -> 0 matches -> discarded whenever tried against Ruritania
+        SeedClub("GoodClub");     // cache hit against Ruritania -> accepted without ever needing a live lookup
         SeedCachedMatches("Ruritania", "GoodClub", 2);
+        // GoodClub also has a cached Club x Club match against NoDataClub —
+        // this is what keeps the grid completable no matter which single
+        // candidate the shuffle draws as the row (see this test's own
+        // reasoning below); it never interferes with the Ruritania checks
+        // above, since it's a different AttributeType pair.
+        SeedCachedClubClubMatches("NoDataClub", "GoodClub", 2);
         // Configured on the fake, but unreachable via the real contract since
-        // the country QID is null — proves the service never gets a match for
-        // "NoDataClub" from this path, only from the (absent) cache.
+        // Ruritania's QID is null — proves the service never gets a match
+        // for "NoDataClub" from this path, only from the (absent) cache.
         _wikidataLookupService.SetMatches("Ruritania", "NoDataClub", BuildFakeLivePlayers("NoDataClub", 5));
         var service = BuildService(minValidAnswers: 2, maxAttempts: 5);
 
@@ -850,8 +836,15 @@ public class GridGenerationServiceTests
 
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result!.Id);
         Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.Cells[0].RowCategoryValue, Is.EqualTo("Ruritania"));
-        Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("GoodClub"));
+        var cell = instance!.Cells[0];
+        // Whichever of the 3 candidates the shuffle draws as the row,
+        // "GoodClub" always ends up in the final pair: if Ruritania is the
+        // row, NoDataClub fails (null QID) and GoodClub succeeds; if
+        // NoDataClub is the row, Ruritania fails (null QID) but GoodClub
+        // succeeds via the Club x Club cache; if GoodClub is the row, either
+        // remaining candidate succeeds (both have real cached data against
+        // it) and GoodClub is on the other axis regardless.
+        Assert.That(new[] { cell.RowCategoryValue, cell.ColCategoryValue }, Does.Contain("GoodClub"));
     }
 
     // ---- REQ-114/ADR-0035: national teams as distinct footballing entities
@@ -860,8 +853,9 @@ public class GridGenerationServiceTests
     public async Task REQ114_GenerateInstanceAsync_NationalTeamCountry_PairsWithClubsExactlyLikeAnyOtherCountry()
     {
         // No special-casing needed anywhere in grid generation's pairing
-        // logic (SelectPairing/CategoryPairingRules) — a flagged country is
-        // just another CountryDefinition row.
+        // logic (CategoryPairingRules) — a flagged country is just another
+        // CountryDefinition row. Only 2 total candidates exist, so the
+        // assertion checks the pair as a set rather than a specific axis.
         var template = SeedTemplate(size: 1);
         SeedCountry("England", usesCountryForSportProperty: true);
         SeedClub("Tottenham Hotspur");
@@ -873,9 +867,13 @@ public class GridGenerationServiceTests
         var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Cells, Has.Count.EqualTo(1));
-        Assert.That(instance.Cells[0].RowCategoryType, Is.EqualTo(CategoryPairingRules.Country));
-        Assert.That(instance.Cells[0].RowCategoryValue, Is.EqualTo("England"));
-        Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("Tottenham Hotspur"));
+        var cell = instance.Cells[0];
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Country, CategoryPairingRules.Club }));
+        Assert.That(
+            new[] { cell.RowCategoryValue, cell.ColCategoryValue },
+            Is.EquivalentTo(new[] { "England", "Tottenham Hotspur" }));
     }
 
     [Test]
@@ -884,7 +882,10 @@ public class GridGenerationServiceTests
         // The existing P27 path (represented here by
         // UsesCountryForSportProperty = false reaching the lookup service)
         // must stay completely unaffected — this is generation's cache-miss
-        // path (GetMatchCountAsync), not the guess-time fallback.
+        // path (GetMatchCountAsync), not the guess-time fallback. Keyed by
+        // domain name, not by row/col axis (GridLiveLookupDispatcher
+        // normalizes by CategoryType — ADR-0089), so this holds regardless
+        // of which candidate the shuffle drew as the row.
         var template = SeedTemplate(size: 1);
         SeedCountry("France"); // usesCountryForSportProperty defaults to false
         SeedClub("Arsenal");
@@ -921,15 +922,19 @@ public class GridGenerationServiceTests
     // the Country x Trophy call site now threads BOTH
     // row.UsesCountryForSportProperty and col.IsTeamTrophy through to
     // WikidataLookupService (the "REQ-114/ADR-0035 scope note" gap this
-    // story closed), and that Club x Trophy threads col.IsTeamTrophy.
+    // story closed), and that Club x Trophy threads col.IsTeamTrophy. Every
+    // test in this section seeds exactly one candidate of each of the two
+    // types involved, so there is no row/column ambiguity to control for,
+    // and every assertion is keyed by domain name (via the Fake's own
+    // dictionaries), not by GridGenerationService's internal row/col
+    // labels — GridLiveLookupDispatcher normalizes by CategoryType
+    // (ADR-0089) before ever calling into WikidataLookupService, so these
+    // needed no changes for ADR-0089 beyond CategoryCandidate's own
+    // constructor shape.
 
     [Test]
     public async Task REQ108_GenerateInstanceAsync_NationalTeamCountryTrophyPairing_LiveLookupDispatchedWithUsesCountryForSportPropertyTrue()
     {
-        // size=1 keeps this deterministic without needing a 3-trophy pool:
-        // Country x Club is infeasible (zero clubs seeded), Trophy x Trophy
-        // needs trophyCount >= 2, so Country x Trophy is the only feasible
-        // pairing with one trophy seeded.
         var template = SeedTemplate(size: 1);
         SeedCountry("England", usesCountryForSportProperty: true);
         SeedTrophy("Ballon d'Or");
@@ -1001,5 +1006,274 @@ public class GridGenerationServiceTests
 
         Assert.That(_wikidataLookupService.GetTrophyClubLastIsTeamTrophy("UEFA Champions League", "Real Madrid"), Is.True,
             "CategoryCandidate must carry TrophyDefinition.IsTeamTrophy through to the Trophy x Club live-lookup dispatch site (ADR-0061)");
+    }
+
+    // ---- ADR-0089: per-header category mixing ------------------------------
+    // Dedicated coverage of the mixing mechanism itself, beyond what the
+    // adapted tests above needed to stay green. Unlike this file's other
+    // tests, REQ107_GenerateInstanceAsync_HeadersOnSameAxis_CanMixMultipleCategoryTypes
+    // and REQ107_GenerateInstanceAsync_NeverProducesCountryCountryCell_UnderMixedHeaders
+    // don't seed a minimal, fully-determined candidate set — they seed a
+    // large, richly-connected Country+Club+Trophy pool and run generation
+    // repeatedly against the real (unpinned) _random field, asserting on
+    // what happens ACROSS trials rather than pinning one outcome, per this
+    // file's own header comment on why Random can't safely be pinned here.
+    // SeedFullyConnectedMixedPool below is this section's shared setup:
+    // `perType` distinct candidates of each of the three types, with every
+    // valid (non-Country x Country) cross-type pairing cached at
+    // `minValidAnswers` matches — Trophy x Trophy is deliberately left
+    // unseeded (falls back to REQ-101's ordinary retry, per REQ-107's own
+    // "not a separate categorical ban" clause), and Country x Country is
+    // never queried at all, since REQ-107 rejects it before any match-count
+    // check ever runs.
+    private void SeedFullyConnectedMixedPool(int perType, int minValidAnswers)
+    {
+        var countries = Enumerable.Range(0, perType).Select(i => $"MixCountry{i}").ToList();
+        var clubs = Enumerable.Range(0, perType).Select(i => $"MixClub{i}").ToList();
+        var trophies = Enumerable.Range(0, perType).Select(i => $"MixTrophy{i}").ToList();
+        foreach (var country in countries) SeedCountry(country);
+        foreach (var club in clubs) SeedClub(club);
+        foreach (var trophy in trophies) SeedTrophy(trophy);
+
+        foreach (var country in countries)
+            foreach (var club in clubs)
+                SeedCachedMatches(country, club, minValidAnswers);
+        for (var i = 0; i < clubs.Count; i++)
+            for (var j = i + 1; j < clubs.Count; j++)
+                SeedCachedClubClubMatches(clubs[i], clubs[j], minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var country in countries)
+                SeedCachedTrophyCountryMatches(trophy, country, minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var club in clubs)
+                SeedCachedTrophyClubMatches(trophy, club, minValidAnswers);
+    }
+
+    // Proves ADR-0089's core claim: a single grid instance CAN mix category
+    // types on one axis (e.g. a Country row alongside a Club row), which was
+    // structurally impossible before this ADR (every row shared one fixed
+    // CategoryType via the now-removed SelectPairing). With 4 well-connected
+    // candidates of each of the 3 types (12 total) drawn uniformly for a
+    // size-3 grid, the row axis alone is homogeneous only if all 3 row picks
+    // land on the same type — roughly a 5% chance per trial (3 * C(4,3) /
+    // C(12,3)) — so across 25 independent trials against the real, unpinned
+    // Random field, the odds every single trial produces a homogeneous row
+    // AND column axis are astronomically small; this is an intentional
+    // distribution-based assertion (per this file's own header comment on
+    // why Random can't be pinned), not a flaky one.
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_HeadersOnSameAxis_CanMixMultipleCategoryTypes()
+    {
+        const int minValidAnswers = 5;
+        SeedFullyConnectedMixedPool(perType: 4, minValidAnswers);
+        var template = SeedTemplate(size: 3);
+        var service = BuildService(minValidAnswers, maxAttempts: 500);
+
+        var mixedAxisSeen = false;
+        for (var trial = 0; trial < 25 && !mixedAxisSeen; trial++)
+        {
+            var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+            var rowTypeCount = instance!.Cells.Select(c => c.RowCategoryType).Distinct().Count();
+            var colTypeCount = instance.Cells.Select(c => c.ColCategoryType).Distinct().Count();
+            if (rowTypeCount > 1 || colTypeCount > 1)
+                mixedAxisSeen = true;
+        }
+
+        Assert.That(mixedAxisSeen, Is.True,
+            "ADR-0089: with a well-connected mixed-type pool, headers on a single axis must be able to span more " +
+            "than one CategoryType — across 25 trials against the real Random field, at least one should show " +
+            "row or column headers of more than one type");
+    }
+
+    // The safety half of the same scenario: no matter how often — or how
+    // heavily Country-typed — the header draw mixes types across both axes,
+    // REQ-107's ban must still hold on every single generated cell. Before
+    // ADR-0089, a per-instance-fixed pairing made this trivially true (a
+    // Country-rows/Club-columns instance could never even attempt a
+    // Country x Country cell); this test proves the NEW per-cell check
+    // (TryComputeMatchCountsAsync, checked before any match-count query)
+    // does the same job now that rows and columns are no longer
+    // homogeneously typed and a Country row can land opposite a Country
+    // column candidate. Countries deliberately outnumber trophies (6 vs 3)
+    // to make multiple countries landing on both axes likely across trials.
+    //
+    // CI-found fix (2026-08-29): clubs must comfortably outnumber the grid
+    // size, not just match it. Trophy x Trophy has no live-lookup support
+    // (deliberately unseeded here, same as SeedFullyConnectedMixedPool) —
+    // whenever the random row draw happens to pick exactly one header of
+    // each type (1 Country + 1 Trophy + 1 Club), every remaining Country
+    // candidate is banned (REQ-107) and every remaining Trophy candidate is
+    // unusable (Trophy x Trophy), leaving ONLY the leftover clubs to fill
+    // every column slot. With clubs seeded at exactly `size` (3), that
+    // leaves only `size - 1` = 2 valid candidates for 3 needed slots — a
+    // real deficit, not just "zero slack" — which a real CI run hit
+    // (GridGenerationException: "Ran out of candidates"). Clubs raised to 6
+    // so that worst case leaves 5 valid candidates, comfortably above the
+    // needed 3; this mirrors why production's real ~21-club Tier 0 pool
+    // never hits this deficit at GridSize=3, and keeps this test's
+    // "generation always succeeds" premise mathematically guaranteed rather
+    // than incidentally true for the seed sizes originally chosen.
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_NeverProducesCountryCountryCell_UnderMixedHeaders()
+    {
+        const int minValidAnswers = 5;
+        var countries = Enumerable.Range(0, 6).Select(i => $"HeavyCountry{i}").ToList();
+        var clubs = Enumerable.Range(0, 6).Select(i => $"HeavyClub{i}").ToList();
+        var trophies = Enumerable.Range(0, 3).Select(i => $"HeavyTrophy{i}").ToList();
+        foreach (var country in countries) SeedCountry(country);
+        foreach (var club in clubs) SeedClub(club);
+        foreach (var trophy in trophies) SeedTrophy(trophy);
+        foreach (var country in countries)
+            foreach (var club in clubs)
+                SeedCachedMatches(country, club, minValidAnswers);
+        for (var i = 0; i < clubs.Count; i++)
+            for (var j = i + 1; j < clubs.Count; j++)
+                SeedCachedClubClubMatches(clubs[i], clubs[j], minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var country in countries)
+                SeedCachedTrophyCountryMatches(trophy, country, minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var club in clubs)
+                SeedCachedTrophyClubMatches(trophy, club, minValidAnswers);
+        var template = SeedTemplate(size: 3);
+        var service = BuildService(minValidAnswers, maxAttempts: 500);
+
+        for (var trial = 0; trial < 25; trial++)
+        {
+            var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+            Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
+                c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Country),
+                $"trial {trial}: Country x Country must never be produced (REQ-107), regardless of how many " +
+                "Country-typed headers land on either axis under the new per-header mixing mechanism (ADR-0089)");
+        }
+    }
+
+    // ---- REQ-102/ADR-0089: value-collision dedup generalizes to (CategoryType, Name)
+
+    // The old axis-level dedup ("only filter by name if both axes share one
+    // type") is gone — ADR-0089 point 3 replaces it with a per-(CategoryType,
+    // Name) equality check. Note: CountryDefinition/ClubDefinition/
+    // TrophyDefinition.Name each carry their own real unique DB index
+    // (XGArcadeDbContext, "grid generation picks from these directly,
+    // REQ-109"), which EF Core's InMemory provider enforces the same as a
+    // real Postgres unique constraint would (see UserRepositoryTests/
+    // PlayerRepositoryTests for this repo's existing precedent of relying on
+    // that) — so two *same-type* candidates can never literally share a
+    // Name to begin with, and a test seeding two same-named ClubDefinition
+    // rows to force a collision would fail at seed time with a
+    // DbUpdateException, not exercise the dedup logic at all. What IS worth
+    // proving under real mixing (unlike the already-adapted, single-type
+    // REQ102 test above) is that this per-(CategoryType, Name) dedup keeps
+    // working correctly once rows AND columns are drawn from one shared,
+    // genuinely multi-type pool — i.e. that a Club (or Country, or Trophy)
+    // value used as a row header is still never reused as a column header of
+    // that SAME type, even though the two axes are no longer homogeneously
+    // typed. Runs many trials against the real, unpinned Random field (same
+    // rationale as the mixing tests above) rather than asserting on one draw.
+    [Test]
+    public async Task REQ102_GenerateInstanceAsync_UnderMixedHeaders_NoCategoryTypeSharesAValueAcrossRowAndColumnAxes()
+    {
+        const int minValidAnswers = 5;
+        SeedFullyConnectedMixedPool(perType: 4, minValidAnswers);
+        var template = SeedTemplate(size: 3);
+        var service = BuildService(minValidAnswers, maxAttempts: 500);
+
+        for (var trial = 0; trial < 25; trial++)
+        {
+            var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+            var rowKeys = instance!.Cells.Select(c => (c.RowCategoryType, c.RowCategoryValue)).Distinct().ToList();
+            var colKeys = instance.Cells.Select(c => (c.ColCategoryType, c.ColCategoryValue)).Distinct().ToList();
+            Assert.That(rowKeys.Intersect(colKeys), Is.Empty,
+                $"trial {trial}: no (CategoryType, Name) pair may appear as both a row and a column header, " +
+                "even once headers are drawn from one shared multi-type pool rather than two fixed per-axis pools (ADR-0089)");
+        }
+    }
+
+    // The cross-type counterpart: a Country and a Club sharing a literal
+    // Name string are NOT required to collide, since CategoryCandidate
+    // equality for REQ-102's dedup purposes is (CategoryType, Name), not
+    // Name alone (ADR-0089 point 3's own "a Country and a Club value can
+    // never collide by name" precedent, now generalized instead of assumed
+    // via an axis-level type check). Only 2 total candidates are seeded —
+    // Country "Atlantis" and Club "Atlantis" — so whichever the shuffle
+    // draws as the row, the other is the only column candidate, and REQ-102
+    // must accept it despite the shared Name, since it's a different
+    // CategoryType.
+    [Test]
+    public async Task REQ102_GenerateInstanceAsync_DifferentCategoryTypeSharingName_AreNotTreatedAsColliding()
+    {
+        SeedCountry("Atlantis");
+        SeedClub("Atlantis");
+        SeedCachedMatches("Atlantis", "Atlantis", 3);
+        var template = SeedTemplate(size: 1);
+        var service = BuildService(minValidAnswers: 3, maxAttempts: 5);
+
+        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        var cell = instance.Cells[0];
+        Assert.That(cell.RowCategoryValue, Is.EqualTo("Atlantis"));
+        Assert.That(cell.ColCategoryValue, Is.EqualTo("Atlantis"));
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Country, CategoryPairingRules.Club }),
+            "a Country and a Club sharing the literal Name 'Atlantis' must both be usable in the same grid — " +
+            "REQ-102's dedup is per (CategoryType, Name), not Name alone");
+    }
+
+    // ---- REQ-101/ADR-0089: MinValidAnswers threshold under the mixed-selection path
+
+    // Re-proves REQ101_GridGeneration_DiscardsCellWithFewerThanMinimumAnswers's
+    // point (a below-threshold candidate is discarded and retried) but with
+    // a genuinely mixed Country+Club+Trophy pool, exercising the check as it
+    // now runs inside TryComputeMatchCountsAsync's combined-pool loop rather
+    // than the old single-pairing-type PickHeadersAsync. Only one Country is
+    // seeded, so REQ-107's pairing ban can never itself be the reason a
+    // candidate is rejected here — every rejection in this test must be a
+    // genuine MinValidAnswers failure. "GoodHub" (a Club) is a universal
+    // connector: every other candidate has >= MinValidAnswers matches
+    // against it, while every OTHER (non-GoodHub) pair stays below
+    // threshold — so regardless of which single candidate the shuffle picks
+    // as the row, the retry loop must discard every weak candidate before
+    // finally accepting GoodHub.
+    [Test]
+    public async Task REQ101_GridGeneration_DiscardsBelowThresholdCandidate_AcrossMixedCategoryTypes()
+    {
+        const int minValidAnswers = 3;
+        SeedCountry("WeakCountry");
+        SeedClub("WeakClubA");
+        SeedClub("WeakClubB");
+        SeedTrophy("WeakTrophy");
+        SeedClub("GoodHub");
+        var template = SeedTemplate(size: 1);
+        // GoodHub against every other candidate: exactly at threshold.
+        SeedCachedMatches("WeakCountry", "GoodHub", minValidAnswers);
+        SeedCachedClubClubMatches("GoodHub", "WeakClubA", minValidAnswers);
+        SeedCachedClubClubMatches("GoodHub", "WeakClubB", minValidAnswers);
+        SeedCachedTrophyClubMatches("WeakTrophy", "GoodHub", minValidAnswers);
+        // Every weak-vs-weak pair: below threshold.
+        SeedCachedMatches("WeakCountry", "WeakClubA", 1);
+        SeedCachedMatches("WeakCountry", "WeakClubB", 0);
+        SeedCachedTrophyCountryMatches("WeakTrophy", "WeakCountry", 1);
+        SeedCachedClubClubMatches("WeakClubA", "WeakClubB", 0);
+        SeedCachedTrophyClubMatches("WeakTrophy", "WeakClubA", 2);
+        SeedCachedTrophyClubMatches("WeakTrophy", "WeakClubB", 1);
+        var service = BuildService(minValidAnswers, maxAttempts: 20);
+
+        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        Assert.That(
+            new[] { instance.Cells[0].RowCategoryValue, instance.Cells[0].ColCategoryValue },
+            Does.Contain("GoodHub"),
+            "whichever candidate the shuffle picked as the row, every weak-vs-weak candidate is below " +
+            "MinValidAnswers regardless of category type, so only GoodHub can ever complete the grid");
     }
 }

@@ -5,6 +5,15 @@ namespace XGArcade.Games.XGGrid;
 // — REQ-107's generalized pairing selection (S-030, extended S-031)
 // needs to treat all three uniformly.
 //
+// ADR-0089: `CategoryType` (CategoryPairingRules.Country/Club/Trophy) is
+// what makes that uniform treatment possible now that each row/column
+// header picks its own category type independently, rather than the whole
+// grid instance sharing one axis-wide type via the now-removed
+// GridGenerationService.SelectPairing/PoolFor. Every CategoryCandidate
+// constructed anywhere in this project must carry the type it actually
+// came from — GridGenerationService.BuildCells/CreateCell read it straight
+// onto GridCell.RowCategoryType/ColCategoryType, per header, not per axis.
+//
 // REQ-114/ADR-0035: `UsesCountryForSportProperty` carries
 // CountryDefinition's per-row query-property flag through generation
 // and the guess-time fallback to the point
@@ -26,4 +35,4 @@ namespace XGArcade.Games.XGGrid;
 // competition. Meaningless for Country/Club candidates — always false
 // there, never read for those types.
 public readonly record struct CategoryCandidate(
-    string Name, string? WikidataQid, bool UsesCountryForSportProperty = false, bool IsTeamTrophy = false);
+    string Name, string CategoryType, string? WikidataQid, bool UsesCountryForSportProperty = false, bool IsTeamTrophy = false);
