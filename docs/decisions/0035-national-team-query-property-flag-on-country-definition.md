@@ -150,3 +150,20 @@ elsewhere, and do not merge the two query paths into one (citizenship and
 country-represented must stay distinguishable at the data-fetch level, per
 REQ-114). If you extend Country × Trophy to also honor this flag, update
 this ADR's follow-up note, not just the code.
+
+## Status note (2026-08-29, follow-up)
+
+ADR-0089 removed `GridGenerationService.SelectPairing` and
+`GridGameModule.PoolFor` entirely, replacing per-instance pairing
+selection with each header independently drawing its own category type
+from one combined pool. The Alternatives-considered table above still
+references `SelectPairing`'s feasibility matrix and `PoolFor` as reasons a
+separate `NationalTeamDefinition` category type would have added ongoing
+maintenance surface — that reasoning is now historical (those two methods
+no longer exist to ripple through), but the underlying conclusion this
+ADR reached is unaffected: a home nation is still a `CountryDefinition`
+row with `UsesCountryForSportProperty = true`, not a new category type,
+and nothing about ADR-0089's per-header selection mechanism changes that.
+`CategoryPairingRules` itself is also unaffected — ADR-0089 changed how a
+header's type is chosen, not the pairing-legality rules this ADR's own
+"For AI agents" section references.

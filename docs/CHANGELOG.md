@@ -22,6 +22,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   (`docs/backlog.md` S-036) at its structural root instead of trading away
   `MinValidAnswers`'s playtested value (S-014). Implementation follows in a
   separate commit; REQ-107's status note update tracked alongside it.
+- 2026-08-29 — `docs/requirements-document.md` (REQ-107/REQ-102/REQ-108
+  status notes), `docs/architecture-document.md` (§6 grid-generation flow
+  prose, COMP-05 row), `docs/implementation-document.md` (§6 grid
+  generation pseudocode's Tier 0 status paragraphs), `docs/decisions/
+  0061-team-competition-trophy-query-shape.md` and `docs/decisions/
+  0035-national-team-query-property-flag-on-country-definition.md`
+  (appended dated status notes marking their `SelectPairing`/`PoolFor`
+  feasibility-math references as historical, per this repo's existing
+  status-note convention — no Context/Decision text rewritten),
+  `docs/backlog.md` (S-036 follow-up note) — doc-sync pass for
+  `f1418e8`'s implementation of ADR-0089: `SelectPairing`/`PoolFor` are
+  gone, `CategoryCandidate` gained a `CategoryType` field, and REQ-107's
+  Country×Country ban is now checked per cell instead of once per
+  instance. `MinValidAnswers` confirmed unchanged (still 5). REQ/ADR refs:
+  REQ-101, REQ-102, REQ-107, REQ-108, ADR-0089, ADR-0061, ADR-0035.
 - 2026-08-29 — `NOTES.md` only (no requirements/architecture/implementation
   change) — fixed the actual cause of `generate-grid-round.yml`/
   `generate-path-round.yml` failing on every run:

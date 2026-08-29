@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.15"
+version: "2.16"
 status: draft
-last_updated: 2026-08-25
+last_updated: 2026-08-29
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -188,6 +188,17 @@ abort), API (endpoint never returns a grid with an invalid cell)
   templates through any dedicated interface. The rest of this requirement's
   acceptance criteria are recorded below as the full/long-term definition,
   not a claim of current behavior.
+- **Status note (2026-08-29, ADR-0089):** "no row category may be
+  identical to a column category" below is now enforced as a per-
+  `(CategoryType, Name)` equality check across all headers, not an
+  axis-level "only filter by name if both axes share one type" branch —
+  now that ADR-0089 lets each header pick its own category type
+  independently, a Club-typed row header and a Club-typed column header
+  must never collide even though the two axes are no longer uniformly
+  typed. Candidates of a different `CategoryType` still never collide by
+  name, same assumption as before. No change to the acceptance criterion's
+  actual meaning, only to how it's implemented now that headers aren't
+  grouped by axis.
 - Given a GridTemplate with `size = N`
 - When a new grid is generated from this template
 - Then exactly N×N cells are created, with N unique row categories and N
@@ -280,6 +291,31 @@ Wikidata-fails/API-Football-fallback branch), API
   needs `trophyCount >= Size × 2 = 6`, so it remains structurally infeasible
   until the trophy pool grows further. See REQ-108's own status note for
   that requirement's full detail.
+- **Status note (2026-08-29, ADR-0089) — supersedes the `SelectPairing`
+  description above; kept for history, not deleted.** `SelectPairing`/
+  `PoolFor` are removed entirely. There is no longer one pairing type
+  chosen for the whole grid instance — each row and column header now
+  picks its own category type (Country/Club/Trophy) independently,
+  `GridGenerationService.GenerateInstanceAsync` drawing every header from
+  one shuffled, combined pool of all three reference tables concatenated
+  together (each candidate tagged with its own `CategoryType`), rather
+  than a per-type pool selected by a once-per-instance pairing choice. A
+  header's odds of being a given type are therefore naturally proportional
+  to how much reference data that type actually has (today: 45 countries,
+  21 clubs, 3 trophies), not an even 3-way split or a fixed feasibility
+  table keyed off `Size`. A single grid can now mix category types freely
+  across both axes (e.g. a Country row next to a Trophy column) — the
+  acceptance criteria below never actually required axis-wide homogeneity,
+  only the removed implementation happened to impose it. The
+  Country×Country ban itself is now checked per individual (row header,
+  column candidate) pair, inside `PickHeadersAsync`'s per-row loop, before
+  that row's match-count query — replacing the old check that ran once per
+  call against a globally-fixed pairing. This fixes the recurring "Ran out
+  of candidates before completing the grid" generation failure
+  (`docs/backlog.md` S-036) at its structural root — see ADR-0089 for the
+  full reasoning and rejected alternatives. `MinValidAnswers` is unchanged
+  (stays 5); this was an explicit, separately-considered-and-rejected
+  option, not touched by this change.
 - Given a grid is being generated
 - When row and column categories are assigned
 - Then a Country × Country pairing is never generated (two nationality
@@ -356,6 +392,16 @@ Wikidata-fails/API-Football-fallback branch), API
   the property actually used to link editions to series for either
   competition (the query simply returns no matches, absorbed by REQ-101's
   retry logic, not an error).
+  **Status note (2026-08-29, ADR-0089) on caveat (1) above:** `GridGameModule
+  .SelectPairing` and its `trophyCount >= Size` / `trophyCount >= Size × 2`
+  feasibility thresholds no longer exist — see REQ-107's own 2026-08-29
+  status note for the mechanism that replaced them. Caveat (1)'s
+  qualitative conclusion still holds and is, if anything, strengthened:
+  Trophy headers are reachable in production and now also appear
+  proportionally to the trophy pool's actual size (3 trophies today) rather
+  than only becoming reachable once a hardcoded threshold was crossed, with
+  no equivalent of the old Trophy×Trophy `Size × 2` ceiling blocking that
+  pairing outright.
 - Given the platform's list of recognized trophies (e.g. FIFA World Cup,
   UEFA Champions League, Ballon d'Or, UEFA European Championship, Copa
   América — an initial, extensible list, not hardcoded into game logic)
@@ -988,8 +1034,10 @@ only `DeprecatedRank` excluded, and never contains truthy `wdt:P54`)
   instead of `P27` ("country of citizenship") for that candidate only —
   every other seeded country's `P27` query path is completely unaffected
 - And a home nation pairs with Club/Trophy category candidates exactly like
-  any other Country row — no special-casing anywhere in `SelectPairing`,
-  `CategoryPairingRules`, or grid-generation's pairing/validation logic
+  any other Country row — no special-casing anywhere in per-header
+  category-type selection (ADR-0089, replacing the now-removed
+  `SelectPairing`), `CategoryPairingRules`, or grid-generation's
+  pairing/validation logic
 - And "satisfies this category" for a home-nation value works identically
   to any other country value: a `PlayerAttribute`/override record of type
   `nationality` with that specific value (e.g. "England"), read through the
