@@ -759,7 +759,7 @@ public class PlayerCareerPrefetchServiceTests
         _wikidataClient.SetPoolForNationality("Q29", [new WikidataNameIndexEntry("Q100", "Someone Spanish", 1990, "Spain")]);
         _wikidataClient.SetPoolForNationality("Q183", [new WikidataNameIndexEntry("Q200", "Someone German", 1990, "Germany")]);
 
-        var result = await BuildService().PrefetchAsync(maxEntitiesToResweep: 2);
+        var result = await BuildService().PrefetchAsync(maxEntitiesToResweep: 4);
 
         Assert.That(_wikidataClient.QueriedNationalityQids, Is.EquivalentTo(new[] { "Q29", "Q183" }),
             "only the two OLDEST already-swept countries (Spain, Germany) must be live-queried again");
