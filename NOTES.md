@@ -1792,3 +1792,29 @@ this verb never touches the player pool, so `generate-grid-round.yml`/
 `generate-path-round.yml`'s existing daily `0 6 * * *` cron picks back up
 on its own, generating fresh rounds against a clean `SequenceNumber`
 sequence starting at 1.
+
+### `generate-grid-round.yml`/`generate-path-round.yml` silently reported success on a total connection failure (2026-08-29)
+
+Both workflows delegate their retry loop to
+`.github/actions/trigger-round-generation/action.yml` (S-176). That loop's
+success check was `[ "$http_status" -lt 400 ]`. `curl -w "%{http_code}"`
+reports the literal string `"000"` — not a real HTTP status — whenever it
+never got a response at all (DNS failure, connection refused, a proxying
+layer rejecting the request before it reaches the backend). `000` compares
+numerically as `0`, and `0 -lt 400` is true, so a totally failed request
+was indistinguishable from a real 2xx/3xx response: the loop returned
+success on attempt 1 with no retry, no `::warning`/`::error` annotation,
+and the workflow run showed green — while no round was ever generated.
+Reproduced locally with `curl` against a nonexistent host (exit code 56,
+`http_code` `000`) to confirm before fixing, since this sandbox can't reach
+the real dev backend to trigger the failure for real. Fixed by requiring
+`>= 200` as well as `< 400`, which excludes `000` (and any other
+non-3-digit-real-status value) from the success path while leaving real
+2xx/3xx and 4xx/5xx handling unchanged. This is a strict subset of what a
+real HTTP response would ever report, so no legitimate success case is
+newly rejected. No `dotnet`/CI run needed to verify (pure bash inside a
+composite action) — verified by extracting the retry loop's logic into a
+standalone script and exercising `000`/`200`/`500` cases directly (see this
+commit's message for the transcript). If this recurs, check whether the
+runner's egress/proxy is rejecting the request before assuming the backend
+itself is unhealthy — a `000` status means the request never arrived.
