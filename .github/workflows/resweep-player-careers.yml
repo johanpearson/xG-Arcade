@@ -1,0 +1,85 @@
+name: resweep-player-careers
+
+# REQ-110/S-187 (follow-up to ADR-0088/S-186's "ever swept, skip forever"
+# fix): ADR-0088 correctly stopped prefetch-player-careers.yml from
+# re-sweeping a country's/club's ENTIRE player pool on every re-dispatch,
+# closing the Supabase free-tier egress incident that fix addresses. It also
+# introduced a new gap: a player transferring INTO an already-swept
+# country's/club's pool has no path back to being noticed — that pool is
+# skipped forever once PlayerPoolSweptAt is set, even though a fresh
+# Wikidata query for it would now return a different (larger) player set.
+#
+# This is the bounded remediation for that gap: the SAME `prefetch-player-
+# careers` CLI verb (same PlayerCareerPrefetchService, same idempotent
+# fetch -> mark swept -> skip-empty -> dedup+chunk shape), called with a
+# small `maxEntitiesToResweep` argument instead of no argument. Every
+# never-swept country/club is still swept unconditionally (unaffected,
+# uncapped) — this only widens the skip to ALSO re-sweep a small, bounded
+# number of the OLDEST already-swept entities each run (oldest
+# PlayerPoolSweptAt first — see PlayerCareerPrefetchService.SweepAsync's own
+# comment), so every one of the ~64 seeded entities (49 countries + ~15
+# clubs, MVP-SCOPE.md) rotates back through a real sweep roughly every
+# several months, in small pieces, never all at once. See
+# IPlayerCareerPrefetchService.PrefetchAsync's own doc comment for the exact
+# selection contract.
+#
+# Deliberately a SEPARATE workflow file from prefetch-player-careers.yml,
+# not a second cron entry on that file: a single workflow can't easily pass
+# a different `arg` input per cron entry (GitHub Actions doesn't parameterize
+# `on.schedule` entries), and this job's own purpose (bounded weekly
+# rotation) is different enough from that file's own (an explicit, unbounded
+# "sweep everything not-yet-done" escape hatch after a purge or
+# reference-data change) that keeping them visually and operationally
+# distinct in the Actions UI is clearer than one file serving two different
+# "modes." prefetch-player-careers.yml's own workflow_dispatch trigger is
+# UNCHANGED by this file — it still runs with no argument (unbounded,
+# never-swept-only), exactly as ADR-0088 left it.
+#
+# Weekly cadence, staggered after the two existing Sunday-morning jobs this
+# same DevOps rotation already runs against the same dev database
+# (import-player-name-index.yml 03:00 UTC, warm-grid-cache.yml 04:30 UTC) —
+# 05:15 UTC gives warm-grid-cache a comfortable ~45 minutes of headroom
+# before this starts, and this job's own per-run cost is small (bounded to
+# maxEntitiesToResweep entities' worth of pool fetches, not a full sweep),
+# so it shouldn't meaningfully overlap even on a slow warm-grid-cache day.
+#
+# Concurrency guard: same `group: ${{ github.workflow }}` pattern S-186
+# added to every other bulk Wikidata job (prefetch-player-careers.yml/
+# import-player-name-index.yml/warm-grid-cache.yml) — queues rather than
+# cancels a second dispatch of THIS workflow (e.g. an accidental manual
+# re-run landing near the weekly cron), consistent with those siblings' own
+# reasoning. This is a same-workflow guard only; it does not by itself
+# prevent this workflow and prefetch-player-careers.yml from running at the
+# same time (they are different `github.workflow` values, so different
+# concurrency groups) — an acceptable overlap given prefetch-player-careers
+# stays manual/exceptional and this job's own cost is small either way.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_entities_to_resweep:
+        description: >
+          How many already-swept countries/clubs (combined) to re-sweep this
+          run, oldest PlayerPoolSweptAt first. Every never-swept entity is
+          always swept regardless of this value.
+        required: false
+        default: '2'
+  schedule:
+    - cron: "15 5 * * 0" # weekly, Sunday 05:15 UTC
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  resweep-player-careers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resweep player careers (bounded rotation)
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: prefetch-player-careers
+          arg: ${{ github.event.inputs.max_entities_to_resweep || '2' }}
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

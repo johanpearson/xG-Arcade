@@ -20,7 +20,23 @@ public interface IPlayerCareerPrefetchService
     // every club has been attempted, if anything failed — so the CLI
     // job/GitHub Actions run goes red (a signal to re-run; this service is
     // idempotent) without losing whatever succeeded.
-    Task<PlayerCareerPrefetchResult> PrefetchAsync(CancellationToken cancellationToken = default);
+    //
+    // REQ-110/S-187 (rotating bounded re-sweep, follow-up to ADR-0088):
+    // maxEntitiesToResweep null (the default) keeps ADR-0088's exact
+    // "ever swept, skip forever" behavior unchanged — this is what the
+    // manual workflow_dispatch-only trigger on prefetch-player-careers.yml
+    // keeps using (explicit "sweep everything not-yet-done" escape hatch
+    // after a purge or reference-data change). A non-null N additionally
+    // re-sweeps up to N entities whose pool was ALREADY swept (oldest
+    // PlayerPoolSweptAt first), on top of every never-swept entity (always
+    // swept, uncapped by N) — see PlayerCareerPrefetchService.SweepAsync's
+    // own comment for the exact selection shape. ADR-0088 stopped a
+    // transferred-in player from ever surfacing in an already-swept
+    // country's/club's pool again; this bounded rotation is what gives that
+    // player a path back in, a few entities at a time, without paying for a
+    // full unbounded re-sweep.
+    Task<PlayerCareerPrefetchResult> PrefetchAsync(
+        int? maxEntitiesToResweep = null, CancellationToken cancellationToken = default);
 }
 
 // ADR-0069: CountriesProcessed/CountriesFailed cover the original
