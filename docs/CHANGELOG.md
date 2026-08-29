@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-29 — `docs/decisions/0089-grid-per-header-category-mixing.md`
+  (new ADR), `docs/architecture-document.md` (§10 table) — recorded the
+  decision to replace `GridGenerationService.SelectPairing`'s per-instance
+  pairing selection (one Country/Club/Trophy pairing for the whole grid)
+  with per-header category-type mixing, fixing the recurring "Ran out of
+  candidates before completing the grid" generation failure
+  (`docs/backlog.md` S-036) at its structural root instead of trading away
+  `MinValidAnswers`'s playtested value (S-014). Implementation follows in a
+  separate commit; REQ-107's status note update tracked alongside it.
 - 2026-08-29 — `NOTES.md` only (no requirements/architecture/implementation
   change) — fixed the actual cause of `generate-grid-round.yml`/
   `generate-path-round.yml` failing on every run:
