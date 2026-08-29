@@ -3476,7 +3476,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_SentQueries_UseFullStatementPathForP54_NotTruthyShortcut()
+    public async Task REQ110_QueryRecentClubTransfersAsync_SentQueries_UseFullStatementPathForP54_NotTruthyShortcut()
     {
         var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3495,7 +3495,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_ArrivalsQuery_FiltersOnStartTimeSinceCutoff()
+    public async Task REQ110_QueryRecentClubTransfersAsync_ArrivalsQuery_FiltersOnStartTimeSinceCutoff()
     {
         var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3509,7 +3509,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_DeparturesQuery_FiltersOnEndTimeSinceCutoff()
+    public async Task REQ110_QueryRecentClubTransfersAsync_DeparturesQuery_FiltersOnEndTimeSinceCutoff()
     {
         var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3523,7 +3523,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_SentQueries_MatchExpectedShapeByteForByte()
+    public async Task REQ110_QueryRecentClubTransfersAsync_SentQueries_MatchExpectedShapeByteForByte()
     {
         var (handler, queries) = BuildRecordingHandler("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3562,7 +3562,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_ArrivalRow_UsesCallerSuppliedClubName_NotAWikidataLabel()
+    public async Task REQ110_QueryRecentClubTransfersAsync_ArrivalRow_UsesCallerSuppliedClubName_NotAWikidataLabel()
     {
         const string arrivalsJson = """
             {
@@ -3588,7 +3588,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_ArrivalAndDepartureForSamePlayer_MergesBothStints()
+    public async Task REQ110_QueryRecentClubTransfersAsync_ArrivalAndDepartureForSamePlayer_MergesBothStints()
     {
         const string arrivalsJson = """
             {
@@ -3619,7 +3619,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S188_QueryRecentClubTransfersAsync_DepartureRowWithNoStartTime_IsSkipped()
+    public async Task REQ110_QueryRecentClubTransfersAsync_DepartureRowWithNoStartTime_IsSkipped()
     {
         const string arrivalsJson = """{ "results": { "bindings": [] } }""";
         const string departuresJson = """
@@ -3641,7 +3641,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public void S188_QueryRecentClubTransfersAsync_HttpErrorOnArrivalsCall_ThrowsWikidataQueryException()
+    public void REQ110_QueryRecentClubTransfersAsync_HttpErrorOnArrivalsCall_ThrowsWikidataQueryException()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
 
@@ -3650,7 +3650,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public void S188_QueryRecentClubTransfersAsync_HttpErrorOnDeparturesCall_ThrowsWikidataQueryException()
+    public void REQ110_QueryRecentClubTransfersAsync_HttpErrorOnDeparturesCall_ThrowsWikidataQueryException()
     {
         // BuildSequencedJsonHandler only varies the JSON body, not the
         // status code, so a dedicated two-response handler is used instead:
@@ -3673,7 +3673,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public void S188_QueryRecentClubTransfersAsync_Timeout_ThrowsWikidataQueryException()
+    public void REQ110_QueryRecentClubTransfersAsync_Timeout_ThrowsWikidataQueryException()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
@@ -3684,7 +3684,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public void S188_QueryRecentClubTransfersAsync_MalformedJson_ThrowsWikidataQueryException()
+    public void REQ110_QueryRecentClubTransfersAsync_MalformedJson_ThrowsWikidataQueryException()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
 
@@ -3693,7 +3693,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public void S188_QueryRecentClubTransfersAsync_InvalidClubQid_ThrowsArgumentException()
+    public void REQ110_QueryRecentClubTransfersAsync_InvalidClubQid_ThrowsArgumentException()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""")));
 

@@ -51,14 +51,14 @@ public class RecentTransferSweepServiceTests
             new Player { Id = Guid.NewGuid(), FullName = fullName, WikidataQid = wikidataQid });
 
     [Test]
-    public void SweepAsync_NonPositiveLookbackDays_ThrowsArgumentOutOfRangeException()
+    public void REQ110_SweepAsync_NonPositiveLookbackDays_ThrowsArgumentOutOfRangeException()
     {
         Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => BuildService().SweepAsync(0));
         Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => BuildService().SweepAsync(-1));
     }
 
     [Test]
-    public async Task SweepAsync_ClubWithNoWikidataQid_IsSkippedEntirely()
+    public async Task REQ110_SweepAsync_ClubWithNoWikidataQid_IsSkippedEntirely()
     {
         await _categoryValueRepository.AddClubAsync(new ClubDefinition { Id = Guid.NewGuid(), Name = "Unresolved FC", WikidataQid = null });
 
@@ -74,7 +74,7 @@ public class RecentTransferSweepServiceTests
     // PlayerCareerPrefetchService.FetchAndPersistBatchAsync uses) and get a
     // NEW PlayerCareerStint row.
     [Test]
-    public async Task SweepAsync_ArrivalForBrandNewPlayer_CreatesPlayerAndInsertsStint()
+    public async Task REQ110_SweepAsync_ArrivalForBrandNewPlayer_CreatesPlayerAndInsertsStint()
     {
         var club = await SeedClubAsync("Arsenal", "Q9617");
         _wikidataClient.SetRecentClubTransfers("Q9617", new RecentClubTransferLookupResult(
@@ -106,7 +106,7 @@ public class RecentTransferSweepServiceTests
     // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId), never
     // duplicated — the exact ADR-0091 machinery, reused, not reimplemented.
     [Test]
-    public async Task SweepAsync_DepartureCompletingExistingOngoingStint_UpdatesInPlace_NeverDuplicates()
+    public async Task REQ110_SweepAsync_DepartureCompletingExistingOngoingStint_UpdatesInPlace_NeverDuplicates()
     {
         var club = await SeedClubAsync("Arsenal", "Q9617");
         var player = await SeedPlayerAsync("Q1519", "Thierry Henry");
@@ -134,7 +134,7 @@ public class RecentTransferSweepServiceTests
     }
 
     [Test]
-    public async Task SweepAsync_FetchedStintIdenticalToStored_RemainsANoOp()
+    public async Task REQ110_SweepAsync_FetchedStintIdenticalToStored_RemainsANoOp()
     {
         var club = await SeedClubAsync("Arsenal", "Q9617");
         var player = await SeedPlayerAsync("Q1519", "Thierry Henry");
@@ -163,7 +163,7 @@ public class RecentTransferSweepServiceTests
     // and pass it through to IWikidataClient.QueryRecentClubTransfersAsync
     // unchanged, per seeded club.
     [Test]
-    public async Task SweepAsync_ThreadsLookbackDaysAsCutoffDate_ToEveryClub()
+    public async Task REQ110_SweepAsync_ThreadsLookbackDaysAsCutoffDate_ToEveryClub()
     {
         await SeedClubAsync("Arsenal", "Q9617");
         await SeedClubAsync("Barcelona", "Q7156");
@@ -178,7 +178,7 @@ public class RecentTransferSweepServiceTests
     }
 
     [Test]
-    public async Task SweepAsync_PassesEachClubsOwnNameAndQid_ToTheWikidataClient()
+    public async Task REQ110_SweepAsync_PassesEachClubsOwnNameAndQid_ToTheWikidataClient()
     {
         var club = await SeedClubAsync("Arsenal", "Q9617");
 
@@ -189,7 +189,7 @@ public class RecentTransferSweepServiceTests
     }
 
     [Test]
-    public async Task SweepAsync_OneClubFails_ContinuesWithRemainingClubs_ThenThrowsAtTheEnd()
+    public async Task REQ110_SweepAsync_OneClubFails_ContinuesWithRemainingClubs_ThenThrowsAtTheEnd()
     {
         // Both clubs are configured with data for the SAME player QID —
         // GetClubsAsync's own row order is unspecified (no ORDER BY), so
@@ -223,7 +223,7 @@ public class RecentTransferSweepServiceTests
     }
 
     [Test]
-    public async Task SweepAsync_NoClubsHaveTransfers_ReturnsZeroedResult_NoWikidataCallsWasted()
+    public async Task REQ110_SweepAsync_NoClubsHaveTransfers_ReturnsZeroedResult_NoWikidataCallsWasted()
     {
         await SeedClubAsync("Arsenal", "Q9617");
 
@@ -241,7 +241,7 @@ public class RecentTransferSweepServiceTests
     // skip-forever check that this club's FULL pool was re-verified, when
     // only a narrow recent-activity slice actually was.
     [Test]
-    public async Task SweepAsync_NeverTouchesPlayerPoolSweptAt()
+    public async Task REQ110_SweepAsync_NeverTouchesPlayerPoolSweptAt()
     {
         var club = await SeedClubAsync("Arsenal", "Q9617");
         _wikidataClient.SetRecentClubTransfers("Q9617", new RecentClubTransferLookupResult(
