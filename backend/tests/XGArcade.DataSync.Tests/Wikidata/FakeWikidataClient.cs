@@ -179,6 +179,44 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(pool);
     }
 
+    // S-188: QueryRecentClubTransfersAsync support — same "configured
+    // per-key, plus one shared fail-next-N-calls counter" shape as every
+    // other batch-style method above, keyed by clubQid (not a QID batch)
+    // since the real method is scoped to one club per call. An unconfigured
+    // clubQid returns an empty result (a real "no recent transfers"),
+    // matching every other method's contract here.
+    private readonly Dictionary<string, RecentClubTransferLookupResult> _recentTransfersByClubQid = new();
+    private int _remainingRecentTransferFailures;
+
+    public List<string> QueriedRecentTransferClubQids { get; } = [];
+    public List<string> QueriedRecentTransferClubNames { get; } = [];
+    public List<DateTime> QueriedRecentTransferSinceUtc { get; } = [];
+
+    public void SetRecentClubTransfers(string clubQid, RecentClubTransferLookupResult result) =>
+        _recentTransfersByClubQid[clubQid] = result;
+
+    public void FailNextRecentTransferCalls(int calls) => _remainingRecentTransferFailures = calls;
+
+    public Task<RecentClubTransferLookupResult> QueryRecentClubTransfersAsync(
+        string clubWikidataQid, string clubName, DateTime sinceUtc, CancellationToken cancellationToken = default)
+    {
+        QueriedRecentTransferClubQids.Add(clubWikidataQid);
+        QueriedRecentTransferClubNames.Add(clubName);
+        QueriedRecentTransferSinceUtc.Add(sinceUtc);
+
+        if (_remainingRecentTransferFailures > 0)
+        {
+            _remainingRecentTransferFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for recent transfers at club {clubWikidataQid}");
+        }
+
+        var result = _recentTransfersByClubQid.TryGetValue(clubWikidataQid, out var configured)
+            ? configured
+            : new RecentClubTransferLookupResult(
+                new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>(), new Dictionary<string, string>());
+        return Task.FromResult(result);
+    }
+
     // ADR-0056: QuerySitelinkCountsByQidsAsync support — same "configured
     // per-QID, plus one shared fail-next-N-calls counter" shape as every
     // other batch-style method above. Never actually exercised by

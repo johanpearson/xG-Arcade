@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace XGArcade.DataSync.Wikidata;
 
 // S-155 (docs/backlog.md, Epic 17): every SPARQL query-building method
@@ -225,6 +227,114 @@ internal static class SparqlQueryBuilders
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
         """;
+
+    // S-188 (docs/backlog.md, Epic 26 — Supabase free-tier egress
+    // remediation; a THIRD freshness mechanism alongside ADR-0088's
+    // skip-forever default and ADR-0090's rotating bounded resweep — both on
+    // PlayerCareerPrefetchService's full player-pool sweep. See both ADRs'
+    // own "Alternatives considered" for why neither alone gives a real-time
+    // answer to "a transfer just happened, reflect it now"): a cheap,
+    // targeted, DATE-FILTERED query for players who joined a seeded club's
+    // ?clubStatement since sinceUtc — RecentTransferSweepService's own
+    // per-club fetch, meant to be run manually (workflow_dispatch) around a
+    // transfer-window deadline day rather than waiting out ADR-0090's
+    // multi-month rotation period for that specific club to come back
+    // around.
+    //
+    // Cheap and safe to run often specifically BECAUSE WDQS filters by date
+    // SERVER-SIDE (the FILTER below) — unlike BuildPlayerPoolByClubQuery's
+    // own full, unbounded pool scan (every player who has EVER played for
+    // this club), this query's result set is naturally bounded by how much
+    // real transfer activity actually happened at this one club since
+    // sinceUtc, not by squad size or career-history depth. See
+    // BuildRecentClubDeparturesQuery just below for the pq:P582 mirror that
+    // catches the opposite direction (an existing ongoing stint's end date
+    // getting filled in).
+    //
+    // MUST use the full statement path (p:P54/ps:P54), never the truthy
+    // wdt:P54 shortcut BuildPlayerPoolByClubQuery's own comment warns
+    // against simplifying to — doubly so here, since this query's whole
+    // point is reading the pq:P580 qualifier ON that statement (the
+    // transfer date itself), a triple that does not even exist under the
+    // truthy wdt: shortcut (that shortcut only ever exposes the statement's
+    // best-rank VALUE, never its qualifiers). wdt:P54 therefore cannot
+    // answer "when did this happen" at all — this isn't only the usual
+    // "ever played for, not currently plays for" correctness preference
+    // every other P54 use in this file gives, it's a mechanical requirement
+    // of the query shape itself.
+    //
+    // ?endTime/?numberOfMatches are OPTIONAL, same reasoning as every other
+    // qualifier fetch in this file (a stint that both started and ended
+    // inside the same lookback window — a very short loan — still matches
+    // the rest of the query rather than being dropped). No MINUS
+    // national-team exclusion (unlike BuildPlayerCareerStintsByQidsQuery) —
+    // this query is already scoped to one caller-supplied clubQid (always a
+    // seeded ClubDefinition, never a national team), not a free ?club
+    // binding across a player's whole career, so there is nothing to
+    // exclude.
+    //
+    // No ?club/?clubLabel projection at all, unlike
+    // BuildPlayerCareerStintsByQidsQuery — the caller already knows exactly
+    // which club this is (the ClubDefinition it's iterating), so there is no
+    // ambiguous label to canonicalize the way that method's own QID-based
+    // canonicalization exists to solve (see WikidataCareerStintEntry's own
+    // doc comment). RecentTransferSweepService supplies
+    // ClubDefinition.Name directly to
+    // SparqlResponseParsers.ParseRecentClubTransferBindings — the same
+    // "this exact row IS the club, unambiguous" reasoning
+    // PlayerCareerPrefetchService.SweepClubsAsync's own comment already
+    // gives for its own club sweep (club.Name, never clubNameByClubQid).
+    internal static string BuildRecentClubArrivalsQuery(string clubQid, DateTime sinceUtc) => $$"""
+        SELECT ?player ?playerLabel ?startTime ?endTime ?numberOfMatches WHERE {
+          ?player wdt:P106 wd:Q937857.
+          ?player p:P54 ?clubStatement.
+          ?clubStatement ps:P54 wd:{{clubQid}}.
+          ?clubStatement pq:P580 ?startTime.
+          FILTER(?startTime >= "{{FormatSparqlDateTime(sinceUtc)}}"^^xsd:dateTime)
+          OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+          OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+          MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """;
+
+    // S-188: the pq:P582 ("end time") mirror of BuildRecentClubArrivalsQuery
+    // above — catches a departure (an existing stint's end date getting
+    // filled in for the first time) the same server-side-filtered way.
+    // ?startTime is OPTIONAL here, unlike the arrivals query's MANDATORY
+    // bind above — this query's own FILTER is on ?endTime, not ?startTime,
+    // so a real stint whose start date was never recorded on Wikidata at
+    // all still matches the rest of this query. RecentTransferSweepService's
+    // own reconciliation (PlayerCareerStintRefreshService.BuildNewStintsByPlayerId
+    // -> CareerStintReconciler.Reconcile, keyed on (ClubName, StartYear))
+    // simply has no key to match such a row against an existing stored row,
+    // and SparqlResponseParsers.ParseRecentClubTransferBindings drops it
+    // (same "startTime is non-nullable, skip if absent" discipline
+    // ParseCareerStintBindings already uses) — a known, accepted
+    // limitation (the same "omit rather than mislead" posture this codebase
+    // already applies to an unknown AppearanceCount), not a bug.
+    internal static string BuildRecentClubDeparturesQuery(string clubQid, DateTime sinceUtc) => $$"""
+        SELECT ?player ?playerLabel ?startTime ?endTime ?numberOfMatches WHERE {
+          ?player wdt:P106 wd:Q937857.
+          ?player p:P54 ?clubStatement.
+          ?clubStatement ps:P54 wd:{{clubQid}}.
+          ?clubStatement pq:P582 ?endTime.
+          FILTER(?endTime >= "{{FormatSparqlDateTime(sinceUtc)}}"^^xsd:dateTime)
+          OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+          OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+          MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """;
+
+    // ISO 8601 UTC, matching DateOfBirthCutoff's own literal format
+    // ("1939-01-01T00:00:00Z") — xsd:dateTime requires this exact shape.
+    // sinceUtc is assumed already UTC (RecentTransferSweepService computes
+    // it via DateTime.UtcNow.AddDays(-lookbackDays)); ToUniversalTime() is
+    // still applied defensively so a caller that accidentally passes a
+    // local-kind DateTime doesn't silently produce a wrong-timezone filter.
+    private static string FormatSparqlDateTime(DateTime sinceUtc) =>
+        sinceUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
     // A VALUES clause over the batch, not a candidate-matching pattern —
     // deliberately no male/date-of-birth/occupation filter here, unlike

@@ -49,6 +49,7 @@ public static class CliVerbDispatcher
         ["backfill-player-photos"] = HandleBackfillPlayerPhotosAsync,
         ["backfill-player-position-birthyear"] = HandleBackfillPlayerPositionBirthYearAsync,
         ["prefetch-player-careers"] = HandlePrefetchPlayerCareersAsync,
+        ["sweep-recent-transfers"] = HandleSweepRecentTransfersAsync,
         ["verify-wikidata-player-data"] = HandleVerifyWikidataPlayerDataAsync,
         ["audit-club-gaps"] = HandleAuditClubGapsAsync,
         ["clean-stale-club-attributes"] = HandleCleanStaleClubAttributesAsync,
@@ -442,6 +443,80 @@ public static class CliVerbDispatcher
             $"{prefetchResult.ClubsProcessed} club(s) processed, {prefetchResult.ClubsSkipped} club(s) skipped (already swept), " +
             $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added, " +
             $"{prefetchResult.AttributesAdded} attribute(s) added.");
+        return true;
+    }
+
+    // S-188 (docs/backlog.md, Epic 26 — Supabase free-tier egress
+    // remediation): `dotnet run -- sweep-recent-transfers [lookbackDays]` —
+    // a THIRD freshness mechanism alongside ADR-0088/ADR-0090's work on
+    // prefetch-player-careers/resweep-player-careers above. Builds its
+    // dependencies directly rather than the full DI container, same shape
+    // as every other bulk-Wikidata verb in this file, since this runs before
+    // WebApplication.CreateBuilder. See IRecentTransferSweepService's own
+    // doc comment for the full "what this is for / deliberate scope
+    // boundary" reasoning.
+    //
+    // Optional single argument, lookbackDays (defaults to 30 when omitted) —
+    // same "prefix-match, validate and throw on a malformed shape" pattern
+    // ADR-0090/S-187 already moved prefetch-player-careers onto for its own
+    // optional argument (see HandlePrefetchPlayerCareersAsync's own doc
+    // comment for the full "exact-match vs. prefix-match" taxonomy this
+    // verb also uses): a malformed value fails loudly rather than silently
+    // falling through to starting the full server.
+    //
+    // 30 days: an operator running this manually right before/during a
+    // transfer-window deadline day wants to capture the WHOLE current
+    // window's activity in one dispatch, not just since the last run — top
+    // transfer windows commonly run 4-6 weeks, so a 30-day default gives
+    // real overlap without the operator having to know or guess exactly
+    // when the current window opened. The result set stays cheap regardless
+    // of the exact window size: WDQS filters by date server-side (see
+    // SparqlQueryBuilders.BuildRecentClubArrivalsQuery's own doc comment),
+    // so cost tracks real transfer activity, not the lookback window length.
+    private static async Task<bool> HandleSweepRecentTransfersAsync(string[] args)
+    {
+        const int defaultLookbackDays = 30;
+
+        if (args.Length > 2)
+            throw new InvalidOperationException(
+                "sweep-recent-transfers takes at most one optional argument (lookbackDays), " +
+                $"got '{string.Join(" ", args.Skip(1))}'.");
+
+        var lookbackDays = defaultLookbackDays;
+        if (args.Length == 2)
+        {
+            if (!int.TryParse(args[1], out var parsedLookbackDays) || parsedLookbackDays <= 0)
+                throw new InvalidOperationException(
+                    "sweep-recent-transfers's optional argument must be a positive integer (lookbackDays), " +
+                    $"got '{args[1]}'.");
+            lookbackDays = parsedLookbackDays;
+        }
+
+        using var sweepLoggerFactory = BuildLoggerFactory();
+
+        await using var sweepDbContext = BuildDbContext();
+        var sweepCategoryValueRepository = new CategoryValueRepository(sweepDbContext);
+        var sweepPlayerCareerStintRepository = new PlayerCareerStintRepository(sweepDbContext);
+        var sweepPlayerRepository = new PlayerRepository(sweepDbContext);
+
+        var sweepWikidataClient = BuildWikidataClient(sweepLoggerFactory);
+
+        var sweepService = new RecentTransferSweepService(
+            sweepCategoryValueRepository, sweepPlayerCareerStintRepository, sweepPlayerRepository,
+            sweepWikidataClient, sweepLoggerFactory.CreateLogger<RecentTransferSweepService>());
+
+        // Deliberately unhandled — SweepAsync throws only after every seeded
+        // club has been attempted (see its own doc comment), so the process
+        // exits nonzero and the workflow run goes red exactly when something
+        // needs a re-run — same fail-loud-at-the-end contract as
+        // prefetch-player-careers/import-player-name-index.
+        var sweepResult = await sweepService.SweepAsync(lookbackDays);
+
+        Console.WriteLine(
+            $"sweep-recent-transfers: complete — lookback {lookbackDays} day(s), " +
+            $"{sweepResult.ClubsProcessed} club(s) processed, {sweepResult.ClubsFailed} club(s) failed, " +
+            $"{sweepResult.PlayersTouched} player(s) touched, {sweepResult.StintsAdded} stint(s) added, " +
+            $"{sweepResult.StintsCompleted} stint(s) completed.");
         return true;
     }
 

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.17"
+version: "2.18"
 status: draft
 last_updated: 2026-08-29
 owner: Johan
@@ -793,6 +793,30 @@ without erroring), API
   ~64-entity sweep), and the accepted staleness-window trade-off (freshness
   within roughly a season — ~49 weeks for countries, ~15 for clubs at
   N=2/week — not real-time).
+- **Status note (2026-08-29, S-188, ADR-0092): a third, orthogonal
+  freshness mechanism — a targeted, date-filtered per-club sweep for
+  faster-than-the-rotation checks around a transfer-window deadline.**
+  New `IRecentTransferSweepService`/`RecentTransferSweepService` and CLI
+  verb `sweep-recent-transfers [lookbackDays]` (default 30) run two new
+  server-side date-filtered SPARQL queries per seeded `ClubDefinition`
+  (`pq:P580`/`pq:P582` qualifier `FILTER`s) and reconcile any arrival/
+  departure through ADR-0091's existing `CareerStintReconciler` — reused,
+  not reimplemented. `workflow_dispatch`-only for now, deliberately no
+  cron (see ADR-0092 for the full reasoning: an unproven query shape plus
+  an inherently event-driven need). This mechanism neither reads nor
+  writes `PlayerPoolSweptAt` and does not compete with ADR-0088's
+  skip-forever default or ADR-0090's rotation — it is a narrower,
+  operator-triggered supplement. **Caveat on the REQ-110 tag itself:**
+  this piece's actual write surface is `PlayerCareerStint` only — it
+  never writes `PlayerAttribute`, the subject REQ-110 is literally about
+  — so tagging it REQ-110 (matching S-186/S-187's own precedent) is an
+  accepted, non-blocking stretch, not a clean fit; see ADR-0092's "The
+  REQ-110 tag" section for the full reasoning and a suggested follow-up.
+  A freshly-transferred player therefore becomes visible in xG Path's
+  career timeline sooner than ADR-0090's rotation would surface it, but
+  does **not** become a valid xG Grid guess answer any sooner — a
+  deliberate, stated scope boundary (ADR-0092's "Grid-vs-Path freshness
+  asymmetry" section), not an oversight.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a

@@ -122,6 +122,15 @@ internal sealed class FakeWikidataClient : IWikidataClient
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());
 
+    // S-188: GridGameModule never calls this (it's RecentTransferSweepService's
+    // own sweep-time method, not part of grid generation or guess-scoring)
+    // — a trivial stub, same as QueryPlayerPoolByClubAsync/
+    // QueryPlayerPoolByNationalityAsync above.
+    public Task<RecentClubTransferLookupResult> QueryRecentClubTransfersAsync(
+        string clubWikidataQid, string clubName, DateTime sinceUtc, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new RecentClubTransferLookupResult(
+            new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>(), new Dictionary<string, string>()));
+
     // REQ-509/510 (S-090): GridGameModule never calls this (it's
     // AdminSuggestionEndpoints' admin-lookup method, not part of grid
     // generation or guess-scoring) — a trivial stub, same as every other

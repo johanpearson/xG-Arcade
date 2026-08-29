@@ -1,0 +1,92 @@
+name: sweep-recent-transfers
+
+# S-188 (docs/backlog.md, Epic 26 — Supabase free-tier egress remediation):
+# a THIRD freshness mechanism alongside ADR-0088's "ever swept, skip
+# forever" default and ADR-0090's rotating bounded resweep (both on
+# prefetch-player-careers.yml/resweep-player-careers.yml). ADR-0090's own
+# rotation is deliberately slow (a full cycle over the seeded countries/
+# clubs takes on the order of a season) — fine for general drift, but
+# useless for reflecting a transfer that just happened around a
+# transfer-window deadline day. This workflow runs a cheap, targeted,
+# DATE-FILTERED SPARQL query per seeded club instead (pq:P580/pq:P582
+# qualifier FILTERs, filtered server-side by WDQS — see
+# SparqlQueryBuilders.BuildRecentClubArrivalsQuery/BuildRecentClubDeparturesQuery's
+# own doc comments), rather than waiting out the rotation for that one
+# club to come back around.
+#
+# Deliberately narrower in SCOPE than prefetch-player-careers.yml, not just
+# in query shape: this only ever writes PlayerCareerStint rows (xG Path's
+# own byproduct data) — it does NOT write PlayerAttribute/PlayerData (xG
+# Grid's own guess-correctness answer key) and does NOT touch
+# PlayerPoolSweptAt at all. See IRecentTransferSweepService's own doc
+# comment (backend/src/XGArcade.DataSync/Wikidata/IRecentTransferSweepService.cs)
+# for the full reasoning and the deliberate scope boundary this leaves for
+# a possible follow-up story.
+#
+# CADENCE — workflow_dispatch ONLY, deliberately no cron, for now:
+#   - This is a brand-new, unproven query shape (never run against the real
+#     query.wikidata.org endpoint from this sandbox — see this story's own
+#     PR/commit message). prefetch-player-careers.yml's own history set the
+#     precedent for this exact situation: it started manual-only "until a
+#     real run's cost/runtime/failure pattern is confirmed," and only
+#     resweep-player-careers.yml's cron was added later, once ADR-0090 had
+#     confirmed the approach was safe. This workflow follows the same
+#     bootstrapping discipline rather than assuming a new query shape is
+#     safe unattended from day one.
+#   - The per-run cost IS genuinely small even estimated pessimistically:
+#     ~15 seeded clubs x 2 queries (arrivals + departures) = ~30 small,
+#     WDQS-server-filtered SPARQL queries, plus typically only a handful of
+#     Postgres reads/writes for whatever a real transfer window actually
+#     produced (not a full-pool sweep) — nowhere near the scale of the
+#     incident ADR-0088 fixed (9 unbounded manual re-dispatches in ~36
+#     hours, each re-sweeping the ENTIRE ~64-entity seeded pool, one run
+#     alone touching 193,382 players / 527,252 stints). On raw per-run cost
+#     alone, a daily cron would very likely also be safe.
+#   - But the PRODUCT need this story solves is inherently event-driven
+#     ("around a transfer-window deadline day"), not continuous — transfer
+#     windows are ~4-6 weeks, twice a year. A cron running 365 days/year
+#     would spend the overwhelming majority of its runs finding nothing
+#     (near-zero Postgres writes outside a window), for a benefit
+#     concentrated in a few weeks. That's unnecessary operational surface
+#     (CI minutes, a routinely-green-but-pointless job, one more thing that
+#     can page someone if it goes red for no player-facing reason) for zero
+#     added freshness benefit outside the windows this exists for.
+#   - Given both points, the deliberate call is: confirm a real run's
+#     cost/behavior manually first (same as prefetch-player-careers.yml
+#     did), and revisit adding a cron — most plausibly scoped to the actual
+#     transfer-window date ranges, not a naive daily/weekly schedule — only
+#     once that's confirmed and the product owner actually wants
+#     always-on coverage rather than an operator-triggered tool for the
+#     known deadline dates.
+#
+# Concurrency guard: same `group: ${{ github.workflow }}` pattern S-186
+# added to every other bulk Wikidata job — queues rather than cancels a
+# second dispatch of THIS workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: >
+          How many days back to check each seeded club for new arrivals
+          (pq:P580) or departures (pq:P582). Defaults to 30 (covers a full
+          typical transfer window) when left blank.
+        required: false
+        default: '30'
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  sweep-recent-transfers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Sweep recent club transfers
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: sweep-recent-transfers
+          arg: ${{ github.event.inputs.lookback_days || '30' }}
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

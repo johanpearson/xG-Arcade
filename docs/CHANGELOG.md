@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-29 — `docs/decisions/0092-targeted-date-filtered-recent-transfer-sweep.md`
+  (new ADR), `docs/architecture-document.md` (COMP-07 row and §5.3 ADR
+  evolution table), `docs/requirements-document.md` (REQ-110 status note),
+  `docs/backlog.md` (S-188 "Built as" addendum) — documentation-sync pass
+  for S-188 (Epic 26, third freshness mechanism after S-186/ADR-0088's
+  skip-forever default and S-187/ADR-0090's bounded rotation): a targeted,
+  date-filtered per-club sweep (`RecentTransferSweepService`,
+  `sweep-recent-transfers.yml`, `workflow_dispatch`-only) for
+  faster-than-the-rotation freshness around a transfer-window deadline,
+  writing only `PlayerCareerStint` via ADR-0091's shared
+  `CareerStintReconciler`. Explicitly does not touch `PlayerAttribute`/
+  `PlayerPoolSweptAt`, so a freshly-transferred player is visible in xG
+  Path sooner but is not a valid xG Grid guess answer any sooner than
+  ADR-0090's rotation — a deliberate, stated scope boundary, not an
+  oversight. REQ/ADR refs: REQ-110 (accepted imperfect fit, see ADR-0092),
+  ADR-0092, S-188.
 - 2026-08-29 — `docs/decisions/0090-rotating-bounded-resweep-of-swept-pools.md`
   and `docs/decisions/0091-career-stint-completion-narrow-exception.md`
   (new ADRs), `docs/requirements-document.md` (REQ-110 and REQ-1203 status

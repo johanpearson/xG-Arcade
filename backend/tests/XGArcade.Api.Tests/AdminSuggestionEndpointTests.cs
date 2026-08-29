@@ -1035,6 +1035,14 @@ public class AdminSuggestionEndpointTests
             string clubWikidataQid, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
 
+        // S-188: never touched by AdminSuggestionEndpoints (it's
+        // RecentTransferSweepService's own sweep-time method) — a trivial
+        // stub, same as QueryPlayerPoolByClubAsync above.
+        public Task<RecentClubTransferLookupResult> QueryRecentClubTransfersAsync(
+            string clubWikidataQid, string clubName, DateTime sinceUtc, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new RecentClubTransferLookupResult(
+                new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>(), new Dictionary<string, string>()));
+
         public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
             IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());
