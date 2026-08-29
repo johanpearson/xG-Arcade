@@ -1007,4 +1007,257 @@ public class GridGenerationServiceTests
         Assert.That(_wikidataLookupService.GetTrophyClubLastIsTeamTrophy("UEFA Champions League", "Real Madrid"), Is.True,
             "CategoryCandidate must carry TrophyDefinition.IsTeamTrophy through to the Trophy x Club live-lookup dispatch site (ADR-0061)");
     }
+
+    // ---- ADR-0089: per-header category mixing ------------------------------
+    // Dedicated coverage of the mixing mechanism itself, beyond what the
+    // adapted tests above needed to stay green. Unlike this file's other
+    // tests, REQ107_GenerateInstanceAsync_HeadersOnSameAxis_CanMixMultipleCategoryTypes
+    // and REQ107_GenerateInstanceAsync_NeverProducesCountryCountryCell_UnderMixedHeaders
+    // don't seed a minimal, fully-determined candidate set — they seed a
+    // large, richly-connected Country+Club+Trophy pool and run generation
+    // repeatedly against the real (unpinned) _random field, asserting on
+    // what happens ACROSS trials rather than pinning one outcome, per this
+    // file's own header comment on why Random can't safely be pinned here.
+    // SeedFullyConnectedMixedPool below is this section's shared setup:
+    // `perType` distinct candidates of each of the three types, with every
+    // valid (non-Country x Country) cross-type pairing cached at
+    // `minValidAnswers` matches — Trophy x Trophy is deliberately left
+    // unseeded (falls back to REQ-101's ordinary retry, per REQ-107's own
+    // "not a separate categorical ban" clause), and Country x Country is
+    // never queried at all, since REQ-107 rejects it before any match-count
+    // check ever runs.
+    private void SeedFullyConnectedMixedPool(int perType, int minValidAnswers)
+    {
+        var countries = Enumerable.Range(0, perType).Select(i => $"MixCountry{i}").ToList();
+        var clubs = Enumerable.Range(0, perType).Select(i => $"MixClub{i}").ToList();
+        var trophies = Enumerable.Range(0, perType).Select(i => $"MixTrophy{i}").ToList();
+        foreach (var country in countries) SeedCountry(country);
+        foreach (var club in clubs) SeedClub(club);
+        foreach (var trophy in trophies) SeedTrophy(trophy);
+
+        foreach (var country in countries)
+            foreach (var club in clubs)
+                SeedCachedMatches(country, club, minValidAnswers);
+        for (var i = 0; i < clubs.Count; i++)
+            for (var j = i + 1; j < clubs.Count; j++)
+                SeedCachedClubClubMatches(clubs[i], clubs[j], minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var country in countries)
+                SeedCachedTrophyCountryMatches(trophy, country, minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var club in clubs)
+                SeedCachedTrophyClubMatches(trophy, club, minValidAnswers);
+    }
+
+    // Proves ADR-0089's core claim: a single grid instance CAN mix category
+    // types on one axis (e.g. a Country row alongside a Club row), which was
+    // structurally impossible before this ADR (every row shared one fixed
+    // CategoryType via the now-removed SelectPairing). With 4 well-connected
+    // candidates of each of the 3 types (12 total) drawn uniformly for a
+    // size-3 grid, the row axis alone is homogeneous only if all 3 row picks
+    // land on the same type — roughly a 5% chance per trial (3 * C(4,3) /
+    // C(12,3)) — so across 25 independent trials against the real, unpinned
+    // Random field, the odds every single trial produces a homogeneous row
+    // AND column axis are astronomically small; this is an intentional
+    // distribution-based assertion (per this file's own header comment on
+    // why Random can't be pinned), not a flaky one.
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_HeadersOnSameAxis_CanMixMultipleCategoryTypes()
+    {
+        const int minValidAnswers = 5;
+        SeedFullyConnectedMixedPool(perType: 4, minValidAnswers);
+        var template = SeedTemplate(size: 3);
+        var service = BuildService(minValidAnswers, maxAttempts: 500);
+
+        var mixedAxisSeen = false;
+        for (var trial = 0; trial < 25 && !mixedAxisSeen; trial++)
+        {
+            var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+            var rowTypeCount = instance!.Cells.Select(c => c.RowCategoryType).Distinct().Count();
+            var colTypeCount = instance.Cells.Select(c => c.ColCategoryType).Distinct().Count();
+            if (rowTypeCount > 1 || colTypeCount > 1)
+                mixedAxisSeen = true;
+        }
+
+        Assert.That(mixedAxisSeen, Is.True,
+            "ADR-0089: with a well-connected mixed-type pool, headers on a single axis must be able to span more " +
+            "than one CategoryType — across 25 trials against the real Random field, at least one should show " +
+            "row or column headers of more than one type");
+    }
+
+    // The safety half of the same scenario: no matter how often — or how
+    // heavily Country-typed — the header draw mixes types across both axes,
+    // REQ-107's ban must still hold on every single generated cell. Before
+    // ADR-0089, a per-instance-fixed pairing made this trivially true (a
+    // Country-rows/Club-columns instance could never even attempt a
+    // Country x Country cell); this test proves the NEW per-cell check
+    // (TryComputeMatchCountsAsync, checked before any match-count query)
+    // does the same job now that rows and columns are no longer
+    // homogeneously typed and a Country row can land opposite a Country
+    // column candidate. Countries deliberately outnumber clubs/trophies
+    // (6 vs 3 each) to make multiple countries landing on both axes in the
+    // same instance likely across repeated trials.
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_NeverProducesCountryCountryCell_UnderMixedHeaders()
+    {
+        const int minValidAnswers = 5;
+        var countries = Enumerable.Range(0, 6).Select(i => $"HeavyCountry{i}").ToList();
+        var clubs = Enumerable.Range(0, 3).Select(i => $"HeavyClub{i}").ToList();
+        var trophies = Enumerable.Range(0, 3).Select(i => $"HeavyTrophy{i}").ToList();
+        foreach (var country in countries) SeedCountry(country);
+        foreach (var club in clubs) SeedClub(club);
+        foreach (var trophy in trophies) SeedTrophy(trophy);
+        foreach (var country in countries)
+            foreach (var club in clubs)
+                SeedCachedMatches(country, club, minValidAnswers);
+        for (var i = 0; i < clubs.Count; i++)
+            for (var j = i + 1; j < clubs.Count; j++)
+                SeedCachedClubClubMatches(clubs[i], clubs[j], minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var country in countries)
+                SeedCachedTrophyCountryMatches(trophy, country, minValidAnswers);
+        foreach (var trophy in trophies)
+            foreach (var club in clubs)
+                SeedCachedTrophyClubMatches(trophy, club, minValidAnswers);
+        var template = SeedTemplate(size: 3);
+        var service = BuildService(minValidAnswers, maxAttempts: 500);
+
+        for (var trial = 0; trial < 25; trial++)
+        {
+            var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+            Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
+                c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Country),
+                $"trial {trial}: Country x Country must never be produced (REQ-107), regardless of how many " +
+                "Country-typed headers land on either axis under the new per-header mixing mechanism (ADR-0089)");
+        }
+    }
+
+    // ---- REQ-102/ADR-0089: value-collision dedup generalizes to (CategoryType, Name)
+
+    // The old axis-level dedup ("only filter by name if both axes share one
+    // type") is gone — ADR-0089 point 3 replaces it with a per-(CategoryType,
+    // Name) equality check. Note: CountryDefinition/ClubDefinition/
+    // TrophyDefinition.Name each carry their own real unique DB index
+    // (XGArcadeDbContext, "grid generation picks from these directly,
+    // REQ-109"), which EF Core's InMemory provider enforces the same as a
+    // real Postgres unique constraint would (see UserRepositoryTests/
+    // PlayerRepositoryTests for this repo's existing precedent of relying on
+    // that) — so two *same-type* candidates can never literally share a
+    // Name to begin with, and a test seeding two same-named ClubDefinition
+    // rows to force a collision would fail at seed time with a
+    // DbUpdateException, not exercise the dedup logic at all. What IS worth
+    // proving under real mixing (unlike the already-adapted, single-type
+    // REQ102 test above) is that this per-(CategoryType, Name) dedup keeps
+    // working correctly once rows AND columns are drawn from one shared,
+    // genuinely multi-type pool — i.e. that a Club (or Country, or Trophy)
+    // value used as a row header is still never reused as a column header of
+    // that SAME type, even though the two axes are no longer homogeneously
+    // typed. Runs many trials against the real, unpinned Random field (same
+    // rationale as the mixing tests above) rather than asserting on one draw.
+    [Test]
+    public async Task REQ102_GenerateInstanceAsync_UnderMixedHeaders_NoCategoryTypeSharesAValueAcrossRowAndColumnAxes()
+    {
+        const int minValidAnswers = 5;
+        SeedFullyConnectedMixedPool(perType: 4, minValidAnswers);
+        var template = SeedTemplate(size: 3);
+        var service = BuildService(minValidAnswers, maxAttempts: 500);
+
+        for (var trial = 0; trial < 25; trial++)
+        {
+            var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+            var rowKeys = instance!.Cells.Select(c => (c.RowCategoryType, c.RowCategoryValue)).Distinct().ToList();
+            var colKeys = instance.Cells.Select(c => (c.ColCategoryType, c.ColCategoryValue)).Distinct().ToList();
+            Assert.That(rowKeys.Intersect(colKeys), Is.Empty,
+                $"trial {trial}: no (CategoryType, Name) pair may appear as both a row and a column header, " +
+                "even once headers are drawn from one shared multi-type pool rather than two fixed per-axis pools (ADR-0089)");
+        }
+    }
+
+    // The cross-type counterpart: a Country and a Club sharing a literal
+    // Name string are NOT required to collide, since CategoryCandidate
+    // equality for REQ-102's dedup purposes is (CategoryType, Name), not
+    // Name alone (ADR-0089 point 3's own "a Country and a Club value can
+    // never collide by name" precedent, now generalized instead of assumed
+    // via an axis-level type check). Only 2 total candidates are seeded —
+    // Country "Atlantis" and Club "Atlantis" — so whichever the shuffle
+    // draws as the row, the other is the only column candidate, and REQ-102
+    // must accept it despite the shared Name, since it's a different
+    // CategoryType.
+    [Test]
+    public async Task REQ102_GenerateInstanceAsync_DifferentCategoryTypeSharingName_AreNotTreatedAsColliding()
+    {
+        SeedCountry("Atlantis");
+        SeedClub("Atlantis");
+        SeedCachedMatches("Atlantis", "Atlantis", 3);
+        var template = SeedTemplate(size: 1);
+        var service = BuildService(minValidAnswers: 3, maxAttempts: 5);
+
+        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        var cell = instance.Cells[0];
+        Assert.That(cell.RowCategoryValue, Is.EqualTo("Atlantis"));
+        Assert.That(cell.ColCategoryValue, Is.EqualTo("Atlantis"));
+        Assert.That(
+            new[] { cell.RowCategoryType, cell.ColCategoryType },
+            Is.EquivalentTo(new[] { CategoryPairingRules.Country, CategoryPairingRules.Club }),
+            "a Country and a Club sharing the literal Name 'Atlantis' must both be usable in the same grid — " +
+            "REQ-102's dedup is per (CategoryType, Name), not Name alone");
+    }
+
+    // ---- REQ-101/ADR-0089: MinValidAnswers threshold under the mixed-selection path
+
+    // Re-proves REQ101_GridGeneration_DiscardsCellWithFewerThanMinimumAnswers's
+    // point (a below-threshold candidate is discarded and retried) but with
+    // a genuinely mixed Country+Club+Trophy pool, exercising the check as it
+    // now runs inside TryComputeMatchCountsAsync's combined-pool loop rather
+    // than the old single-pairing-type PickHeadersAsync. Only one Country is
+    // seeded, so REQ-107's pairing ban can never itself be the reason a
+    // candidate is rejected here — every rejection in this test must be a
+    // genuine MinValidAnswers failure. "GoodHub" (a Club) is a universal
+    // connector: every other candidate has >= MinValidAnswers matches
+    // against it, while every OTHER (non-GoodHub) pair stays below
+    // threshold — so regardless of which single candidate the shuffle picks
+    // as the row, the retry loop must discard every weak candidate before
+    // finally accepting GoodHub.
+    [Test]
+    public async Task REQ101_GridGeneration_DiscardsBelowThresholdCandidate_AcrossMixedCategoryTypes()
+    {
+        const int minValidAnswers = 3;
+        SeedCountry("WeakCountry");
+        SeedClub("WeakClubA");
+        SeedClub("WeakClubB");
+        SeedTrophy("WeakTrophy");
+        SeedClub("GoodHub");
+        var template = SeedTemplate(size: 1);
+        // GoodHub against every other candidate: exactly at threshold.
+        SeedCachedMatches("WeakCountry", "GoodHub", minValidAnswers);
+        SeedCachedClubClubMatches("GoodHub", "WeakClubA", minValidAnswers);
+        SeedCachedClubClubMatches("GoodHub", "WeakClubB", minValidAnswers);
+        SeedCachedTrophyClubMatches("WeakTrophy", "GoodHub", minValidAnswers);
+        // Every weak-vs-weak pair: below threshold.
+        SeedCachedMatches("WeakCountry", "WeakClubA", 1);
+        SeedCachedMatches("WeakCountry", "WeakClubB", 0);
+        SeedCachedTrophyCountryMatches("WeakTrophy", "WeakCountry", 1);
+        SeedCachedClubClubMatches("WeakClubA", "WeakClubB", 0);
+        SeedCachedTrophyClubMatches("WeakTrophy", "WeakClubA", 2);
+        SeedCachedTrophyClubMatches("WeakTrophy", "WeakClubB", 1);
+        var service = BuildService(minValidAnswers, maxAttempts: 20);
+
+        var result = await service.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        Assert.That(
+            new[] { instance.Cells[0].RowCategoryValue, instance.Cells[0].ColCategoryValue },
+            Does.Contain("GoodHub"),
+            "whichever candidate the shuffle picked as the row, every weak-vs-weak candidate is below " +
+            "MinValidAnswers regardless of category type, so only GoodHub can ever complete the grid");
+    }
 }
