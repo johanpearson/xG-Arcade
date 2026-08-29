@@ -8853,3 +8853,93 @@ locally run; a CI verification run (`ci.yml` `workflow_dispatch`) is
 needed before this is considered fully done. `docs/decisions/0088-*.md`
 (the freshness-policy decision above) to be added by the orchestrator in
 the docs-sync pass, not by this story's implementation itself.
+
+**S-187 · Rotating bounded re-sweep + fix duplicate-stint artifact on end-date completion (REQ-110, REQ-1203)**
+Follow-up to S-186, from a design discussion with the product owner
+identifying two small, independent gaps ADR-0088's "ever swept, skip
+forever" fix left behind. Two pieces in one story/PR:
+
+Piece 1 — `PrefetchAsync` gains an optional `maxEntitiesToResweep`
+parameter (`null` default preserves ADR-0088's exact unbounded-skip
+behavior unchanged). A non-null N additionally re-sweeps up to N
+already-swept entities (oldest `PlayerPoolSweptAt` first) on top of
+every never-swept entity (always swept, uncapped) — so a player
+transferring into an already-swept country's/club's pool eventually
+gets noticed again, in small bounded batches, without reintroducing
+the unbounded re-sweep cost ADR-0088 fixed. `SplitResweepBudget`
+divides one top-level budget across `SweepCountriesAsync`'s/
+`SweepClubsAsync`'s separate calls (ceiling half to countries — 49
+seeded vs ~15 clubs — so N=2 gives the product owner's own stated
+default of 1 country + 1 club per run). New weekly
+`resweep-player-careers.yml` workflow (Sunday 05:15 UTC, staggered
+after `warm-grid-cache.yml`'s 04:30 UTC slot) calls the same
+`prefetch-player-careers` CLI verb with a small bounded argument
+(default 2) — kept separate from `prefetch-player-careers.yml` since
+a single workflow can't parameterize per-cron-entry inputs; that
+file's own `workflow_dispatch` trigger is unchanged (still
+unbounded, the explicit "sweep everything not-yet-done" escape
+hatch). The CLI verb itself switches from S-112's "exact-match, extra
+tokens silently fall through" shape to a "prefix-match, validate and
+throw" shape for its own new optional argument.
+
+Piece 2 — `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`
+(shared by the per-target refresh and the bulk prefetch sweep,
+including piece 1's new rotation) deduped a freshly-fetched stint
+against stored rows on the full `(ClubName, StartYear, EndYear,
+AppearanceCount)` tuple. When a player transfers away from a club,
+Wikidata eventually fills in a previously-null `EndYear` on what was
+stored as an ongoing stint — the next fetch's non-null `EndYear` no
+longer matched the stored null, so it was inserted as a SECOND row: a
+duplicate-looking entry in xG Path's clue-reveal timeline for one
+real stint. Narrowed the matching key to `(PlayerId, ClubName,
+StartYear)` only — a match on that narrower key now either no-ops
+(identical) or queues a completion (existing row's `EndYear`/
+`AppearanceCount` overwritten with the fetched values) via a new
+`IPlayerCareerStintRepository.UpdateCareerStintCompletionsAsync`,
+rather than inserting a new row. Deliberately narrow: only completes
+an already-correct row's own end-of-stint fields, never revisits a
+stored `StartYear`/`ClubName` — a scoped, accepted exception to this
+file's "additive only, never wipe-and-replace" contract (referenced
+from ADR-0054's Consequences section), not a reversal of it.
+`WikidataLookupService.PersistCareerStintsAsync` (xG Grid's own
+guess-time byproduct write path, not routed through
+`BuildNewStintsByPlayerId`) is untouched.
+
+*Accept:* piece 1 — `maxEntitiesToResweep: null` behaves exactly like
+before this story (regression coverage); a never-swept entity is
+always included regardless of budget size; with N already-swept
+entities eligible, only the N oldest-`PlayerPoolSweptAt` ones get
+re-swept (live Wikidata call + dedup read-back proven via persisted
+players), the rest stay skipped; N=2 splits into 1 country + 1 club.
+Piece 2 — an existing stored stint with `EndYear = null` gets its
+`EndYear` updated in place (not duplicated) when a fetch returns the
+same club/start-year with a real `EndYear`; a genuinely new club/
+start-year still inserts as a new row; an identical re-fetch remains
+a no-op; `UpdateCareerStintCompletionsAsync` never touches
+`SequenceOrder` and silently no-ops on a missing `stintId`.
+
+*Deps:* extends S-186/ADR-0088's existing freshness-skip and
+`PlayerCareerStintRefreshService`/`PlayerCareerPrefetchService`'s
+existing reconciliation logic — no new REQ; uses REQ-110 (piece 1)
+and REQ-1203 (piece 2, career-stint clue-reveal correctness).
+
+*Built as (2026-08-29):* as described above. Two commits: piece 1
+(`PlayerCareerPrefetchService`'s `SplitResweepBudget`/`SweepAsync`
+changes, `IPlayerCareerPrefetchService`/CLI dispatcher/new workflow,
+`PlayerCareerPrefetchServiceTests.cs`), then piece 2
+(`PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`'s
+narrowed key + `CareerStintReconciliation` return shape,
+`IPlayerCareerStintRepository`/`PlayerCareerStintRepository`'s new
+`UpdateCareerStintCompletionsAsync`, `PlayerCareerStintRepositoryTests.cs`,
+`PlayerCareerStintRefreshServiceTests.cs`, and a small comment
+correction in `DuplicateCareerStintCleaner.cs` — its own full-tuple
+match is unaffected, now described as strictly more conservative than
+the live write path's narrower key).
+
+Testing: no local `dotnet` SDK available in-sandbox — all new/changed
+backend code was hand-traced against existing test patterns and the
+InMemory-provider repository behavior, not locally run; a CI
+verification run (`ci.yml` `workflow_dispatch`) is needed before this
+is considered fully done. An ADR for piece 2's narrow exception to
+the "additive only" contract is left to the orchestrator's docs-sync
+pass, not written by this story's implementation itself.
