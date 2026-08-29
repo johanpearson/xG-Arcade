@@ -108,10 +108,22 @@ public class RoundEndpointTests
         // that used to be structurally unreachable (Club x Club needed
         // 2 x size clubs under the old SelectPairing, more than this fixture
         // ever seeded) can now actually fire and validate the QID format.
-        var countries = Enumerable.Range(0, size)
+        //
+        // CI-found fix (2026-08-29): countries/clubs seeded at exactly
+        // `size` (no trophies at all in this fixture) hits a real deficit,
+        // not just "zero slack" — Country x Country is banned, so ANY
+        // country row dooms every remaining country candidate; whenever the
+        // row draw picks a 2-of-one-type + 1-of-the-other split (roughly
+        // 90% of all 3-header draws from a 2-type, 3-each pool), only
+        // `clubCount - (clubs used as rows)` candidates stay valid, which
+        // can drop below `size`. Widened to `size + 3` (clubs specifically
+        // need >= 2*size - 1 to guarantee no deficit under this worst case
+        // — see NOTES.md's 2026-08-29 entry for the derivation) so
+        // generation always succeeds regardless of the random split.
+        var countries = Enumerable.Range(0, size + 3)
             .Select(i => new CountryDefinition { Id = Guid.NewGuid(), Name = $"Country{i}", WikidataQid = $"Q1{i}" })
             .ToList();
-        var clubs = Enumerable.Range(0, size)
+        var clubs = Enumerable.Range(0, size + 3)
             .Select(i => new ClubDefinition { Id = Guid.NewGuid(), Name = $"Club{i}", WikidataQid = $"Q2{i}" })
             .ToList();
         dbContext.CountryDefinitions.AddRange(countries);
