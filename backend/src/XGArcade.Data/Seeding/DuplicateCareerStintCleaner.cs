@@ -48,10 +48,16 @@ namespace XGArcade.Data.Seeding;
 // correctly so, since NormalizeClubName's own comment already establishes
 // why a broader fuzzy match is a correctness risk, not just here but there
 // too. This mirrors the exact (ClubName, StartYear, EndYear,
-// AppearanceCount) tuple both writers already dedup new stints against
-// (WikidataLookupService.PersistCareerStintsAsync/
-// PlayerCareerStintRefreshService.BuildNewStintsByPlayerId) — same key, run
-// retroactively over already-persisted rows instead of at write time.
+// AppearanceCount) tuple WikidataLookupService.PersistCareerStintsAsync
+// still dedups new stints against, run retroactively over already-persisted
+// rows instead of at write time. (S-187, 2026-08-29: PlayerCareerStintRefreshService.
+// BuildNewStintsByPlayerId's own matching key narrowed to (ClubName,
+// StartYear) only, to let a fetched EndYear/AppearanceCount COMPLETE an
+// existing row in place instead of duplicating it — see that method's own
+// doc comment. This cleaner's own full-tuple match is unaffected and
+// unchanged: it is a strictly MORE conservative match than the live write
+// path now uses, so it never deletes a row the live path would have merged
+// on its own narrower key.)
 //
 // Idempotent and safe to re-run: once the canonical/non-canonical pair for
 // a stint has been reduced to just the canonical row, there's nothing left

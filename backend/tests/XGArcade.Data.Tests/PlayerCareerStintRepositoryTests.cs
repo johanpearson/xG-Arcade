@@ -216,6 +216,70 @@ public class PlayerCareerStintRepositoryTests
         }));
     }
 
+    // ---- S-187/REQ-1203: UpdateCareerStintCompletionsAsync -----------------
+
+    [Test]
+    public async Task UpdateCareerStintCompletionsAsync_UpdatesEndYearAndAppearanceCount_InPlace()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        var stintId = Guid.NewGuid();
+        await _repository.AddCareerStintsAsync(player.Id, [
+            new PlayerCareerStint { Id = stintId, PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = null, AppearanceCount = null },
+        ]);
+
+        await _repository.UpdateCareerStintCompletionsAsync(new Dictionary<Guid, PlayerCareerStintCompletion>
+        {
+            [stintId] = new PlayerCareerStintCompletion(EndYear: 2007, AppearanceCount: 254),
+        });
+
+        var stints = await _repository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1), "a completion must update the existing row, never insert a second one");
+        Assert.That(stints[0].Id, Is.EqualTo(stintId));
+        Assert.That(stints[0].EndYear, Is.EqualTo(2007));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(254));
+    }
+
+    [Test]
+    public async Task UpdateCareerStintCompletionsAsync_DoesNotChangeSequenceOrder()
+    {
+        // S-187: this story's own explicit contract — completing an
+        // existing row's EndYear/AppearanceCount must never trigger a
+        // re-sequence, unlike AddCareerStintsAsync/AddCareerStintsBatchAsync.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        var ongoingStintId = Guid.NewGuid();
+        await _repository.AddCareerStintsAsync(player.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Monaco", StartYear = 1994, EndYear = 1999, AppearanceCount = 105 },
+            new PlayerCareerStint { Id = ongoingStintId, PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = null, AppearanceCount = null },
+        ]);
+        var beforeCompletion = (await _repository.GetCareerStintsAsync(player.Id)).ToDictionary(s => s.Id, s => s.SequenceOrder);
+
+        await _repository.UpdateCareerStintCompletionsAsync(new Dictionary<Guid, PlayerCareerStintCompletion>
+        {
+            [ongoingStintId] = new PlayerCareerStintCompletion(EndYear: 2007, AppearanceCount: 254),
+        });
+
+        var afterCompletion = await _repository.GetCareerStintsAsync(player.Id);
+        foreach (var stint in afterCompletion)
+            Assert.That(stint.SequenceOrder, Is.EqualTo(beforeCompletion[stint.Id]), $"{stint.ClubName}'s SequenceOrder must be untouched by a completion write");
+    }
+
+    [Test]
+    public async Task UpdateCareerStintCompletionsAsync_StintIdWithNoMatchingRow_IsSilentlySkipped()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.UpdateCareerStintCompletionsAsync(new Dictionary<Guid, PlayerCareerStintCompletion>
+        {
+            [Guid.NewGuid()] = new PlayerCareerStintCompletion(EndYear: 2007, AppearanceCount: 254),
+        }));
+    }
+
+    [Test]
+    public void UpdateCareerStintCompletionsAsync_EmptyDictionary_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.UpdateCareerStintCompletionsAsync(new Dictionary<Guid, PlayerCareerStintCompletion>()));
+    }
+
     // ---- REQ-1201/REQ-1203/ADR-0074/S-138 perf fix (GetCareerStintCandidatePlayerIdsAsync) --
     // Same "narrow read" testing shape as
     // PlayerDataQualityRepositoryTests.GetUnseededClubCandidatesAsync tests,

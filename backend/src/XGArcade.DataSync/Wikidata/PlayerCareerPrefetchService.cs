@@ -504,12 +504,19 @@ public class PlayerCareerPrefetchService(
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 
-        var newStintsByPlayerId = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
+        var reconciliation = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
             stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
 
-        if (newStintsByPlayerId.Count > 0)
-            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        if (reconciliation.NewStintsByPlayerId.Count > 0)
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(reconciliation.NewStintsByPlayerId, cancellationToken);
 
-        return (playersByQid.Count, newStintsByPlayerId.Sum(kv => kv.Value.Count), attributesToAdd.Count, false);
+        // S-187 (REQ-1203): completions (an already-stored stint's
+        // previously-null EndYear/AppearanceCount now filled in) are a
+        // separate write from new-row inserts above — see
+        // BuildNewStintsByPlayerId's own doc comment for the full "why."
+        if (reconciliation.CompletionsByStintId.Count > 0)
+            await playerCareerStintRepository.UpdateCareerStintCompletionsAsync(reconciliation.CompletionsByStintId, cancellationToken);
+
+        return (playersByQid.Count, reconciliation.NewStintsByPlayerId.Sum(kv => kv.Value.Count), attributesToAdd.Count, false);
     }
 }
