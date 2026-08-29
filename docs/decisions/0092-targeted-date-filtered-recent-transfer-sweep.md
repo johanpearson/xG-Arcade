@@ -1,6 +1,13 @@
 # ADR-0092: Targeted, date-filtered recent-transfer sweep — a third, orthogonal freshness mechanism
 
-- **Status:** Accepted
+- **Status:** Accepted, with its "Grid-vs-Path freshness asymmetry" risk
+  assessment corrected by ADR-0093 (2026-08-29) — the caution below that
+  writing `PlayerAttribute` here would risk corrupting `ConfirmedLowMatchPair`/
+  `PairLookupFailure` was found overstated on a precise trace; see ADR-0093
+  for the correction. This ADR's other decisions (the query shapes, the
+  `workflow_dispatch`-only cadence, the `lookbackDays` cutoff choice, and
+  never touching `PlayerPoolSweptAt`) are unaffected and remain as recorded
+  below.
 - **Date:** 2026-08-29
 - **Related requirements:** REQ-110 (see "The REQ-110 tag" below for the accepted imperfection in this fit)
 - **Related components:** COMP-07 (DataSync.Clients)

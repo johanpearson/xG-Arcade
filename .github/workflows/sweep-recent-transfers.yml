@@ -14,14 +14,20 @@ name: sweep-recent-transfers
 # own doc comments), rather than waiting out the rotation for that one
 # club to come back around.
 #
-# Deliberately narrower in SCOPE than prefetch-player-careers.yml, not just
-# in query shape: this only ever writes PlayerCareerStint rows (xG Path's
-# own byproduct data) — it does NOT write PlayerAttribute/PlayerData (xG
-# Grid's own guess-correctness answer key) and does NOT touch
-# PlayerPoolSweptAt at all. See IRecentTransferSweepService's own doc
-# comment (backend/src/XGArcade.DataSync/Wikidata/IRecentTransferSweepService.cs)
-# for the full reasoning and the deliberate scope boundary this leaves for
-# a possible follow-up story.
+# Narrower in QUERY SHAPE than prefetch-player-careers.yml (a targeted,
+# date-filtered per-club query, not a full player-pool re-fetch), but as of
+# S-189/ADR-0093 it feeds BOTH xG Path (PlayerCareerStint, this mechanism's
+# original purpose) AND xG Grid's own guess-correctness answer key
+# (PlayerAttribute/PlayerData) — a genuinely new arrival gets a
+# PlayerAttribute row too, with a targeted invalidation of any now-stale
+# ConfirmedLowMatchPair/PairLookupFailure row it affects. It still does NOT
+# touch PlayerPoolSweptAt at all — writing that column here would
+# incorrectly tell ADR-0088's skip-forever check that this club's FULL pool
+# was re-verified, when only a narrow recent-activity slice actually was.
+# See IRecentTransferSweepService's own doc comment
+# (backend/src/XGArcade.DataSync/Wikidata/IRecentTransferSweepService.cs)
+# for the full reasoning, and ADR-0093 for why this is safe (correcting
+# ADR-0092's original, more cautious read of the invalidation risk).
 #
 # CADENCE — workflow_dispatch ONLY, deliberately no cron, for now:
 #   - This is a brand-new, unproven query shape (never run against the real

@@ -9104,3 +9104,142 @@ behavior changed. Both `architecture-reviewer` and `quality-architect`
 returned PASS on the full diff. See ADR-0092 for the Grid-vs-Path
 freshness-asymmetry trade-off this story deliberately leaves open, rather
 than re-explaining it here.
+
+**S-189 · Close the Grid-vs-Path freshness asymmetry: recent-transfer sweep also writes PlayerAttribute (REQ-110)**
+Follow-up to S-188/ADR-0092, explicitly requested by the product owner.
+ADR-0092 deliberately left `RecentTransferSweepService` writing only
+`PlayerCareerStint` (xG Path), never `PlayerAttribute`/`PlayerData` (xG
+Grid's answer key), flagging a possible `ConfirmedLowMatchPair`/
+`PairLookupFailure` invalidation risk as the reason. A closer trace this
+story found the real risk much smaller than ADR-0092's original, coarser
+read: `GridGenerationService`'s candidate-validity check
+(`CountPlayersWithBothAttributesAsync`) and guess-correctness checking
+(`PlayerOverrideRepository.HasEffectiveAttributeAsync`) both read
+`PlayerAttribute`/`PlayerOverride` live, never `ConfirmedLowMatchPair`/
+`PairLookupFailure` — so a fresh `PlayerAttribute` write is picked up
+correctly and immediately by both. `ConfirmedLowMatchPair` itself is
+consulted only inside `PlayerCacheWarmingService.WarmAsync`'s own
+maintenance heuristic, and only as a secondary check after
+`cachedCount >= MinValidAnswers` is already checked first — so a stale
+`ConfirmedLowMatchPair` row is a missed opportunity for `warm-grid-cache`
+to discover more matches sooner, never a live wrong-answer risk.
+**Correction to ADR-0092's own trace, found while re-verifying it for this
+story:** `PairLookupFailure` is not maintenance-only the way
+`ConfirmedLowMatchPair` is — `GridLiveLookupDispatcher.TryRefreshCellAsync`
+(REQ-211's guess-time live-lookup fallback) also consults
+`IsPersistentTechnicalFailureAsync` directly, a real live path ADR-0092's
+"never consult...at all" framing didn't account for. Clearing a stale
+`PairLookupFailure` row there is still never a correctness risk (ADR-0046:
+a live-lookup failure always fails closed as "unknown," consuming no guess
+attempt, never becomes a wrong "incorrect" verdict) — but it can mean a
+guess against that pair pays a live Wikidata round trip (and its ~28s
+timeout, if the underlying failure was genuinely structural) that an
+un-cleared marker would have short-circuited, a latency trade-off, not a
+correctness one, and self-healing (the next `PlayerCacheWarmingService` run
+that still fails re-records the marker). This nuance belongs in ADR-0093's
+own text, not smoothed over.
+
+Two pieces:
+
+Piece 1 — extends `RecentTransferSweepService`'s existing arrival-persistence
+path (no second Wikidata query, no second sweep loop) to also write a
+`PlayerAttribute`+`PlayerData` row for `(player, "club", clubName)` on a
+genuinely new arrival, mirroring `PlayerCareerPrefetchService
+.FetchAndPersistBatchAsync`'s REQ-110-follow-up attribute-write shape
+exactly: same dedup pattern (`IPlayerAttributeRepository
+.GetPlayerAttributesAsync` queried once per distinct club value, a
+`HashSet`-backed "already has it" filter), same `WikidataDataSource`/
+`VerifiedConfidence` ("wikidata"/"verified") constants, a `PlayerData` row
+paired with each new `PlayerAttribute`, and reuse of
+`WikidataLookupService.ClubAttributeType` (already `internal` for exactly
+this kind of reuse) rather than a second copy of the "club" string. Sourced
+from `reconciliation.NewStintsByPlayerId` — `BuildNewStintsByPlayerId`'s own
+arrival-only output — so a departure (which only ever appears in
+`CompletionsByStintId`) naturally contributes zero attribute writes with no
+extra branching; Grid's "ever played for this club" answer semantics mean a
+player who left is still correctly a valid answer forever, so nothing about
+departures changes.
+
+Piece 2 — targeted invalidation: when a new `PlayerAttribute` is written for
+player P against `(club, newClubName)`, deletes any `ConfirmedLowMatchPair`/
+`PairLookupFailure` row pairing `newClubName` against every OTHER attribute
+value P already has (queried via the existing
+`IPlayerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync`, no new
+lookup method needed) — bounded by however many attributes one player has (a
+handful at most), not a club-wide sweep. `StaleClubAttributeCleaner` (the
+only existing precedent) only supports "delete every row involving this
+club," too broad for this narrower per-pair need, and lives in
+`XGArcade.Data.Seeding` querying `XGArcadeDbContext` directly rather than
+through `IPlayerDataQualityRepository` — so a new, narrower repository
+method was added: `IPlayerDataQualityRepository.ClearMatchPairAsync`, which
+checks BOTH possible stored orderings (unlike every sibling method on that
+interface, which relies on a single fixed ordering because their only
+caller, `PlayerCacheWarmingService.SweepPairsAsync`, always passes one
+stable ordering per sweep type) — this caller has no way to know which side
+a Club x Club pair (whose order depends on `ClubDefinition`'s seed-list
+position) was originally recorded under.
+
+*Accept:* an arrival creates BOTH the `PlayerCareerStint` (S-188's existing
+behavior, unchanged) AND a new `PlayerAttribute`+`PlayerData` row; a
+duplicate arrival (player already has the attribute) writes no second
+`PlayerAttribute`/`PlayerData` row; the targeted invalidation deletes only
+the specific `ConfirmedLowMatchPair`/`PairLookupFailure` rows pairing the
+new club against the player's OTHER existing attributes, leaving unrelated
+pairs (a different player; a different club/nationality combination not
+involving this player) untouched; a departure never writes or removes a
+`PlayerAttribute`; `RecentTransferSweepService` still never touches
+`PlayerPoolSweptAt` (S-188's own boundary, unchanged).
+
+*Deps:* extends S-188/ADR-0092's `RecentTransferSweepService` and reuses
+`IPlayerAttributeRepository.GetPlayerAttributesAsync`/
+`GetPlayerAttributesByPlayerIdsAsync`/`AddPlayerAttributesBatchAsync`,
+`IPlayerDataRepository.AddPlayerDataBatchAsync`, and
+`WikidataLookupService.ClubAttributeType` unchanged — no new REQ; uses
+REQ-110 (same accepted imperfect-fit tag ADR-0092's own "REQ-110 tag"
+section already flagged for this whole story lineage).
+
+*Built as (2026-08-29):* as described above —
+`RecentTransferSweepService.PersistNewArrivalAttributesAsync`/
+`PersistClubAttributesForArrivalsAsync` (new), `RecentTransferSweepResult`
+gained `AttributesAdded`, `IPlayerDataQualityRepository`/
+`PlayerDataQualityRepository` gained `ClearMatchPairAsync`,
+`CliVerbDispatcher.HandleSweepRecentTransfersAsync` wires the three new
+repository dependencies (`IPlayerAttributeRepository`/`IPlayerDataRepository`/
+`IPlayerDataQualityRepository`, all already DI-registered for other call
+sites) and its CLI summary line, `IRecentTransferSweepService.cs`/
+`sweep-recent-transfers.yml` doc comments updated to describe the new
+Grid-answer-key-freshness scope (no verb/class/workflow rename — "recent
+transfer sweep" already reads generically enough to cover both). Four new
+tests in `RecentTransferSweepServiceTests.cs` (arrival writes the paired
+attribute; duplicate-attribute dedup; departure-alone never writes/removes
+an attribute; targeted invalidation clears the exact pair and leaves
+unrelated pairs untouched) plus six new direct `ClearMatchPairAsync` tests
+in `PlayerDataQualityRepositoryTests.cs` (both stored orderings, both
+tables cleared in one call, no-op when nothing matches, unrelated pairs
+survive).
+
+Testing: no local `dotnet` SDK available in-sandbox — all new/changed
+backend code was hand-traced against existing test patterns and the
+InMemory-provider repository behavior, not locally run; a CI verification
+run (`ci.yml` `workflow_dispatch`) is needed before this is considered
+fully done. ADR-0093 (correcting ADR-0092's own stated caution per the
+more precise trace above) to be added by the orchestrator in the docs-sync
+pass, not written by this story's implementation itself.
+
+*Built as, follow-up (2026-08-29, commit `df62417`):* `quality-architect`
+flagged `RecentTransferSweepService.cs`'s comment as falsely claiming its
+`WikidataDataSource`/`VerifiedConfidence` constants reused
+`WikidataLookupService`'s own definitions, when they were actually a third
+independent literal-string copy (`WikidataLookupService`'s
+`WikidataSource`/`VerifiedConfidence` were `private`, so no other file
+could reference them). Fixed by making both `internal` on
+`WikidataLookupService` (same pattern already used for
+`ClubAttributeType`/`NationalityAttributeType`) and having both
+`RecentTransferSweepService` and `PlayerCareerPrefetchService` reference
+them directly instead of declaring their own copies — a mechanical,
+behavior-preserving consolidation (values were already identical literal
+strings everywhere), no test changes needed. Both `architecture-reviewer`
+and `quality-architect` returned PASS on the full diff after this fix. See
+`docs/decisions/0093-recent-transfer-sweep-writes-playerattribute.md` for
+the Grid-vs-Path freshness-asymmetry correction this story makes to
+ADR-0092, rather than re-explaining it here.

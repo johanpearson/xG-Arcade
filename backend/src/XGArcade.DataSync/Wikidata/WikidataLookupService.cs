@@ -30,10 +30,17 @@ public class WikidataLookupService(
     // one identically to CategoryPairingRules' "trophy" — no mapping needed,
     // unlike Country/Club.
     private const string TrophyAttributeType = "trophy";
-    private const string WikidataSource = "wikidata";
+    // S-189 follow-up (2026-08-29, quality-gate fix): internal, not private —
+    // same reasoning as NationalityAttributeType/ClubAttributeType above.
+    // PlayerCareerPrefetchService and RecentTransferSweepService (same
+    // assembly, same namespace) both reference these two directly rather
+    // than redeclaring their own copies, so there is exactly one definition
+    // of the "wikidata"/"verified" PlayerData Source/Confidence pair, not
+    // three kept aligned only by comment discipline.
+    internal const string WikidataSource = "wikidata";
     // ADR-0032: no code path in this class persists "unverified" anymore —
     // both WikidataLookupOrigin values map to VerifiedConfidence below.
-    private const string VerifiedConfidence = "verified";
+    internal const string VerifiedConfidence = "verified";
 
     // ADR-0032 (supersedes ADR-0029): both origins are now trusted as
     // ground truth and persist "verified" — the product owner decided all

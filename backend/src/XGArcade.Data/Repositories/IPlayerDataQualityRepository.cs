@@ -78,6 +78,33 @@ public interface IPlayerDataQualityRepository
         string secondAttributeType, string secondAttributeValue,
         CancellationToken cancellationToken = default);
 
+    // S-189 (ADR-0093, "targeted Grid answer-key freshness" follow-up to
+    // ADR-0092/S-188): deletes any ConfirmedLowMatchPair row AND any
+    // PairLookupFailure row pairing (attributeTypeA, attributeValueA)
+    // against (attributeTypeB, attributeValueB), checking BOTH possible
+    // stored orderings. Every other pair method on this interface
+    // (IsConfirmedLowAsync, RecordConfirmedLowAsync,
+    // IsPersistentTechnicalFailureAsync, RecordTechnicalFailureAsync,
+    // ClearTechnicalFailureAsync) can rely on a single fixed First/Second
+    // ordering because every one of them is only ever called from
+    // PlayerCacheWarmingService.SweepPairsAsync, which always passes the
+    // same stable ordering per sweep type (Nationality-then-Club for
+    // Country x Club; clubs[i]-then-clubs[j] for Club x Club — see
+    // ConfirmedLowMatchPair/PairLookupFailure's own doc comments: "ordering
+    // follows each call site's own convention"). THIS method's caller
+    // (RecentTransferSweepService's new-arrival PlayerAttribute write) is a
+    // different call site with no way to know which side a given pair was
+    // originally recorded under — Club x Club ordering in particular
+    // depends on ClubDefinition's seed-list position, not anything this
+    // caller's own arguments can derive — so both orderings must be
+    // checked here. A no-op, not an error, when neither table has a
+    // matching row in either order: this clears a marker that may or may
+    // not exist, it is not a required precondition.
+    Task ClearMatchPairAsync(
+        string attributeTypeA, string attributeValueA,
+        string attributeTypeB, string attributeValueB,
+        CancellationToken cancellationToken = default);
+
     // One-off diagnostic (`dotnet run -- audit-club-gaps`,
     // XGArcade.DataSync.ClubGapAuditService — see that class's own doc
     // comment for the full "why"): every PlayerCareerStint.ClubName that

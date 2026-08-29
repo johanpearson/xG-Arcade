@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.18"
+version: "2.19"
 status: draft
 last_updated: 2026-08-29
 owner: Johan
@@ -816,7 +816,33 @@ without erroring), API
   career timeline sooner than ADR-0090's rotation would surface it, but
   does **not** become a valid xG Grid guess answer any sooner — a
   deliberate, stated scope boundary (ADR-0092's "Grid-vs-Path freshness
-  asymmetry" section), not an oversight.
+  asymmetry" section), not an oversight. **This scope boundary is closed
+  as of the status note below (S-189, ADR-0093).**
+- **Status note (2026-08-29, S-189, ADR-0093): the Grid-vs-Path freshness
+  asymmetry above is closed — `RecentTransferSweepService` now also writes
+  `PlayerAttribute`.** Unlike S-188's own REQ-110 tag immediately above
+  (an accepted stretch, since that piece wrote only `PlayerCareerStint`,
+  never `PlayerAttribute`), this extension is a clean fit for REQ-110's
+  actual subject: a genuinely new club arrival now also gets a
+  `PlayerAttribute`+`PlayerData` row for `(player, "club", clubName)`,
+  making it a valid xG Grid guess answer immediately rather than waiting
+  for ADR-0090's rotation. A precise trace (see ADR-0093) found ADR-0092's
+  original caution against this overstated: `ConfirmedLowMatchPair` is
+  never consulted on any live-correctness path (only by
+  `PlayerCacheWarmingService`'s own maintenance heuristic, after the local
+  cached count is already checked first), and `PairLookupFailure`, while
+  also consulted at guess time by `GridLiveLookupDispatcher`
+  (REQ-211's live-lookup fallback), only ever costs latency when stale —
+  never correctness (a live-lookup failure always fails closed as
+  "unknown," per ADR-0046, consuming no attempt). The write is paired with
+  a targeted `IPlayerDataQualityRepository.ClearMatchPairAsync` call that
+  clears any now-stale `ConfirmedLowMatchPair`/`PairLookupFailure` row for
+  the new club against the arriving player's other existing attributes,
+  checking both possible stored orderings. Departures still never write or
+  remove a `PlayerAttribute` row — Grid's "ever played for this club"
+  answer semantics are unchanged. See ADR-0093 for the full trace and
+  reasoning, including the exact `PairLookupFailure`/
+  `GridLiveLookupDispatcher` nuance summarized above.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a

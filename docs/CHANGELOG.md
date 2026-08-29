@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-29 — `docs/decisions/0093-recent-transfer-sweep-writes-playerattribute.md`
+  (new ADR), `docs/decisions/0092-targeted-date-filtered-recent-transfer-sweep.md`
+  (status line corrected, pointing at ADR-0093), `docs/architecture-document.md`
+  (COMP-05/COMP-07 rows and §5.3 ADR evolution table), `docs/requirements-document.md`
+  (REQ-110 status note), `docs/backlog.md` (S-189 "Built as, follow-up"
+  addendum for commit `df62417`, plus a test-count fix: "Five new tests" ->
+  "Four new tests" for `RecentTransferSweepServiceTests.cs`) — documentation-sync
+  pass for S-189 (Epic 26, extending S-188's freshness mechanism to xG Grid's
+  answer key): `RecentTransferSweepService` now writes `PlayerAttribute`/
+  `PlayerData` for a genuinely new club arrival, plus a targeted
+  `IPlayerDataQualityRepository.ClearMatchPairAsync` invalidation of any
+  now-stale `ConfirmedLowMatchPair`/`PairLookupFailure` row for the pairs
+  that arrival affects, closing the Grid-vs-Path freshness asymmetry
+  ADR-0092 deliberately left open. ADR-0093 corrects ADR-0092's own stated
+  caution: a precise trace found `ConfirmedLowMatchPair` is never consulted
+  on any live-correctness path, and `PairLookupFailure` — while also
+  consulted at guess time by `GridLiveLookupDispatcher.TryRefreshCellAsync`
+  (REQ-211's live-lookup fallback) — only ever costs latency when stale,
+  never correctness (ADR-0046's fail-closed-as-unknown guarantee is
+  unconditional). REQ/ADR refs: REQ-110 (a clean fit this time, unlike
+  S-188's own stretch), ADR-0093 (new, correcting ADR-0092).
+
 - 2026-08-29 — `docs/decisions/0092-targeted-date-filtered-recent-transfer-sweep.md`
   (new ADR), `docs/architecture-document.md` (COMP-07 row and §5.3 ADR
   evolution table), `docs/requirements-document.md` (REQ-110 status note),
