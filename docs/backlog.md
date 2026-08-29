@@ -8903,7 +8903,10 @@ file's "additive only, never wipe-and-replace" contract (referenced
 from ADR-0054's Consequences section), not a reversal of it.
 `WikidataLookupService.PersistCareerStintsAsync` (xG Grid's own
 guess-time byproduct write path, not routed through
-`BuildNewStintsByPlayerId`) is untouched.
+`BuildNewStintsByPlayerId`) was originally left untouched by this
+story's first commit — see the "Built as" follow-up note below for why
+that turned out to be an undocumented gap, closed in a same-story
+follow-up commit rather than left as-is.
 
 *Accept:* piece 1 — `maxEntitiesToResweep: null` behaves exactly like
 before this story (regression coverage); a never-swept entity is
@@ -8936,10 +8939,37 @@ correction in `DuplicateCareerStintCleaner.cs` — its own full-tuple
 match is unaffected, now described as strictly more conservative than
 the live write path's narrower key).
 
+*Built as, follow-up (2026-08-29, commit `85924af`):* `architecture-reviewer`'s
+full-diff review flagged piece 2 as an undocumented gap — it fixed the
+duplicate-stint bug at 2 of the 3 reconciliation call sites
+(`PlayerCareerStintRefreshService.BuildNewStintsByPlayerId` and, via it,
+`PlayerCareerPrefetchService`) but left `WikidataLookupService.PersistCareerStintsAsync`
+(xG Grid's own REQ-103 generation-time / REQ-211 guess-time byproduct
+writer, and the most frequently invoked of the three) with its own
+stale full-tuple dedup. Closed by extracting the shared per-candidate
+no-op/insert/complete decision into a new internal
+`CareerStintReconciler.Reconcile` primitive (`CareerStintReconciler.cs`)
+used by all three call sites — the three callers' differing input
+shapes (`WikidataCareerStintEntry` vs. `CareerStintQualifiers`) meant
+only this narrower per-candidate decision could be shared, not the
+whole reconciliation loop. Same commit also addressed a
+`quality-architect` finding by adding a direct unit test on
+`BuildNewStintsByPlayerId` itself,
+`REQ1203_BuildNewStintsByPlayerId_IdenticalRefetchInput_ReturnsTrueNoOp`,
+proving an identical re-fetch queues zero writes (a true no-op), not
+just an unchanged end state after a write — requiring a new
+`InternalsVisibleTo` grant for `XGArcade.DataSync.Tests`. Trivial
+hardening in the same commit: `PlayerCareerPrefetchService`'s resweep
+selection also requires a non-null `WikidataQid`, matching the main
+loop's own skip.
+
 Testing: no local `dotnet` SDK available in-sandbox — all new/changed
 backend code was hand-traced against existing test patterns and the
 InMemory-provider repository behavior, not locally run; a CI
 verification run (`ci.yml` `workflow_dispatch`) is needed before this
-is considered fully done. An ADR for piece 2's narrow exception to
-the "additive only" contract is left to the orchestrator's docs-sync
-pass, not written by this story's implementation itself.
+is considered fully done. Both pieces got their own ADR in the
+orchestrator's docs-sync pass, not written by this story's
+implementation itself: ADR-0090 (piece 1, rotating bounded re-sweep)
+and ADR-0091 (piece 2, career-stint completion's narrow exception to
+the "additive only" contract, covering all three reconciliation call
+sites after the follow-up commit above).

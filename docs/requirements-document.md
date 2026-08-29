@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.16"
+version: "2.17"
 status: draft
 last_updated: 2026-08-29
 owner: Johan
@@ -765,6 +765,34 @@ without erroring), API
   ADR-0088 for the full decision, alternatives considered, and how this is
   explicitly distinguished from ADR-0078's own (pairwise, different
   service) skip rule.
+- **Status note (2026-08-29, S-187, ADR-0090): rotating, bounded re-sweep of
+  already-swept pools added, closing the gap ADR-0088's skip-forever default
+  left behind — a player transferring into an already-swept country's/club's
+  pool now eventually gets noticed again.** `PrefetchAsync` gains an optional
+  `maxEntitiesToResweep` parameter; `null` (unchanged for
+  `prefetch-player-careers.yml`'s own `workflow_dispatch` trigger) preserves
+  ADR-0088's exact unbounded-skip behavior. A non-null N — passed only by the
+  new weekly `resweep-player-careers.yml` cron (Sunday 05:15 UTC, default 2)
+  — additionally re-sweeps up to N already-swept entities, chosen as the
+  oldest `PlayerPoolSweptAt` values, on top of every never-swept entity
+  (still always swept, uncapped, never competing for the N budget).
+  `SplitResweepBudget` divides N across the country and club sweeps
+  (ceiling half to countries — 49 seeded vs ~15 clubs — so N=2 splits into 1
+  country + 1 club). A row selected for resweep is treated identically to a
+  never-swept row for the rest of `SweepAsync`. `prefetch-player-careers`'s
+  CLI verb now accepts this as an optional second argument, switching from
+  S-112's "exact-match, extra tokens silently fall through" shape to a
+  "prefix-match, validate and throw" shape for this one verb. The two
+  workflows use separate `concurrency` groups (each `${{ github.workflow }}`-scoped)
+  and can therefore run concurrently against the same data if a manual
+  dispatch of the unbounded job lands during the weekly bounded cron — an
+  accepted, low-probability overlap, not a guaranteed mutual exclusion. See
+  ADR-0090 for the full decision, its explicit reconciliation with ADR-0088
+  (the worst-case cost delta is at most N pool fetches + N dedup read-backs
+  per week, bounded and small, versus the unbounded manual path's full
+  ~64-entity sweep), and the accepted staleness-window trade-off (freshness
+  within roughly a season — ~49 weeks for countries, ~15 for clubs at
+  N=2/week — not real-time).
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -837,7 +865,16 @@ new check; `REQ110_PrefetchAsync_CountryReSweptAfterInvalidation_QueriesWikidata
 nulls `PlayerPoolSweptAt` mid-test (simulating REQ-111's cleaner or
 `purge-player-pool`) and confirms a second `PrefetchAsync` call queries
 Wikidata again for that row, proving the existing invalidation contract
-still forces a real re-sweep after this change.
+still forces a real re-sweep after this change. **(ADR-0090 additions,
+S-187):** `PlayerCareerPrefetchServiceTests.cs` —
+`REQ110_S187_PrefetchAsync_MaxEntitiesToResweepNull_BehavesExactlyAsBefore`
+proves the `null` default is an exact regression match for pre-S-187
+behavior; `REQ110_S187_PrefetchAsync_MaxEntitiesToResweepSet_NeverSweptCountryStillAlwaysIncluded`
+proves a never-swept row is always swept regardless of how small the budget
+is; `REQ110_S187_PrefetchAsync_MaxEntitiesToResweepSet_OnlyOldestAlreadySweptRowsAreReSwept`
+proves only the N oldest-`PlayerPoolSweptAt` already-swept rows are
+re-swept, the rest staying skipped; `REQ110_S187_PrefetchAsync_MaxEntitiesToResweepTwo_SplitsOneCountryAndOneClub`
+proves `SplitResweepBudget`'s N=2 default splits into 1 country + 1 club.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched
@@ -9079,6 +9116,35 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   exposes the absolute end time, indicator is keyboard-focusable) — the
   bucket-format logic itself remains exhaustively covered only by
   `lib/roundTime.test.ts`, not duplicated here.
+- **Status note (2026-08-29, S-187, ADR-0091): a stored ongoing stint whose
+  end date Wikidata later fills in no longer produces a duplicate club-reveal
+  entry — fixed at all three career-stint reconciliation call sites, not
+  just the two originally touched.** A fetched stint matching an existing
+  row on `(ClubName, StartYear)` with a differing `EndYear`/`AppearanceCount`
+  now completes that row in place rather than inserting a second one, via a
+  new shared `CareerStintReconciler.Reconcile` primitive used by
+  `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId` (xG Path's own
+  per-target refresh, ADR-0054), `PlayerCareerPrefetchService.FetchAndPersistBatchAsync`
+  (the bulk sweep, including this story's own ADR-0090 rotation), and —
+  closed in a follow-up commit after `architecture-reviewer` flagged it as an
+  undocumented gap in the first review pass — `WikidataLookupService.PersistCareerStintsAsync`
+  (xG Grid's own REQ-103 generation-time / REQ-211 guess-time byproduct
+  writer). `StartYear`/`ClubName` are never corrected by this path at any
+  call site — a wrong start year or club name remains explicitly out of
+  scope, governed unchanged by ADR-0054's original "additive only, a
+  previously wrong stint is not this method's concern" trade-off; this is a
+  narrow, scoped carve-out from that trade-off (completing a previously-
+  unknown, now-known end date on an otherwise-correct row), not a reversal
+  of it. `UpdateCareerStintCompletionsAsync` (`IPlayerCareerStintRepository`)
+  never touches `SequenceOrder` — a completed row's own `StartYear` never
+  moves, so no re-sequencing pass is needed the way a genuinely new row
+  insertion requires. `DuplicateCareerStintCleaner` (ADR-0059/ADR-0063) is
+  unaffected and unchanged — its own full-tuple matching is now documented
+  as strictly more conservative than this narrower live-write-path key, not
+  an inconsistency to reconcile. See ADR-0091 for the full decision, why the
+  three call sites' differing input shapes meant only the per-candidate
+  decision (not the whole reconciliation loop) could be shared, and the
+  explicit reconciliation with ADR-0054's Consequences section.
 
 **Test level:** Unit, API (Unit: the 3-way club-count split for `N` at the
 minimum (3), a non-multiple-of-3 value below 10, and a value at or above
@@ -9168,6 +9234,26 @@ indicator's presence/wiring on SCREEN-10 is covered by
 `PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per
 the status note above — the underlying format/bucket logic remains
 `lib/roundTime.test.ts`'s alone.)
+Career-stint completion on end-date fill-in (2026-08-29, S-187, ADR-0091):
+`PlayerCareerStintRefreshServiceTests.cs` —
+`REQ1203_S187_RefreshCareerStintsAsync_FetchedStintCompletesStoredOngoingStint_UpdatesInPlace_NotDuplicated`,
+`REQ1203_S187_RefreshCareerStintsAsync_FetchedStintAtGenuinelyDifferentClub_StillInsertsNewRow`,
+`REQ1203_S187_RefreshCareerStintsAsync_FetchedStintIdenticalToStored_RemainsANoOp`, and
+`REQ1203_S187_RefreshCareerStintsAsync_FetchedStintCompletesAppearanceCountOnly_UpdatesInPlace`
+cover the narrowed `(ClubName, StartYear)` key's three outcomes directly;
+`REQ1203_BuildNewStintsByPlayerId_IdenticalRefetchInput_ReturnsTrueNoOp`
+(added in the follow-up commit after a `quality-architect` finding) proves
+an identical re-fetch queues zero writes, not just an unchanged end state.
+`WikidataLookupServiceTests.cs` —
+`REQ1203_LookupAndPersistAsync_LaterFetchFillsInEndYear_CompletesExistingRowInPlace_NoDuplicate`
+and `REQ1203_TwoWriterPathsForSameRealStint_ConvergeOnIdenticalClubName_NoCrossWriterDuplicate`
+close the third reconciliation call site `architecture-reviewer` flagged as
+an undocumented gap in the first review pass. `PlayerCareerStintRepositoryTests.cs`
+covers `UpdateCareerStintCompletionsAsync` directly:
+`UpdateCareerStintCompletionsAsync_UpdatesEndYearAndAppearanceCount_InPlace`,
+`UpdateCareerStintCompletionsAsync_DoesNotChangeSequenceOrder`,
+`UpdateCareerStintCompletionsAsync_StintIdWithNoMatchingRow_IsSilentlySkipped`,
+and `UpdateCareerStintCompletionsAsync_EmptyDictionary_DoesNotThrow`.
 
 **REQ-1204 – Guess correctness resolution**
 > As a player, I want my guess for an xG Path puzzle checked against that
