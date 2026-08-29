@@ -31,10 +31,10 @@ inputs:
     required: false
     default: ''
   backend-hostname:
-    description: 'Value for the ${{ secrets.DEV_BACKEND_HOSTNAME }} used to build the request URL'
+    description: 'Backend hostname used to build the request URL — pass the caller workflow''s secrets.DEV_BACKEND_HOSTNAME value.'
     required: true
   internal-job-token:
-    description: 'Bearer token for the ${{ secrets.INTERNAL_JOB_TOKEN }} sent as the Authorization header'
+    description: 'Bearer token sent as the Authorization header — pass the caller workflow''s secrets.INTERNAL_JOB_TOKEN value.'
     required: true
 
 runs:
