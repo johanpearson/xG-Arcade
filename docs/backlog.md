@@ -9209,7 +9209,7 @@ repository dependencies (`IPlayerAttributeRepository`/`IPlayerDataRepository`/
 sites) and its CLI summary line, `IRecentTransferSweepService.cs`/
 `sweep-recent-transfers.yml` doc comments updated to describe the new
 Grid-answer-key-freshness scope (no verb/class/workflow rename — "recent
-transfer sweep" already reads generically enough to cover both). Five new
+transfer sweep" already reads generically enough to cover both). Four new
 tests in `RecentTransferSweepServiceTests.cs` (arrival writes the paired
 attribute; duplicate-attribute dedup; departure-alone never writes/removes
 an attribute; targeted invalidation clears the exact pair and leaves
@@ -9225,3 +9225,21 @@ run (`ci.yml` `workflow_dispatch`) is needed before this is considered
 fully done. ADR-0093 (correcting ADR-0092's own stated caution per the
 more precise trace above) to be added by the orchestrator in the docs-sync
 pass, not written by this story's implementation itself.
+
+*Built as, follow-up (2026-08-29, commit `df62417`):* `quality-architect`
+flagged `RecentTransferSweepService.cs`'s comment as falsely claiming its
+`WikidataDataSource`/`VerifiedConfidence` constants reused
+`WikidataLookupService`'s own definitions, when they were actually a third
+independent literal-string copy (`WikidataLookupService`'s
+`WikidataSource`/`VerifiedConfidence` were `private`, so no other file
+could reference them). Fixed by making both `internal` on
+`WikidataLookupService` (same pattern already used for
+`ClubAttributeType`/`NationalityAttributeType`) and having both
+`RecentTransferSweepService` and `PlayerCareerPrefetchService` reference
+them directly instead of declaring their own copies — a mechanical,
+behavior-preserving consolidation (values were already identical literal
+strings everywhere), no test changes needed. Both `architecture-reviewer`
+and `quality-architect` returned PASS on the full diff after this fix. See
+`docs/decisions/0093-recent-transfer-sweep-writes-playerattribute.md` for
+the Grid-vs-Path freshness-asymmetry correction this story makes to
+ADR-0092, rather than re-explaining it here.
