@@ -101,7 +101,7 @@ public class GridGenerationService(
         // proportional to that type's actual reference-data pool size.
         var combinedPool = countries.Concat(clubs).Concat(trophies).ToList();
 
-        EnsureEnoughCandidates(combinedPool.Count, template.Size, countries.Count, clubs.Count, trophies.Count);
+        EnsureEnoughCandidates("row", combinedPool.Count, template.Size, countries.Count, clubs.Count, trophies.Count);
 
         // REQ-102: N unique row categories. Any candidate is a valid row
         // header on its own — REQ-107's ban only bites once paired with a
@@ -119,7 +119,7 @@ public class GridGenerationService(
             .Where(c => !rowHeaders.Any(r => r.CategoryType == c.CategoryType && r.Name == c.Name))
             .ToList();
 
-        EnsureEnoughCandidates(colCandidatePool.Count, template.Size, countries.Count, clubs.Count, trophies.Count);
+        EnsureEnoughCandidates("column", colCandidatePool.Count, template.Size, countries.Count, clubs.Count, trophies.Count);
 
         var columns = await PickHeadersAsync(rowHeaders, colCandidatePool, cancellationToken);
 
@@ -146,13 +146,21 @@ public class GridGenerationService(
     // genuinely near-empty reference-data database is the only realistic
     // way to trip this now; GridGenerationOptions.MaxAttempts/MaxDuration
     // (ADR-0023) remain the real backstop for the picking loop itself.
-    private static void EnsureEnoughCandidates(int poolSize, int size, int countryCount, int clubCount, int trophyCount)
+    //
+    // `poolLabel`/`poolSize` distinguish which of the two checks tripped —
+    // without this, a column-pool failure (e.g. every row header happened
+    // to consume the only candidates of a sparse type, see this file's own
+    // top-of-file comment and ADR-0089's "Negative / trade-offs accepted")
+    // would report the same fixed reference-data totals as a genuine
+    // empty-database failure, hiding the actual (possibly zero) remaining
+    // pool size an on-call engineer would need to diagnose it quickly.
+    private static void EnsureEnoughCandidates(string poolLabel, int poolSize, int size, int countryCount, int clubCount, int trophyCount)
     {
         if (poolSize < size)
         {
             throw new GridGenerationException(
-                $"Not enough reference data to build a {size}x{size} grid " +
-                $"({countryCount} countries, {clubCount} clubs, {trophyCount} trophies available).");
+                $"Not enough {poolLabel} candidates ({poolSize} available) to build a {size}x{size} grid " +
+                $"({countryCount} countries, {clubCount} clubs, {trophyCount} trophies available in total).");
         }
     }
 
