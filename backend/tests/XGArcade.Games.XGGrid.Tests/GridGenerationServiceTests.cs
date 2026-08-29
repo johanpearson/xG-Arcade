@@ -1095,15 +1095,31 @@ public class GridGenerationServiceTests
     // (TryComputeMatchCountsAsync, checked before any match-count query)
     // does the same job now that rows and columns are no longer
     // homogeneously typed and a Country row can land opposite a Country
-    // column candidate. Countries deliberately outnumber clubs/trophies
-    // (6 vs 3 each) to make multiple countries landing on both axes in the
-    // same instance likely across repeated trials.
+    // column candidate. Countries deliberately outnumber trophies (6 vs 3)
+    // to make multiple countries landing on both axes likely across trials.
+    //
+    // CI-found fix (2026-08-29): clubs must comfortably outnumber the grid
+    // size, not just match it. Trophy x Trophy has no live-lookup support
+    // (deliberately unseeded here, same as SeedFullyConnectedMixedPool) —
+    // whenever the random row draw happens to pick exactly one header of
+    // each type (1 Country + 1 Trophy + 1 Club), every remaining Country
+    // candidate is banned (REQ-107) and every remaining Trophy candidate is
+    // unusable (Trophy x Trophy), leaving ONLY the leftover clubs to fill
+    // every column slot. With clubs seeded at exactly `size` (3), that
+    // leaves only `size - 1` = 2 valid candidates for 3 needed slots — a
+    // real deficit, not just "zero slack" — which a real CI run hit
+    // (GridGenerationException: "Ran out of candidates"). Clubs raised to 6
+    // so that worst case leaves 5 valid candidates, comfortably above the
+    // needed 3; this mirrors why production's real ~21-club Tier 0 pool
+    // never hits this deficit at GridSize=3, and keeps this test's
+    // "generation always succeeds" premise mathematically guaranteed rather
+    // than incidentally true for the seed sizes originally chosen.
     [Test]
     public async Task REQ107_GenerateInstanceAsync_NeverProducesCountryCountryCell_UnderMixedHeaders()
     {
         const int minValidAnswers = 5;
         var countries = Enumerable.Range(0, 6).Select(i => $"HeavyCountry{i}").ToList();
-        var clubs = Enumerable.Range(0, 3).Select(i => $"HeavyClub{i}").ToList();
+        var clubs = Enumerable.Range(0, 6).Select(i => $"HeavyClub{i}").ToList();
         var trophies = Enumerable.Range(0, 3).Select(i => $"HeavyTrophy{i}").ToList();
         foreach (var country in countries) SeedCountry(country);
         foreach (var club in clubs) SeedClub(club);
