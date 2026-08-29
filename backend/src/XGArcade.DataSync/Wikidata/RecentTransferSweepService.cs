@@ -55,8 +55,8 @@ public class RecentTransferSweepService(
     // and the "wikidata"/"verified" PlayerData Source/Confidence values, not
     // a second copy kept in sync only by comment discipline.
     private const string ClubAttributeType = WikidataLookupService.ClubAttributeType;
-    private const string WikidataDataSource = "wikidata";
-    private const string VerifiedConfidence = "verified";
+    private const string WikidataDataSource = WikidataLookupService.WikidataSource;
+    private const string VerifiedConfidence = WikidataLookupService.VerifiedConfidence;
 
     public async Task<RecentTransferSweepResult> SweepAsync(int lookbackDays, CancellationToken cancellationToken = default)
     {

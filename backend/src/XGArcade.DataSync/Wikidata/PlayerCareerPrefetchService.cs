@@ -104,13 +104,17 @@ public class PlayerCareerPrefetchService(
     private const string NationalityAttributeType = WikidataLookupService.NationalityAttributeType;
     private const string ClubAttributeType = WikidataLookupService.ClubAttributeType;
 
-    // Mirrors WikidataLookupService's own WikidataSource/VerifiedConfidence
-    // — every row this service writes to PlayerData is Wikidata-sourced and
-    // "verified" by default (ADR-0032: all Wikidata-sourced writes persist
-    // verified, no per-origin split needed), same as every other automated
-    // Wikidata-derived PlayerAttribute/PlayerData write in this codebase.
-    private const string WikidataDataSource = "wikidata";
-    private const string VerifiedConfidence = "verified";
+    // S-189 follow-up (2026-08-29, quality-gate fix): reuses
+    // WikidataLookupService's own WikidataSource/VerifiedConfidence (made
+    // internal for exactly this) instead of redeclaring a second private
+    // copy in this class — every row this service writes to PlayerData is
+    // Wikidata-sourced and "verified" by default (ADR-0032: all
+    // Wikidata-sourced writes persist verified, no per-origin split needed),
+    // same as every other automated Wikidata-derived PlayerAttribute/
+    // PlayerData write in this codebase, now with exactly one definition of
+    // that pair rather than a copy kept in sync only by comment discipline.
+    private const string WikidataDataSource = WikidataLookupService.WikidataSource;
+    private const string VerifiedConfidence = WikidataLookupService.VerifiedConfidence;
 
     // Conservative batch size for QueryPlayerCareerStintsByQidsAsync's VALUES
     // clause within one country's pool — same size PlayerPhotoBackfillService/
