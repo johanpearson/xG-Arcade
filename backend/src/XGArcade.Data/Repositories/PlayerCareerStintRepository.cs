@@ -148,4 +148,35 @@ public class PlayerCareerStintRepository(XGArcadeDbContext dbContext) : IPlayerC
         // (docs/coding-guidelines.md), never ExecuteUpdateAsync.
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    // S-187 (REQ-1203): see IPlayerCareerStintRepository's own doc comment
+    // for the full "why" — completes an existing row in place, never inserts,
+    // never touches SequenceOrder.
+    public async Task UpdateCareerStintCompletionsAsync(
+        IReadOnlyDictionary<Guid, PlayerCareerStintCompletion> completionsByStintId, CancellationToken cancellationToken = default)
+    {
+        if (completionsByStintId.Count == 0)
+            return;
+
+        var stintIds = completionsByStintId.Keys.ToList();
+        var existingStints = await dbContext.PlayerCareerStints
+            .Where(s => stintIds.Contains(s.Id))
+            .ToListAsync(cancellationToken);
+
+        foreach (var stint in existingStints)
+        {
+            var completion = completionsByStintId[stint.Id];
+            stint.EndYear = completion.EndYear;
+            stint.AppearanceCount = completion.AppearanceCount;
+        }
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteUpdateAsync (the InMemory test provider can't translate it).
+        // A stintId with no matching row (already deleted between the read
+        // and this write) is silently absent from existingStints and simply
+        // never updated — same best-effort contract as this file's other
+        // batch writes.
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

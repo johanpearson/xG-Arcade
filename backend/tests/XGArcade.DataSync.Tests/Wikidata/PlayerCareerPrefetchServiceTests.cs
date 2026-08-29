@@ -61,6 +61,24 @@ public class PlayerCareerPrefetchServiceTests
         return club;
     }
 
+    // S-187: seeds a country/club whose PlayerPoolSweptAt is ALREADY set,
+    // for the rotating-resweep tests below — bypasses PrefetchAsync's own
+    // sweep-then-mark path entirely (this is what "already swept from some
+    // prior run" looks like going into a NEW PrefetchAsync call).
+    private async Task<CountryDefinition> SeedAlreadySweptCountryAsync(string name, string wikidataQid, DateTime sweptAt)
+    {
+        var country = new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, PlayerPoolSweptAt = sweptAt };
+        await _categoryValueRepository.AddCountryAsync(country);
+        return country;
+    }
+
+    private async Task<ClubDefinition> SeedAlreadySweptClubAsync(string name, string wikidataQid, DateTime sweptAt)
+    {
+        var club = new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, PlayerPoolSweptAt = sweptAt };
+        await _categoryValueRepository.AddClubAsync(club);
+        return club;
+    }
+
     [Test]
     public async Task PrefetchAsync_SeededCountryWithPool_CreatesPlayersAndPersistsCareers()
     {
@@ -677,5 +695,123 @@ public class PlayerCareerPrefetchServiceTests
         var attributes = await _playerAttributeRepository.GetPlayerAttributesAsync("nationality", "France");
         Assert.That(attributes, Has.Count.EqualTo(PlayerCareerPrefetchService.CareerBatchSize),
             "no duplicate PlayerAttribute row for the player appearing in both chunks");
+    }
+
+    // ---- Rotating bounded re-sweep (REQ-110/S-187, ADR-0088 follow-up) ----
+    // ADR-0088 correctly stopped a re-dispatch from re-sweeping every
+    // already-swept country/club forever, but that also means a player
+    // transferring INTO an already-swept pool is never noticed again — these
+    // tests prove maxEntitiesToResweep's bounded rotation gives that a path
+    // back without reintroducing ADR-0088's own unbounded-re-sweep cost.
+
+    [Test]
+    public async Task REQ110_S187_PrefetchAsync_MaxEntitiesToResweepNull_BehavesExactlyAsBefore()
+    {
+        var france = await SeedAlreadySweptCountryAsync("France", "Q142", DateTime.UtcNow.AddDays(-30));
+        var celtic = await SeedAlreadySweptClubAsync("Celtic", "Q19593", DateTime.UtcNow.AddDays(-10));
+
+        var result = await BuildService().PrefetchAsync(maxEntitiesToResweep: null);
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Is.Empty,
+            "an explicit null must behave exactly like ADR-0088's unchanged default — every already-swept country stays skipped");
+        Assert.That(_wikidataClient.QueriedClubQids, Is.Empty,
+            "an explicit null must behave exactly like ADR-0088's unchanged default — every already-swept club stays skipped");
+        Assert.That(result.CountriesSkipped, Is.EqualTo(1));
+        Assert.That(result.ClubsSkipped, Is.EqualTo(1));
+        Assert.That(result.CountriesProcessed, Is.EqualTo(0));
+        Assert.That(result.ClubsProcessed, Is.EqualTo(0));
+
+        var reloadedFrance = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == france.Id);
+        var reloadedCeltic = await _dbContext.ClubDefinitions.AsNoTracking().SingleAsync(c => c.Id == celtic.Id);
+        Assert.That(reloadedFrance.PlayerPoolSweptAt, Is.EqualTo(france.PlayerPoolSweptAt),
+            "a skipped row's PlayerPoolSweptAt must not be re-written");
+        Assert.That(reloadedCeltic.PlayerPoolSweptAt, Is.EqualTo(celtic.PlayerPoolSweptAt),
+            "a skipped row's PlayerPoolSweptAt must not be re-written");
+    }
+
+    [Test]
+    public async Task REQ110_S187_PrefetchAsync_MaxEntitiesToResweepSet_NeverSweptCountryStillAlwaysIncluded()
+    {
+        // Two already-swept countries eat up the entire resweep budget below
+        // (maxEntitiesToResweep: 1), leaving zero budget for anything else —
+        // the never-swept country below must still be processed regardless,
+        // proving the never-swept path is unconditional, not drawn from the
+        // same budget as the already-swept rotation.
+        await SeedAlreadySweptCountryAsync("Spain", "Q29", DateTime.UtcNow.AddDays(-60));
+        await SeedAlreadySweptCountryAsync("Germany", "Q183", DateTime.UtcNow.AddDays(-5));
+        await SeedCountryAsync("France", "Q142"); // Never swept — PlayerPoolSweptAt starts null.
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+
+        var result = await BuildService().PrefetchAsync(maxEntitiesToResweep: 1);
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Does.Contain("Q142"),
+            "a never-swept country must always be swept, regardless of how small maxEntitiesToResweep is");
+        Assert.That(result.CountriesProcessed, Is.EqualTo(2), "the never-swept country plus the one selected already-swept country");
+        Assert.That(result.CountriesSkipped, Is.EqualTo(1), "exactly one already-swept country must still be skipped (budget of 1)");
+    }
+
+    [Test]
+    public async Task REQ110_S187_PrefetchAsync_MaxEntitiesToResweepSet_OnlyOldestAlreadySweptRowsAreReSwept()
+    {
+        var oldest = await SeedAlreadySweptCountryAsync("Spain", "Q29", DateTime.UtcNow.AddDays(-90));
+        var middle = await SeedAlreadySweptCountryAsync("Germany", "Q183", DateTime.UtcNow.AddDays(-45));
+        var newest = await SeedAlreadySweptCountryAsync("Italy", "Q38", DateTime.UtcNow.AddDays(-1));
+        // Captured as primitives immediately after seeding: oldest/middle/newest
+        // are tracked entities sharing the test's _dbContext, and
+        // UpdateCountrySweptAtAsync's tracked query below returns these SAME
+        // object instances (EF Core's identity map) and mutates
+        // PlayerPoolSweptAt on them in place. Comparing against the entities
+        // directly post-sweep would compare the new value against itself.
+        var oldestOriginalSweptAt = oldest.PlayerPoolSweptAt;
+        var middleOriginalSweptAt = middle.PlayerPoolSweptAt;
+        var newestOriginalSweptAt = newest.PlayerPoolSweptAt;
+        _wikidataClient.SetPoolForNationality("Q29", [new WikidataNameIndexEntry("Q100", "Someone Spanish", 1990, "Spain")]);
+        _wikidataClient.SetPoolForNationality("Q183", [new WikidataNameIndexEntry("Q200", "Someone German", 1990, "Germany")]);
+
+        var result = await BuildService().PrefetchAsync(maxEntitiesToResweep: 4);
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Is.EquivalentTo(new[] { "Q29", "Q183" }),
+            "only the two OLDEST already-swept countries (Spain, Germany) must be live-queried again");
+        Assert.That(_wikidataClient.QueriedNationalityQids, Does.Not.Contain("Q38"),
+            "the newest already-swept country (Italy) must stay skipped — outside the bounded budget");
+        Assert.That(result.CountriesProcessed, Is.EqualTo(2));
+        Assert.That(result.CountriesSkipped, Is.EqualTo(1));
+
+        // The dedup read-back (GetPlayerAttributesAsync inside SweepPoolAsync)
+        // only ever runs for a row that actually reached fetchPoolAsync — a
+        // non-empty pool for a selected row proving PlayersTouched > 0 here
+        // is exactly that path having run, not just markSweptAsync.
+        var spainPlayer = await _playerRepository.GetPlayerByWikidataQidAsync("Q100");
+        var germanyPlayer = await _playerRepository.GetPlayerByWikidataQidAsync("Q200");
+        Assert.That(spainPlayer, Is.Not.Null, "the selected (oldest) row's pool must actually be fetched and persisted");
+        Assert.That(germanyPlayer, Is.Not.Null, "the selected (second-oldest) row's pool must actually be fetched and persisted");
+
+        var reloadedOldest = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == oldest.Id);
+        var reloadedMiddle = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == middle.Id);
+        var reloadedNewest = await _dbContext.CountryDefinitions.AsNoTracking().SingleAsync(c => c.Id == newest.Id);
+        Assert.That(reloadedOldest.PlayerPoolSweptAt, Is.GreaterThan(oldestOriginalSweptAt), "a re-swept row's timestamp must be refreshed");
+        Assert.That(reloadedMiddle.PlayerPoolSweptAt, Is.GreaterThan(middleOriginalSweptAt), "a re-swept row's timestamp must be refreshed");
+        Assert.That(reloadedNewest.PlayerPoolSweptAt, Is.EqualTo(newestOriginalSweptAt), "a skipped row's timestamp must NOT be re-written");
+    }
+
+    [Test]
+    public async Task REQ110_S187_PrefetchAsync_MaxEntitiesToResweepTwo_SplitsOneCountryAndOneClub()
+    {
+        // The product owner's own stated default (N=2 -> 1 country + 1 club
+        // per run) — proves PrefetchAsync's top-level budget actually reaches
+        // BOTH separate sweep calls, not just whichever runs first.
+        await SeedAlreadySweptCountryAsync("Spain", "Q29", DateTime.UtcNow.AddDays(-30));
+        await SeedAlreadySweptClubAsync("Celtic", "Q19593", DateTime.UtcNow.AddDays(-30));
+        _wikidataClient.SetPoolForNationality("Q29", []);
+        _wikidataClient.SetPoolForClub("Q19593", []);
+
+        var result = await BuildService().PrefetchAsync(maxEntitiesToResweep: 2);
+
+        Assert.That(_wikidataClient.QueriedNationalityQids, Does.Contain("Q29"));
+        Assert.That(_wikidataClient.QueriedClubQids, Does.Contain("Q19593"));
+        Assert.That(result.CountriesProcessed, Is.EqualTo(1));
+        Assert.That(result.ClubsProcessed, Is.EqualTo(1));
+        Assert.That(result.CountriesSkipped, Is.EqualTo(0));
+        Assert.That(result.ClubsSkipped, Is.EqualTo(0));
     }
 }

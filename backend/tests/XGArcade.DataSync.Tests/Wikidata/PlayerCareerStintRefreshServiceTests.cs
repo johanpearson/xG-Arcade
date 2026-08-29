@@ -263,4 +263,133 @@ public class PlayerCareerStintRefreshServiceTests
         Assert.That(candidateIds, Does.Contain(player.Id),
             "a stint originally labeled 'Olympique Lyonnais' must canonicalize to the seeded 'Lyon' and satisfy exact-match eligibility");
     }
+
+    // ---- S-187/REQ-1203: BuildNewStintsByPlayerId's narrowed (ClubName,
+    // StartYear) matching key ------------------------------------------------
+    // Problem this closes: a stored "ongoing" stint (EndYear null) that
+    // Wikidata later completes with a real end date — the player transferred
+    // away — previously failed the OLD full-tuple match (stored EndYear null
+    // != fetched EndYear) and was inserted as a SECOND row, a duplicate-
+    // looking entry in xG Path's clue-reveal timeline for one real stint.
+
+    [Test]
+    public async Task REQ1203_S187_RefreshCareerStintsAsync_FetchedStintCompletesStoredOngoingStint_UpdatesInPlace_NotDuplicated()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        var existingStintId = Guid.NewGuid();
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = existingStintId, PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = null, AppearanceCount = null }]);
+
+        // Wikidata now records the transfer away that hadn't happened yet
+        // the last time this stint was fetched.
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1), "completing an ongoing stint's end date must update the existing row, not duplicate it");
+        Assert.That(stints[0].Id, Is.EqualTo(existingStintId), "the SAME row must be updated in place, not a new one");
+        Assert.That(stints[0].EndYear, Is.EqualTo(2007));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(254));
+    }
+
+    [Test]
+    public async Task REQ1203_S187_RefreshCareerStintsAsync_FetchedStintAtGenuinelyDifferentClub_StillInsertsNewRow()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Monaco", StartYear = 1994, EndYear = 1999, AppearanceCount = 105 }]);
+
+        // Monaco is unchanged; Arsenal is a genuinely new, later stint —
+        // narrowing the match key must not make this look like a completion.
+        _wikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Monaco", 1994, 1999, 105),
+            new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Monaco", "Arsenal" }),
+            "a genuinely new club/start-year combination must still be inserted as a new row");
+    }
+
+    [Test]
+    public async Task REQ1203_S187_RefreshCareerStintsAsync_FetchedStintIdenticalToStored_RemainsANoOp()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        var existingStintId = Guid.NewGuid();
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = existingStintId, PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 }]);
+
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1), "an identical re-fetch must remain a no-op — no completion, no new row");
+        Assert.That(stints[0].Id, Is.EqualTo(existingStintId));
+        Assert.That(stints[0].EndYear, Is.EqualTo(2007));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(254));
+    }
+
+    [Test]
+    public async Task REQ1203_S187_RefreshCareerStintsAsync_FetchedStintCompletesAppearanceCountOnly_UpdatesInPlace()
+    {
+        // Same narrow completion path, just for AppearanceCount alone
+        // (EndYear already matches) — not the story's headline scenario, but
+        // the same (ClubName, StartYear) match key drives both fields.
+        var player = await SeedPlayerAsync("Q1519");
+        var existingStintId = Guid.NewGuid();
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = existingStintId, PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = null }]);
+
+        _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
+
+        await BuildService().RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
+        Assert.That(stints, Has.Count.EqualTo(1));
+        Assert.That(stints[0].Id, Is.EqualTo(existingStintId));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(254));
+    }
+
+    // S-187 follow-up (REQ-1203, 2026-08-29, quality-architect finding —
+    // "add a direct no-op proof test"): a direct unit test on
+    // BuildNewStintsByPlayerId itself (not routed through
+    // RefreshCareerStintsAsync's full repository round trip) proving an
+    // identical re-fetch is a TRUE no-op — both output collections empty —
+    // so no repository write would even be attempted, not just "the end
+    // state looks unchanged after a write" (which
+    // REQ1203_S187_RefreshCareerStintsAsync_FetchedStintIdenticalToStored_RemainsANoOp
+    // above already proves the end-to-end version of). Requires
+    // XGArcade.DataSync's AssemblyInfo.cs InternalsVisibleTo grant — added
+    // alongside this test, since BuildNewStintsByPlayerId is internal and no
+    // test previously called it directly.
+    [Test]
+    public void REQ1203_BuildNewStintsByPlayerId_IdenticalRefetchInput_ReturnsTrueNoOp()
+    {
+        const string qid = "Q1519";
+        var playerId = Guid.NewGuid();
+        var existingStintId = Guid.NewGuid();
+
+        var stintsByQid = new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>
+        {
+            [qid] = [new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254)],
+        };
+        var qidToPlayerId = new Dictionary<string, Guid> { [qid] = playerId };
+        var existingStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
+        {
+            [playerId] = [new PlayerCareerStint
+            {
+                Id = existingStintId, PlayerId = playerId, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254,
+            }],
+        };
+        IReadOnlyDictionary<string, string> clubNameByClubQid = new Dictionary<string, string>();
+
+        var reconciliation = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
+            stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
+
+        Assert.That(reconciliation.NewStintsByPlayerId, Is.Empty, "an identical re-fetch must queue zero new-row inserts");
+        Assert.That(reconciliation.CompletionsByStintId, Is.Empty, "an identical re-fetch must queue zero completions — a true no-op, no write attempted");
+    }
 }

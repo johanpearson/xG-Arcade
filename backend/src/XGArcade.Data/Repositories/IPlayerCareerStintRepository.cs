@@ -101,4 +101,43 @@ public interface IPlayerCareerStintRepository
     // idempotency-is-the-caller's-job contract as AddCareerStintsAsync.
     Task AddCareerStintsBatchAsync(
         IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default);
+
+    // S-187 (REQ-1203, narrow scope — see PlayerCareerStintRefreshService.
+    // BuildNewStintsByPlayerId's own doc comment for the full "why"):
+    // COMPLETES an already-stored stint row in place — sets EndYear/
+    // AppearanceCount to newly-fetched values — rather than inserting a
+    // second row for what is really the same real-world stint. This is
+    // deliberately narrower than AddCareerStintsBatchAsync: it only ever
+    // updates fields on a row that already exists (matched by the caller on
+    // (PlayerId, ClubName, StartYear) — never inserts, and never touches
+    // SequenceOrder. No re-sequencing is needed here: SequenceOrder is
+    // resolved by (StartYear, EndYear ?? int.MaxValue) ordering across a
+    // player's full stint set, and every row this method updates keeps its
+    // OWN StartYear unchanged — the only field that can move a completed
+    // stint within that ordering (EndYear going from null, which already
+    // sorts last, to a real value) can only move it EARLIER among stints
+    // sharing the exact same StartYear for the exact same player, a
+    // practically-nonexistent case for real single-career data (a player
+    // cannot debut at two different clubs in the same year) and out of this
+    // narrow completion fix's scope regardless — see this story's own commit
+    // message for the accepted trade-off. A stintId with no matching row
+    // (e.g. already removed by clean-duplicate-career-stints/purge-player-pool
+    // between the read and this write) is silently skipped, same
+    // best-effort-on-already-cached-data contract as
+    // IPlayerBackfillRepository.UpdatePlayerPhotosAsync. Load-then-
+    // SaveChangesAsync (docs/coding-guidelines.md), never ExecuteUpdateAsync.
+    Task UpdateCareerStintCompletionsAsync(
+        IReadOnlyDictionary<Guid, PlayerCareerStintCompletion> completionsByStintId, CancellationToken cancellationToken = default);
 }
+
+// S-187 (REQ-1203): the new EndYear/AppearanceCount values UpdateCareerStintCompletionsAsync
+// writes onto an existing PlayerCareerStint row, keyed by that row's own Id
+// (not PlayerId — a completion always targets one specific already-matched
+// row). Both fields are the FETCHED values verbatim (frequently still null
+// for AppearanceCount, e.g. a stint whose end date Wikidata now records but
+// whose appearance count remains undocumented) — this is a plain field
+// overwrite, not a "null means leave unchanged" merge the way
+// PlayerPositionBirthYearUpdate's own fields are interpreted; the caller
+// (BuildNewStintsByPlayerId) only ever queues a completion when the fetched
+// values genuinely differ from what's stored.
+public record PlayerCareerStintCompletion(int? EndYear, int? AppearanceCount);

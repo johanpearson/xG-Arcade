@@ -119,7 +119,8 @@ public class PlayerCareerPrefetchService(
     // OFFSET" bounded-query class.
     public const int CareerBatchSize = 200;
 
-    public async Task<PlayerCareerPrefetchResult> PrefetchAsync(CancellationToken cancellationToken = default)
+    public async Task<PlayerCareerPrefetchResult> PrefetchAsync(
+        int? maxEntitiesToResweep = null, CancellationToken cancellationToken = default)
     {
         var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
         var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
@@ -132,12 +133,17 @@ public class PlayerCareerPrefetchService(
         // comment for what this map is used for.
         var clubNameByClubQid = await PlayerCareerStintRefreshService.BuildClubNameByClubQidAsync(categoryValueRepository, cancellationToken);
 
-        var countryOutcome = await SweepCountriesAsync(countries, clubNameByClubQid, cancellationToken);
+        // S-187: one top-level budget split across the two separate sweep
+        // calls below — see SplitResweepBudget's own comment for the split
+        // rule.
+        var (maxCountriesToResweep, maxClubsToResweep) = SplitResweepBudget(maxEntitiesToResweep);
+
+        var countryOutcome = await SweepCountriesAsync(countries, clubNameByClubQid, maxCountriesToResweep, cancellationToken);
 
         // ADR-0069: symmetric to the country sweep above (see SweepClubsAsync).
         // Running totals continue from where the country sweep left off.
         var clubOutcome = await SweepClubsAsync(
-            clubs, clubNameByClubQid, countryOutcome.PlayersTouched, countryOutcome.StintsAdded, countryOutcome.AttributesAdded, cancellationToken);
+            clubs, clubNameByClubQid, maxClubsToResweep, countryOutcome.PlayersTouched, countryOutcome.StintsAdded, countryOutcome.AttributesAdded, cancellationToken);
 
         var careerBatchesFailed = countryOutcome.CareerBatchesFailed + clubOutcome.CareerBatchesFailed;
         if (countryOutcome.Failed > 0 || clubOutcome.Failed > 0 || careerBatchesFailed > 0)
@@ -159,9 +165,11 @@ public class PlayerCareerPrefetchService(
 
     // S-165: supplies what genuinely differs from the club sweep below
     // (fetch call, mark-swept write, own log wording) to shared SweepAsync.
+    // S-187: maxToResweep is this sweep's own share of PrefetchAsync's
+    // top-level maxEntitiesToResweep budget — see SplitResweepBudget.
     private Task<SweepOutcome> SweepCountriesAsync(
         IReadOnlyList<CountryDefinition> countries, IReadOnlyDictionary<string, string> clubNameByClubQid,
-        CancellationToken cancellationToken) =>
+        int maxToResweep, CancellationToken cancellationToken) =>
         SweepAsync(
             countries, getWikidataQid: c => c.WikidataQid, getName: c => c.Name,
             getSweptAt: c => c.PlayerPoolSweptAt,
@@ -180,13 +188,15 @@ public class PlayerCareerPrefetchService(
                 "prefetch-player-careers: {Country} done — pool of {PoolSize} player(s) processed " +
                 "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added, " +
                 "{AttributesAdded} attribute(s) added).",
-                c.Name, poolSize, touched, added, attrsAdded), cancellationToken);
+                c.Name, poolSize, touched, added, attrsAdded), maxToResweep, cancellationToken);
 
     // Mirrors SweepCountriesAsync above. starting* seeds running totals from
     // the country sweep's own final totals, so they stay cumulative overall.
+    // S-187: maxToResweep is this sweep's own share of the budget, see
+    // SweepCountriesAsync's own comment.
     private Task<SweepOutcome> SweepClubsAsync(
         IReadOnlyList<ClubDefinition> clubs, IReadOnlyDictionary<string, string> clubNameByClubQid,
-        int startingPlayersTouched, int startingStintsAdded, int startingAttributesAdded,
+        int maxToResweep, int startingPlayersTouched, int startingStintsAdded, int startingAttributesAdded,
         CancellationToken cancellationToken) =>
         SweepAsync(
             clubs, getWikidataQid: c => c.WikidataQid,
@@ -222,11 +232,33 @@ public class PlayerCareerPrefetchService(
                 "prefetch-player-careers: {Club} done — pool of {PoolSize} player(s) processed " +
                 "(running totals: {PlayersTouched} player(s) touched, {StintsAdded} stint(s) added, " +
                 "{AttributesAdded} attribute(s) added).",
-                c.Name, poolSize, touched, added, attrsAdded), cancellationToken);
+                c.Name, poolSize, touched, added, attrsAdded), maxToResweep, cancellationToken);
 
     private readonly record struct SweepOutcome(
         int Processed, int Failed, IReadOnlyList<string> FailedNames,
         int PlayersTouched, int StintsAdded, int AttributesAdded, int CareerBatchesFailed, int Skipped = 0);
+
+    // S-187 (REQ-110 follow-up, rotating bounded re-sweep): splits one
+    // top-level maxEntitiesToResweep budget across SweepCountriesAsync's and
+    // SweepClubsAsync's own separate calls into shared SweepAsync — each
+    // call only knows its own row set, so the split has to happen here, once,
+    // before either runs. The odd remainder rounds toward the country side:
+    // there are more seeded countries (49) than clubs (~15, MVP-SCOPE.md), so
+    // giving the country half the extra unit keeps each pool's own rotation
+    // period (how long until every one of ITS rows has cycled through a
+    // re-sweep) roughly comparable, rather than the smaller club budget
+    // rounding down twice as often. null or non-positive input collapses to
+    // (0, 0) — SweepAsync's existing "0 means no resweep" default, i.e.
+    // ADR-0088's unchanged skip-forever behavior.
+    private static (int MaxCountriesToResweep, int MaxClubsToResweep) SplitResweepBudget(int? maxEntitiesToResweep)
+    {
+        if (maxEntitiesToResweep is null or <= 0)
+            return (0, 0);
+
+        var countriesShare = (maxEntitiesToResweep.Value + 1) / 2;
+        var clubsShare = maxEntitiesToResweep.Value - countriesShare;
+        return (countriesShare, clubsShare);
+    }
 
     // S-165: shared "fetch -> mark swept -> skip-empty -> dedup+chunk" shape
     // both sweeps use, extracted from two ~90-line near-identical foreach
@@ -243,6 +275,20 @@ public class PlayerCareerPrefetchService(
     // never reaches). This is a pure re-run-cost fix, not a data-freshness
     // change: getWikidataQid's null-QID skip above is checked first and
     // still takes priority, matching every other precedence in this method.
+    //
+    // REQ-110/S-187 (rotating bounded re-sweep): maxToResweep widens which
+    // already-swept rows are exempted from the skip above. Every never-swept
+    // row is still included unconditionally, uncapped by maxToResweep (a
+    // backlog of brand-new entities is never throttled) — only the
+    // ALREADY-swept population is bounded: up to maxToResweep of them,
+    // chosen as the OLDEST getSweptAt values (the ones most overdue for a
+    // refresh), get selected up front and treated exactly like a never-swept
+    // row for the rest of this method — same fetchPoolAsync call, same
+    // markSweptAsync re-write (refreshing the timestamp to "now," restarting
+    // its place in the rotation), same SweepPoolAsync dedup read-back.
+    // maxToResweep: 0 (SplitResweepBudget's default when the caller passed
+    // null) selects nothing here, reproducing ADR-0088's exact skip-forever
+    // behavior with no behavior change.
     private async Task<SweepOutcome> SweepAsync<TRow>(
         IReadOnlyList<TRow> rows, Func<TRow, string?> getWikidataQid, Func<TRow, string> getName,
         Func<TRow, DateTime?> getSweptAt,
@@ -251,7 +297,7 @@ public class PlayerCareerPrefetchService(
         Action<TRow> logSkipped,
         string attributeType, IReadOnlyDictionary<string, string> clubNameByClubQid,
         int startingPlayersTouched, int startingStintsAdded, int startingAttributesAdded,
-        Action<TRow, int, int, int, int> logDone, CancellationToken cancellationToken)
+        Action<TRow, int, int, int, int> logDone, int maxToResweep, CancellationToken cancellationToken)
     {
         var processed = 0;
         var failed = 0;
@@ -262,6 +308,24 @@ public class PlayerCareerPrefetchService(
         var attributesAdded = startingAttributesAdded;
         var careerBatchesFailed = 0;
 
+        // S-187: the rotation's own selection — up to maxToResweep
+        // already-swept rows, oldest getSweptAt first. Reference equality
+        // (rows are the exact same object instances iterated below) is all
+        // this HashSet needs; CountryDefinition/ClubDefinition define no
+        // value-equality override.
+        //
+        // getWikidataQid(r) is not null (defensive hardening, 2026-08-29,
+        // quality-architect finding): can't currently manifest as a bug — a
+        // swept row can't have a null QID given how ReferenceDataSeeder
+        // seeds CountryDefinition/ClubDefinition — but keeps this selection
+        // aligned with the main loop's own null-QID skip below regardless.
+        var selectedForResweep = maxToResweep > 0
+            ? rows.Where(r => getSweptAt(r) is not null && getWikidataQid(r) is not null)
+                .OrderBy(getSweptAt)
+                .Take(maxToResweep)
+                .ToHashSet()
+            : [];
+
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -269,7 +333,7 @@ public class PlayerCareerPrefetchService(
             if (getWikidataQid(row) is null)
                 continue;
 
-            if (getSweptAt(row) is not null)
+            if (getSweptAt(row) is not null && !selectedForResweep.Contains(row))
             {
                 skipped++;
                 logSkipped(row);
@@ -446,12 +510,19 @@ public class PlayerCareerPrefetchService(
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 
-        var newStintsByPlayerId = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
+        var reconciliation = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
             stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
 
-        if (newStintsByPlayerId.Count > 0)
-            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        if (reconciliation.NewStintsByPlayerId.Count > 0)
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(reconciliation.NewStintsByPlayerId, cancellationToken);
 
-        return (playersByQid.Count, newStintsByPlayerId.Sum(kv => kv.Value.Count), attributesToAdd.Count, false);
+        // S-187 (REQ-1203): completions (an already-stored stint's
+        // previously-null EndYear/AppearanceCount now filled in) are a
+        // separate write from new-row inserts above — see
+        // BuildNewStintsByPlayerId's own doc comment for the full "why."
+        if (reconciliation.CompletionsByStintId.Count > 0)
+            await playerCareerStintRepository.UpdateCareerStintCompletionsAsync(reconciliation.CompletionsByStintId, cancellationToken);
+
+        return (playersByQid.Count, reconciliation.NewStintsByPlayerId.Sum(kv => kv.Value.Count), attributesToAdd.Count, false);
     }
 }

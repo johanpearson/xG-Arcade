@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-29 — `docs/decisions/0090-rotating-bounded-resweep-of-swept-pools.md`
+  and `docs/decisions/0091-career-stint-completion-narrow-exception.md`
+  (new ADRs), `docs/requirements-document.md` (REQ-110 and REQ-1203 status
+  notes), `docs/architecture-document.md` (COMP-07 and COMP-11 ADR rows),
+  `docs/backlog.md` (S-187 entry corrected to note both pieces got ADRs,
+  plus a "Built as" addendum for the follow-up commit `85924af` that closed
+  the `WikidataLookupService.PersistCareerStintsAsync` gap
+  `architecture-reviewer` flagged and added the direct no-op test
+  `quality-architect` flagged) — documentation-sync pass for S-187
+  (Epic 26, follow-up to S-186/ADR-0088): piece 1 is a rotating, bounded
+  weekly re-sweep of already-swept country/club pools
+  (`PlayerCareerPrefetchService.PrefetchAsync`'s new `maxEntitiesToResweep`,
+  `resweep-player-careers.yml`), reconciled explicitly with ADR-0088's own
+  "no staleness window" call as a bounded, controlled exception rather than
+  a reversal; piece 2 narrows career-stint reconciliation's matching key to
+  `(ClubName, StartYear)` so a stint's previously-null `EndYear` being
+  filled in completes the existing row instead of duplicating it, at all
+  three reconciliation call sites via the new shared
+  `CareerStintReconciler.Reconcile` primitive, a narrow exception to
+  ADR-0054's "additive only" trade-off. REQ/ADR refs: REQ-110, REQ-1203,
+  ADR-0090, ADR-0091, S-187.
 - 2026-08-29 — `docs/decisions/0089-grid-per-header-category-mixing.md`
   (new ADR), `docs/architecture-document.md` (§10 table) — recorded the
   decision to replace `GridGenerationService.SelectPairing`'s per-instance

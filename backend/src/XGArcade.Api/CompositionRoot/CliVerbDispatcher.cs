@@ -339,10 +339,40 @@ public static class CliVerbDispatcher
     // to the original countries sweep — no new CLI verb, this is the same
     // `prefetch-player-careers` verb widened. See PlayerCareerPrefetchService's
     // own doc comment for the club-loop's own "why."
+    //
+    // REQ-110/S-187 (rotating bounded re-sweep): this verb now also takes an
+    // OPTIONAL second argument, `maxEntitiesToResweep` — a non-negative
+    // integer forwarded to PlayerCareerPrefetchService.PrefetchAsync (see its
+    // own doc comment for what it does). No argument (`args.Length == 1`)
+    // means null, i.e. today's unbounded-skip-already-swept default,
+    // unchanged — this is what prefetch-player-careers.yml's own
+    // workflow_dispatch trigger keeps using (resweep-player-careers.yml is
+    // the new, separate sibling workflow that passes a bounded value — see
+    // that file's own comment). This deliberately switches this verb from
+    // the "exact-match, any extra token silently falls through to starting
+    // the server" shape (S-112's own doc comment on this class) to the
+    // "prefix-match, validate
+    // and throw on a malformed shape" shape every other verb that takes a real
+    // argument already uses (e.g. purge-player-pool's confirmation phrase) —
+    // now that a second token is meaningful here, silently falling through on
+    // one would hide a typo'd argument as a silent no-op prefetch run instead
+    // of a loud failure.
     private static async Task<bool> HandlePrefetchPlayerCareersAsync(string[] args)
     {
-        if (args.Length != 1)
-            return false;
+        if (args.Length > 2)
+            throw new InvalidOperationException(
+                "prefetch-player-careers takes at most one optional argument (maxEntitiesToResweep), " +
+                $"got '{string.Join(" ", args.Skip(1))}'.");
+
+        int? maxEntitiesToResweep = null;
+        if (args.Length == 2)
+        {
+            if (!int.TryParse(args[1], out var parsedMaxEntitiesToResweep) || parsedMaxEntitiesToResweep < 0)
+                throw new InvalidOperationException(
+                    "prefetch-player-careers's optional argument must be a non-negative integer " +
+                    $"(maxEntitiesToResweep), got '{args[1]}'.");
+            maxEntitiesToResweep = parsedMaxEntitiesToResweep;
+        }
 
         using var prefetchLoggerFactory = BuildLoggerFactory();
 
@@ -387,7 +417,7 @@ public static class CliVerbDispatcher
         // exits nonzero and the workflow run goes red exactly when something
         // needs a re-run, same fail-loud-at-the-end contract as
         // import-player-name-index.
-        var prefetchResult = await prefetchService.PrefetchAsync();
+        var prefetchResult = await prefetchService.PrefetchAsync(maxEntitiesToResweep);
 
         // ADR-0069: reports both sweeps' processed counts — the club sweep
         // is additional to, not a replacement for, the original
@@ -399,6 +429,12 @@ public static class CliVerbDispatcher
         // skipped entirely (already fully swept from a prior run, per
         // ADR-0088) — visible confirmation in the CI log that a re-dispatch
         // isn't paying the full Wikidata+Supabase cost again.
+        // REQ-110/S-187: a resweep-selected already-swept row counts toward
+        // CountriesProcessed/ClubsProcessed below, same as a never-swept
+        // row — SweepAsync treats it identically once selected, so no
+        // separate counter is needed to see the rotation working; a
+        // resweep-player-careers.yml run's "processed" count on an
+        // otherwise-fully-swept pool is exactly its own maxEntitiesToResweep.
         Console.WriteLine(
             $"prefetch-player-careers: complete — {prefetchResult.CountriesProcessed} countr" +
             $"{(prefetchResult.CountriesProcessed == 1 ? "y" : "ies")} processed, " +

@@ -342,6 +342,26 @@ public class WikidataLookupService(
     // player this match set assigned at least one CareerStints qualifier
     // to) instead of one GetCareerStintsAsync round trip per player, and one
     // AddCareerStintsBatchAsync call instead of one per player.
+    //
+    // S-187 follow-up (2026-08-29, architecture-reviewer finding — "close
+    // the third duplicate-stint door"): a fetched qualifier matching an
+    // existing row on (ClubName, StartYear) with a different EndYear/
+    // AppearanceCount now COMPLETES that row in place (via the same
+    // UpdateCareerStintCompletionsAsync repository method
+    // PlayerCareerStintRefreshService.RefreshCareerStintsAsync/
+    // PlayerCareerPrefetchService.FetchAndPersistBatchAsync already use)
+    // instead of inserting a second row — this is the SAME reconciliation
+    // rule those two call sites apply, via the shared
+    // CareerStintReconciler.Reconcile primitive (see its own doc comment
+    // for why this method can't just call BuildNewStintsByPlayerId
+    // directly: CareerStintQualifiers carries no per-entry ClubName/ClubQid
+    // the way WikidataCareerStintEntry does — every qualifier here shares
+    // this call's one caller-supplied clubName). A genuinely new
+    // (ClubName, StartYear) still inserts as before; an identical re-fetch
+    // is still a no-op — this is no longer just "re-running the same query
+    // must not create duplicate stint rows" (the old, now-stale idempotency
+    // note it replaces), it is the same "complete in place" behavior S-187
+    // gave the other two reconciliation call sites.
     private async Task PersistCareerStintsAsync(
         IReadOnlyList<WikidataPlayerMatch> matches,
         IReadOnlyList<Player> persistedPlayers,
@@ -361,6 +381,7 @@ public class WikidataLookupService(
         var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(playerIdsWithStints, cancellationToken);
 
         var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
+        var completionsByStintId = new Dictionary<Guid, PlayerCareerStintCompletion>();
 
         for (var i = 0; i < matches.Count; i++)
         {
@@ -370,19 +391,42 @@ public class WikidataLookupService(
 
             var playerId = persistedPlayers[i].Id;
 
-            // Idempotency: re-running the same query must not create
-            // duplicate stint rows — skip a tuple that already exists for
-            // this player (same ClubName/StartYear/EndYear/AppearanceCount),
-            // same "fetch once, HashSet.Add as the dedup+select gate"
-            // pattern as before this method was batched.
-            HashSet<(string ClubName, int StartYear, int? EndYear, int? AppearanceCount)> seenTuples =
-                existingStintsByPlayerId.TryGetValue(playerId, out var existingStints)
-                    ? existingStints.Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount)).ToHashSet()
-                    : [];
+            var existingStints = existingStintsByPlayerId.TryGetValue(playerId, out var stints)
+                ? stints
+                : (IReadOnlyList<PlayerCareerStint>)[];
 
-            var newStints = match.CareerStints
-                .Where(q => seenTuples.Add((clubName, q.StartYear, q.EndYear, q.AppearanceCount)))
-                .Select(q => new PlayerCareerStint
+            // S-187 follow-up: narrower (ClubName, StartYear) match key,
+            // same first-wins-on-collision tolerance as
+            // BuildNewStintsByPlayerId's own existingByKey — not expected in
+            // practice (a player can't start two spells at the same club in
+            // the same year).
+            var existingByKey = existingStints
+                .GroupBy(s => (s.ClubName, s.StartYear))
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var newStints = new List<PlayerCareerStint>();
+            // Guards against inserting two new rows for the same
+            // (ClubName, StartYear) if the fetched qualifiers themselves
+            // contain a defensive-only duplicate — mirrors
+            // BuildNewStintsByPlayerId's own newStintKeysThisPlayer.
+            var newStintKeysThisPlayer = new HashSet<(string ClubName, int StartYear)>();
+
+            foreach (var q in match.CareerStints)
+            {
+                var decision = CareerStintReconciler.Reconcile(existingByKey, clubName, q.StartYear, q.EndYear, q.AppearanceCount);
+                if (decision.Outcome == CareerStintReconciler.Outcome.NoOp)
+                    continue; // Identical to what's stored — no-op.
+
+                if (decision.Outcome == CareerStintReconciler.Outcome.Complete)
+                {
+                    completionsByStintId[decision.ExistingStintId] = new PlayerCareerStintCompletion(q.EndYear, q.AppearanceCount);
+                    continue;
+                }
+
+                if (!newStintKeysThisPlayer.Add((clubName, q.StartYear)))
+                    continue;
+
+                newStints.Add(new PlayerCareerStint
                 {
                     Id = Guid.NewGuid(),
                     PlayerId = playerId,
@@ -394,13 +438,21 @@ public class WikidataLookupService(
                     // across the player's full stint set — this placeholder
                     // is always overwritten before SaveChangesAsync.
                     SequenceOrder = 0,
-                })
-                .ToList();
+                });
+            }
 
             if (newStints.Count > 0)
                 newStintsByPlayerId[playerId] = newStints;
         }
 
-        await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        if (newStintsByPlayerId.Count > 0)
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+
+        // S-187 follow-up: completions are a separate write from new-row
+        // inserts above, same reason PlayerCareerStintRefreshService
+        // .RefreshCareerStintsAsync's own two calls are separate — see
+        // BuildNewStintsByPlayerId's own doc comment.
+        if (completionsByStintId.Count > 0)
+            await playerCareerStintRepository.UpdateCareerStintCompletionsAsync(completionsByStintId, cancellationToken);
     }
 }

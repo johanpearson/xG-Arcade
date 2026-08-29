@@ -57,6 +57,17 @@ name: prefetch-player-careers
 # prevents a burst of re-dispatches from ever running two full sweeps
 # against Supabase in parallel again, queuing instead of cancelling since a
 # real in-flight sweep is expensive to redo.
+#
+# REQ-110/S-187 (follow-up): the "skip forever" behavior above also means a
+# player transferring INTO an already-swept country's/club's pool is never
+# noticed again. resweep-player-careers.yml is the separate, weekly,
+# BOUNDED remediation for that gap (a small rotating re-sweep of the oldest
+# already-swept entities) — this workflow's own manual-only trigger is
+# UNCHANGED: it still runs the verb with no argument (unbounded,
+# never-swept-only), the explicit "sweep everything not-yet-done" escape
+# hatch after a purge or reference-data change. See that file's own comment
+# and PlayerCareerPrefetchService.PrefetchAsync's doc comment for the full
+# "why."
 
 on:
   workflow_dispatch: {}
