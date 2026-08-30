@@ -9603,3 +9603,106 @@ CI verification run (`ci.yml` `workflow_dispatch`) is needed before this is
 considered fully done — the orchestrating session triggers CI next, same
 recurring constraint as S-191/S-192/S-193 and every other recent backend
 story in this file.
+
+**S-195 · xG Predict asynchronous per-match grading (REQ-1305, ADR-0097)**
+Direct continuation of S-190 through S-194, closing REQ-1305's own "Needs
+an ADR" section — the last of REQ-1301-1305's structural gaps — and
+implementing the grading leg itself. Run through `/orchestrate` end to
+end (intake → scope check → ADR → delegation → quality gate → doc sync →
+CI verification). Resolves REQ-1305's two deliberately-deferred structural
+questions: what triggers grading (a new hourly scheduled job/endpoint,
+mirroring ADR-0072's per-`GameKey` workflow shape, not folded into
+`generate-grid-round.yml`/`generate-path-round.yml`), and how a
+locked-but-ungraded round's `Closed` status/leaderboard participation
+interact (fully decoupled — a round can close with matches still
+`Pending`, and the leaderboard shows a partial, always-growing total,
+never a withheld one). Also settles a third question the first two forced:
+where grading results are persisted and read from, since `Guess`/
+`IGuessRepository` don't apply (ADR-0096 already established xG Predict
+never writes `Guess` rows).
+
+*Accept:* ADR-0097
+(`docs/decisions/0097-xg-predict-async-grading-trigger-and-partial-round-state.md`)
+exists and decides the trigger, entity/read-path shape, idempotency
+mechanism, and `Closed`/leaderboard interaction; `IPredictGradingService`/
+`PredictGradingService` (`XGArcade.Games.XGPredict`) is a real, tested
+implementation that fetches each ready match's result via
+`IApiFootballClient.GetFixtureResultAsync`, grades every prediction via
+`XGPredictScoringStrategy.ScorePrediction` (REQ-1304), voids postponed/
+abandoned matches, leaves not-yet-confirmed matches for retry, and is
+idempotent by construction (`GradingStatus == Pending` is the only query
+predicate); `PredictMatch` gains `GradingStatus`/`ActualHomeGoals`/
+`ActualAwayGoals` and `PredictMatchPrediction` gains `FinalPoints` via a
+real migration (`20260830130000_AddPredictMatchGrading`, with matching
+`.Designer.cs`/`XGArcadeDbContextModelSnapshot.cs` updates); a new
+bearer-token-gated `POST /internal/grade-predict-matches` endpoint exists,
+registered unconditionally like `/internal/generate-round`; a new
+`.github/workflows/grade-predict-matches.yml` polls it hourly plus
+`workflow_dispatch`; `architecture-reviewer` and `quality-architect` both
+PASSed with only non-blocking notes (below); `docs/requirements-document.md`,
+`docs/architecture-document.md`, and `docs/implementation-document.md`
+reflect what's actually built vs. still deferred (REQ-1306 unaffected,
+still design-only).
+
+*Deps:* S-190 (COMP-15 module scaffold), S-191 (`IApiFootballClient`/
+`GetFixtureResultAsync`), S-192 (`PredictMatch`/`PredictMatchPrediction`
+entities, `IPredictInstanceRepository`), S-193 (`XGPredictScoringStrategy`/
+`ScorePrediction`, REQ-1304's formula).
+
+*Explicitly out of scope, queued as follow-up (per ADR-0097's own text):*
+`ILeaderboardService`/`LeaderboardEndpoints` wiring of the new
+`GetTotalPointsByInstanceIdAsync` for `"xg-predict"` round totals — a real,
+separate piece of work with its own design questions (e.g. how
+`GetClosedRoundsAsync`'s `ClosedAt`-gated browsing interacts with a round
+whose total is still growing), not decided by ADR-0097 and not started
+here. Also unaffected and unchanged, same as every prior xG Predict
+story's own scope note: `RoundSchedulingOptions`/round-generation wiring
+for `"xg-predict"`, and REQ-1306 (confirm-and-lock action). Two small,
+non-blocking quality-gate notes, not worth their own story: (1)
+`ServiceRegistration.cs` registers `XGPredictScoringStrategy` twice (once
+concrete, once via `IScoringStrategy`) instead of once resolved two ways —
+cosmetic, harmless since the class is stateless; (2)
+`InternalPredictGradingEndpointTests.cs` doesn't swap in a fake
+`IApiFootballClient` via `WebApplicationFactory` (the way
+`AdminSuggestionEndpointTests.cs` does for `IWikidataClient`), so no test
+exercises the endpoint returning non-zero graded/voided counts end-to-end
+— service-level tests already cover the actual grading logic thoroughly,
+so this is a coverage nicety, not a real gap.
+
+*Built as (2026-08-30):* the orchestrating session wrote ADR-0097 directly
+(same precedent as ADR-0094/ADR-0095/ADR-0096's own authorship), deciding
+the trigger (a third, purpose-built hourly workflow, not a variation of
+the existing two per-`GameKey` round-generation workflows), the entity/
+read-path shape (`PredictMatchGradingStatus` enum as the sole idempotency
+source of truth, nullable `FinalPoints` mirroring `Guess.FinalPoints`, no
+materialized "missing prediction" row — a deliberate, permanent difference
+from `MaterializeUnansweredCellsAsync`'s ADR-0021 pattern, since
+higher-is-better scoring means "no row" and "0 points" already coincide),
+and the `Closed`/leaderboard decoupling (not a gap to patch — the direct,
+intended consequence of `LockRoundScoresAsync` already being a no-op for
+an xG Predict round, verified by reading the code rather than assumed).
+`backend-implementer` built `IPredictGradingService`/`PredictGradingService`,
+the five new `IPredictInstanceRepository` methods
+(`GetMatchesReadyForGradingAsync`/`GetPredictionsForMatchAsync`/
+`GradeMatchAsync`/`VoidMatchAsync`/`GetTotalPointsByInstanceIdAsync`), the
+new entity columns and hand-written migration (same no-`dotnet`-SDK
+hand-verification constraint as every other recent backend story —
+brace/paren balance, migration/snapshot byte-identity, cross-referenced
+signatures), the `/internal/grade-predict-matches` endpoint, the
+`grade-predict-matches.yml` workflow, and full NUnit coverage
+(`PredictGradingServiceTests`, extended `PredictInstanceRepositoryTests`,
+`InternalPredictGradingEndpointTests`) — the confirmed/not-yet-confirmed/
+postponed/idempotent-second-run cases REQ-1305's own "Test level" text
+calls for.
+
+`architecture-reviewer` and `quality-architect` (run in parallel) both
+PASSed this diff with only the two non-blocking notes listed above — no
+blocking findings, no fix round required, a change from S-192/S-193's own
+one-fix-round pattern.
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-verified by the
+implementer and by both quality-gate reviewers reading the actual diff; a
+CI verification run (`ci.yml` `workflow_dispatch`) is needed before this is
+considered fully done — the orchestrating session triggers CI next, same
+recurring constraint as S-191 through S-194 and every other recent backend
+story in this file.

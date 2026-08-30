@@ -9,6 +9,7 @@ using XGArcade.Api.Incidents;
 using XGArcade.Api.Leagues;
 using XGArcade.Api.Path;
 using XGArcade.Api.Players;
+using XGArcade.Api.Predict;
 using XGArcade.Api.Rounds;
 using XGArcade.Api.Suggestions;
 using XGArcade.Api.Users;
@@ -45,6 +46,11 @@ public static class EndpointMapping
         // REQ-718/ADR-0038: the scheduled-purge half of guest account cleanup, same
         // bearer-token /internal/* pattern as MapInternalRoundEndpoints above.
         app.MapInternalGuestCleanupEndpoints();
+        // REQ-1305/ADR-0097: xG Predict's own asynchronous per-match grading
+        // job endpoint, same bearer-token /internal/* pattern as
+        // MapInternalRoundEndpoints above — its only caller is
+        // .github/workflows/grade-predict-matches.yml's hourly cron.
+        app.MapInternalPredictGradingEndpoints();
         app.MapRoundEndpoints();
         // REQ-1203/S-082: xg-path's own read-only display endpoint (GET
         // /path/current) — POST /rounds/{roundId}/cells/{cellId}/guesses below
