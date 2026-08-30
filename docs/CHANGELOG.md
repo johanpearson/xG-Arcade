@@ -38,6 +38,43 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   is its closure mechanism instead) — REQ/ADR refs: REQ-1305, REQ-1306,
   REQ-1210 (unchanged, confirmed out of scope for xG Predict).
 
+- 2026-08-30 — new `docs/decisions/0096-xg-predict-entity-shape-and-submission-boundary.md`
+  (Accepted, same-day amendment making the exception-hierarchy/field-naming
+  decision explicit — `PredictScoringException` derives from
+  `Core.Games.GameEntityNotFoundException`; the negative-goal-count
+  validation case gets its own `PredictInvalidSubmissionException`;
+  `PredictMatchPrediction`'s timestamp field is `SubmittedAt`, not
+  `CreatedAt`), `docs/architecture-document.md` (COMP-15 row and §5.3
+  ADR-evolution row rewritten — `XGPredictGameModule`'s
+  `GenerateInstanceAsync`/`ScoreSubmissionAsync`/`GetCellIdsAsync` are no
+  longer stubs; `GetMaxAttemptsForCellAsync` still throws; §6.11's header
+  and its generation/submission legs updated to describe real, tested
+  behavior, its grading leg left as a not-yet-built sketch; version 1.23 →
+  1.24), `docs/requirements-document.md` (§4.14 intro and REQ-1301/1302/
+  1303 each given a status note pointing at the implementing
+  module/tests, without touching existing acceptance criteria;
+  REQ-1304/1305/1306 confirmed still design-only; version 2.24 → 2.25),
+  `docs/implementation-document.md` (§4 project structure gained
+  `XGArcade.Games.XGPredict`/`.Tests` entries, §5 data model gained
+  `PredictTemplate`/`PredictInstance`/`PredictMatch`/
+  `PredictMatchPrediction`, none of which had been documented here even at
+  scaffold time; version 1.10 → 1.11) — implements REQ-1301 (round
+  generation: tightest-kickoff-clustering selection), REQ-1302 (score
+  prediction submission, store/replace, no attempt cap), and REQ-1303
+  (whole-round lock at the first match's kickoff), plus two same-day
+  quality-gate fixes (rename `CreatedAt`→`SubmittedAt` on
+  `PredictMatchPrediction`; split the conflated "not found" vs.
+  "invalid submission" exception into `PredictScoringException`/
+  `PredictInvalidSubmissionException`). Not wired into
+  `InternalRoundEndpoints`, `GuessSubmissionService`, or any
+  `RoundSchedulingOptions`/`IScoringStrategy` registration for
+  `"xg-predict"` — deliberately deferred, mirrors ADR-0051's precedent.
+  REQ-1304 (scoring), REQ-1305 (asynchronous grading), and REQ-1306
+  (confirm-and-lock action) remain unimplemented. `docs/backlog.md` not
+  touched in this pass — a new backlog entry is being added separately by
+  the orchestrating session. REQ/ADR refs: REQ-1301, REQ-1302, REQ-1303,
+  ADR-0096.
+
 - 2026-08-30 — `docs/backlog.md` (new S-190 entry), `MVP-SCOPE.md` (new
   precondition note, additive, added after the Tier 0 section, before Tier
   1) — closes out the doc-sync pass for xG Predict's requirements/ADR/scaffold

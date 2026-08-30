@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.24"
+version: "2.25"
 status: draft
 last_updated: 2026-08-30
 owner: Johan
@@ -10091,10 +10091,23 @@ match-outcome prediction game living behind the same `IGameModule`
 interface as its own new component, **COMP-15 (Games.XGPredict)**. A round
 targets five real Premier League matches; the player predicts each match's
 final score before the round locks, and each prediction is graded once its
-match actually finishes. This section is design-only — no xG Predict code
-exists yet. Every REQ below is written to the same standard as §4.1/§4.12's
-requirements for xG Grid/xG Path, but describes intended behavior for a
-game that has not been built, not a claim about current behavior.
+match actually finishes. **Status (2026-08-30, ADR-0096):** REQ-1301
+(round generation), REQ-1302 (prediction submission), and REQ-1303 (round
+lock) are now implemented and unit-tested — see each REQ's own status note
+below for the exact module/file. REQ-1304 (scoring), REQ-1305 (asynchronous
+grading), and REQ-1306 (confirm-and-lock action) remain design-only — no
+code implements them yet, and this section's original framing still applies
+to those three: every REQ below is written to the same standard as
+§4.1/§4.12's requirements for xG Grid/xG Path, but REQ-1304/1305/1306
+describe intended behavior for a game surface that has not been built, not
+a claim about current behavior. Note also that even REQ-1301/1302/1303's
+implementation is not yet reachable in production: nothing wires
+`XGPredictGameModule` into `InternalRoundEndpoints`'s `gameKey` switch,
+`GuessSubmissionService`, or any `RoundSchedulingOptions`/`IScoringStrategy`
+registration for `"xg-predict"` (deliberately deferred, ADR-0096, mirrors
+ADR-0051's precedent) — the acceptance criteria below are satisfied at the
+`IGameModule` implementation/unit-test level, not end-to-end through a real
+HTTP endpoint yet.
 
 **Note on §4.13's cross-game requirements:** REQ-1210 (round-completion
 animation with a leaderboard link) is written for a game whose cells
@@ -10149,6 +10162,18 @@ case and a fewer-than-5-fixtures abort case), API/Integration (round
 generation produces a `Round` with `GameKey="xg-predict"` and exactly 5
 matches wired as cells).
 
+**Status (2026-08-30, ADR-0096):** Implemented —
+`XGPredictGameModule.GenerateInstanceAsync`
+(`backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs`), selecting
+the tightest-kickoff-clustered subset via a sort + linear sliding window
+over `ApiFootballClient.GetUpcomingGameweekFixturesAsync`'s results, and
+persisting `PredictTemplate`/`PredictInstance`/`PredictMatch` rows via
+`IPredictInstanceRepository` (`XGArcade.Data`). Unit-tested in
+`XGPredictGameModuleTests` (selection determinism/tie-breaking, the
+abort-on-too-few-fixtures case). Not yet reachable end to end: no
+API/Integration-level caller exists yet (`InternalRoundEndpoints` does not
+route `"xg-predict"`) — see this section's intro note above.
+
 **REQ-1302 – Score prediction submission**
 > As a player, I want to predict the final score of each match in an xG
 > Predict round, so I have a stored prediction to be graded once that
@@ -10180,6 +10205,21 @@ matches wired as cells).
 API (submit/resubmit before lock succeeds and overwrites the prior value;
 submit after lock is rejected for every match in the round, not only ones
 that have individually kicked off).
+
+**Status (2026-08-30, ADR-0096):** Implemented at the `IGameModule` level —
+`XGPredictGameModule.ScoreSubmissionAsync`
+(`backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs`) validates
+the `PredictionSubmission(CellId, HomeGoals, AwayGoals)` DTO
+(`XGArcade.Core.Games`), rejects a negative goal count with
+`PredictInvalidSubmissionException`, and persists/replaces the stored
+prediction via `IPredictInstanceRepository.AddOrUpdatePredictionAsync`
+(unique on `(PredictMatchId, UserId)`, so resubmission overwrites rather
+than inserting). Unit-tested in `XGPredictGameModuleTests`
+(resubmission-replaces semantics, negative-goal rejection). The API-level
+test level above (a real HTTP endpoint accepting a submission) is not yet
+built — no caller constructs a `PredictionSubmission` or invokes
+`ScoreSubmissionAsync` in production yet; see this section's intro note
+above.
 
 **REQ-1303 – Round lock at the first match's kickoff (exploit prevention)**
 > As xG Arcade, I want an entire xG Predict round to lock the instant the
@@ -10225,6 +10265,18 @@ passed; a prediction submitted for any match before the lock instant
 succeeds), E2E (submitting predictions for matches 2-5 after match 1 has
 kicked off, but before match 2 individually kicks off, is rejected end to
 end).
+
+**Status (2026-08-30, ADR-0096):** Implemented at the unit level —
+`XGPredictGameModule.ScoreSubmissionAsync` computes the round-level lock as
+`instance.Matches.Min(m => m.KickoffUtc)` compared against an injectable
+`TimeProvider` (mirrors `XGPathGameModule`'s own clock-injection precedent)
+and throws `PredictRoundLockedException` once that instant has passed, for
+any of the round's matches. Unit-tested in `XGPredictGameModuleTests`,
+including the exploit-prevention case (rejecting a not-yet-kicked-off
+match once the round lock has passed). The API and E2E test levels above
+are not yet built — `PredictRoundLockedException` has no catcher anywhere
+in the codebase yet (no HTTP endpoint calls `ScoreSubmissionAsync` in
+production); see this section's intro note above.
 
 **REQ-1304 – Independent, partial-credit scoring per match**
 > As a player, I want each match prediction scored on three independent
