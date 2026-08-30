@@ -9550,3 +9550,56 @@ CI verification run (`ci.yml` `workflow_dispatch`) is needed before this
 is considered fully done — the orchestrating session runs this next, same
 recurring constraint as S-191/S-192 and every other recent backend story
 in this file.
+
+**S-194 · Close S-193's median-ranking scope gap in `GetRankedMembersAsync` (REQ-1304, ADR-0095)**
+Small, direct follow-up to S-193, closing the one scope gap that story's
+own quality gate surfaced (and flagged, not fixed) and queued as a backlog
+follow-up: `LeaderboardService.GetRankedMembersAsync` — the median-based
+global ranking behind `GetGlobalLeaderboardAsync`/`GetUserStatsAsync`'s
+`Rank` (REQ-409/410) — still sorted unconditionally ascending after S-193
+migrated the other three `OrderBy(TotalPoints)`-shaped scopes. Resolves
+`IScoringStrategy.LowerIsBetter` per `GameKey` here too, the same
+mechanism, so REQ-1304's acceptance text (which always claimed all four
+scopes) is now fully accurate with no remaining gap.
+
+*Accept:* all four `LeaderboardService` ranking scopes
+(`GetActiveRoundLeaderboardAsync`/`GetClosedRoundLeaderboardAsync`/
+`GetWindowedLeaderboardAsync`/`GetRankedMembersAsync`) now resolve sort
+direction per `GameKey` via `IScoringStrategyResolver`; two new
+`ADR0095_`-prefixed tests added to `LeaderboardServiceTests` covering
+`GetRankedMembersAsync`'s descending-sort case; `RankByTotalPoints` (S-193's
+shared helper) deliberately not reused here, given the shape mismatch
+between its `(int TotalPoints, List<LeaderboardEntry>)` and
+`GetRankedMembersAsync`'s `(double Median, raw ranked tuple list)`; both
+`architecture-reviewer` and `quality-architect` PASSed with no blocking
+code findings, their only note being that the docs tracking this exact gap
+(now closed) hadn't been updated yet.
+
+*Deps:* S-193 (the `IScoringStrategy.LowerIsBetter`/`IScoringStrategyResolver`
+mechanism this story reuses, and the gap it flagged).
+
+*Explicitly out of scope:* REQ-1305 (asynchronous grading job/trigger),
+REQ-1306 (confirm-and-lock action), and the real HTTP submission/grading
+wiring for `"xg-predict"` — all unchanged and unaffected by this story,
+same as S-193's own scope note.
+
+*Built as (2026-08-30):* `backend-implementer` extended
+`GetRankedMembersAsync` with its own `OrderBy`/`OrderByDescending` branch
+resolving `scoringStrategyResolver.Resolve(gameKey).LowerIsBetter`, kept
+separate from `RankByTotalPoints` rather than forced into it given the
+tuple/return-type mismatch, plus two new `ADR0095_`-prefixed tests.
+`architecture-reviewer` and `quality-architect` both PASSed with no
+blocking code findings. `doc-sync` then updated
+`docs/requirements-document.md` (REQ-1304's and REQ-409's status notes),
+`docs/architecture-document.md` (COMP-02's row, §5.3's ADR-evolution table,
+and the xG Predict data-flow diagram in §6), this backlog entry, and
+`docs/decisions/0095-xg-predict-scoring-direction-exception.md`'s
+amendment (written directly by the orchestrating session ahead of this
+pass) to record the gap as closed.
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-verified by the
+implementer and by both quality-gate reviewers reading the actual diff; a
+CI verification run (`ci.yml` `workflow_dispatch`) is needed before this is
+considered fully done — the orchestrating session triggers CI next, same
+recurring constraint as S-191/S-192/S-193 and every other recent backend
+story in this file.

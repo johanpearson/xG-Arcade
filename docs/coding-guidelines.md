@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.9"
+version: "0.10"
 status: draft
-last_updated: 2026-08-23
+last_updated: 2026-08-30
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -203,6 +203,11 @@ to find, score, and plan an epic for.
   REQ-prefixed description string (frontend) — already established in
   `implementation-document.md` §7, repeated here because it's the single
   most important convention for keeping requirements and tests traceable.
+  An `ADR####_`-prefixed name is acceptable only when the behavior under
+  test is a structural mechanism the ADR itself introduces (e.g. a sort
+  direction or resolver added by the decision) rather than a REQ's own
+  acceptance criterion — prefer `REQ###_` whenever a REQ ID exists for the
+  behavior (as recurred in S-193/ADR-0095).
 - **Arrange/Act/Assert structure**, visually separated (blank line between
   sections) even in short tests — makes intent scannable at a glance.
 - **Unit tests don't touch the database or network** — anything that does
