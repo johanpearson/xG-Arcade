@@ -1,12 +1,14 @@
 using XGArcade.Api.Grid;
 using XGArcade.Api.Internal;
 using XGArcade.Api.Path;
+using XGArcade.Api.Predict;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
+using XGArcade.Games.XGPredict;
 
 namespace XGArcade.Api.Rounds;
 
@@ -26,16 +28,20 @@ public static class InternalRoundEndpoints
             IConfiguration configuration,
             IGridInstanceRepository gridInstanceRepository,
             IPathInstanceRepository pathInstanceRepository,
+            IPredictInstanceRepository predictInstanceRepository,
             IRoundGenerationService roundGenerationService,
             GridGenerationOptions gridGenerationOptions,
             PathGenerationOptions pathGenerationOptions,
+            PredictGenerationOptions predictGenerationOptions,
             ILogger<RoundGenerationLogCategory> logger,
             double? roundDurationHours,
             // S-084/REQ-1202: defaults to xG Grid's GameKey when omitted so
             // any existing caller that doesn't pass it keeps today's
             // behavior unchanged — generate-grid-round.yml/
-            // generate-path-round.yml (split from a single generate-round.yml,
-            // S-136/ADR-0072) each always pass it explicitly for their own
+            // generate-path-round.yml/generate-predict-round.yml (split
+            // from a single generate-round.yml, S-136/ADR-0072; extended to
+            // a third file for "xg-predict" per that ADR's 2026-08-30
+            // amendment) each always pass it explicitly for their own
             // GameKey, but a stray/older manual call (e.g. a bookmarked
             // workflow_dispatch run) must not silently start generating an
             // unexpected game's rounds.
@@ -45,11 +51,12 @@ public static class InternalRoundEndpoints
             if (!InternalJobAuthorization.IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
 
-            // Optional per-call override (e.g. generate-grid-round.yml's or
-            // generate-path-round.yml's own workflow_dispatch input, each
-            // scoped to its own GameKey as of S-136/ADR-0072) — takes
-            // precedence over RoundSchedulingOptions.RoundDuration for this
-            // one generation call only, never mutating the shared singleton.
+            // Optional per-call override (e.g. generate-grid-round.yml's,
+            // generate-path-round.yml's, or generate-predict-round.yml's own
+            // workflow_dispatch input, each scoped to its own GameKey as of
+            // S-136/ADR-0072) — takes precedence over
+            // RoundSchedulingOptions.RoundDuration for this one generation
+            // call only, never mutating the shared singleton.
             // This is a system boundary (bearer-token-gated, but still an
             // external caller), so it's validated here rather than trusted.
             //
@@ -59,11 +66,11 @@ public static class InternalRoundEndpoints
             // cron is daily. A shorter override would let a round close
             // before the next scheduled run generates its successor —
             // REQ-301's "dead app" failure mode, reproduced via this override
-            // instead of the cron/duration coupling ADR-0027 fixed. If either
-            // workflow's cron cadence ever changes, this floor must be
-            // re-derived by hand the same way (see ADR-0027's "For AI agents"
-            // section, ADR-0072, and NOTES.md's 2026-07-10 entry) — don't
-            // just bump the number.
+            // instead of the cron/duration coupling ADR-0027 fixed. If any of
+            // the three workflows' cron cadence ever changes, this floor must
+            // be re-derived by hand the same way (see ADR-0027's "For AI
+            // agents" section, ADR-0072 and its 2026-08-30 amendment, and
+            // NOTES.md's 2026-07-10 entry) — don't just bump the number.
             if (roundDurationHours is < 24)
             {
                 return Results.Problem(
@@ -79,7 +86,7 @@ public static class InternalRoundEndpoints
             // roundDurationHours check above already uses, rather than
             // relying on the switch below's defensive throw to fall through
             // into the generic 500 catch-all.
-            if (gameKey is not (GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey))
+            if (gameKey is not (GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey or XGPredictGameModule.XGPredictGameKey))
             {
                 return Results.Problem(
                     title: "Invalid gameKey",
@@ -91,29 +98,34 @@ public static class InternalRoundEndpoints
 
             try
             {
-                // Tier 0 has no admin-driven template management yet for
-                // either game — same find-or-create-by-config-value pattern
-                // /internal/grid/generate uses. Moved inside the try
+                // Tier 0 has no admin-driven template management yet for any
+                // of the three games — same find-or-create-by-config-value
+                // pattern /internal/grid/generate uses. Moved inside the try
                 // (previously ran unguarded before it) so a DB failure here
                 // gets the same problem-details treatment as everything
                 // below instead of an opaque, empty 500.
                 //
-                // S-084/REQ-1202: this switch is the ONLY place that branches
-                // on gameKey in this handler — its sole job is producing the
-                // opaque TemplateId RoundConfig carries; everything else
-                // below (auth, duration validation, calling
-                // roundGenerationService, exception handling, response
-                // shape) is unchanged and generic across every GameKey. The
-                // guard above already rules out any unrecognized gameKey
-                // reaching here, so this default arm is defensive only
-                // ("should never happen"), not a real "unrecognized value"
-                // path.
+                // S-084/REQ-1202 (extended to a third arm for "xg-predict" by
+                // this story; see ADR-0051's 2026-08-30 amendment for the
+                // re-derivation confirming this switch is still preferable to
+                // a fully-generic IGameModule alternative): this switch is
+                // the ONLY place that branches on gameKey in this handler —
+                // its sole job is producing the opaque TemplateId RoundConfig
+                // carries; everything else below (auth, duration validation,
+                // calling roundGenerationService, exception handling,
+                // response shape) is unchanged and generic across every
+                // GameKey. The guard above already rules out any
+                // unrecognized gameKey reaching here, so this default arm is
+                // defensive only ("should never happen"), not a real
+                // "unrecognized value" path.
                 var templateId = gameKey switch
                 {
                     GridGameModule.XGGridGameKey => (await GridTemplateResolver.GetOrCreateBySizeAsync(
                         gridInstanceRepository, gridGenerationOptions.GridSize, cancellationToken)).Id,
                     XGPathGameModule.XGPathGameKey => (await PathTemplateResolver.GetOrCreateByPuzzleCountAsync(
                         pathInstanceRepository, pathGenerationOptions.PuzzleCount, cancellationToken)).Id,
+                    XGPredictGameModule.XGPredictGameKey => (await PredictTemplateResolver.GetOrCreateByMatchCountAsync(
+                        predictInstanceRepository, predictGenerationOptions.MatchCount, cancellationToken)).Id,
                     _ => throw new ArgumentException($"Unknown gameKey '{gameKey}'."),
                 };
 
@@ -122,15 +134,19 @@ public static class InternalRoundEndpoints
 
                 return Results.Ok(new GenerateRoundResponse(round.Id, round.SequenceNumber, round.GameKey, round.StartTime, round.EndTime));
             }
-            catch (Exception ex) when (ex is GridGenerationException or PathGenerationException)
+            catch (Exception ex) when (ex is GridGenerationException or PathGenerationException or PredictGenerationException)
             {
-                // REQ-101/REQ-1202's abort paths, surfacing through round
-                // generation — GridGenerationException (xg-grid) and
-                // PathGenerationException (xg-path) don't share a base type
-                // (unlike GameEntityNotFoundException, which only covers the
-                // scoring-side "id doesn't resolve" failure mode), so both are
-                // caught here via a type-pattern filter rather than two
-                // near-identical catch blocks — same precedent as
+                // REQ-101/REQ-1202/REQ-1301's abort paths, surfacing through
+                // round generation — GridGenerationException (xg-grid),
+                // PathGenerationException (xg-path), and
+                // PredictGenerationException (xg-predict, thrown by
+                // XGPredictGameModule.GenerateInstanceAsync's "PredictTemplate
+                // not found"/"not enough upcoming fixtures" abort paths)
+                // don't share a base type (unlike GameEntityNotFoundException,
+                // which only covers the scoring-side "id doesn't resolve"
+                // failure mode), so all three are caught here via a
+                // type-pattern filter rather than three near-identical catch
+                // blocks — same precedent as
                 // XGArcade.DataSync.Wikidata.WikidataClient's
                 // `catch (Exception ex) when (ex is HttpRequestException or
                 // JsonException)`.
@@ -147,12 +163,14 @@ public static class InternalRoundEndpoints
             }
             catch (Exception ex)
             {
-                // Anything else (a DB blip, a Supabase/Wikidata client
-                // failure that wasn't itself swallowed, ...) previously fell
-                // through as an opaque, empty 500 — indistinguishable in
-                // that GameKey's round-generation workflow's log
-                // (generate-grid-round.yml/generate-path-round.yml as of
-                // S-136/ADR-0072) from every other failure mode.
+                // Anything else (a DB blip, a Supabase/Wikidata/API-Football
+                // client failure that wasn't itself swallowed, ...)
+                // previously fell through as an opaque, empty 500 —
+                // indistinguishable in that GameKey's round-generation
+                // workflow's log (generate-grid-round.yml/
+                // generate-path-round.yml/generate-predict-round.yml as of
+                // S-136/ADR-0072, extended to a third file per that ADR's
+                // 2026-08-30 amendment) from every other failure mode.
                 // REQ-902's failure alerting is Tier 1 (not built yet), so
                 // REQ-301 already leans on someone noticing and checking a
                 // failed run manually (see REQ-301's own acceptance
