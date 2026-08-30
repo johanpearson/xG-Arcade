@@ -9373,3 +9373,94 @@ the implementer and the quality-architect review pass; a CI verification
 run (`ci.yml` `workflow_dispatch`) is needed before this is considered
 fully done, same recurring constraint as every other recent backend story
 in this file — the orchestrating session will trigger this next.
+
+**S-192 · xG Predict: round generation + prediction submission/lock (REQ-1301/1302/1303, ADR-0096)**
+Direct continuation of S-190/S-191, run through `/orchestrate` end to end
+(intake → scope check → ADR → delegation → quality gate → doc sync →
+CI verification). Closes the entity-shape gap S-190 deliberately flagged
+back rather than invented, and implements the two `IGameModule` methods
+S-191 explicitly queued as follow-up: `GenerateInstanceAsync` (REQ-1301 —
+select 5 matches from an upcoming gameweek via S-191's `IApiFootballClient`,
+preferring the tightest kickoff-time clustering) and `ScoreSubmissionAsync`
+(REQ-1302/1303 — store/update a two-integer prediction per match, reject
+after the whole-round lock at the first match's kickoff). Deliberately
+does NOT implement REQ-1304 (scoring — needs ADR-0095's `IScoringStrategy`
+work too) or REQ-1305's grading job, and deliberately does NOT wire
+`"xg-predict"` into `InternalRoundEndpoints`'s gameKey switch,
+`GuessSubmissionService`, or any `RoundSchedulingOptions`/`IScoringStrategy`
+registration — same "flag the follow-up, don't quietly pull it forward"
+discipline S-191 itself used, mirroring ADR-0051's own precedent for
+deferred scheduling-config wiring.
+
+*Accept:* ADR-0096 (`docs/decisions/0096-xg-predict-entity-shape-and-submission-boundary.md`)
+exists and decides the round/match/prediction entity shape, following
+ADR-0045's (xG Path's) precedent; `XGPredictGameModule.GenerateInstanceAsync`/
+`ScoreSubmissionAsync`/`GetCellIdsAsync` are real, tested implementations
+(`GetMaxAttemptsForCellAsync` stays a stub — not this story's decision to
+make); `architecture-reviewer` and `quality-architect` both ran clean after
+one fix round; `docs/requirements-document.md` §4.14 and
+`docs/architecture-document.md`'s COMP-15 row/§6.11 reflect what's actually
+built vs. still design-only (REQ-1304/1305/1306 unaffected, still
+design-only).
+
+*Deps:* S-190 (COMP-15 module scaffold), S-191 (`IApiFootballClient`).
+
+*Explicitly out of scope, queued as follow-up:* REQ-1304 (scoring, needs
+ADR-0095's `IScoringStrategy` work), REQ-1305's grading job/trigger,
+REQ-1306 (explicit confirm-and-lock action), the real HTTP submission
+endpoint and its wiring into `InternalRoundEndpoints`/`GuessSubmissionService`
+(architecture-document.md §6.11 itself still flags the endpoint shape as an
+open question — reuse the existing guess endpoint with a new submission
+variant, or a dedicated `xg-predict`-only endpoint — not decided by this
+story), `RoundSchedulingOptions`/`IScoringStrategy` registration for
+`"xg-predict"`, frontend work.
+
+*Built as (2026-08-30):* the orchestrating session wrote ADR-0096 directly
+(same precedent as ADR-0094/ADR-0095's own S-190 authorship), deciding:
+new entities `PredictTemplate`/`PredictInstance`/`PredictMatch`/
+`PredictMatchPrediction` (the last a separate top-level table, not owned by
+`PredictMatch`, since predictions accumulate per-user over time the same
+reason `Guess` is a top-level table rather than an owned collection of
+`Round`); a new Core-owned `PredictionSubmission` DTO alongside
+`GuessSubmission`/`ScoreResult`; and an explicitly-flagged, deliberate
+compromise on `ScoreSubmissionAsync`'s return contract (`ScoreResult
+{ IsCorrect = false }` on a successful store means "not yet graded," never
+"wrong" — left for the future submission-endpoint story to resolve
+properly, not solved here). `backend-implementer` built the entities,
+hand-written migration (`20260830120000_AddPredictInstance`, +
+`.Designer.cs`, `XGArcadeDbContextModelSnapshot.cs` updated to match —
+same no-`dotnet`-SDK hand-verification constraint as every other recent
+backend story), `IPredictInstanceRepository`/`PredictInstanceRepository`,
+the module implementation (sliding-window tightest-kickoff-clustering
+selection — the minimum-span k-subset of a sorted sequence is always
+contiguous, so this beats enumerating every C(n,5) subset), DI
+registration, and unit tests covering REQ-1301/1302/1303's own "Test
+level" acceptance criteria in full, including REQ-1303's specific
+exploit-prevention case (a match whose own kickoff hasn't happened yet is
+still rejected once the round-level lock from the first match's kickoff
+has passed) — called out by `quality-architect` as "the highest-value test
+in the diff and it's done right."
+
+Quality gate (`architecture-reviewer` + `quality-architect`, run in
+parallel) found two real, non-blocking-but-worth-fixing issues on the
+first pass, both fixed in a follow-up commit: (1) `PredictMatchPrediction`'s
+timestamp field was named `CreatedAt` but silently overwritten on every
+resubmission, misleadingly implying `Guess.CreatedAt`'s write-once
+semantics — renamed to `SubmittedAt`; (2) `PredictScoringException`
+derived directly from `Exception` (a comment incorrectly attributed this
+to ADR-0096, which never actually decided it) and conflated two different
+failure modes — split into `PredictScoringException` (now correctly
+derives from `Core.Games.GameEntityNotFoundException`, matching
+`PathScoringException`'s/`GuessScoringException`'s actual precedent, for
+the two "not found" cases) and a new `PredictInvalidSubmissionException`
+for the negative-goal-count validation case. ADR-0096 was amended the same
+day to make this exception-hierarchy decision explicit rather than leaving
+it an unremarked implementation detail.
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-verified by the
+implementer (brace/paren balance, migration/snapshot byte-identity,
+cross-referenced signatures) and by both quality-gate reviewers reading
+the actual diff; a CI verification run (`ci.yml` `workflow_dispatch`) is
+needed before this is considered fully done — the orchestrating session
+runs this next, same recurring constraint as S-191 and every other recent
+backend story in this file.
