@@ -13,6 +13,11 @@ namespace XGArcade.Core.Scoring;
 // (a fully common correct answer, an incorrect guess, or an unanswered
 // cell all score this), and 0 is the BEST (a correct answer nobody else
 // shares).
+//
+// Exception: PredictPointsPerComponent below is xG Predict's award value
+// (ADR-0095) — that one GameKey is conventional higher-is-better, not
+// golf-style, so read its own comment rather than assuming this class-level
+// "lower is better" framing applies to it too.
 public static class ScoringRules
 {
     public const int MaxPointsPerCell = 100;

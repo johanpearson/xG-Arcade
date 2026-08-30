@@ -151,21 +151,10 @@ public class LeaderboardService(
         var participantsWithTotals = (await userRepository.GetByIdsAsync(liveContributionsByUserId.Keys.ToList(), cancellationToken))
             .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: liveContributionsByUserId[participant.Id]));
 
-        // ADR-0095/REQ-1304: sort direction is resolved per GameKey, not
-        // assumed ascending — every GameKey is golf-style (ADR-0021) except
-        // "xg-predict", the one named exception.
+        // ADR-0095/REQ-1304: sort direction resolved per GameKey — see
+        // RankByTotalPoints's own doc comment.
         var lowerIsBetter = scoringStrategyResolver.Resolve(activeRound.GameKey).LowerIsBetter;
-        var ranked = (lowerIsBetter
-                ? participantsWithTotals.OrderBy(p => p.TotalPoints)
-                : participantsWithTotals.OrderByDescending(p => p.TotalPoints))
-            .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select((p, index) => new LeaderboardEntry(
-                index + 1,
-                p.Id,
-                p.DisplayName,
-                p.TotalPoints,
-                p.Id == requestingUserId))
-            .ToList();
+        var ranked = RankByTotalPoints(participantsWithTotals, lowerIsBetter, requestingUserId);
 
         return Paginate(ranked, cursor, pageSize);
     }
@@ -208,21 +197,10 @@ public class LeaderboardService(
         var participantsWithTotals = (await userRepository.GetByIdsAsync(totalsByUserId.Keys.ToList(), cancellationToken))
             .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(participant.Id, 0)));
 
-        // ADR-0095/REQ-1304: sort direction is resolved per GameKey, not
-        // assumed ascending — every GameKey is golf-style (ADR-0021) except
-        // "xg-predict", the one named exception.
+        // ADR-0095/REQ-1304: sort direction resolved per GameKey — see
+        // RankByTotalPoints's own doc comment.
         var lowerIsBetter = scoringStrategyResolver.Resolve(round.GameKey).LowerIsBetter;
-        var ranked = (lowerIsBetter
-                ? participantsWithTotals.OrderBy(p => p.TotalPoints)
-                : participantsWithTotals.OrderByDescending(p => p.TotalPoints))
-            .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select((p, index) => new LeaderboardEntry(
-                index + 1,
-                p.Id,
-                p.DisplayName,
-                p.TotalPoints,
-                p.Id == requestingUserId))
-            .ToList();
+        var ranked = RankByTotalPoints(participantsWithTotals, lowerIsBetter, requestingUserId);
 
         return new ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus.Found, Paginate(ranked, cursor, pageSize));
     }
@@ -277,21 +255,10 @@ public class LeaderboardService(
         // ADR-0021's lowest-wins model would otherwise treat as the best
         // possible score).
         //
-        // ADR-0095/REQ-1304: sort direction is resolved per GameKey, not
-        // assumed ascending — every GameKey is golf-style (ADR-0021) except
-        // "xg-predict", the one named exception.
+        // ADR-0095/REQ-1304: sort direction resolved per GameKey — see
+        // RankByTotalPoints's own doc comment.
         var lowerIsBetter = scoringStrategyResolver.Resolve(gameKey).LowerIsBetter;
-        var ranked = (lowerIsBetter
-                ? participantsWithTotals.OrderBy(p => p.TotalPoints)
-                : participantsWithTotals.OrderByDescending(p => p.TotalPoints))
-            .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select((p, index) => new LeaderboardEntry(
-                index + 1,
-                p.Id,
-                p.DisplayName,
-                p.TotalPoints,
-                p.Id == requestingUserId))
-            .ToList();
+        var ranked = RankByTotalPoints(participantsWithTotals, lowerIsBetter, requestingUserId);
 
         return Paginate(ranked, cursor, pageSize);
     }
@@ -329,6 +296,33 @@ public class LeaderboardService(
             default:
                 throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "GetCalendarWindow only handles Week/Month/Year.");
         }
+    }
+
+    // ADR-0095/REQ-1304: shared by every OrderBy(TotalPoints) ranking scope
+    // in this file — GetActiveRoundLeaderboardAsync, GetClosedRoundLeaderboardAsync,
+    // and GetWindowedLeaderboardAsync all resolved to this exact same
+    // ternary-OrderBy/ThenBy/Select shape independently before this helper
+    // existed (2026-08-30 quality-gate follow-up, docs/coding-guidelines.md's
+    // rule-of-three code health budget). Sort direction is resolved per
+    // GameKey by each caller, not assumed ascending — every GameKey is
+    // golf-style (ADR-0021) except "xg-predict", the one named exception
+    // (lowerIsBetter is the caller's already-resolved
+    // IScoringStrategy.LowerIsBetter for that GameKey, never computed here).
+    // GetGlobalLeaderboardAsync/GetRankedMembersAsync's own median-based
+    // ranking (REQ-409) is a distinct scope with its own OrderBy(Median) and
+    // deliberately does NOT use this helper — see that method's own doc
+    // comment.
+    private static List<LeaderboardEntry> RankByTotalPoints(
+        IEnumerable<(Guid Id, string DisplayName, int TotalPoints)> participants, bool lowerIsBetter, Guid requestingUserId)
+    {
+        var ordered = lowerIsBetter
+            ? participants.OrderBy(p => p.TotalPoints)
+            : participants.OrderByDescending(p => p.TotalPoints);
+
+        return ordered
+            .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select((p, index) => new LeaderboardEntry(index + 1, p.Id, p.DisplayName, p.TotalPoints, p.Id == requestingUserId))
+            .ToList();
     }
 
     // REQ-607/S-034: `cursor` is the last-seen rank (0 = nothing seen yet,

@@ -65,6 +65,13 @@ public interface ILeaderboardService
     // formula, does not change it. gameKey is an opaque string the API layer
     // supplies, same as GetClosedRoundsAsync/GetWindowedLeaderboardAsync
     // (ADR-0003).
+    //
+    // Unlike GetActiveRoundLeaderboardAsync/GetClosedRoundLeaderboardAsync/
+    // GetWindowedLeaderboardAsync above, this method's ranking (via
+    // GetRankedMembersAsync's OrderBy(Median)) is NOT one of the
+    // ADR-0095/REQ-1304 call sites migrated to per-GameKey sort direction —
+    // it still sorts ascending unconditionally for every GameKey, including
+    // "xg-predict". See GetRankedMembersAsync's own doc comment.
     Task<LeaderboardPage> GetGlobalLeaderboardAsync(
         Guid requestingUserId,
         string gameKey,
@@ -77,6 +84,10 @@ public interface ILeaderboardService
     // (the API layer) are responsible for returning a "no active round"
     // response themselves before ever calling this, mirroring RoundEndpoints'
     // existing REQ-303 pattern; this method has no null-round case to handle.
+    //
+    // ADR-0095/REQ-1304: sort direction is resolved per GameKey via the
+    // resolved IScoringStrategy.LowerIsBetter, not assumed ascending —
+    // ADR-0021's golf-style default for every GameKey except "xg-predict".
     Task<LeaderboardPage> GetActiveRoundLeaderboardAsync(
         Guid requestingUserId,
         Round activeRound,
@@ -98,6 +109,10 @@ public interface ILeaderboardService
     // Distinguishes "round id doesn't exist" from "round exists but hasn't
     // closed yet" via ClosedRoundLeaderboardResult.Status — never silently
     // serves a not-yet-closed round as if it were complete.
+    //
+    // ADR-0095/REQ-1304: sort direction is resolved per GameKey via the
+    // resolved IScoringStrategy.LowerIsBetter, not assumed ascending —
+    // ADR-0021's golf-style default for every GameKey except "xg-predict".
     Task<ClosedRoundLeaderboardResult> GetClosedRoundLeaderboardAsync(
         Guid roundId,
         Guid requestingUserId,
@@ -112,6 +127,10 @@ public interface ILeaderboardService
     // GetClosedRoundsAsync (ADR-0003). nowUtc is the caller's already-
     // resolved current instant (TimeProvider, never DateTime.UtcNow inside
     // this Core service) used to compute which calendar window is "current".
+    //
+    // ADR-0095/REQ-1304: sort direction is resolved per GameKey via the
+    // resolved IScoringStrategy.LowerIsBetter, not assumed ascending —
+    // ADR-0021's golf-style default for every GameKey except "xg-predict".
     Task<LeaderboardPage> GetWindowedLeaderboardAsync(
         Guid requestingUserId,
         string gameKey,
