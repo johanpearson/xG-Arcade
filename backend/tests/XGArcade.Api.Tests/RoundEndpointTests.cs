@@ -649,7 +649,7 @@ public class RoundEndpointTests
     // too, end-to-end through the real endpoint -----------------------------
 
     [Test]
-    public async Task GenerateRound_Post_WithGameKeyXgPredict_GeneratesAnXgPredictRound_UsingItsOwnConfiguredRoundDuration()
+    public async Task REQ1301_GenerateRound_Post_WithGameKeyXgPredict_GeneratesAnXgPredictRound_UsingItsOwnConfiguredRoundDuration()
     {
         // Mirrors REQ1202_GenerateRound_Post_WithGameKeyXgPath_... above: a
         // dedicated layered factory adds xg-predict's own
@@ -715,7 +715,7 @@ public class RoundEndpointTests
     }
 
     [Test]
-    public async Task GenerateRound_Post_WithGameKeyXgPredict_TooFewUpcomingFixtures_ReturnsProblemDetails()
+    public async Task REQ1301_GenerateRound_Post_WithGameKeyXgPredict_TooFewUpcomingFixtures_ReturnsProblemDetails()
     {
         // REQ-1301's abort-and-log case surfacing through this endpoint's
         // catch filter, now extended to include PredictGenerationException
