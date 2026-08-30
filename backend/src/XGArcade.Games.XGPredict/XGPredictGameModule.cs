@@ -1,81 +1,158 @@
 using XGArcade.Core.Games;
+using XGArcade.Data.Entities;
+using XGArcade.Data.Repositories;
+using XGArcade.DataSync.ApiFootball;
 
 namespace XGArcade.Games.XGPredict;
 
 // COMP-15: IGameModule implementation for xG Predict, the third game hosted
 // on the platform, alongside Games.XGGrid (COMP-05) and Games.XGPath
-// (COMP-11). This is a structural scaffold only — the IGameModule boundary
-// and GameKey registration, no real generation/submission/scoring logic.
-// See docs/requirements-document.md §4.14 (REQ-1301-1305), ADR-0094
-// (API-Football fixtures/results as the data source), and ADR-0095 (xG
-// Predict's conventional higher-is-better scoring exception to ADR-0021)
-// for the full design this class will eventually implement.
+// (COMP-11). S-190/S-191 scaffolded the IGameModule boundary/GameKey
+// registration only, flagging the entity-shape decision back rather than
+// inventing it (see this class's own doc-comment history). This story
+// (REQ-1301/1302/1303) implements that shape per ADR-0096 — see that ADR
+// for the full reasoning behind PredictTemplate/PredictInstance/PredictMatch/
+// PredictMatchPrediction's shape and the ScoreSubmissionAsync return/
+// exception contract this class implements below.
 //
-// Deliberately holds no dependencies yet (no repository, no DataSync
-// client, no constructor parameters) — unlike Games.XGGrid/Games.XGPath's
-// own IGameModule implementations at the equivalent point in their history,
-// this class doesn't yet have a persisted entity shape to depend on.
-// REQ-1301's round/match shape (a fixed set of 5 real-world Premier League
-// matches, each with its own scheduled kickoff time, drawn from a gameweek
-// and clustered by kickoff, with a whole-round lock at the first kickoff
-// rather than a per-cell lock) does not obviously fit either existing
-// precedent this codebase has for a game's own generated-instance shape:
-// not GridTemplate/GridInstance/GridCell's dynamically-matched, N-answer
-// cells (COMP-05), and not PathTemplate/PathInstance/PathPuzzle's single
-// fixed target-player-per-puzzle shape (ADR-0045, COMP-11) either — a
-// PredictMatch-shaped cell's "correctness" is a three-component score
-// prediction graded asynchronously after the fact (REQ-1304/1305), not a
-// name-matching problem at all. This was flagged back to the requester
-// rather than silently decided here (see this scaffolding session's
-// handoff notes) — the follow-up backend story implementing
-// GenerateInstanceAsync (REQ-1301/1302) should settle it with its own ADR,
-// following ADR-0045's precedent, before this class grows real persistence.
-public class XGPredictGameModule : IGameModule
+// Deliberately NOT wired into InternalRoundEndpoints' gameKey switch,
+// GuessSubmissionService, or any RoundSchedulingOptions/IScoringStrategy
+// registration — that remains a separate, later story (mirrors ADR-0051's
+// precedent for deferred scheduling-config wiring; see ADR-0096 §"For AI
+// agents"). REQ-1304 (scoring) and REQ-1305 (asynchronous grading) are also
+// separate, later stories not implemented here.
+public class XGPredictGameModule(
+    IPredictInstanceRepository predictInstanceRepository,
+    IApiFootballClient apiFootballClient,
+    TimeProvider? timeProvider = null) : IGameModule
 {
     public const string XGPredictGameKey = "xg-predict";
 
+    // REQ-1303: the round-level lock check needs "now" — same injectable-
+    // clock precedent as XGPathGameModule's own _timeProvider field (falls
+    // back to the real clock in production, already registered as
+    // TimeProvider.System in Program.cs's DI container) so tests can pin
+    // "now" deterministically.
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     public string GameKey => XGPredictGameKey;
 
-    // TODO(REQ-1301/1302, ADR-0094): select 5 matches from an upcoming
-    // Premier League gameweek (tightest kickoff-time clustering, ADR-0094's
-    // API-Football fixtures client) and persist them as this instance's
-    // matches. Not implemented — this scaffold only wires up the
-    // IGameModule boundary. See this class's own doc comment above for the
-    // entity-shape decision that needs to happen first.
-    public Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException(
-            "xG Predict round generation is not yet implemented — see REQ-1301/1302 in " +
-            "docs/requirements-document.md §4.14 and ADR-0094, plus XGPredictGameModule's own doc comment " +
-            "for the entity-shape decision this needs first.");
+    // REQ-1301: select exactly template.MatchCount matches from the
+    // upcoming gameweek's fixture list, minimizing the kickoff-time span
+    // across the selected matches.
+    public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
+    {
+        var template = await predictInstanceRepository.GetTemplateByIdAsync(config.TemplateId, cancellationToken)
+            ?? throw new PredictGenerationException($"PredictTemplate '{config.TemplateId}' not found.");
 
-    // TODO(REQ-1302/1303/1304): validate and persist a two-integer score
-    // prediction for one match, subject to the whole-round lock at the
-    // first match's kickoff (REQ-1303), then eventually grade it via
-    // REQ-1304's three independent, higher-is-better components
-    // (ADR-0095) once REQ-1305's asynchronous grading has a confirmed
-    // result. Not implemented.
-    public Task<ScoreResult> ScoreSubmissionAsync(
-        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException(
-            "xG Predict prediction submission/scoring is not yet implemented — see REQ-1302/1303/1304 in " +
-            "docs/requirements-document.md §4.14 and ADR-0095 (scoring-direction exception).");
+        var fixtures = await apiFootballClient.GetUpcomingGameweekFixturesAsync(cancellationToken);
 
-    // TODO(REQ-1301/1302): once a real instance shape exists, return the
-    // opaque per-match cell ids for it, the same contract
-    // GridGameModule/XGPathGameModule already fulfill. Not implemented —
-    // there is no generated instance to read ids from yet.
-    public Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException(
-            "xG Predict has no generated instance to read match/cell ids from yet — see REQ-1301/1302 in " +
-            "docs/requirements-document.md §4.14.");
+        // REQ-1301's abort-and-log case — a caller is expected to log this
+        // (mirrors GridGenerationException's own doc comment: the throw site
+        // itself does not log).
+        if (fixtures.Count < template.MatchCount)
+        {
+            throw new PredictGenerationException(
+                $"Not enough upcoming fixtures to build a {template.MatchCount}-match xG Predict instance " +
+                $"({fixtures.Count} fixtures available).");
+        }
+
+        var selected = SelectTightestKickoffCluster(fixtures, template.MatchCount);
+
+        var instanceId = Guid.NewGuid();
+        var instance = new PredictInstance
+        {
+            Id = instanceId,
+            TemplateId = template.Id,
+            Matches = selected.Select(fixture => new PredictMatch
+            {
+                Id = Guid.NewGuid(),
+                PredictInstanceId = instanceId,
+                ExternalFixtureId = fixture.FixtureId,
+                HomeTeamName = fixture.HomeTeamName,
+                AwayTeamName = fixture.AwayTeamName,
+                KickoffUtc = fixture.KickoffUtc,
+            }).ToList(),
+        };
+
+        await predictInstanceRepository.AddInstanceAsync(instance, cancellationToken);
+
+        return new GameInstance { Id = instance.Id };
+    }
+
+    // ADR-0096 §4: validate and store a two-integer score prediction,
+    // subject to REQ-1303's whole-round lock at the first match's kickoff.
+    // Returns ScoreResult { IsCorrect = false, PlayerAnswerId = null } on a
+    // successful store — see the comment on that line for why IsCorrect =
+    // false here does NOT mean "wrong" (a known, deliberate misfit ADR-0096
+    // §4 documents and does not resolve; correctness for this game does not
+    // exist until REQ-1304/1305's grading runs, a separate, later story).
+    public async Task<ScoreResult> ScoreSubmissionAsync(
+        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default)
+    {
+        var predictionSubmission = (PredictionSubmission)submission;
+
+        var instance = await predictInstanceRepository.GetInstanceByIdAsync(instanceId, cancellationToken)
+            ?? throw new PredictScoringException($"PredictInstance '{instanceId}' not found.");
+
+        var match = instance.Matches.FirstOrDefault(m => m.Id == predictionSubmission.CellId)
+            ?? throw new PredictScoringException($"Match '{predictionSubmission.CellId}' not found in predict instance '{instanceId}'.");
+
+        // REQ-1302: a missing/non-integer value is already ruled out at the
+        // C# type level (PredictionSubmission's int fields) — only a
+        // negative value needs an explicit check here.
+        if (predictionSubmission.HomeGoals < 0 || predictionSubmission.AwayGoals < 0)
+        {
+            throw new PredictScoringException(
+                $"Prediction for match '{match.Id}' must have non-negative goal counts " +
+                $"(got {predictionSubmission.HomeGoals}-{predictionSubmission.AwayGoals}).");
+        }
+
+        // REQ-1303: the whole round locks at the EARLIEST of the round's 5
+        // matches' own kickoff, regardless of which specific match is being
+        // predicted here — never each match's own individual kickoff.
+        var lockInstant = instance.Matches.Min(m => m.KickoffUtc);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        if (now >= lockInstant)
+        {
+            throw new PredictRoundLockedException(
+                $"Predict instance '{instanceId}' locked at {lockInstant:o}; submissions are no longer accepted.");
+        }
+
+        await predictInstanceRepository.AddOrUpdatePredictionAsync(
+            match.Id, userId, predictionSubmission.HomeGoals, predictionSubmission.AwayGoals, now, cancellationToken);
+
+        // ADR-0096 §4: IsCorrect = false here means "accepted, not yet
+        // gradable" — NEVER "wrong". Correctness for xG Predict does not
+        // exist until REQ-1304/1305's asynchronous grading runs, a separate,
+        // later story. Do not treat this value the way Grid/Path readers do.
+        return new ScoreResult { IsCorrect = false, PlayerAnswerId = null };
+    }
+
+    // ADR-0021-equivalent: round-close's unanswered-cell handling needs
+    // every cell id for the instance — same contract GridGameModule./
+    // XGPathGameModule.GetCellIdsAsync already fulfill. Nothing calls this
+    // yet in production (no wiring in this story, see this class's own doc
+    // comment above) but it is a trivial, obviously-needed derivative of
+    // ADR-0096's entity shape, so it is implemented for real rather than
+    // left throwing.
+    public async Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default)
+    {
+        var instance = await predictInstanceRepository.GetInstanceByIdAsync(instanceId, cancellationToken)
+            ?? throw new PredictScoringException($"PredictInstance '{instanceId}' not found.");
+
+        return instance.Matches.Select(m => m.Id).ToList();
+    }
 
     // TODO(REQ-1302/1303): xG Predict has no per-match attempt cap the way
     // xG Grid/xG Path do (REQ-1302 explicitly rules one out — a prediction
     // may be resubmitted any number of times before the whole-round lock).
     // Whether this method should therefore return something like
     // int.MaxValue, or whether ADR-0041's per-cell attempt-cap concept
-    // doesn't apply to this game at all, is not decided here — flagged for
-    // whoever implements REQ-1302/1303, not guessed at in this scaffold.
+    // doesn't apply to this game at all, is not decided by ADR-0096 or this
+    // story — flagged for whoever wires a real submission endpoint (nothing
+    // calls this method yet, since GuessSubmissionService is not wired to
+    // "xg-predict" — see this class's own doc comment above).
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException(
             "xG Predict's attempt-cap model is not yet decided — REQ-1302 rules out a bounded-guess cap the " +
@@ -84,8 +161,8 @@ public class XGPredictGameModule : IGameModule
     // REQ-215/ADR-0053: xG Predict has no row/col category concept at
     // all — a match prediction is a score guess against one fixed
     // real-world fixture, not two independent category axes a candidate
-    // must satisfy. This is a permanent "doesn't apply to this game"
-    // case, not a "not yet built" one, so it follows
+    // must satisfy. This is a permanent "doesn't apply to this game" case,
+    // not a "not yet built" one, so it follows
     // XGPathGameModule.GetCellCategoryTypesAsync's own established
     // NotSupportedException precedent rather than NotImplementedException.
     public Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
@@ -101,4 +178,33 @@ public class XGPredictGameModule : IGameModule
     public Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
         Guid instanceId, string submittedName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WrongGuessPlayerInfo?>(null);
+
+    // REQ-1301: the minimum-span k-subset of a value sequence is always some
+    // contiguous window of that sequence once sorted — any subset that
+    // "skips over" a smaller value in favor of a larger one can only ever
+    // widen its own span, never narrow it — so a single sort + linear
+    // sliding window over the sorted fixtures finds the true minimum-span
+    // subset without enumerating every C(n, k) combination. First occurrence
+    // wins on a tie (`<`, not `<=`, below), matching REQ-1301's
+    // determinism requirement.
+    private static List<ApiFootballFixture> SelectTightestKickoffCluster(
+        IReadOnlyList<ApiFootballFixture> fixtures, int matchCount)
+    {
+        var sorted = fixtures.OrderBy(f => f.KickoffUtc).ToList();
+
+        var bestStartIndex = 0;
+        var bestSpan = sorted[matchCount - 1].KickoffUtc - sorted[0].KickoffUtc;
+
+        for (var startIndex = 1; startIndex <= sorted.Count - matchCount; startIndex++)
+        {
+            var span = sorted[startIndex + matchCount - 1].KickoffUtc - sorted[startIndex].KickoffUtc;
+            if (span < bestSpan)
+            {
+                bestSpan = span;
+                bestStartIndex = startIndex;
+            }
+        }
+
+        return sorted.GetRange(bestStartIndex, matchCount);
+    }
 }

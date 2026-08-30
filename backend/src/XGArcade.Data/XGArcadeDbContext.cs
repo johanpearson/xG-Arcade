@@ -58,6 +58,15 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // persistence boundary, same as the three DbSets above).
     public DbSet<PathTargetCycle> PathTargetCycles => Set<PathTargetCycle>();
     public DbSet<PathCycleTargetUsage> PathCycleTargetUsages => Set<PathCycleTargetUsage>();
+    // COMP-15 (Games.XGPredict)/ADR-0096 — REQ-1301/1302/1303's round/match/
+    // prediction shape. Same Template/Instance/Cell-equivalent shape as
+    // Games.XGGrid's/Games.XGPath's own entities above; PredictMatchPrediction
+    // is the one exception (a separate top-level table, not an owned
+    // collection) — see that entity's own doc comment for why.
+    public DbSet<PredictTemplate> PredictTemplates => Set<PredictTemplate>();
+    public DbSet<PredictInstance> PredictInstances => Set<PredictInstance>();
+    public DbSet<PredictMatch> PredictMatches => Set<PredictMatch>();
+    public DbSet<PredictMatchPrediction> PredictMatchPredictions => Set<PredictMatchPrediction>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
@@ -307,6 +316,37 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // scoped to "this cycle number", never PlayerId alone.
         modelBuilder.Entity<PathCycleTargetUsage>()
             .HasIndex(u => u.CycleNumber);
+
+        // PredictMatch/PredictInstance are Games.XGPredict's (COMP-15) own
+        // entities — same normal owned-collection FK as GridCell/GridInstance
+        // and PathPuzzle/PathInstance above, no ADR-0003 boundary concern
+        // (ADR-0096 §1).
+        modelBuilder.Entity<PredictMatch>()
+            .HasOne<PredictInstance>()
+            .WithMany(pi => pi.Matches)
+            .HasForeignKey(pm => pm.PredictInstanceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // ADR-0096 §2: PredictMatchPrediction.PredictMatchId is a real FK,
+        // cascade — both tables are COMP-15-internal, no boundary reason to
+        // leave this unconstrained (same reasoning as PredictMatch.
+        // PredictInstanceId above). Deliberately NO FK for UserId — mirrors
+        // Guess.UserId's own unconstrained shape (REQ-710 anonymization
+        // precedent), confirmed by Guess's own registration above having no
+        // HasForeignKey(g => g.UserId) call.
+        modelBuilder.Entity<PredictMatchPrediction>()
+            .HasOne<PredictMatch>()
+            .WithMany()
+            .HasForeignKey(pmp => pmp.PredictMatchId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1302: at most one PredictMatchPrediction row per (match, user)
+        // — a resubmission overwrites this row, never inserts a second one.
+        // Same precedent as Guess's own (RoundId, UserId, CellId) unique
+        // index above.
+        modelBuilder.Entity<PredictMatchPrediction>()
+            .HasIndex(pmp => new { pmp.PredictMatchId, pmp.UserId })
+            .IsUnique();
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
         // every scheduled generation invocation — the hot path for this table.

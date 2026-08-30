@@ -2,21 +2,19 @@
 
   <ItemGroup>
     <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
-         ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo) live in
-         XGArcade.Core. -->
+         ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo,
+         PredictionSubmission) live in XGArcade.Core. -->
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
-    <!-- Deliberately no ProjectReference to XGArcade.Data or
-         XGArcade.DataSync yet, unlike Games.XGGrid/Games.XGPath's own
-         csproj at this same early stage. This module has no persisted
-         entity of its own yet (no PredictInstance/PredictMatch-shaped
-         table exists) and reaches no repository — REQ-1301's round/match
-         entity shape is a genuinely open structural question (flagged back
-         rather than invented; see XGPredictGameModule's own doc comment
-         and this session's handoff notes), and ADR-0094's API-Football
-         fixtures client (COMP-07/DataSync.Clients) is not wired up here
-         until that shape — and the client itself — actually exist. Add
-         these references in the follow-up story that implements
-         REQ-1301/1302, not before. -->
+    <!-- ADR-0096: COMP-15's own persistence
+         (IPredictInstanceRepository/PredictTemplate/PredictInstance/
+         PredictMatch/PredictMatchPrediction) — boundary rule 1: Games.XGPredict
+         reaches its own data only through this interface, never a DbContext
+         directly. Same precedent as Games.XGPath's own reference to
+         XGArcade.Data. -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- ADR-0094: IApiFootballClient (GenerateInstanceAsync's fixture-list
+         fetch, REQ-1301). -->
+    <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

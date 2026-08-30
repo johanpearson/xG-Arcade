@@ -144,11 +144,14 @@ public static class ServiceRegistration
         // a thin IGameModule adapter composing this alongside its other dependencies.
         builder.Services.AddScoped<IPathEligibilityService, PathEligibilityService>();
         builder.Services.AddScoped<IGameModule, XGPathGameModule>();
-        // COMP-15 (Games.XGPredict) — structural scaffold only (this session).
+        // COMP-15 (Games.XGPredict)/ADR-0096: REQ-1301 (round generation) and
+        // REQ-1302/1303 (prediction submission/round lock) are now real —
+        // GenerateInstanceAsync/ScoreSubmissionAsync/GetCellIdsAsync persist
+        // through IPredictInstanceRepository below. GetMaxAttemptsForCellAsync
+        // remains a TODO (ADR-0096 doesn't decide xG Predict's attempt-cap
+        // model, and nothing calls it yet — see that method's own comment).
         // Registered here so IGameModuleResolver.Resolve("xg-predict") returns
-        // a real (stub) module, same as xG Grid/xG Path above — every method
-        // on it currently throws NotImplementedException/NotSupportedException
-        // or returns null; see XGPredictGameModule's own doc comment.
+        // a real module, same as xG Grid/xG Path above.
         // Deliberately NOT registering a RoundSchedulingOptions or
         // IScoringStrategy instance for "xg-predict" yet (unlike xG Grid/xG
         // Path's own registrations further below) — both resolvers
@@ -156,9 +159,11 @@ public static class ServiceRegistration
         // an IEnumerable, so nothing requires an entry to exist for this
         // GameKey to compile, and InternalRoundEndpoints'/LeaderboardEndpoints'
         // own gameKey allow-lists don't yet include "xg-predict" either — real
-        // round generation/scoring wiring is REQ-1301-1305's follow-up backend
-        // story, along with the new IScoringStrategy implementation ADR-0095
-        // describes (its LowerIsBetter == false).
+        // round generation/scoring HTTP wiring, plus REQ-1304's scoring
+        // strategy, are separate, later stories (ADR-0096's own explicit
+        // scope; mirrors ADR-0051's precedent for deferred scheduling-config
+        // wiring).
+        builder.Services.AddScoped<IPredictInstanceRepository, PredictInstanceRepository>();
         builder.Services.AddScoped<IGameModule, XGPredictGameModule>();
         // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
         // GridGenerationOptions' role/precedent above for xG Path's own generation
@@ -379,10 +384,11 @@ public static class ServiceRegistration
     }
 
     // ADR-0094/COMP-15 (Games.XGPredict): the API-Football fixtures/results
-    // REST client (client only — no round generation, no prediction
-    // submission, no grading here; S-191's follow-up story builds on this).
-    // Same "one focused helper per component" shape as
-    // AddIncidentReportingServices/AddAvatarStorageServices above.
+    // REST client — REQ-1301's round generation (XGPredictGameModule.
+    // GenerateInstanceAsync, registered above) is this client's first real
+    // caller; REQ-1305's grading pass is a separate, later story. Same "one
+    // focused helper per component" shape as AddIncidentReportingServices/
+    // AddAvatarStorageServices above.
     private static void AddApiFootballServices(this WebApplicationBuilder builder)
     {
         // ADR-0094 item 3: the API-Football account/key precondition is
