@@ -172,7 +172,7 @@ public class ApiFootballClientTests
         await client.GetUpcomingGameweekFixturesAsync();
 
         Assert.That(handler.LastRequest!.Headers.GetValues("x-apisports-key"), Is.EqualTo(new[] { "a-test-api-key" }));
-        Assert.That(handler.LastRequest.RequestUri!.ToString(), Is.EqualTo(
+        Assert.That(handler.LastRequest.RequestUri!.AbsoluteUri, Is.EqualTo(
             "https://v3.football.api-sports.io/fixtures?league=39&season=2026&round=Regular%20Season%20-%204"));
     }
 
