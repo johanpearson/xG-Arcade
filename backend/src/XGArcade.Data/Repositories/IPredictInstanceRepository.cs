@@ -26,15 +26,14 @@ public interface IPredictInstanceRepository
     // REQ-1302: store or replace (never insert a second row for) this
     // match/user pair's prediction — load-then-save, never
     // ExecuteUpdateAsync/ExecuteDeleteAsync (docs/coding-guidelines.md — the
-    // InMemory test provider can't translate those). createdAt is supplied
+    // InMemory test provider can't translate those). submittedAt is supplied
     // by the caller (XGPredictGameModule, via its own injectable
     // TimeProvider) rather than computed here, mirroring
     // GuessSubmissionService/ScoreLockingService's own "caller computes
     // `now`, repository just persists it" convention. On a resubmission
-    // that replaces an existing row, createdAt is overwritten to the new
-    // value — this table has no separate UpdatedAt field, so "when this
-    // row's currently-stored value was set" is the more useful meaning for
-    // REQ-1305's future grading pass than "when the row first ever existed"
-    // (a judgment call — flagged for architecture-reviewer).
-    Task AddOrUpdatePredictionAsync(Guid predictMatchId, Guid? userId, int homeGoals, int awayGoals, DateTime createdAt, CancellationToken cancellationToken = default);
+    // that replaces an existing row, PredictMatchPrediction.SubmittedAt is
+    // overwritten to this new value — see that entity's own doc comment for
+    // why it is named SubmittedAt rather than CreatedAt (quality-gate fix,
+    // 2026-08-30).
+    Task AddOrUpdatePredictionAsync(Guid predictMatchId, Guid? userId, int homeGoals, int awayGoals, DateTime submittedAt, CancellationToken cancellationToken = default);
 }

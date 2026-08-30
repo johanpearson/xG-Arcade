@@ -66,7 +66,7 @@ namespace XGArcade.Data.Migrations
                     UserId = table.Column<Guid>(type: "uuid", nullable: true),
                     HomeGoals = table.Column<int>(type: "integer", nullable: false),
                     AwayGoals = table.Column<int>(type: "integer", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    SubmittedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {

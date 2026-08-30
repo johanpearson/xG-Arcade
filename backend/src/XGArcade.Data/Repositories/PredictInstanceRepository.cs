@@ -27,7 +27,7 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
             .FirstOrDefaultAsync(p => p.PredictMatchId == predictMatchId && p.UserId == userId, cancellationToken);
 
     public async Task AddOrUpdatePredictionAsync(
-        Guid predictMatchId, Guid? userId, int homeGoals, int awayGoals, DateTime createdAt, CancellationToken cancellationToken = default)
+        Guid predictMatchId, Guid? userId, int homeGoals, int awayGoals, DateTime submittedAt, CancellationToken cancellationToken = default)
     {
         // Load-then-save (coding-guidelines.md — never ExecuteUpdateAsync,
         // the InMemory test provider can't translate it), tracked this time
@@ -40,7 +40,7 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
         {
             existing.HomeGoals = homeGoals;
             existing.AwayGoals = awayGoals;
-            existing.CreatedAt = createdAt;
+            existing.SubmittedAt = submittedAt;
         }
         else
         {
@@ -51,7 +51,7 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
                 UserId = userId,
                 HomeGoals = homeGoals,
                 AwayGoals = awayGoals,
-                CreatedAt = createdAt,
+                SubmittedAt = submittedAt,
             });
         }
 

@@ -801,14 +801,14 @@ namespace XGArcade.Data.Migrations
                     b.Property<int>("AwayGoals")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<int>("HomeGoals")
                         .HasColumnType("integer");
 
                     b.Property<Guid>("PredictMatchId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");

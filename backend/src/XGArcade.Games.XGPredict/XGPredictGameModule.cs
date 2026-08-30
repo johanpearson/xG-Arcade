@@ -100,10 +100,14 @@ public class XGPredictGameModule(
 
         // REQ-1302: a missing/non-integer value is already ruled out at the
         // C# type level (PredictionSubmission's int fields) — only a
-        // negative value needs an explicit check here.
+        // negative value needs an explicit check here. This is an ordinary
+        // rejected-submission outcome, not an id-resolution failure, so it
+        // throws PredictInvalidSubmissionException rather than
+        // PredictScoringException (quality-gate fix, 2026-08-30 — see that
+        // type's own doc comment for why conflating the two was a bug).
         if (predictionSubmission.HomeGoals < 0 || predictionSubmission.AwayGoals < 0)
         {
-            throw new PredictScoringException(
+            throw new PredictInvalidSubmissionException(
                 $"Prediction for match '{match.Id}' must have non-negative goal counts " +
                 $"(got {predictionSubmission.HomeGoals}-{predictionSubmission.AwayGoals}).");
         }

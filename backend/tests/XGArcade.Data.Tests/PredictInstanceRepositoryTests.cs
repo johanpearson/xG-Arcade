@@ -123,15 +123,15 @@ public class PredictInstanceRepositoryTests
     {
         var matchId = Guid.NewGuid();
         var userId = Guid.NewGuid();
-        var createdAt = new DateTime(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc);
+        var submittedAt = new DateTime(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc);
 
-        await _repository.AddOrUpdatePredictionAsync(matchId, userId, homeGoals: 2, awayGoals: 1, createdAt);
+        await _repository.AddOrUpdatePredictionAsync(matchId, userId, homeGoals: 2, awayGoals: 1, submittedAt);
 
         var stored = await _repository.GetPredictionAsync(matchId, userId);
         Assert.That(stored, Is.Not.Null);
         Assert.That(stored!.HomeGoals, Is.EqualTo(2));
         Assert.That(stored.AwayGoals, Is.EqualTo(1));
-        Assert.That(stored.CreatedAt, Is.EqualTo(createdAt));
+        Assert.That(stored.SubmittedAt, Is.EqualTo(submittedAt));
     }
 
     [Test]

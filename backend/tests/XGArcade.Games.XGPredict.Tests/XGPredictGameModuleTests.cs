@@ -205,14 +205,14 @@ public class XGPredictGameModuleTests
     [TestCase(-1, 0)]
     [TestCase(0, -1)]
     [TestCase(-1, -1)]
-    public async Task REQ1302_ScoreSubmissionAsync_NegativeGoalCount_ThrowsPredictScoringException_ExistingPredictionUnchanged(
+    public async Task REQ1302_ScoreSubmissionAsync_NegativeGoalCount_ThrowsPredictInvalidSubmissionException_ExistingPredictionUnchanged(
         int homeGoals, int awayGoals)
     {
         var (instanceId, match) = await SeedInstanceAsync(kickoffOffsetsHours: [1, 2, 3, 4, 5]);
         var userId = Guid.NewGuid();
         await _module.ScoreSubmissionAsync(instanceId, userId, new PredictionSubmission(match.Id, 2, 1));
 
-        Assert.ThrowsAsync<PredictScoringException>(
+        Assert.ThrowsAsync<PredictInvalidSubmissionException>(
             () => _module.ScoreSubmissionAsync(instanceId, userId, new PredictionSubmission(match.Id, homeGoals, awayGoals)));
 
         var stored = await _repository.GetPredictionAsync(match.Id, userId);
