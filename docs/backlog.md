@@ -9313,3 +9313,63 @@ but could not run `dotnet build`/`dotnet test` locally; a CI verification
 run (`ci.yml` `workflow_dispatch`) is needed before this is considered
 fully done, same recurring constraint as every other recent backend story
 in this file.
+
+**S-191 · API-Football fixtures/results client for xG Predict (REQ-1301, REQ-1305, ADR-0094)**
+A new isolated client in `DataSync.Clients` (COMP-07), `IApiFootballClient`/
+`ApiFootballClient`, two capabilities — fetch an upcoming Premier League
+gameweek's full fixture list (`GetUpcomingGameweekFixturesAsync`, REQ-1301),
+and look up a specific fixture's current status/final score
+(`GetFixtureResultAsync`, REQ-1305). API key read from configuration/
+environment, never committed (`ApiFootballApiKey`, mirroring
+`GitHubIncidentReportToken`'s nullable/fail-closed-per-call shape rather
+than a startup throw). No `ExternalApiUsage` budget-gating (ADR-0094 says
+this game's usage doesn't need it). Client only — explicitly no round
+generation, no 5-match tightest-clustering selection, no prediction
+submission, no grading logic; those remain separate follow-up stories.
+
+*Accept:* `IApiFootballClient` exists in `DataSync.Clients`, isolated the
+same way `WikidataClient` already is (no other component calls
+API-Football directly — verified by `architecture-reviewer`); a matching
+`.Tests` project (added to the existing `XGArcade.DataSync.Tests` project,
+not a new csproj) with unit tests against `FakeHttpMessageHandler`,
+mirroring `WikidataClientTests.cs`'s/`GitHubIssueClientTests.cs`'s pattern.
+
+*Deps:* S-190 (COMP-15 module scaffold; this story doesn't touch it).
+
+*Explicitly out of scope, queued as follow-up:* round generation/5-match
+selection (REQ-1301's remaining half), prediction submission (REQ-1302),
+round lock (REQ-1303), scoring (REQ-1304, needs ADR-0095's
+`IScoringStrategy` work too), grading job/trigger (REQ-1305's remaining
+half — "what triggers the grading process" is still an open architecture/
+implementation decision per REQ-1305's own text), frontend work.
+
+*Built as (2026-08-30):* `backend-implementer` built the client — the
+two-HTTP-call flow for the fixture list (`GET fixtures/rounds?...
+current=true` then `GET fixtures?...round=...`), the throw-on-technical-
+failure contract (never swallow — REQ-1301's caller needs to distinguish
+"API unreachable" from "genuinely fewer than 5 fixtures"), the
+status-code-to-outcome mapping for `GetFixtureResultAsync` (`FT`/`AET`/
+`PEN`/`AWD`/`WO`→Finished, `PST`/`CANC`/`ABD`→PostponedOrAbandoned,
+everything else→NotYetConfirmed), and that the API-Football v3 JSON
+schema/status-code list is drawn from documentation/training knowledge,
+not a live fetch (this sandbox has no egress to api-football.com — same
+posture ADR-0094 itself already took) — flagged explicitly in code
+comments as unverified, needing a human check before real reliance, same
+convention as this repo's unverified-QID entries elsewhere. Note
+`architecture-reviewer` and `quality-architect` both returned PASS on the
+diff, with two non-blocking, deliberately-deferred test-coverage gaps
+noted for a future pass if anyone picks them up (an untested
+`FormatException` branch in date parsing, and an untested blank/missing-
+status-code branch in `GetFixtureResultAsync`) and one non-blocking
+test-architecture note (a second verbatim copy of a network-failure fake
+handler across two test projects — not yet a third occurrence, so not
+extracted per this repo's rule-of-three convention).
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-traced against
+`GitHubIssueClient`/`GitHubIssueClientTests.cs` and `WikidataClient`/
+`WikidataClientTests.cs`, and against `FakeHttpMessageHandler`'s actual
+constructor/factory signatures (confirmed to match, not guessed) by both
+the implementer and the quality-architect review pass; a CI verification
+run (`ci.yml` `workflow_dispatch`) is needed before this is considered
+fully done, same recurring constraint as every other recent backend story
+in this file — the orchestrating session will trigger this next.

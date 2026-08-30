@@ -11,6 +11,7 @@ using XGArcade.Core.Scoring;
 using XGArcade.Core.Storage;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.ApiFootball;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
@@ -253,6 +254,7 @@ public static class ServiceRegistration
 
         builder.AddIncidentReportingServices();
         builder.AddAvatarStorageServices();
+        builder.AddApiFootballServices();
     }
 
     // REQ-722/ADR-0087 (S-180): AvatarSubmission's own repository plus the
@@ -374,5 +376,50 @@ public static class ServiceRegistration
                 Window = TimeSpan.FromMinutes(incidentReportWindowMinutes),
                 QueueLimit = 0,
             })));
+    }
+
+    // ADR-0094/COMP-15 (Games.XGPredict): the API-Football fixtures/results
+    // REST client (client only — no round generation, no prediction
+    // submission, no grading here; S-191's follow-up story builds on this).
+    // Same "one focused helper per component" shape as
+    // AddIncidentReportingServices/AddAvatarStorageServices above.
+    private static void AddApiFootballServices(this WebApplicationBuilder builder)
+    {
+        // ADR-0094 item 3: the API-Football account/key precondition is
+        // additive to MVP-SCOPE.md and specific to xG Predict — not
+        // guaranteed provisioned in every environment yet, so this is
+        // deliberately NOT `?? throw` (same reasoning as
+        // GitHubIncidentReportToken above). An unset key means every
+        // ApiFootballClient call fails closed per-call
+        // (ApiFootballClientException), never a startup crash. Never log
+        // this value anywhere.
+        builder.Services.AddSingleton(new ApiFootballApiKey(builder.Configuration["ApiFootball:ApiKey"]));
+
+        // Premier League's real API-Football league ID (39) — unverified
+        // against a live fetch from this sandbox, same posture ADR-0094's
+        // own Context section already took for egress to api-football.com;
+        // flag for manual human verification.
+        var leagueId = builder.Configuration.GetValue<int?>("ApiFootball:LeagueId") ?? 39;
+        // Premier League's season is named by the year it starts (typically
+        // August) — e.g. the 2026-27 season is "2026." This default needs a
+        // human to sanity-check/override via ApiFootball:Season each
+        // pre-season (same "small, deliberately manual, revisit later"
+        // spirit as this repo's existing manual-QID-lookup precedent) — it
+        // rolls over to the new season year every July 1st regardless of
+        // whether API-Football has actually published that season's
+        // fixtures yet.
+        var defaultSeason = DateTime.UtcNow.Month >= 7 ? DateTime.UtcNow.Year : DateTime.UtcNow.Year - 1;
+        var season = builder.Configuration.GetValue<int?>("ApiFootball:Season") ?? defaultSeason;
+        builder.Services.AddSingleton(new ApiFootballOptions(leagueId, season));
+
+        // BaseAddress only, no auth header at registration time — the real
+        // x-apisports-key header is set per-request in ApiFootballClient
+        // itself, the same "credential set per-request, never on
+        // httpClient's own DefaultRequestHeaders" discipline
+        // GitHubIssueClient's own registration above already follows.
+        builder.Services.AddHttpClient<IApiFootballClient, ApiFootballClient>(client =>
+        {
+            client.BaseAddress = new Uri("https://v3.football.api-sports.io/");
+        });
     }
 }

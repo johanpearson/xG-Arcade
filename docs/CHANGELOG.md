@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-30 — `docs/architecture-document.md` (COMP-07 row extended and
+  §5.3 ADR-evolution table row added, updated by the implementer in the
+  same diff; version 1.22 → 1.23), `docs/backlog.md` (new S-191 entry,
+  this doc-sync pass) — `IApiFootballClient`/`ApiFootballClient` now exist
+  as COMP-07's (`DataSync.Clients`) new isolated API-Football client:
+  `GetUpcomingGameweekFixturesAsync` (REQ-1301) fetches an upcoming
+  Premier League gameweek's whole fixture list, `GetFixtureResultAsync`
+  (REQ-1305) looks up one fixture's status/final score. Client only — no
+  round generation, 5-match selection, prediction submission, or grading
+  logic yet (queued as follow-up stories per S-191). No new ADR: ADR-0094
+  already covers this exact decision (client isolation, no
+  `ExternalApiUsage` gating, throw-vs-swallow posture); this diff is a
+  straightforward implementation of it, not a new structural choice. REQ/
+  ADR refs: REQ-1301, REQ-1305, ADR-0094.
+
 - 2026-08-30 — `docs/requirements-document.md` (REQ-1305's postponed/
   abandoned-match voiding rule confirmed by the product owner, no longer a
   proposed default; new REQ-1306, an explicit player-initiated "confirm
