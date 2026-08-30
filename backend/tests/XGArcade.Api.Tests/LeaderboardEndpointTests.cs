@@ -12,6 +12,7 @@ using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
+using XGArcade.Games.XGPredict;
 
 namespace XGArcade.Api.Tests;
 
@@ -605,6 +606,26 @@ public class LeaderboardEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.That(problem!.Title, Is.EqualTo("Invalid gameKey"));
+    }
+
+    // This story (wiring "xg-predict" into round scheduling): proves
+    // ValidateGameKey's allow-list now accepts "xg-predict" too, not just
+    // "xg-grid"/"xg-path" — a plain 200 with no rows (no xg-predict rounds
+    // seeded) rather than the "Invalid gameKey" 400 the unrecognized-gameKey
+    // test above asserts. Mirrors that test's shape; the widened allow-list
+    // is the only thing under test here, not any scoring/ranking behavior.
+    [Test]
+    public async Task REQ410_LeaderboardGet_WithGameKeyXgPredict_IsNoLongerRejectedByTheGameKeyAllowlist()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard?gameKey={XGPredictGameModule.XGPredictGameKey}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows, Is.Empty, "no xg-predict rounds were seeded in this test");
     }
 
     // Smoke-test coverage for one other gameKey-accepting route (closed-rounds)

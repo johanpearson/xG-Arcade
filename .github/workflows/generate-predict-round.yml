@@ -1,0 +1,75 @@
+name: generate-predict-round
+
+# Creates a new Round + PredictInstance for GameKey "xg-predict" per the
+# configured frequency (REQ-301, REQ-1301).
+# This story: wired "xg-predict" into round scheduling alongside xG Grid's
+# and xG Path's — see ADR-0051's 2026-08-30 amendment (re-derivation
+# confirming the existing resolver/single-endpoint design still applies
+# unchanged to a third GameKey) and ADR-0072's own 2026-08-30 amendment
+# (re-derivation confirming fully-independent, per-GameKey workflow files
+# still apply unchanged to a third GameKey).
+#
+# Cadence: daily (06:00 UTC), deliberately NOT coupled to
+# XGArcade.Api/appsettings.json's RoundScheduling:XGPredict:RoundDurationHours
+# default (48h) — relies on RoundGenerationService's own idempotency skip to
+# no-op on days the current round hasn't ended yet, giving a constant 24h
+# safety margin under any RoundDurationHours >= 24 instead of an
+# exact-equality cron match. Full reasoning and the rejected `*/2`
+# day-of-month alternative: ADR-0027. Note REQ-1301 draws its matches from
+# "an upcoming Premier League gameweek," which occurs roughly weekly, not
+# daily — a daily cron here is still safe (idempotent no-op, per this
+# workflow's own reasoning above) but whether RoundDurationHours' default
+# should eventually be tuned away from 48h to better match a weekly
+# gameweek cadence is an open product question, not decided by this
+# workflow (see ADR-0072's 2026-08-30 amendment).
+#
+# This workflow is one of three fully independent files
+# (generate-grid-round.yml, generate-path-round.yml, and this one) —
+# nothing server-side requires them to stay coupled: RoundSchedulingOptions
+# is already fully per-GameKey (IRoundSchedulingOptionsResolver, ADR-0051)
+# and /internal/generate-round already takes gameKey as a first-class
+# parameter with no other game-specific branching. This workflow's own cron
+# independently satisfies ADR-0027's "RoundDuration >= cron's max gap"
+# invariant against xG Predict's own configured RoundDurationHours
+# (currently 48h, comfortably >= this workflow's own 24h daily max gap).
+#
+# workflow_dispatch accepts an optional round_duration_hours input for a
+# one-off manual override (passed through as /internal/generate-round's
+# roundDurationHours query param), affecting ONLY "xg-predict" — mirrors
+# generate-grid-round.yml's/generate-path-round.yml's own input, each
+# already independent of the others (ADR-0072). This does NOT change xG
+# Predict's configured default and does NOT require touching this cron;
+# only a *lasting* change to the default needs
+# RoundScheduling:XGPredict:RoundDurationHours — or the deployed Container
+# App's matching RoundScheduling__XGPredict__RoundDurationHours env var —
+# changed instead.
+#
+# The retry-loop body lives in .github/actions/trigger-round-generation
+# (S-176) — only the retry logic is shared; this workflow's own `on:` block
+# below (cron + workflow_dispatch input) stays fully independent, per
+# architecture-reviewer's confirmation (recorded on generate-path-round.yml)
+# that a composite action (no trigger surface of its own) doesn't
+# reintroduce the coupling ADR-0072 deliberately split apart.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      round_duration_hours:
+        description: "One-off RoundDuration override (hours) for this xg-predict generation call only. Leave blank to use xg-predict's own configured default."
+        type: string
+        required: false
+
+jobs:
+  generate-predict-round:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Trigger round generation
+        uses: ./.github/actions/trigger-round-generation
+        with:
+          game-key: xg-predict
+          round-duration-hours: ${{ inputs.round_duration_hours }}
+          backend-hostname: ${{ secrets.DEV_BACKEND_HOSTNAME }}
+          internal-job-token: ${{ secrets.INTERNAL_JOB_TOKEN }}

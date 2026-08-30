@@ -42,6 +42,32 @@ public class RoundSchedulingOptionsResolverTests
         Assert.That(resolvedPath, Is.Not.SameAs(resolvedGrid));
     }
 
+    // This story (wiring "xg-predict" into round scheduling, ADR-0051's
+    // 2026-08-30 amendment): a third GameKey, each with its own distinct
+    // RoundDuration, registered alongside the two above — proves GameKey
+    // matching still discriminates correctly once a third registration
+    // exists, same shape as REQ1202_Resolve_ResolvesEachGameKeysOwnRoundDuration_IndependentlyOfTheOther
+    // above.
+    [Test]
+    public void REQ1301_Resolve_ResolvesEachOfThreeGameKeysOwnRoundDuration_IndependentlyOfTheOthers()
+    {
+        var gridOptions = new RoundSchedulingOptions { GameKey = "xg-grid", RoundDuration = TimeSpan.FromHours(48) };
+        var pathOptions = new RoundSchedulingOptions { GameKey = "xg-path", RoundDuration = TimeSpan.FromHours(30) };
+        var predictOptions = new RoundSchedulingOptions { GameKey = "xg-predict", RoundDuration = TimeSpan.FromHours(48) };
+        var resolver = new RoundSchedulingOptionsResolver([gridOptions, pathOptions, predictOptions]);
+
+        var resolvedGrid = resolver.Resolve("xg-grid");
+        var resolvedPath = resolver.Resolve("xg-path");
+        var resolvedPredict = resolver.Resolve("xg-predict");
+
+        Assert.That(resolvedGrid, Is.SameAs(gridOptions));
+        Assert.That(resolvedPath, Is.SameAs(pathOptions));
+        Assert.That(resolvedPredict, Is.SameAs(predictOptions));
+        Assert.That(resolvedPredict.RoundDuration, Is.EqualTo(TimeSpan.FromHours(48)));
+        Assert.That(resolvedPredict, Is.Not.SameAs(resolvedGrid));
+        Assert.That(resolvedPredict, Is.Not.SameAs(resolvedPath));
+    }
+
     [Test]
     public void Resolve_PicksTheMatchingOptions_AmongSeveralRegistered()
     {

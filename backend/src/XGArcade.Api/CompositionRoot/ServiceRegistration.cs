@@ -154,15 +154,13 @@ public static class ServiceRegistration
         // a real module, same as xG Grid/xG Path above.
         // REQ-1304/ADR-0095: the IScoringStrategy registration for
         // "xg-predict" now exists (below, alongside xG Grid/xG Path's own).
-        // RoundSchedulingOptions for "xg-predict" is still deliberately NOT
-        // registered (unlike xG Grid/xG Path's own registrations further
-        // below) — IRoundSchedulingOptionsResolver iterates an IEnumerable,
-        // so nothing requires an entry to exist for this GameKey to
-        // compile, and InternalRoundEndpoints'/LeaderboardEndpoints' own
-        // gameKey allow-lists don't yet include "xg-predict" either — real
-        // round generation/scoring HTTP wiring is a separate, later story
-        // (ADR-0096's own explicit scope; mirrors ADR-0051's precedent for
-        // deferred scheduling-config wiring).
+        // RoundSchedulingOptions for "xg-predict" is now registered too (this
+        // story, see below, alongside xG Grid/xG Path's own) —
+        // InternalRoundEndpoints'/LeaderboardEndpoints' own gameKey
+        // allow-lists now include "xg-predict" as well, closing the gap this
+        // comment used to describe as deferred (ADR-0051's 2026-08-30
+        // amendment re-derived that the existing per-GameKey pattern still
+        // applies unchanged for this third GameKey; no structural deviation).
         builder.Services.AddScoped<IPredictInstanceRepository, PredictInstanceRepository>();
         builder.Services.AddScoped<IGameModule, XGPredictGameModule>();
         // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
@@ -170,6 +168,12 @@ public static class ServiceRegistration
         // config (deliberately not a field on RoundSchedulingOptions; see that
         // type's own doc comment).
         builder.Services.AddSingleton(new PathGenerationOptions());
+        // This story: PredictTemplateResolver's match-count source — mirrors
+        // GridGenerationOptions'/PathGenerationOptions' role/precedent above
+        // for xG Predict's own generation config (deliberately not a field on
+        // RoundSchedulingOptions; see that type's own doc comment). Default
+        // MatchCount (5, REQ-1301) is fine as-is, no override needed here.
+        builder.Services.AddSingleton(new PredictGenerationOptions());
         builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
         // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
         // Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here
@@ -211,8 +215,10 @@ public static class ServiceRegistration
         // frequency can be adjusted without a code change": change
         // RoundScheduling:RoundDurationHours (or the deployed Container App's
         // RoundScheduling__RoundDurationHours env var) instead of editing this
-        // file. generate-grid-round.yml's/generate-path-round.yml's cron
-        // (split from a single generate-round.yml, S-136/ADR-0072) is daily
+        // file. generate-grid-round.yml's/generate-path-round.yml's/
+        // generate-predict-round.yml's cron (split from a single
+        // generate-round.yml, S-136/ADR-0072; extended to a third file for
+        // "xg-predict" per that ADR's 2026-08-30 amendment) is daily
         // for each GameKey and, thanks to
         // RoundGenerationService's own idempotency check, only actually generates a
         // new round roughly every RoundDuration — it no longer needs hand-matching
@@ -241,6 +247,26 @@ public static class ServiceRegistration
         {
             GameKey = XGPathGameModule.XGPathGameKey,
             RoundDuration = TimeSpan.FromHours(xgPathRoundDurationHours),
+        });
+        // This story (wiring "xg-predict" into round scheduling, ADR-0051's
+        // 2026-08-30 amendment): xG Predict's own RoundSchedulingOptions
+        // instance, resolved independently of xG Grid's/xG Path's via
+        // IRoundSchedulingOptionsResolver (registered below) — a distinct
+        // config key (RoundScheduling:XGPredict:RoundDurationHours), same
+        // "independent config key per GameKey" reasoning as xG Path's own
+        // registration immediately above. Default is also 48h — REQ-1301
+        // draws matches from a Premier League gameweek (roughly weekly, not
+        // daily), so whether this default should eventually differ from xG
+        // Grid/xG Path's is an open product question the wiring story does
+        // not decide (see ADR-0072's 2026-08-30 amendment); change
+        // independently via this key (or the deployed Container App's
+        // RoundScheduling__XGPredict__RoundDurationHours env var) if that
+        // changes.
+        var xgPredictRoundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:XGPredict:RoundDurationHours") ?? 48;
+        builder.Services.AddSingleton(new RoundSchedulingOptions
+        {
+            GameKey = XGPredictGameModule.XGPredictGameKey,
+            RoundDuration = TimeSpan.FromHours(xgPredictRoundDurationHours),
         });
         builder.Services.AddScoped<IRoundSchedulingOptionsResolver, RoundSchedulingOptionsResolver>();
         builder.Services.AddScoped<IRoundRepository, RoundRepository>();
