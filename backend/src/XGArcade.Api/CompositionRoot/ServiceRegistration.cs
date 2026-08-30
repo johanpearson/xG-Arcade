@@ -14,6 +14,7 @@ using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
+using XGArcade.Games.XGPredict;
 using XGArcade.Storage.Supabase;
 
 namespace XGArcade.Api.CompositionRoot;
@@ -142,6 +143,22 @@ public static class ServiceRegistration
         // a thin IGameModule adapter composing this alongside its other dependencies.
         builder.Services.AddScoped<IPathEligibilityService, PathEligibilityService>();
         builder.Services.AddScoped<IGameModule, XGPathGameModule>();
+        // COMP-15 (Games.XGPredict) — structural scaffold only (this session).
+        // Registered here so IGameModuleResolver.Resolve("xg-predict") returns
+        // a real (stub) module, same as xG Grid/xG Path above — every method
+        // on it currently throws NotImplementedException/NotSupportedException
+        // or returns null; see XGPredictGameModule's own doc comment.
+        // Deliberately NOT registering a RoundSchedulingOptions or
+        // IScoringStrategy instance for "xg-predict" yet (unlike xG Grid/xG
+        // Path's own registrations further below) — both resolvers
+        // (IRoundSchedulingOptionsResolver/IScoringStrategyResolver) iterate
+        // an IEnumerable, so nothing requires an entry to exist for this
+        // GameKey to compile, and InternalRoundEndpoints'/LeaderboardEndpoints'
+        // own gameKey allow-lists don't yet include "xg-predict" either — real
+        // round generation/scoring wiring is REQ-1301-1305's follow-up backend
+        // story, along with the new IScoringStrategy implementation ADR-0095
+        // describes (its LowerIsBetter == false).
+        builder.Services.AddScoped<IGameModule, XGPredictGameModule>();
         // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
         // GridGenerationOptions' role/precedent above for xG Path's own generation
         // config (deliberately not a field on RoundSchedulingOptions; see that
