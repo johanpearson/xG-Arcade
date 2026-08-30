@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.10"
+version: "1.11"
 status: draft
-last_updated: 2026-08-29
+last_updated: 2026-08-30
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -338,6 +338,36 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    alongside ExcludeNationalTeams at both
                                    call sites; see REQ-1203's 2026-08-18
                                    status note
+    /XGArcade.Games.XGPredict  -> XGPredictGameModule (COMP-15), the third
+                                   game. As of 2026-08-30 (ADR-0096):
+                                   GenerateInstanceAsync (REQ-1301, tightest-
+                                   kickoff-clustering selection over
+                                   DataSync's API-Football fixtures client),
+                                   ScoreSubmissionAsync (REQ-1302/1303,
+                                   two-integer prediction store/replace plus
+                                   the whole-round lock at the first match's
+                                   kickoff), and GetCellIdsAsync are real,
+                                   persisted against PredictTemplate/
+                                   PredictInstance/PredictMatch/
+                                   PredictMatchPrediction (§5) via
+                                   IPredictInstanceRepository
+                                   (XGArcade.Data). GetMaxAttemptsForCellAsync
+                                   still throws NotImplementedException
+                                   (attempt-cap model not decided).
+                                   PredictGenerationException/
+                                   PredictScoringException (derives from
+                                   Core.Games.GameEntityNotFoundException)/
+                                   PredictInvalidSubmissionException/
+                                   PredictRoundLockedException are this
+                                   module's exception types. Not wired into
+                                   InternalRoundEndpoints' gameKey switch,
+                                   GuessSubmissionService, or any
+                                   RoundSchedulingOptions/IScoringStrategy
+                                   registration for "xg-predict" yet
+                                   (deliberately deferred, ADR-0096, mirrors
+                                   ADR-0051's precedent) — see
+                                   requirements-document.md §4.14's REQ-1301/
+                                   1302/1303 status notes.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -370,7 +400,24 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    XGPathGameModuleTests/PathEndpointTests
                                    coverage mirroring the national-team
                                    shape
-    /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
+    /XGArcade.Games.XGPredict.Tests -> NUnit unit tests. Added 2026-08-30
+                                   (ADR-0096): REQ1301-named
+                                   XGPredictGameModuleTests coverage
+                                   (selection determinism/tie-breaking,
+                                   abort-on-too-few-fixtures), REQ1302-named
+                                   coverage (resubmission-replaces
+                                   semantics, negative-goal rejection),
+                                   REQ1303-named coverage (the exploit-
+                                   prevention case — rejecting a
+                                   not-yet-kicked-off match once the round
+                                   lock has passed) — against a
+                                   ManualTimeProvider fake and a
+                                   FakeApiFootballClient, InMemory-backed
+                                   repositories, same pattern as
+                                   GridGameModule.Tests/XGPathGameModuleTests.
+    /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config).
+                                   Added PredictInstanceRepositoryTests
+                                   2026-08-30 (ADR-0096).
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
                                    S-082 extended WikidataClientTests/
                                    WikidataLookupServiceTests for REQ-1207's
@@ -1034,6 +1081,67 @@ public class PathPuzzle
     // never persisted, the same "compute live on read" precedent
     // UniquenessCalculator already establishes for xG Grid (§6.2's
     // GET /rounds/current note).
+}
+
+// --- xG Predict game entities (owned by Games.XGPredict, COMP-15) ---
+// Built 2026-08-30 (REQ-1301/1302/1303, ADR-0096). Same "conceptually
+// owned by the game module, physically defined in XGArcade.Data" note as
+// the xG Grid/xG Path entities above (ADR-0014).
+//
+// Unlike GridCell (dynamically-matched category pair) and PathPuzzle (one
+// fixed TargetPlayerId FK), a PredictMatch has no "answer" at all until
+// REQ-1305's asynchronous grading (a separate, later story, not yet built)
+// confirms the real final score — see ADR-0096 for the full reasoning.
+
+public class PredictTemplate
+{
+    public Guid Id { get; set; }
+    public int MatchCount { get; set; }       // 5 (REQ-1301) — same "config
+                                               // now, even if only one value
+                                               // is valid yet" precedent as
+                                               // PathTemplate.PuzzleCount
+}
+
+public class PredictInstance
+{
+    public Guid Id { get; set; }              // this is the value stored as Round.GameInstanceId
+    public Guid TemplateId { get; set; }
+    public List<PredictMatch> Matches { get; set; } = [];  // owned collection, cascade-deleted with its parent
+}
+
+public class PredictMatch
+{
+    public Guid Id { get; set; }              // the "cell" GetCellIdsAsync returns
+    public Guid PredictInstanceId { get; set; }
+    public int ExternalFixtureId { get; set; } // API-Football's own fixture id (ADR-0094) — REQ-1305's future grading lookup key
+    public string HomeTeamName { get; set; }
+    public string AwayTeamName { get; set; }
+    // Always normalized to UTC. REQ-1303's round-lock instant is
+    // Matches.Min(m => m.KickoffUtc) across a PredictInstance's Matches,
+    // reconstructable from these rows alone without a second fetch.
+    public DateTime KickoffUtc { get; set; }
+}
+
+// A separate, top-level table — NOT owned by PredictMatch's own collection
+// — since predictions accumulate independently, from many different users,
+// over the round's open window (same reason Guess is a top-level table
+// rather than an owned collection of Round, not a per-match static field).
+// Unique index on (PredictMatchId, UserId): REQ-1302's "a resubmission
+// replaces the prior value, never inserts a second row," same precedent as
+// Guess's own (RoundId, UserId, CellId) unique index.
+public class PredictMatchPrediction
+{
+    public Guid Id { get; set; }
+    public Guid PredictMatchId { get; set; }  // real FK to PredictMatch, cascade (both tables are COMP-15-internal)
+    public Guid? UserId { get; set; }         // nullable/unconstrained, mirrors Guess.UserId — REQ-710 anonymization reuses this path
+    public int HomeGoals { get; set; }
+    public int AwayGoals { get; set; }
+    // Deliberately NOT named CreatedAt (quality-gate fix, 2026-08-30): this
+    // field is overwritten on every resubmission (there is no separate
+    // UpdatedAt column) — unlike Guess.CreatedAt, which is write-once by
+    // established precedent, so the CreatedAt name would misleadingly
+    // imply the same semantics here.
+    public DateTime SubmittedAt { get; set; }
 }
 
 // --- Core (xG Arcade) entities (XGArcade.Core) ---
