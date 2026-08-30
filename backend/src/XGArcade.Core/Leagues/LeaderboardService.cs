@@ -40,9 +40,10 @@ public class LeaderboardService(
     // from the exact same ordering the leaderboard itself shows, rather than
     // a second, independently-drifting formula. Returns every *qualifying*
     // (>=MinimumQualifyingRoundsForRanking rounds) global-league member,
-    // already ordered ascending by median (ADR-0021: lowest wins) then by
-    // DisplayName — unpaginated, since GetGlobalLeaderboardAsync still owns
-    // pagination and GetUserStatsAsync only needs one member's position.
+    // already ordered by median (direction resolved per GameKey — see the
+    // ADR-0095/REQ-1304 note below) then by DisplayName — unpaginated, since
+    // GetGlobalLeaderboardAsync still owns pagination and GetUserStatsAsync
+    // only needs one member's position.
     private async Task<IReadOnlyList<(Guid UserId, string DisplayName, double Median)>> GetRankedMembersAsync(
         string gameKey, CancellationToken cancellationToken)
     {
@@ -64,19 +65,31 @@ public class LeaderboardService(
         // no longer folds in a contribution from the currently active round
         // — see ILeaderboardService's doc comment for why folding a live
         // round into a median has no resolved meaning.
-        return members
+        var qualifyingMembers = members
             .Select(member => (
                 member.Id,
                 member.DisplayName,
                 PerRoundTotals: perRoundTotalsByUserId.GetValueOrDefault(member.Id, Array.Empty<int>())))
             .Where(m => m.PerRoundTotals.Count >= MinimumQualifyingRoundsForRanking)
-            .Select(m => (UserId: m.Id, m.DisplayName, Median: ComputeMedian(m.PerRoundTotals)))
-            // ADR-0021: ascending — lowest median wins, same direction as
-            // every other ranking in this file. Sorting/tie-breaking happens
-            // on the unrounded double median, so ComputeMedian's rounding
-            // for LeaderboardEntry.TotalPoints (in GetGlobalLeaderboardAsync)
-            // never affects order.
-            .OrderBy(m => m.Median)
+            .Select(m => (UserId: m.Id, m.DisplayName, Median: ComputeMedian(m.PerRoundTotals)));
+
+        // ADR-0095/REQ-1304: sort direction resolved per GameKey, the same
+        // migration RankByTotalPoints's three call sites already went
+        // through — every GameKey is golf-style (ADR-0021: lowest median
+        // wins) except "xg-predict", the one named exception. Sorting/
+        // tie-breaking happens on the unrounded double median either way, so
+        // ComputeMedian's rounding for LeaderboardEntry.TotalPoints (in
+        // GetGlobalLeaderboardAsync) never affects order. Not reused via
+        // RankByTotalPoints itself — that helper's tuple shape/output type
+        // (int TotalPoints, List<LeaderboardEntry>) doesn't match this
+        // method's (double Median, the plain ranked tuple list callers build
+        // LeaderboardEntry/UserStatsResult rows from themselves).
+        var lowerIsBetter = scoringStrategyResolver.Resolve(gameKey).LowerIsBetter;
+        var ordered = lowerIsBetter
+            ? qualifyingMembers.OrderBy(m => m.Median)
+            : qualifyingMembers.OrderByDescending(m => m.Median);
+
+        return ordered
             .ThenBy(m => m.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

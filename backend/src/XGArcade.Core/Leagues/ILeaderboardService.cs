@@ -66,11 +66,12 @@ public interface ILeaderboardService
     // supplies, same as GetClosedRoundsAsync/GetWindowedLeaderboardAsync
     // (ADR-0003).
     //
-    // Unlike GetActiveRoundLeaderboardAsync/GetClosedRoundLeaderboardAsync/
-    // GetWindowedLeaderboardAsync above, this method's ranking (via
-    // GetRankedMembersAsync's OrderBy(Median)) is NOT one of the
-    // ADR-0095/REQ-1304 call sites migrated to per-GameKey sort direction —
-    // it still sorts ascending unconditionally for every GameKey, including
+    // ADR-0095/REQ-1304 (2026-08-30): like GetActiveRoundLeaderboardAsync/
+    // GetClosedRoundLeaderboardAsync/GetWindowedLeaderboardAsync above, this
+    // method's ranking (via GetRankedMembersAsync's OrderBy/OrderByDescending
+    // on Median) resolves sort direction per GameKey from the resolved
+    // IScoringStrategy.LowerIsBetter, not assumed ascending — ADR-0021's
+    // golf-style default (lowest median wins) for every GameKey except
     // "xg-predict". See GetRankedMembersAsync's own doc comment.
     Task<LeaderboardPage> GetGlobalLeaderboardAsync(
         Guid requestingUserId,

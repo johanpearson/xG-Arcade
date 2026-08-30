@@ -1445,4 +1445,53 @@ public class LeaderboardServiceTests
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "Sam" }), "90 (Alex) must rank ABOVE 40 (Sam) under descending sort");
         Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 90, 40 }));
     }
+
+    // REQ-1304 follow-up (2026-08-30, this story): GetRankedMembersAsync
+    // (backing both GetGlobalLeaderboardAsync and GetUserStatsAsync's Rank)
+    // was the one OrderBy(TotalPoints)-shaped call site left unmigrated by
+    // the three ADR0095-named tests above — it sorts by median instead of a
+    // plain TotalPoints total, so it isn't RankByTotalPoints's caller, but
+    // the same "resolve LowerIsBetter per GameKey" rule now applies to it
+    // too. CreateDescendingSortService's own service never touches
+    // GameModuleResolver/FakeGameModule for these two tests (same "Rank
+    // reuses SeedQualifyingRoundsAsync's GameKey overload directly" pattern
+    // the REQ-410 cross-game-isolation section above already established —
+    // GetGlobalLeaderboardAsync/GetUserStatsAsync never resolve a game
+    // module at all).
+
+    [Test]
+    public async Task ADR0095_GetGlobalLeaderboardAsync_LowerIsBetterFalseGameKey_RanksDescendingByMedian()
+    {
+        var (service, _) = CreateDescendingSortService();
+        var alex = await SeedMemberAsync("Alex");
+        var sam = await SeedMemberAsync("Sam");
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(alex.Id, DescendingGameKey, 60, 70, 80, 90, 100); // median 80
+        await SeedQualifyingRoundsAsync(sam.Id, DescendingGameKey, 10, 20, 30, 40, 50);   // median 30
+        await SeedQualifyingRoundsAsync(you.Id, DescendingGameKey, 40, 45, 50, 55, 60);   // median 50
+
+        var page = await service.GetGlobalLeaderboardAsync(you.Id, DescendingGameKey, cursor: 0, pageSize: 50);
+
+        // Inverted from REQ409_GetGlobalLeaderboardAsync_MultipleMembers_SortedAscendingByMedian:
+        // highest median (Alex, 80) now ranks first.
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "You", "Sam" }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 80, 50, 30 }));
+        Assert.That(page.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 1, 2, 3 }));
+    }
+
+    [Test]
+    public async Task ADR0095_GetUserStatsAsync_LowerIsBetterFalseGameKey_RankComputedDescendingByMedianHighestFirst()
+    {
+        var (service, _) = CreateDescendingSortService();
+        var alex = await SeedMemberAsync("Alex");
+        var sam = await SeedMemberAsync("Sam");
+        await SeedQualifyingRoundsAsync(alex.Id, DescendingGameKey, 60, 70, 80, 90, 100); // median 80 -> rank 1
+        await SeedQualifyingRoundsAsync(sam.Id, DescendingGameKey, 10, 20, 30, 40, 50);   // median 30 -> rank 2
+
+        var alexStats = await service.GetUserStatsAsync(alex.Id, DescendingGameKey);
+        var samStats = await service.GetUserStatsAsync(sam.Id, DescendingGameKey);
+
+        Assert.That(alexStats.Rank, Is.EqualTo(1), "the HIGHEST median must rank #1 under a descending GameKey, not the lowest");
+        Assert.That(samStats.Rank, Is.EqualTo(2));
+    }
 }
