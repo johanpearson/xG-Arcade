@@ -17,6 +17,15 @@ public static class ScoringRules
 {
     public const int MaxPointsPerCell = 100;
 
+    // REQ-1304's per-component award value for xG Predict (outcome/
+    // home-goals/away-goals, each independently 0-or-this). Not specified
+    // by REQ-1304's own text — same "exact point values are an
+    // implementation detail" precedent as MaxPointsPerCell above; only that
+    // naming/ownership convention carries over, not its golf-style
+    // direction (ADR-0095: xG Predict is higher-is-better, the named
+    // exception to ADR-0021 — see XGPredictScoringStrategy).
+    public const int PredictPointsPerComponent = 10;
+
     // REQ-205's locked-score formula, and the one place it's allowed to be
     // written — shared by RoundEndpoints' live LivePoints (S-018) and, as of
     // S-076/ADR-0040, ScoreLockingService's FinalPoints only indirectly, via

@@ -9,7 +9,8 @@ public class LeaderboardService(
     IUserRepository userRepository,
     IGuessRepository guessRepository,
     IRoundRepository roundRepository,
-    ILiveRoundContributionService liveRoundContributionService) : ILeaderboardService
+    ILiveRoundContributionService liveRoundContributionService,
+    IScoringStrategyResolver scoringStrategyResolver) : ILeaderboardService
 {
     // REQ-409 (2026-07-20): the product owner's decided qualification floor
     // — a player needs at least this many qualifying rounds (closed round +
@@ -147,11 +148,16 @@ public class LeaderboardService(
         if (liveContributionsByUserId.Count == 0)
             return new LeaderboardPage([], null, null, false);
 
-        var participants = await userRepository.GetByIdsAsync(liveContributionsByUserId.Keys.ToList(), cancellationToken);
+        var participantsWithTotals = (await userRepository.GetByIdsAsync(liveContributionsByUserId.Keys.ToList(), cancellationToken))
+            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: liveContributionsByUserId[participant.Id]));
 
-        var ranked = participants
-            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: liveContributionsByUserId[participant.Id]))
-            .OrderBy(p => p.TotalPoints)
+        // ADR-0095/REQ-1304: sort direction is resolved per GameKey, not
+        // assumed ascending — every GameKey is golf-style (ADR-0021) except
+        // "xg-predict", the one named exception.
+        var lowerIsBetter = scoringStrategyResolver.Resolve(activeRound.GameKey).LowerIsBetter;
+        var ranked = (lowerIsBetter
+                ? participantsWithTotals.OrderBy(p => p.TotalPoints)
+                : participantsWithTotals.OrderByDescending(p => p.TotalPoints))
             .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Select((p, index) => new LeaderboardEntry(
                 index + 1,
@@ -199,11 +205,16 @@ public class LeaderboardService(
         if (totalsByUserId.Count == 0)
             return new ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus.Found, new LeaderboardPage([], null, null, false));
 
-        var participants = await userRepository.GetByIdsAsync(totalsByUserId.Keys.ToList(), cancellationToken);
+        var participantsWithTotals = (await userRepository.GetByIdsAsync(totalsByUserId.Keys.ToList(), cancellationToken))
+            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(participant.Id, 0)));
 
-        var ranked = participants
-            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(participant.Id, 0)))
-            .OrderBy(p => p.TotalPoints)
+        // ADR-0095/REQ-1304: sort direction is resolved per GameKey, not
+        // assumed ascending — every GameKey is golf-style (ADR-0021) except
+        // "xg-predict", the one named exception.
+        var lowerIsBetter = scoringStrategyResolver.Resolve(round.GameKey).LowerIsBetter;
+        var ranked = (lowerIsBetter
+                ? participantsWithTotals.OrderBy(p => p.TotalPoints)
+                : participantsWithTotals.OrderByDescending(p => p.TotalPoints))
             .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Select((p, index) => new LeaderboardEntry(
                 index + 1,
@@ -256,7 +267,8 @@ public class LeaderboardService(
         if (totalsByUserId.Count == 0)
             return new LeaderboardPage([], null, null, false);
 
-        var participants = await userRepository.GetByIdsAsync(totalsByUserId.Keys.ToList(), cancellationToken);
+        var participantsWithTotals = (await userRepository.GetByIdsAsync(totalsByUserId.Keys.ToList(), cancellationToken))
+            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(participant.Id, 0)));
 
         // Same "absent from the totals dictionary means not ranked at all"
         // pattern as every other scope in this file (REQ-401/404/406/407/408)
@@ -264,9 +276,14 @@ public class LeaderboardService(
         // here, rather than being defaulted to a TotalPoints of 0 (which
         // ADR-0021's lowest-wins model would otherwise treat as the best
         // possible score).
-        var ranked = participants
-            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(participant.Id, 0)))
-            .OrderBy(p => p.TotalPoints)
+        //
+        // ADR-0095/REQ-1304: sort direction is resolved per GameKey, not
+        // assumed ascending — every GameKey is golf-style (ADR-0021) except
+        // "xg-predict", the one named exception.
+        var lowerIsBetter = scoringStrategyResolver.Resolve(gameKey).LowerIsBetter;
+        var ranked = (lowerIsBetter
+                ? participantsWithTotals.OrderBy(p => p.TotalPoints)
+                : participantsWithTotals.OrderByDescending(p => p.TotalPoints))
             .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Select((p, index) => new LeaderboardEntry(
                 index + 1,

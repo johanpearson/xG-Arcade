@@ -152,17 +152,17 @@ public static class ServiceRegistration
         // model, and nothing calls it yet — see that method's own comment).
         // Registered here so IGameModuleResolver.Resolve("xg-predict") returns
         // a real module, same as xG Grid/xG Path above.
-        // Deliberately NOT registering a RoundSchedulingOptions or
-        // IScoringStrategy instance for "xg-predict" yet (unlike xG Grid/xG
-        // Path's own registrations further below) — both resolvers
-        // (IRoundSchedulingOptionsResolver/IScoringStrategyResolver) iterate
-        // an IEnumerable, so nothing requires an entry to exist for this
-        // GameKey to compile, and InternalRoundEndpoints'/LeaderboardEndpoints'
-        // own gameKey allow-lists don't yet include "xg-predict" either — real
-        // round generation/scoring HTTP wiring, plus REQ-1304's scoring
-        // strategy, are separate, later stories (ADR-0096's own explicit
-        // scope; mirrors ADR-0051's precedent for deferred scheduling-config
-        // wiring).
+        // REQ-1304/ADR-0095: the IScoringStrategy registration for
+        // "xg-predict" now exists (below, alongside xG Grid/xG Path's own).
+        // RoundSchedulingOptions for "xg-predict" is still deliberately NOT
+        // registered (unlike xG Grid/xG Path's own registrations further
+        // below) — IRoundSchedulingOptionsResolver iterates an IEnumerable,
+        // so nothing requires an entry to exist for this GameKey to
+        // compile, and InternalRoundEndpoints'/LeaderboardEndpoints' own
+        // gameKey allow-lists don't yet include "xg-predict" either — real
+        // round generation/scoring HTTP wiring is a separate, later story
+        // (ADR-0096's own explicit scope; mirrors ADR-0051's precedent for
+        // deferred scheduling-config wiring).
         builder.Services.AddScoped<IPredictInstanceRepository, PredictInstanceRepository>();
         builder.Services.AddScoped<IGameModule, XGPredictGameModule>();
         // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
@@ -186,6 +186,17 @@ public static class ServiceRegistration
         builder.Services.AddScoped<IScoringStrategy>(_ => new ClueEfficiencyScoringStrategy
         {
             GameKey = XGPathGameModule.XGPathGameKey,
+        });
+        // REQ-1304/ADR-0095: xG Predict's three-component prediction
+        // formula, registered against "xg-predict" the same way the two
+        // strategies above are registered — GameKey supplied here, never
+        // hardcoded inside XGArcade.Core (ADR-0003). Unlike the two above,
+        // this strategy's ScoreCorrectGuess is unreachable in production
+        // (ADR-0096: xG Predict never writes Guess rows) — see that
+        // method's own doc comment.
+        builder.Services.AddScoped<IScoringStrategy>(_ => new XGPredictScoringStrategy
+        {
+            GameKey = XGPredictGameModule.XGPredictGameKey,
         });
         builder.Services.AddScoped<IScoringStrategyResolver, ScoringStrategyResolver>();
 
