@@ -1,9 +1,17 @@
 # ADR-0021: xG Arcade is scored like golf — lower points is better, lowest total wins
 
-- **Status:** Accepted
+- **Status:** Accepted (named exception for one `GameKey` recorded by ADR-0095 — see note below)
 - **Date:** 2026-07-12
 - **Related requirements:** REQ-203, REQ-204, REQ-205, REQ-206, REQ-401, REQ-404, REQ-405
 - **Related components:** COMP-04 (Core.Scoring), COMP-05 (Games.XGGrid, `IGameModule`)
+
+> **Exception recorded by ADR-0095 (2026-08-30):** xG Predict
+> (`GameKey == "xg-predict"`) uses conventional higher-is-better scoring, a
+> deliberate, product-confirmed departure from this ADR's convention for
+> that one game only. This ADR remains the binding default for every other
+> game (xG Grid, xG Path, and any future game without its own equivalent
+> ADR) — see ADR-0095 for the reasoning and the `IScoringStrategy.LowerIsBetter`
+> mechanism that carries the exception.
 
 ## Context
 
