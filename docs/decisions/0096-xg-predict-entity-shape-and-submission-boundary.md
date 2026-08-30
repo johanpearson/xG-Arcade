@@ -1,7 +1,26 @@
 # ADR-0096: xG Predict round/match/prediction entity shape and submission-path boundary
 
-- **Status:** Accepted
+- **Status:** Accepted (Decision §4's exception-hierarchy point amended 2026-08-30, same day — see note below)
 - **Date:** 2026-08-30
+
+> **Amendment (2026-08-30, same-day quality-gate follow-up):** Decision §4's
+> original text left the two new exceptions' base classes unremarked — the
+> implementation that followed derived both `PredictScoringException` and a
+> since-split validation exception directly from `System.Exception`, and a
+> code comment incorrectly cited this section as having decided that. It did
+> not. This amendment makes the actual decision explicit: `PredictScoringException`
+> (the "not found" case — instance/match id doesn't resolve) derives from
+> `Core.Games.GameEntityNotFoundException`, matching `PathScoringException`'s/
+> `GuessScoringException`'s existing precedent — that base type exists
+> precisely so a future game-agnostic catch site needs no per-game knowledge,
+> and "no caller exists yet" was never a reason `PathScoringException` waited
+> either. The negative-goal-count validation case (REQ-1302) is **not** a
+> "not found" failure at all and gets its own exception,
+> `PredictInvalidSubmissionException` (derives from `Exception` directly —
+> there is genuinely no shared "invalid gameplay submission" base type in
+> this codebase yet to derive from; inventing one speculatively for a single
+> call site is deferred, not decided, the same way Decision §4's original
+> text already deferred `ScoreResult`'s own widening).
 - **Related requirements:** REQ-1301, REQ-1302, REQ-1303
 - **Related components:** COMP-15 (Games.XGPredict), COMP-04 (Core.Scoring), COMP-07 (DataSync.Clients)
 
@@ -80,7 +99,12 @@ Three things needed a decision that could reasonably have gone another way:
    already are, not `Guess.CellId`'s deliberately-opaque cross-game case),
    `UserId` (nullable, unconstrained — mirrors `Guess.UserId`'s own shape so
    REQ-710 account-deletion anonymization has an identical, already-proven
-   path to reuse later), `HomeGoals`/`AwayGoals` (int), `CreatedAt`. Unique
+   path to reuse later), `HomeGoals`/`AwayGoals` (int), `SubmittedAt`
+   (`DateTime` — named for what it actually records, since a resubmission
+   overwrites this field's value in place; deliberately not `CreatedAt`,
+   which would misleadingly imply write-once semantics the way `Guess.CreatedAt`
+   genuinely has, per this same quality-gate follow-up as the Decision §4
+   amendment above). Unique
    index on `(PredictMatchId, UserId)` — REQ-1302's "resubmission replaces,
    never inserts a second row," same precedent `Guess`'s own
    `(RoundId, UserId, CellId)` unique index already sets. Not owned by
@@ -106,7 +130,12 @@ Three things needed a decision that could reasonably have gone another way:
    compromise, not a full solution:**
    - Round-not-found / match-not-found in the instance: throws
      `PredictScoringException`, mirroring `PathScoringException`'s/
-     `GuessScoringException`'s existing "not found" convention.
+     `GuessScoringException`'s existing "not found" convention — including
+     their base class: `PredictScoringException` derives from
+     `Core.Games.GameEntityNotFoundException`, not `Exception` directly (made
+     explicit by this ADR's own 2026-08-30 amendment above, after a
+     same-day quality-gate review caught an implementation that had derived
+     it from `Exception` and mis-cited this section as having decided that).
    - Submission after the round-level lock (REQ-1303, computed as
      `Matches.Min(m => m.KickoffUtc)` compared against an injectable
      `TimeProvider`, mirroring `XGPathGameModule`'s own `_timeProvider`
@@ -133,8 +162,12 @@ Three things needed a decision that could reasonably have gone another way:
      REQ-1302) is the caller's job in this story's scope: `ScoreSubmissionAsync`
      itself still validates the two-integer shape (defensive — the DTO's own
      `int` fields already rule out non-numeric/missing at the C# type level,
-     but negative values need an explicit check) and throws
-     `PredictScoringException` for an invalid pair, since there is no
+     but negative values need an explicit check) and throws a separate
+     `PredictInvalidSubmissionException` (derives from `Exception` directly —
+     this is deliberately NOT `PredictScoringException`/
+     `GameEntityNotFoundException`, since a negative goal count is not an
+     id-resolution failure at all; conflating the two was the actual bug the
+     2026-08-30 amendment above fixes) for an invalid pair, since there is no
      `GuessSubmissionOutcome`-style rejection channel available to it yet
      either.
 
