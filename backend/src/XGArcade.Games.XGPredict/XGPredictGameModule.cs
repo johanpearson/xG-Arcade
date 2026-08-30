@@ -81,7 +81,7 @@ public class XGPredictGameModule : IGameModule
             "xG Predict's attempt-cap model is not yet decided — REQ-1302 rules out a bounded-guess cap the " +
             "way REQ-210 imposes one on xG Grid/xG Path; see docs/requirements-document.md §4.14.");
 
-    // REQ-215/ADR-0052: xG Predict has no row/col category concept at
+    // REQ-215/ADR-0053: xG Predict has no row/col category concept at
     // all — a match prediction is a score guess against one fixed
     // real-world fixture, not two independent category axes a candidate
     // must satisfy. This is a permanent "doesn't apply to this game"

@@ -51,14 +51,14 @@ public class XGPredictGameModuleTests
     }
 
     [Test]
-    public void GetCellCategoryTypesAsync_ThrowsNotSupportedException()
+    public void REQ215_GetCellCategoryTypesAsync_ThrowsNotSupportedException_XGPredictHasNoCategoryConcept()
     {
         Assert.ThrowsAsync<NotSupportedException>(
             () => _module.GetCellCategoryTypesAsync(Guid.NewGuid(), Guid.NewGuid()));
     }
 
     [Test]
-    public async Task ResolveWrongGuessPlayerAsync_ReturnsNull()
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_ReturnsNull_XGPredictIsOutOfScope()
     {
         var result = await _module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "any name");
 
