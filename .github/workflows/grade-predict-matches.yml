@@ -1,0 +1,74 @@
+name: grade-predict-matches
+
+# REQ-1305/ADR-0097: polls for xG Predict matches whose kickoff (plus a
+# typical match duration, PredictGradingOptions.TypicalMatchDuration) has
+# already passed, fetches each one's real final score from API-Football,
+# and grades every stored prediction for it (POST
+# /internal/grade-predict-matches, XGArcade.Api.Predict.
+# InternalPredictGradingEndpoints).
+#
+# This is a new, independent workflow — NOT folded into
+# generate-grid-round.yml/generate-path-round.yml, and NOT sharing
+# .github/actions/trigger-round-generation (that composite action's own
+# contract is specific to /internal/generate-round's gameKey/
+# roundDurationHours query params, which don't apply here) — grading is a
+# wholly separate concern from round *generation* (ADR-0097 Decision §1;
+# REQ-1305's own Context text: "a distinct trigger is required").
+#
+# Cadence: hourly (0 * * * *), NOT the 5-10 minute cadence
+# ADR-0094 documents for polling a fixture that is CURRENTLY in progress —
+# this job only ever checks a match once its kickoff + typical duration
+# has already passed, i.e. once the match should already be over, so
+# hourly is frequent enough without materially risking API-Football's
+# free-tier daily cap in the documented worst case (up to 48h for some
+# competitions to confirm a result). Full budget arithmetic: ADR-0097
+# Decision §1 — re-derive it before changing this cron, per that ADR's own
+# "For AI agents" instruction.
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
+
+jobs:
+  grade-predict-matches:
+    runs-on: ubuntu-latest
+    steps:
+      # Same 3-attempt, 30s/60s-backoff retry-loop shape as
+      # .github/actions/trigger-round-generation's own step (S-176) — kept
+      # as an inline step here rather than reusing that composite action,
+      # since its contract is specific to /internal/generate-round's own
+      # query parameters (gameKey, roundDurationHours), neither of which
+      # this endpoint takes.
+      - name: Trigger xG Predict grading
+        shell: bash
+        run: |
+          max_attempts=3
+          http_status=""
+          for attempt in $(seq 1 "$max_attempts"); do
+            http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+              "https://${BACKEND_HOSTNAME}/internal/grade-predict-matches" \
+              -H "Authorization: Bearer ${INTERNAL_JOB_TOKEN}")
+
+            echo "Attempt $attempt/$max_attempts — response body:"
+            cat response.json
+
+            # curl reports "000" (not a real HTTP status) when it never got
+            # a response at all — requiring >= 200 as well excludes that
+            # (and any other non-response code) from the success path, same
+            # fix trigger-round-generation/action.yml already applies.
+            if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 400 ]; then
+              exit 0
+            fi
+
+            echo "::warning::/internal/grade-predict-matches returned HTTP $http_status (attempt $attempt/$max_attempts)"
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep $((attempt * 30))
+            fi
+          done
+
+          echo "::error::/internal/grade-predict-matches failed after $max_attempts attempts (last status: $http_status)"
+          exit 1
+        env:
+          BACKEND_HOSTNAME: ${{ secrets.DEV_BACKEND_HOSTNAME }}
+          INTERNAL_JOB_TOKEN: ${{ secrets.INTERNAL_JOB_TOKEN }}

@@ -187,4 +187,179 @@ public class PredictInstanceRepositoryTests
 
         Assert.That(result, Is.Null);
     }
+
+    // ---- REQ-1305/ADR-0097: GetMatchesReadyForGradingAsync -------------
+
+    [Test]
+    public async Task REQ1305_GetMatchesReadyForGradingAsync_ReturnsOnlyPendingMatchesWhoseKickoffPlusDurationHasPassed()
+    {
+        var nowUtc = new DateTime(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc);
+        var typicalMatchDuration = TimeSpan.FromHours(2);
+
+        // Kickoff 3h ago + 2h duration = 1h ago: ready.
+        var readyMatch = await SeedMatchAsync(kickoffUtc: nowUtc.AddHours(-3));
+        // Kickoff 1h ago + 2h duration = 1h in the future: not ready yet.
+        await SeedMatchAsync(kickoffUtc: nowUtc.AddHours(-1));
+        // Exactly at the boundary (kickoff + duration == now): ready
+        // (<=, not <).
+        var boundaryMatch = await SeedMatchAsync(kickoffUtc: nowUtc.AddHours(-2));
+
+        var result = await _repository.GetMatchesReadyForGradingAsync(typicalMatchDuration, nowUtc);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { readyMatch.Id, boundaryMatch.Id }));
+    }
+
+    [Test]
+    public async Task REQ1305_GetMatchesReadyForGradingAsync_ExcludesAlreadyGradedAndVoidedMatches()
+    {
+        var nowUtc = new DateTime(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc);
+        var typicalMatchDuration = TimeSpan.FromHours(2);
+        var kickoffUtc = nowUtc.AddHours(-3);
+
+        var pendingMatch = await SeedMatchAsync(kickoffUtc);
+        var gradedMatch = await SeedMatchAsync(kickoffUtc);
+        await _repository.GradeMatchAsync(gradedMatch.Id, 1, 0, new Dictionary<Guid, int>());
+        var voidedMatch = await SeedMatchAsync(kickoffUtc);
+        await _repository.VoidMatchAsync(voidedMatch.Id);
+
+        var result = await _repository.GetMatchesReadyForGradingAsync(typicalMatchDuration, nowUtc);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { pendingMatch.Id }),
+            "a match already Graded or Voided must never be returned again — this query IS the whole idempotency mechanism (ADR-0097)");
+    }
+
+    // ---- REQ-1305/ADR-0097: GradeMatchAsync / VoidMatchAsync -----------
+
+    [Test]
+    public async Task REQ1305_GradeMatchAsync_SetsGradingStatusActualScoreAndEveryPredictionsFinalPoints()
+    {
+        var match = await SeedMatchAsync(kickoffUtc: DateTime.UtcNow.AddHours(-3));
+        var predictionA = await AddAndReadPredictionAsync(match.Id, homeGoals: 2, awayGoals: 1);
+        var predictionB = await AddAndReadPredictionAsync(match.Id, homeGoals: 0, awayGoals: 0);
+
+        await _repository.GradeMatchAsync(
+            match.Id, actualHomeGoals: 2, actualAwayGoals: 1,
+            finalPointsByPredictionId: new Dictionary<Guid, int> { [predictionA.Id] = 30, [predictionB.Id] = 10 });
+
+        var storedMatch = await _dbContext.PredictMatches.AsNoTracking().SingleAsync(m => m.Id == match.Id);
+        Assert.That(storedMatch.GradingStatus, Is.EqualTo(PredictMatchGradingStatus.Graded));
+        Assert.That(storedMatch.ActualHomeGoals, Is.EqualTo(2));
+        Assert.That(storedMatch.ActualAwayGoals, Is.EqualTo(1));
+
+        Assert.That((await _repository.GetPredictionAsync(match.Id, predictionA.UserId))!.FinalPoints, Is.EqualTo(30));
+        Assert.That((await _repository.GetPredictionAsync(match.Id, predictionB.UserId))!.FinalPoints, Is.EqualTo(10));
+    }
+
+    [Test]
+    public async Task REQ1305_VoidMatchAsync_SetsGradingStatusOnly_NeverTouchesActualScoreOrPredictions()
+    {
+        var match = await SeedMatchAsync(kickoffUtc: DateTime.UtcNow.AddHours(-3));
+        var prediction = await AddAndReadPredictionAsync(match.Id, homeGoals: 2, awayGoals: 1);
+
+        await _repository.VoidMatchAsync(match.Id);
+
+        var storedMatch = await _dbContext.PredictMatches.AsNoTracking().SingleAsync(m => m.Id == match.Id);
+        Assert.That(storedMatch.GradingStatus, Is.EqualTo(PredictMatchGradingStatus.Voided));
+        Assert.That(storedMatch.ActualHomeGoals, Is.Null);
+        Assert.That(storedMatch.ActualAwayGoals, Is.Null);
+
+        var storedPrediction = await _repository.GetPredictionAsync(match.Id, prediction.UserId);
+        Assert.That(storedPrediction!.FinalPoints, Is.Null);
+    }
+
+    // ---- REQ-1305/ADR-0097: GetTotalPointsByInstanceIdAsync ------------
+
+    [Test]
+    public async Task REQ1305_GetTotalPointsByInstanceIdAsync_SumsOnlyGradedMatches_GrowsAsFurtherMatchesAreGraded()
+    {
+        var instanceId = Guid.NewGuid();
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+
+        var matchOne = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 1,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(-5),
+        };
+        var matchTwo = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 2,
+            HomeTeamName = "C", AwayTeamName = "D", KickoffUtc = DateTime.UtcNow.AddHours(-4),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [matchOne, matchTwo] });
+
+        await _repository.AddOrUpdatePredictionAsync(matchOne.Id, userA, 2, 1, DateTime.UtcNow);
+        await _repository.AddOrUpdatePredictionAsync(matchOne.Id, userB, 0, 0, DateTime.UtcNow);
+        await _repository.AddOrUpdatePredictionAsync(matchTwo.Id, userA, 1, 1, DateTime.UtcNow);
+
+        // Before either match is graded: no totals at all.
+        var beforeGrading = await _repository.GetTotalPointsByInstanceIdAsync(instanceId);
+        Assert.That(beforeGrading, Is.Empty, "an ungraded match must contribute no components, not a placeholder worst-case value");
+
+        // Grade only matchOne: userA's total reflects only matchOne.
+        var matchOnePredictionA = await _repository.GetPredictionAsync(matchOne.Id, userA);
+        var matchOnePredictionB = await _repository.GetPredictionAsync(matchOne.Id, userB);
+        await _repository.GradeMatchAsync(
+            matchOne.Id, actualHomeGoals: 2, actualAwayGoals: 1,
+            finalPointsByPredictionId: new Dictionary<Guid, int> { [matchOnePredictionA!.Id] = 30, [matchOnePredictionB!.Id] = 10 });
+
+        var afterFirstGrade = await _repository.GetTotalPointsByInstanceIdAsync(instanceId);
+        Assert.That(afterFirstGrade[userA], Is.EqualTo(30));
+        Assert.That(afterFirstGrade[userB], Is.EqualTo(10));
+
+        // Grade matchTwo too: userA's total grows to include it; userB
+        // (who never predicted matchTwo) is unaffected.
+        var matchTwoPredictionA = await _repository.GetPredictionAsync(matchTwo.Id, userA);
+        await _repository.GradeMatchAsync(
+            matchTwo.Id, actualHomeGoals: 1, actualAwayGoals: 1,
+            finalPointsByPredictionId: new Dictionary<Guid, int> { [matchTwoPredictionA!.Id] = 20 });
+
+        var afterSecondGrade = await _repository.GetTotalPointsByInstanceIdAsync(instanceId);
+        Assert.That(afterSecondGrade[userA], Is.EqualTo(50), "a round's total-score contribution must grow as further matches are graded");
+        Assert.That(afterSecondGrade[userB], Is.EqualTo(10), "a user with no prediction on the newly-graded match is unaffected");
+    }
+
+    [Test]
+    public async Task REQ1305_GetTotalPointsByInstanceIdAsync_VoidedMatchContributesNothing()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var match = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 9,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(-5),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [match] });
+        await _repository.AddOrUpdatePredictionAsync(match.Id, userId, 2, 1, DateTime.UtcNow);
+
+        await _repository.VoidMatchAsync(match.Id);
+
+        var totals = await _repository.GetTotalPointsByInstanceIdAsync(instanceId);
+        Assert.That(totals, Is.Empty, "a voided match must contribute nothing to any player's round total");
+    }
+
+    // ---- helpers (REQ-1305) --------------------------------------------
+
+    private async Task<PredictMatch> SeedMatchAsync(DateTime kickoffUtc)
+    {
+        var instanceId = Guid.NewGuid();
+        var match = new PredictMatch
+        {
+            Id = Guid.NewGuid(),
+            PredictInstanceId = instanceId,
+            ExternalFixtureId = Random.Shared.Next(),
+            HomeTeamName = "Home",
+            AwayTeamName = "Away",
+            KickoffUtc = kickoffUtc,
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [match] });
+        return match;
+    }
+
+    private async Task<PredictMatchPrediction> AddAndReadPredictionAsync(Guid predictMatchId, int homeGoals, int awayGoals)
+    {
+        var userId = Guid.NewGuid();
+        await _repository.AddOrUpdatePredictionAsync(predictMatchId, userId, homeGoals, awayGoals, DateTime.UtcNow);
+        return (await _repository.GetPredictionAsync(predictMatchId, userId))!;
+    }
 }
