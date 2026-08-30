@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.11"
+version: "1.12"
 status: draft
 last_updated: 2026-08-30
 owner: Johan
@@ -362,12 +362,18 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    module's exception types. Not wired into
                                    InternalRoundEndpoints' gameKey switch,
                                    GuessSubmissionService, or any
-                                   RoundSchedulingOptions/IScoringStrategy
-                                   registration for "xg-predict" yet
-                                   (deliberately deferred, ADR-0096, mirrors
-                                   ADR-0051's precedent) — see
-                                   requirements-document.md §4.14's REQ-1301/
-                                   1302/1303 status notes.
+                                   RoundSchedulingOptions registration for
+                                   "xg-predict" yet (deliberately deferred,
+                                   ADR-0096, mirrors ADR-0051's precedent) —
+                                   see requirements-document.md §4.14's
+                                   REQ-1301/1302/1303 status notes.
+                                   IScoringStrategy IS now registered for
+                                   "xg-predict" (2026-08-30, ADR-0095):
+                                   XGPredictScoringStrategy, LowerIsBetter =
+                                   false, ScorePrediction implements
+                                   REQ-1304's formula with no production
+                                   caller yet — see requirements-document.md
+                                   §4.14's REQ-1304 status note.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications

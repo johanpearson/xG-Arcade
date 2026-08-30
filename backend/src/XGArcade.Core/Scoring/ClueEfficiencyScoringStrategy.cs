@@ -16,6 +16,10 @@ public class ClueEfficiencyScoringStrategy : IScoringStrategy
 {
     public required string GameKey { get; init; }
 
+    // ADR-0021's golf-style direction, unchanged by ADR-0095's later
+    // xG-Predict-only exception.
+    public bool LowerIsBetter => true;
+
     // correctGuessesForCell: no use for it — xG Path scores each correct
     // guess purely against its own clues-used/max-attempts ratio, never
     // against how other players answered the same puzzle. Ignored.

@@ -23,6 +23,12 @@ public interface IScoringStrategy
 {
     string GameKey { get; }
 
+    // ADR-0095: per-GameKey leaderboard sort direction. true (ADR-0021's
+    // golf-style default) for every game except "xg-predict" — see
+    // XGPredictScoringStrategy.LowerIsBetter for the one named exception.
+    // Resolved by LeaderboardService, never assumed platform-wide.
+    bool LowerIsBetter { get; }
+
     // guess: the specific correct Guess row being scored (IsCorrect is
     // always true for every call — ScoreLockingService never calls this
     // for an incorrect/unanswered guess, see ScoreLockingService's own

@@ -3,6 +3,7 @@ using XGArcade.Core.Games;
 using XGArcade.Core.Leagues;
 using XGArcade.Core.Scoring;
 using XGArcade.Core.Tests.Rounds;
+using XGArcade.Core.Tests.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -68,7 +69,19 @@ public class LeaderboardServiceTests
         _fakeGameModule = new FakeGameModule(GameKey);
         var gameModuleResolver = new GameModuleResolver([_fakeGameModule]);
         var liveRoundContributionService = new LiveRoundContributionService(_guessRepository, gameModuleResolver);
-        _service = new LeaderboardService(_leagueRepository, _userRepository, _guessRepository, _roundRepository, liveRoundContributionService);
+        // ADR-0095/REQ-1304: LeaderboardService now resolves sort direction
+        // per GameKey rather than assuming ascending. Every existing test in
+        // this file seeds rounds under GameKey/OtherGameKey ("xg-grid"/
+        // "xg-path"), both golf-style (LowerIsBetter = true) — registering
+        // the real UniquenessScoringStrategy for both keeps every existing
+        // ascending-order assertion in this file unchanged. The dedicated
+        // ADR0095-named tests below register their own resolver with a
+        // third, descending-sort GameKey instead of reusing this one.
+        var scoringStrategyResolver = new ScoringStrategyResolver([
+            new UniquenessScoringStrategy { GameKey = GameKey },
+            new UniquenessScoringStrategy { GameKey = OtherGameKey },
+        ]);
+        _service = new LeaderboardService(_leagueRepository, _userRepository, _guessRepository, _roundRepository, liveRoundContributionService, scoringStrategyResolver);
     }
 
     [TearDown]
@@ -241,12 +254,17 @@ public class LeaderboardServiceTests
         return user;
     }
 
-    private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime, DateTime? closedAt = null)
+    // ADR-0095: optional trailing gameKey parameter, defaulting to the
+    // file's default GameKey so every pre-existing call site is unchanged —
+    // only the ADR0095-named descending-sort tests below pass a third,
+    // distinct GameKey explicitly (mirrors SeedLockedGuessAsync's own
+    // optional-gameKey precedent above).
+    private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime, DateTime? closedAt = null, string? gameKey = null)
     {
         var round = new Round
         {
             Id = Guid.NewGuid(),
-            GameKey = GameKey,
+            GameKey = gameKey ?? GameKey,
             GameInstanceId = Guid.NewGuid(),
             SequenceNumber = 1,
             StartTime = startTime,
@@ -1333,5 +1351,98 @@ public class LeaderboardServiceTests
         Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
         Assert.That(stats.AverageFinalPoints, Is.EqualTo(30.0));
         Assert.That(stats.Rank, Is.Null, "GetRankedMembersAsync still excludes pre-claim rounds, so this account has 0 ranking-qualifying rounds");
+    }
+
+    // ---- ADR-0095/REQ-1304: per-GameKey leaderboard sort direction ----
+    // LeaderboardService now resolves LowerIsBetter per GameKey (via
+    // IScoringStrategyResolver) instead of assuming ADR-0021's ascending
+    // order platform-wide. Each test below targets one of the three
+    // migrated OrderBy(TotalPoints) call sites and proves a
+    // LowerIsBetter == false GameKey sorts descending. A dedicated
+    // FakeScoringStrategy/FakeGameModule pair for a third, distinct GameKey
+    // is used (via CreateDescendingSortService below) rather than reusing
+    // the file's default "xg-grid" _service, so as not to disturb any
+    // ascending-order assertion elsewhere in this file. Mirrors
+    // REQ407_GetActiveRoundLeaderboardAsync_RanksAscendingByTotalPoints/
+    // REQ408_.../REQ405_... above as the "before" case for each method.
+
+    private const string DescendingGameKey = "xg-predict-like";
+
+    private (LeaderboardService Service, FakeGameModule GameModule) CreateDescendingSortService()
+    {
+        var gameModule = new FakeGameModule(DescendingGameKey);
+        var gameModuleResolver = new GameModuleResolver([gameModule]);
+        var liveRoundContributionService = new LiveRoundContributionService(_guessRepository, gameModuleResolver);
+        var scoringStrategyResolver = new ScoringStrategyResolver([
+            new FakeScoringStrategy(DescendingGameKey) { LowerIsBetter = false },
+        ]);
+        var service = new LeaderboardService(
+            _leagueRepository, _userRepository, _guessRepository, _roundRepository, liveRoundContributionService, scoringStrategyResolver);
+        return (service, gameModule);
+    }
+
+    [Test]
+    public async Task ADR0095_GetActiveRoundLeaderboardAsync_LowerIsBetterFalseGameKey_RanksDescendingByTotalPoints()
+    {
+        var (service, gameModule) = CreateDescendingSortService();
+        var alex = await SeedMemberAsync("Alex");
+        var sam = await SeedMemberAsync("Sam");
+        var cellA = Guid.NewGuid();
+        var cellB = Guid.NewGuid();
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1), gameKey: DescendingGameKey);
+        gameModule.GetCellIdsResult = _ => [cellA, cellB];
+        // Alex: locked-incorrect on both cells (worst under ascending, but
+        // now the HIGHEST TotalPoints, so must rank FIRST under descending).
+        // Sam: one attempt unresolved, one lone correct guess (best under
+        // ascending, now the LOWEST TotalPoints, so must rank LAST).
+        await SeedGuessAsync(round.Id, alex.Id, cellA, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts);
+        await SeedGuessAsync(round.Id, alex.Id, cellB, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts);
+        await SeedGuessAsync(round.Id, sam.Id, cellA, isCorrect: false, attemptCount: 1);
+        await SeedGuessAsync(round.Id, sam.Id, cellB, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
+
+        var page = await service.GetActiveRoundLeaderboardAsync(alex.Id, round, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "Sam" }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 2 * ScoringRules.MaxPointsPerCell, 0 }));
+    }
+
+    [Test]
+    public async Task ADR0095_GetClosedRoundLeaderboardAsync_LowerIsBetterFalseGameKey_RanksDescendingByTotalPoints()
+    {
+        var (service, _) = CreateDescendingSortService();
+        var you = await SeedMemberAsync("You");
+        var alex = await SeedMemberAsync("Alex");
+        var round = await SeedRoundAsync(
+            DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1), gameKey: DescendingGameKey);
+        await SeedGuessAsync(round.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 30);
+        await SeedGuessAsync(round.Id, alex.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
+
+        var result = await service.GetClosedRoundLeaderboardAsync(round.Id, you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(result.Status, Is.EqualTo(ClosedRoundLeaderboardStatus.Found));
+        Assert.That(result.Page!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You", "Alex" }), "30 (You) must rank ABOVE 10 (Alex) under descending sort");
+        Assert.That(result.Page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 30, 10 }));
+    }
+
+    [Test]
+    public async Task ADR0095_GetWindowedLeaderboardAsync_LowerIsBetterFalseGameKey_RanksDescendingByTotalPoints()
+    {
+        var (service, _) = CreateDescendingSortService();
+        var alex = await SeedMemberAsync("Alex");
+        var sam = await SeedMemberAsync("Sam");
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(
+            new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc),
+            gameKey: DescendingGameKey);
+        await SeedGuessAsync(round.Id, alex.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 90);
+        await SeedGuessAsync(round.Id, sam.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 40);
+
+        var page = await service.GetWindowedLeaderboardAsync(
+            alex.Id, DescendingGameKey, LeaderboardWindowResolution.Month, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "Sam" }), "90 (Alex) must rank ABOVE 40 (Sam) under descending sort");
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 90, 40 }));
     }
 }

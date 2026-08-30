@@ -9464,3 +9464,89 @@ the actual diff; a CI verification run (`ci.yml` `workflow_dispatch`) is
 needed before this is considered fully done — the orchestrating session
 runs this next, same recurring constraint as S-191 and every other recent
 backend story in this file.
+
+**S-193 · xG Predict scoring strategy + per-`GameKey` leaderboard sort direction (REQ-1304, ADR-0095)**
+Direct continuation of S-190/S-192, closing the `IScoringStrategy` gap
+ADR-0095 (S-190) and S-192 both explicitly deferred. Gives
+`IScoringStrategy` a `LowerIsBetter` member (`true`, unchanged, for
+`UniquenessScoringStrategy`/`ClueEfficiencyScoringStrategy`) and adds
+`XGPredictScoringStrategy` (`LowerIsBetter = false` — ADR-0095's one named
+exception), registered against `"xg-predict"` in `ServiceRegistration.cs`.
+Migrates `LeaderboardService`'s three plain-total `OrderBy(TotalPoints)`
+scopes (`GetActiveRoundLeaderboardAsync`/`GetClosedRoundLeaderboardAsync`/
+`GetWindowedLeaderboardAsync`) to resolve ascending/descending per
+`GameKey` via the existing `IScoringStrategyResolver`, exactly the
+mechanism ADR-0095 Decision §3 specified.
+
+*Accept:* `IScoringStrategy.LowerIsBetter` exists and is `true` for both
+existing strategies; `XGPredictScoringStrategy` exists, `LowerIsBetter`
+is `false`, and `ScorePrediction` implements REQ-1304's three independent
+components (outcome/home-goals/away-goals, each independently awarding
+`ScoringRules.PredictPointsPerComponent`), unit-tested directly (the 8
+match/no-match combinations plus an exact-scoreline case, per REQ-1304's
+own Test level); `ScoreCorrectGuess` — the actual `IScoringStrategy`
+interface member — throws `NotSupportedException` rather than
+implementing anything, since it is architecturally unreachable for this
+`GameKey` (ADR-0096: xG Predict never writes `Guess` rows); the three
+named `LeaderboardService` scopes resolve sort direction per `GameKey` and
+each has a passing `ADR0095_`-prefixed descending-sort test;
+`architecture-reviewer` and `quality-architect` both ran clean after one
+quality-gate fix round; `docs/requirements-document.md`,
+`docs/architecture-document.md`, and `docs/decisions/0095-xg-predict-scoring-direction-exception.md`
+reflect what's actually built vs. still open.
+
+*Deps:* S-190 (COMP-15 module scaffold, ADR-0095 itself), S-192
+(`XGPredictGameModule`/`ScoreSubmissionAsync`, establishing predictions
+never become `Guess` rows — the reason `ScoreCorrectGuess` is unreachable
+here).
+
+*Explicitly out of scope, queued as follow-up:* REQ-1305 (asynchronous
+grading job/trigger — the actual production caller for `ScorePrediction`,
+still nonexistent), REQ-1306 (confirm-and-lock action), the real HTTP
+submission/grading wiring and `RoundSchedulingOptions` registration for
+`"xg-predict"` (still deliberately deferred, unchanged from S-192's own
+scope note), and — surfaced by this story's own quality gate, not fixed
+here — REQ-1304's acceptance-criteria text claiming the Global League
+all-time ranking (REQ-401/409/410 — `GetGlobalLeaderboardAsync`/
+`GetRankedMembersAsync`, median-per-round) also sorts `"xg-predict"`
+descending. ADR-0095's Decision §3 only ever named the three plain-total
+scopes above, not this one, and this story built exactly what was named.
+`GetRankedMembersAsync`'s `OrderBy(m => m.Median)` remains unconditionally
+ascending for every `GameKey`, currently latent (no `"xg-predict"` round
+exists in production — round generation isn't wired yet), but a real,
+undecided gap that must be resolved (either extend the migration to that
+fourth call site, or narrow REQ-1304's text to match) before REQ-1305/1306
+make `"xg-predict"` rounds real. Tracked here, not silently fixed or
+silently ignored.
+
+*Built as (2026-08-30):* `backend-implementer` built the core
+implementation — `IScoringStrategy.LowerIsBetter`, `XGPredictScoringStrategy`
+(`ScoreCorrectGuess` throwing `NotSupportedException`, `ScorePrediction`
+implementing the formula), `ScoringRules.PredictPointsPerComponent`, the DI
+registration, and the `LeaderboardService` migration across all three named
+scopes, plus `XGPredictScoringStrategyTests` and updated
+`LeaderboardServiceTests` (new constructor dependency, three new
+`ADR0095_`-prefixed descending-sort cases). `architecture-reviewer` PASSed
+with one non-blocking note: `ScoreCorrectGuess` throwing rather than
+implementing anything is a real, if currently-unreachable, awkward fit for
+`IScoringStrategy`'s existing shape — flagged as a standing item for
+whichever story builds REQ-1305's grading job to either confirm
+`ScorePrediction` as this `GameKey`'s permanent second entry point (via a
+short ADR note) or revisit `IScoringStrategy`'s shape itself, per
+ADR-0040's own follow-up precedent; not a blocker here since a fourth game
+hasn't yet forced the question. `quality-architect` required one blocking
+fix before passing — a rule-of-three duplication: the same
+ternary-`OrderBy`/`ThenBy`/`Select` ranking shape had been written
+independently at all three `LeaderboardService` call sites — extracted
+into a shared private helper, `RankByTotalPoints`, in a follow-up commit.
+`quality-architect` also found and flagged (rather than fixed) the
+median-ranking scope gap listed above. The orchestrating session wrote
+ADR-0095's own Follow-up amendment directly, recording both findings and
+what shipped, before this story's doc-sync pass.
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-verified by the
+implementer and by both quality-gate reviewers reading the actual diff; a
+CI verification run (`ci.yml` `workflow_dispatch`) is needed before this
+is considered fully done — the orchestrating session runs this next, same
+recurring constraint as S-191/S-192 and every other recent backend story
+in this file.

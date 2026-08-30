@@ -15,6 +15,10 @@ public class UniquenessScoringStrategy : IScoringStrategy
 {
     public required string GameKey { get; init; }
 
+    // ADR-0021's golf-style direction, unchanged by ADR-0095's later
+    // xG-Predict-only exception.
+    public bool LowerIsBetter => true;
+
     // maxAttemptsForCell: no uniqueness-scoring use for this (xG Grid's
     // attempt cap doesn't factor into REQ-204/205's formula) — ignored,
     // same as ScoringResult.FinalUniquenessScore being non-null here is

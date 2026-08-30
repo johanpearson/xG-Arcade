@@ -16,11 +16,14 @@ namespace XGArcade.Games.XGPredict;
 // exception contract this class implements below.
 //
 // Deliberately NOT wired into InternalRoundEndpoints' gameKey switch,
-// GuessSubmissionService, or any RoundSchedulingOptions/IScoringStrategy
-// registration — that remains a separate, later story (mirrors ADR-0051's
-// precedent for deferred scheduling-config wiring; see ADR-0096 §"For AI
-// agents"). REQ-1304 (scoring) and REQ-1305 (asynchronous grading) are also
-// separate, later stories not implemented here.
+// GuessSubmissionService, or any RoundSchedulingOptions registration —
+// that remains a separate, later story (mirrors ADR-0051's precedent for
+// deferred scheduling-config wiring; see ADR-0096 §"For AI agents").
+// REQ-1304's IScoringStrategy (Core.Scoring.XGPredictScoringStrategy) is
+// now registered (ADR-0095) but, per ADR-0096, this module never writes a
+// Guess row, so that strategy's ScoreCorrectGuess is never actually
+// reachable from here — see its own doc comment. REQ-1305 (asynchronous
+// grading) is a separate, later story not implemented here.
 public class XGPredictGameModule(
     IPredictInstanceRepository predictInstanceRepository,
     IApiFootballClient apiFootballClient,

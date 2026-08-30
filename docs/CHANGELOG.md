@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-30 — `docs/decisions/0095-xg-predict-scoring-direction-exception.md`
+  (Status line + Follow-up amendment, written directly by the orchestrating
+  session ahead of this doc-sync pass), `docs/requirements-document.md`
+  (REQ-1304 status note, §4.14 intro note, REQ-404's own ADR-0095 status
+  note updated; version 2.25 → 2.26), `docs/architecture-document.md`
+  (COMP-04/COMP-02/COMP-15 rows and their §5.3 ADR-evolution entries
+  updated, §6's xG Predict data-flow sketch corrected; version 1.24 →
+  1.25), `docs/implementation-document.md` (project-structure note for
+  `XGArcade.Games.XGPredict` corrected — `IScoringStrategy` is now
+  registered for `"xg-predict"`, only `RoundSchedulingOptions` remains
+  deferred; version 1.11 → 1.12), `docs/backlog.md` (new S-193 entry) —
+  `IScoringStrategy.LowerIsBetter` and the new `XGPredictScoringStrategy`
+  (ADR-0095's one `LowerIsBetter = false` exception) now exist, and
+  `LeaderboardService`'s three plain-total ranking scopes
+  (`GetActiveRoundLeaderboardAsync`/`GetClosedRoundLeaderboardAsync`/
+  `GetWindowedLeaderboardAsync`) now resolve sort direction per `GameKey`
+  instead of assuming ascending. Flagged, not fixed: `GetRankedMembersAsync`'s
+  separate median-based all-time ranking (REQ-409/410) was not part of this
+  migration and remains unconditionally ascending for every `GameKey`,
+  including `"xg-predict"` — a real, currently-latent gap against
+  REQ-1304's own acceptance-criteria text, tracked as a `docs/backlog.md`
+  follow-up rather than silently resolved either way. REQ/ADR refs:
+  REQ-1304, ADR-0095, ADR-0096 (unchanged, referenced for why
+  `ScoreCorrectGuess` is unreachable).
+
 - 2026-08-30 — `docs/architecture-document.md` (COMP-07 row extended and
   §5.3 ADR-evolution table row added, updated by the implementer in the
   same diff; version 1.22 → 1.23), `docs/backlog.md` (new S-191 entry,

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.25"
+version: "2.26"
 status: draft
 last_updated: 2026-08-30
 owner: Johan
@@ -3693,9 +3693,15 @@ undefined.
   written above — per this document's ID-stability rule, this REQ's own
   text is not rewritten in place; see ADR-0095 for the full decision and
   REQ-1304's own scoring-direction acceptance criterion for xG Predict's
-  side of it. `LeaderboardService`'s sort direction becoming per-`GameKey`
-  rather than a single hardcoded order is implementation work not yet
-  built — see ADR-0095's own follow-up note.
+  side of it. **Update (2026-08-30):** `LeaderboardService`'s sort
+  direction becoming per-`GameKey` rather than a single hardcoded order is
+  now built for this REQ's own scopes (`GetActiveRoundLeaderboardAsync`/
+  `GetClosedRoundLeaderboardAsync`/`GetWindowedLeaderboardAsync`) — see
+  REQ-1304's own status note for what shipped. REQ-409's separate
+  median-based global ranking (`GetRankedMembersAsync`) was NOT migrated by
+  this change and remains unconditionally ascending — see REQ-1304's status
+  note and ADR-0095's amendment for that scope gap, tracked as a backlog
+  follow-up.
 - **Status note (2026-07-19, drafted — REQ-406):** the `SUM(FinalPoints ??
   0)` formula described above is, per REQ-206's own status note,
   deliberately locked-only today — a round still in progress contributes
@@ -10094,13 +10100,19 @@ final score before the round locks, and each prediction is graded once its
 match actually finishes. **Status (2026-08-30, ADR-0096):** REQ-1301
 (round generation), REQ-1302 (prediction submission), and REQ-1303 (round
 lock) are now implemented and unit-tested — see each REQ's own status note
-below for the exact module/file. REQ-1304 (scoring), REQ-1305 (asynchronous
-grading), and REQ-1306 (confirm-and-lock action) remain design-only — no
-code implements them yet, and this section's original framing still applies
-to those three: every REQ below is written to the same standard as
-§4.1/§4.12's requirements for xG Grid/xG Path, but REQ-1304/1305/1306
-describe intended behavior for a game surface that has not been built, not
-a claim about current behavior. Note also that even REQ-1301/1302/1303's
+below for the exact module/file. **Status (2026-08-30, ADR-0095):**
+REQ-1304 (scoring) is now partially implemented too — see its own status
+note below for what's built (`IScoringStrategy.LowerIsBetter`,
+`XGPredictScoringStrategy`, and three of `LeaderboardService`'s ranking
+scopes) and the one scope gap it flags against REQ-401/409/410's median
+ranking. REQ-1305 (asynchronous grading) and REQ-1306 (confirm-and-lock
+action) remain design-only — no code implements them yet, and this
+section's original framing still applies to those two: every REQ below is
+written to the same standard as §4.1/§4.12's requirements for xG
+Grid/xG Path, but REQ-1305/1306 (and, per its status note, the
+not-yet-built remainder of REQ-1304) describe intended behavior for a game
+surface that has not been built, not a claim about current behavior. Note
+also that even REQ-1301/1302/1303's
 implementation is not yet reachable in production: nothing wires
 `XGPredictGameModule` into `InternalRoundEndpoints`'s `gameKey` switch,
 `GuessSubmissionService`, or any `RoundSchedulingOptions`/`IScoringStrategy`
@@ -10348,6 +10360,37 @@ production); see this section's intro note above.
 3 components, plus an exact-scoreline case, computes the correct
 component-level and summed points, higher-is-better; a not-yet-graded
 match contributes no components to any total).
+
+**Status (2026-08-30, ADR-0095):** Partially implemented —
+`IScoringStrategy` gained `LowerIsBetter` (`true`, unchanged, for
+`UniquenessScoringStrategy`/`ClueEfficiencyScoringStrategy`; `false` for
+the new `XGPredictScoringStrategy`, registered against `"xg-predict"` in
+`ServiceRegistration.cs`). `XGPredictScoringStrategy.ScorePrediction`
+implements this REQ's three-component formula
+(outcome/home-goals/away-goals, each independently awarding
+`ScoringRules.PredictPointsPerComponent`) and is unit-tested directly per
+the Test level above; the interface member `ScoreCorrectGuess` throws
+`NotSupportedException` instead, since it is architecturally unreachable
+for this `GameKey` (ADR-0096 — xG Predict never writes `Guess` rows) —
+see ADR-0095's amendment for the full reasoning and the standing item this
+leaves for REQ-1305's grading job. `LeaderboardService`'s three
+`OrderBy(TotalPoints)` scopes (`GetActiveRoundLeaderboardAsync`,
+`GetClosedRoundLeaderboardAsync`, `GetWindowedLeaderboardAsync`) now
+resolve ascending/descending per `GameKey` via `IScoringStrategyResolver`
+instead of assuming ascending, per this REQ's leaderboard-direction
+bullet above. **Not built, and a real gap against this REQ's own text
+above:** the "ranks `GameKey=\"xg-predict\"` by highest total first"
+criterion also names the Global League all-time ranking (REQ-401/409/410
+— `GetGlobalLeaderboardAsync`/`GetRankedMembersAsync`, median-per-round).
+That method's `OrderBy(m => m.Median)` was not touched by this change and
+remains unconditionally ascending for every `GameKey`, including
+`"xg-predict"` — ADR-0095's Decision §3 only ever named the three scopes
+above, not this one. Currently latent (no `"xg-predict"` round has been
+generated in production — round generation isn't wired yet, per
+§4.14's intro note), but a genuine, undecided scope gap, not a bug fixed
+here. Tracked as a backlog follow-up (`docs/backlog.md`), to be resolved
+before REQ-1305/1306 make `"xg-predict"` rounds real. See ADR-0095's
+amendment for full detail — not duplicated further here.
 
 **REQ-1305 – Asynchronous, per-match grading after the round has locked**
 > As xG Arcade, I want each match in a locked xG Predict round graded

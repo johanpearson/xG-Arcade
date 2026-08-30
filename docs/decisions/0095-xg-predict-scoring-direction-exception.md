@@ -1,6 +1,10 @@
 # ADR-0095: xG Predict is a named exception to ADR-0021's golf-style scoring
 
-- **Status:** Accepted
+- **Status:** Accepted — Decision §2/§3's code change (the `LowerIsBetter`
+  member, `XGPredictScoringStrategy`, `LeaderboardService`'s three named
+  `OrderBy` call sites) built 2026-08-30, same day, by the follow-up story
+  this ADR's own Follow-up note queued — see that note's amendment below
+  for what shipped and one scope gap it surfaced.
 - **Date:** 2026-08-30
 - **Related requirements:** REQ-1304, REQ-401
 - **Related components:** COMP-04 (Core.Scoring), COMP-15 (Games.XGPredict)
@@ -93,6 +97,67 @@ firm, non-negotiable rule.
   session). Extend `LeaderboardServiceTests` to cover a
   `LowerIsBetter == false` `GameKey`, not just xG Grid/xG Path's existing
   ascending cases.
+
+> **Amendment (2026-08-30, same-day follow-up story — built as specified):**
+> `IScoringStrategy.LowerIsBetter` (true for `UniquenessScoringStrategy`/
+> `ClueEfficiencyScoringStrategy`, unchanged), the new `XGPredictScoringStrategy`
+> (`LowerIsBetter = false`; registered against `"xg-predict"` via the
+> existing `IScoringStrategyResolver`, no new resolver type), and
+> `LeaderboardService`'s three named `OrderBy(TotalPoints)` call sites
+> (`GetActiveRoundLeaderboardAsync`/`GetClosedRoundLeaderboardAsync`/
+> `GetWindowedLeaderboardAsync`) all now resolve sort direction per
+> `GameKey` exactly as this Decision specified. `LeaderboardServiceTests`
+> gained three `ADR0095_`-prefixed descending-sort cases, one per migrated
+> method. `architecture-reviewer`/`quality-architect` both ran clean after
+> one quality-gate fix round (a rule-of-three duplication across the three
+> migrated call sites, extracted into a shared private helper in
+> `LeaderboardService`).
+>
+> **One genuinely debatable design call, surfaced by `architecture-reviewer`,
+> not treated as a blocker:** `XGPredictScoringStrategy.ScoreCorrectGuess` —
+> the actual `IScoringStrategy` interface member — throws
+> `NotSupportedException` rather than computing anything, because ADR-0096
+> already established xG Predict never persists a `Guess` row at all
+> (predictions live in `PredictMatchPrediction` instead), so
+> `ScoreLockingService.LockRoundScoresAsync` (which only ever calls
+> `ScoreCorrectGuess` for guesses it fetched via `IGuessRepository`) can
+> never actually reach this method for `GameKey = "xg-predict"` — it is
+> provably unreachable today, not merely unimplemented. REQ-1304's real
+> three-component formula instead lives in a new, separate public method,
+> `ScorePrediction(predictedHomeGoals, predictedAwayGoals, actualHomeGoals,
+> actualAwayGoals)`, on the same class — exercised directly by this story's
+> own unit tests, with no production caller yet (REQ-1305's grading job,
+> which would be that caller, is a separate, later story). This mirrors
+> ADR-0096's own precedent of deferring `ScoreResult`'s widening rather than
+> speculatively solving a shape problem for a caller that doesn't exist yet.
+> **Standing item, not resolved here:** when REQ-1305's grading job is
+> built, that is the right moment to either (a) confirm `ScorePrediction` as
+> `IScoringStrategy`'s permanent second/parallel entry point for this
+> `GameKey`, recorded via a short ADR note, or (b) revisit `IScoringStrategy`'s
+> shape itself, per ADR-0040's own follow-up note ("if a third game needs a
+> fundamentally different input shape, revisit whether `IScoringStrategy`
+> still fits"). Do not let a fourth game add a third such
+> `NotSupportedException` escape hatch without that revisit happening first.
+>
+> **Scope gap surfaced by `quality-architect`, deliberately not fixed by
+> this story — see REQ-1304's own new status note for the acceptance-text
+> side of this:** REQ-1304's acceptance criteria state that xG Predict's
+> Global League all-time ranking (REQ-401/409/410 — `GetGlobalLeaderboardAsync`/
+> `GetRankedMembersAsync`, median-per-qualifying-round, ≥5 rounds) also
+> ranks `"xg-predict"` descending. This Decision's §3 never named that
+> method — only the three plain-`SUM`/`TotalPoints`-based call sites — and
+> this story built exactly what was named, not more. `GetRankedMembersAsync`'s
+> `OrderBy(m => m.Median)` (`LeaderboardService.cs`) remains unconditionally
+> ascending regardless of `GameKey`, for every `GameKey` including
+> `"xg-predict"`, as of this amendment. This is currently latent (no
+> `"xg-predict"` round has ever been generated in production — round
+> generation isn't wired yet, per `XGPredictGameModule`'s own doc comment),
+> so nothing is observably wrong today, but it is a real, undecided gap
+> between what REQ-1304 promises and what ADR-0095/this story actually
+> scoped, and must be resolved (either extend this migration to that fourth
+> call site, or narrow REQ-1304's text to match the actual scope) before
+> REQ-1305/1306 make `"xg-predict"` rounds real. Queued as backlog follow-up
+> (`docs/backlog.md`), not silently left inconsistent.
 
 ## For AI agents
 

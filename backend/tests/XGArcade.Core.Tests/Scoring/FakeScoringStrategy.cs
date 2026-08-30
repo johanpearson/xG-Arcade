@@ -12,6 +12,12 @@ internal class FakeScoringStrategy(string gameKey) : IScoringStrategy
 {
     public string GameKey { get; } = gameKey;
 
+    // ADR-0095: defaults to true (ADR-0021's golf-style default, matching
+    // every real strategy except xG Predict) — settable so a test can
+    // exercise LeaderboardService's descending branch without depending on
+    // the real XGPredictScoringStrategy.
+    public bool LowerIsBetter { get; set; } = true;
+
     public Func<Guess, IReadOnlyCollection<Guess>, int, ScoringResult> ScoreCorrectGuessResult { get; set; } =
         (_, _, _) => throw new NotImplementedException("Not exercised by resolver tests.");
 
