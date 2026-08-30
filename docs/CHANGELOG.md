@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-30 — `docs/backlog.md` (new S-190 entry), `MVP-SCOPE.md` (new
+  precondition note, additive, added after the Tier 0 section, before Tier
+  1) — closes out the doc-sync pass for xG Predict's requirements/ADR/scaffold
+  work: S-190 records what S-079/S-080's xG Path precedent would call this
+  story's actual shape (requirements + two ADRs + module scaffold, no
+  gameplay logic), and `MVP-SCOPE.md` records the new API-Football-for-
+  fixtures precondition this game needs from day one, explicitly not an
+  acceleration of xG Grid's own separate, still-unfired Tier 1 API-Football
+  trigger. REQ/ADR refs: REQ-1301-1305, ADR-0094, ADR-0095.
+
 - 2026-08-30 — `docs/architecture-document.md` (new COMP-15 Games.XGPredict
   row in §5's component table, §5.2's `IGameModule` call-site list extended
   to COMP-15, §5.3 ADR evolution table row, new §6.11 three-part data-flow

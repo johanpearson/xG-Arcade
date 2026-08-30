@@ -254,6 +254,23 @@ leaderboard (tab switching, per-league reads) remains deferred.
 docs (`docs/legal/`) — none of these have real stakes until real users and
 real data exist.
 
+**A third game, xG Predict, was scoped 2026-08-30 (REQ-1301-1305, ADR-0094,
+ADR-0095) with its own precondition, additive to this list, not a change to
+anything above.** xG Predict needs a real fixtures/live-score data source
+(Premier League match schedules and final scores) that Wikidata cannot
+provide — an API-Football account and API key, confirmed sufficient on the
+free tier (100 requests/day). **This does not pull xG Grid's own,
+still-unfired Tier 1 API-Football trigger forward** — xG Grid's grid
+generation remains Wikidata-only exactly as Tier 0 specifies above; xG
+Predict's need for API-Football is a separate, new precondition scoped only
+to that game, not evidence that xG Grid needs more clubs or a fallback
+source yet. See ADR-0094 for the full data-source decision and its ToS
+scoping note, and `docs/backlog.md` S-190 for what's actually built so far
+(requirements + two ADRs + a structural module scaffold — no gameplay logic
+yet; the round/match entity shape still needs its own ADR before
+`GenerateInstanceAsync` can be implemented, per ADR-0045's own precedent for
+xG Path).
+
 ## Tier 1 — add only when real testing shows a specific need
 
 Each of these was designed to solve a specific, real problem — but "this
