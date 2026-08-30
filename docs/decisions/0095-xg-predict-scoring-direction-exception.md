@@ -159,6 +159,20 @@ firm, non-negotiable rule.
 > REQ-1305/1306 make `"xg-predict"` rounds real. Queued as backlog follow-up
 > (`docs/backlog.md`), not silently left inconsistent.
 
+> **Gap closed (2026-08-30, same-day direct follow-up):** `GetRankedMembersAsync`
+> now resolves `IScoringStrategy.LowerIsBetter` per `GameKey` too, the same
+> mechanism as the other three call sites, rather than narrowing REQ-1304's
+> text to match a smaller scope. Not implemented via `RankByTotalPoints` (the
+> helper this ADR's first amendment's three call sites share) — that
+> helper's tuple shape (`int TotalPoints`) and return type
+> (`List<LeaderboardEntry>`) don't match `GetRankedMembersAsync`'s
+> (`double Median`, a raw ranked tuple list); it gets its own small
+> `OrderBy`/`OrderByDescending` branch instead, reviewed and confirmed not to
+> cross this repo's rule-of-three duplication threshold (two structurally
+> different shapes, not three of the same one). All four `LeaderboardService`
+> ranking scopes now resolve sort direction per `GameKey` — REQ-1304's
+> acceptance text is accurate as written, with no remaining gap.
+
 ## For AI agents
 
 Do not assume ADR-0021's lower-is-better rule applies to

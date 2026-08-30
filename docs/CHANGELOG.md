@@ -38,6 +38,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   REQ-1304, ADR-0095, ADR-0096 (unchanged, referenced for why
   `ScoreCorrectGuess` is unreachable).
 
+- 2026-08-30 — `docs/decisions/0095-xg-predict-scoring-direction-exception.md`
+  (new dated amendment recording the gap's closure, written directly by the
+  orchestrating session ahead of this doc-sync pass),
+  `docs/requirements-document.md` (REQ-1304's status note, §4.14's intro
+  note, and REQ-409's own status note near line 3700 all updated to record
+  the gap closed rather than open; version 2.26 → 2.27),
+  `docs/architecture-document.md` (COMP-02's row, §5.3's ADR-evolution
+  table entry, COMP-15's row, and §6's xG Predict data-flow sketch all
+  updated; version 1.25 → 1.26), `docs/backlog.md` (new S-194 entry) —
+  closes the scope gap S-193 (PR #302) deliberately left open:
+  `LeaderboardService.GetRankedMembersAsync` (REQ-409/410's median-based
+  global ranking, backing `GetGlobalLeaderboardAsync`/`GetUserStatsAsync`)
+  now resolves `IScoringStrategy.LowerIsBetter` per `GameKey` too, the same
+  mechanism as the three call sites S-193 already migrated. All four
+  `LeaderboardService` ranking scopes now respect ADR-0095's per-`GameKey`
+  direction — REQ-1304's acceptance text is now fully accurate, no
+  remaining gap. `architecture-reviewer`/`quality-architect` both PASSed
+  the code change with no blocking findings; this entry is the doc-only
+  follow-up their review required. Also `docs/coding-guidelines.md`
+  (Testing section: one-line clarification on when an `ADR####_`-prefixed
+  test name is acceptable vs. the standard `REQ###_` convention, prompted
+  by this pattern recurring across S-193 and this fix; version 0.9 → 0.10).
+  REQ/ADR refs: REQ-1304, ADR-0095.
+
 - 2026-08-30 — `docs/architecture-document.md` (COMP-07 row extended and
   §5.3 ADR-evolution table row added, updated by the implementer in the
   same diff; version 1.22 → 1.23), `docs/backlog.md` (new S-191 entry,
