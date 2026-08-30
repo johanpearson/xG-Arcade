@@ -7,6 +7,7 @@ COPY src/XGArcade.Api/XGArcade.Api.csproj src/XGArcade.Api/
 COPY src/XGArcade.Core/XGArcade.Core.csproj src/XGArcade.Core/
 COPY src/XGArcade.Games.XGGrid/XGArcade.Games.XGGrid.csproj src/XGArcade.Games.XGGrid/
 COPY src/XGArcade.Games.XGPath/XGArcade.Games.XGPath.csproj src/XGArcade.Games.XGPath/
+COPY src/XGArcade.Games.XGPredict/XGArcade.Games.XGPredict.csproj src/XGArcade.Games.XGPredict/
 COPY src/XGArcade.Data/XGArcade.Data.csproj src/XGArcade.Data/
 COPY src/XGArcade.DataSync/XGArcade.DataSync.csproj src/XGArcade.DataSync/
 COPY src/XGArcade.Storage/XGArcade.Storage.csproj src/XGArcade.Storage/

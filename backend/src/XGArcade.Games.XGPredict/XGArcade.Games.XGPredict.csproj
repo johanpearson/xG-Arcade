@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
+         ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo) live in
+         XGArcade.Core. -->
+    <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- Deliberately no ProjectReference to XGArcade.Data or
+         XGArcade.DataSync yet, unlike Games.XGGrid/Games.XGPath's own
+         csproj at this same early stage. This module has no persisted
+         entity of its own yet (no PredictInstance/PredictMatch-shaped
+         table exists) and reaches no repository — REQ-1301's round/match
+         entity shape is a genuinely open structural question (flagged back
+         rather than invented; see XGPredictGameModule's own doc comment
+         and this session's handoff notes), and ADR-0094's API-Football
+         fixtures client (COMP-07/DataSync.Clients) is not wired up here
+         until that shape — and the client itself — actually exist. Add
+         these references in the follow-up story that implements
+         REQ-1301/1302, not before. -->
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

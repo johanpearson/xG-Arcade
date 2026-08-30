@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-30 — `docs/backlog.md` (new S-190 entry), `MVP-SCOPE.md` (new
+  precondition note, additive, added after the Tier 0 section, before Tier
+  1) — closes out the doc-sync pass for xG Predict's requirements/ADR/scaffold
+  work: S-190 records what S-079/S-080's xG Path precedent would call this
+  story's actual shape (requirements + two ADRs + module scaffold, no
+  gameplay logic), and `MVP-SCOPE.md` records the new API-Football-for-
+  fixtures precondition this game needs from day one, explicitly not an
+  acceleration of xG Grid's own separate, still-unfired Tier 1 API-Football
+  trigger. REQ/ADR refs: REQ-1301-1305, ADR-0094, ADR-0095.
+
+- 2026-08-30 — `docs/architecture-document.md` (new COMP-15 Games.XGPredict
+  row in §5's component table, §5.2's `IGameModule` call-site list extended
+  to COMP-15, §5.3 ADR evolution table row, new §6.11 three-part data-flow
+  sketch modeling xG Predict's generation/submission/async-grading shape) —
+  structural scaffolding for xG Predict (COMP-15, the third game on the
+  platform): new `backend/src/XGArcade.Games.XGPredict` project implementing
+  `IGameModule` with every method stubbed (`NotImplementedException` for
+  REQ-1301-1305's not-yet-built generation/submission/scoring methods,
+  `NotSupportedException`/`null` for REQ-215/216 which genuinely don't apply
+  to this game, mirroring `XGPathGameModule`'s own established precedents
+  for both), a matching `.Tests` project wired into `XGArcade.sln`, the
+  `"xg-predict"` `GameKey` registered as an `IGameModule` in
+  `ServiceRegistration.cs` (deliberately without a `RoundSchedulingOptions`/
+  `IScoringStrategy` registration yet — neither is required to compile),
+  the new project added to `XGArcade.Api.csproj` and `backend/Dockerfile`'s
+  restore-layer `COPY` lines. Deliberately does not touch
+  `docs/requirements-document.md`, ADR-0094, or ADR-0095 (already drafted
+  this session, prior commit) or `docs/backlog.md` (a story entry is a
+  separate, later step). The round/match/prediction entity shape was
+  identified as ambiguous enough to warrant its own ADR (following
+  ADR-0045's precedent) and was deliberately flagged back rather than
+  invented — see COMP-15's own architecture-document.md row and
+  `XGPredictGameModule`'s doc comment. REQ/ADR refs: REQ-1301-1305,
+  ADR-0094, ADR-0095.
+
 - 2026-08-29 — `docs/decisions/0093-recent-transfer-sweep-writes-playerattribute.md`
   (new ADR), `docs/decisions/0092-targeted-date-filtered-recent-transfer-sweep.md`
   (status line corrected, pointing at ADR-0093), `docs/architecture-document.md`

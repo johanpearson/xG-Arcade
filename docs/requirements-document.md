@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.19"
+version: "2.23"
 status: draft
-last_updated: 2026-08-29
+last_updated: 2026-08-30
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -3683,6 +3683,19 @@ undefined.
   **Pagination (S-034):** the response is now bounded via `cursor`/
   `pageSize` — see REQ-607's own status note for the shape. This closes
   the gap previously noted here.
+- **Status note (2026-08-30 — ADR-0095):** the "sorted ascending... per
+  ADR-0021" description above no longer holds platform-wide. ADR-0095
+  records a named, single-`GameKey` exception: `GameKey="xg-predict"`
+  (REQ-1301-1305) sorts its own leaderboard **descending** (highest total
+  first), a deliberate, product-confirmed departure from ADR-0021 for that
+  one game. Every other `GameKey` (including the global leaderboard this
+  requirement describes) is unaffected and still sorts ascending exactly as
+  written above — per this document's ID-stability rule, this REQ's own
+  text is not rewritten in place; see ADR-0095 for the full decision and
+  REQ-1304's own scoring-direction acceptance criterion for xG Predict's
+  side of it. `LeaderboardService`'s sort direction becoming per-`GameKey`
+  rather than a single hardcoded order is implementation work not yet
+  built — see ADR-0095's own follow-up note.
 - **Status note (2026-07-19, drafted — REQ-406):** the `SUM(FinalPoints ??
   0)` formula described above is, per REQ-206's own status note,
   deliberately locked-only today — a round still in progress contributes
@@ -10069,6 +10082,325 @@ TO VERIFY, not HOW TO BUILD.
 
 ---
 
+### 4.14 xG Predict generation and gameplay
+
+**xG Predict** is the third game hosted on the xG Arcade (see `CLAUDE.md`
+and `architecture-document.md` for the platform/game boundary this section
+must not cross), alongside xG Grid (COMP-05) and xG Path (COMP-11) — a
+match-outcome prediction game living behind the same `IGameModule`
+interface as its own new component, **COMP-15 (Games.XGPredict)**. A round
+targets five real Premier League matches; the player predicts each match's
+final score before the round locks, and each prediction is graded once its
+match actually finishes. This section is design-only — no xG Predict code
+exists yet. Every REQ below is written to the same standard as §4.1/§4.12's
+requirements for xG Grid/xG Path, but describes intended behavior for a
+game that has not been built, not a claim about current behavior.
+
+**Note on §4.13's cross-game requirements:** REQ-1210 (round-completion
+animation with a leaderboard link) is written for a game whose cells
+resolve synchronously, the instant the player's own guessing activity
+locks the last one (true for xG Grid and xG Path — see REQ-1210's own
+"Given a round instance's fixed set of cells..." criterion). xG Predict's
+matches instead resolve asynchronously, sometime after the round has
+already locked (REQ-1305) — a player can submit all five predictions and
+then have nothing left to resolve in-app until matches are graded,
+possibly days later, while not using the product at all. REQ-1210's
+trigger condition, as written, does not straightforwardly extend to this
+shape. This is flagged as a genuine open question in §7, not resolved here
+and not addressed by silently reinterpreting REQ-1210's existing
+acceptance criteria — REQ-1210 itself is unchanged by this note.
+
+**REQ-1301 – Round structure: five matches from one gameweek, tightest
+kickoff clustering**
+> As a player, I want each xG Predict round to contain five matches drawn
+> from a single upcoming Premier League gameweek, clustered as tightly as
+> possible in kickoff time, so a round feels like one coherent slate
+> rather than an arbitrary spread of fixtures across a whole weekend.
+
+- Given an upcoming Premier League gameweek's full fixture list, fetched
+  from API-Football's fixtures endpoint (see ADR-0094 — this is the first
+  use of live match schedule/result data anywhere in this codebase,
+  distinct from every other game's Wikidata career/bio data)
+- When a new xG Predict round is generated
+- Then exactly 5 of that gameweek's matches are selected as the round's
+  matches, each represented as one cell in the existing generic
+  `IGameModule`/`Round` model (ADR-0003) — `Round` references the xG
+  Predict instance via the existing opaque `GameKey` (`"xg-predict"`)/
+  `GameInstanceId` pair, unchanged from how xG Grid/xG Path already do this
+- And, among every possible 5-match subset of that gameweek's fixtures, the
+  subset selected is the one that minimizes the span between the earliest
+  and latest kickoff time among its 5 matches — i.e. the tightest
+  kickoff-time clustering available that gameweek (e.g. the Saturday-3pm
+  block, when a gameweek has one), never an arbitrary spread chosen for any
+  other reason
+- And selection is deterministic: given the same fixture list, round
+  generation always selects the same 5 matches
+- Given an upcoming gameweek with fewer than 5 total fixtures at generation
+  time (e.g. because several matches are already postponed)
+- When round generation runs for that gameweek
+- Then generation aborts for that gameweek and logs an error, rather than
+  producing a round with fewer than 5 matches — the same "abort rather
+  than generate a degraded round" pattern REQ-101/103 already establish
+  for xG Grid
+
+**Test level:** Unit (subset-selection logic returns the minimum-span
+5-match subset across a range of fixture-list fixtures, including a tie
+case and a fewer-than-5-fixtures abort case), API/Integration (round
+generation produces a `Round` with `GameKey="xg-predict"` and exactly 5
+matches wired as cells).
+
+**REQ-1302 – Score prediction submission**
+> As a player, I want to predict the final score of each match in an xG
+> Predict round, so I have a stored prediction to be graded once that
+> match finishes.
+
+- Given an xG Predict round that has not yet locked (REQ-1303) and one of
+  its 5 matches
+- When the player submits a prediction for that match
+- Then the prediction consists of exactly two values — predicted
+  home-team goals and predicted away-team goals — each a non-negative
+  integer
+- And a submission with a missing, negative, non-integer, or otherwise
+  non-numeric value for either goal count is rejected, with any
+  previously stored prediction for that match left unchanged
+- And a player may submit or resubmit (replace) a prediction for a given
+  match any number of times before the round locks — there is no
+  per-match attempt cap of the kind REQ-210 imposes on xG Grid/xG Path,
+  since predicting a score is not a bounded-guesses-at-a-hidden-answer
+  interaction, only a value the player remains free to reconsider until it
+  locks
+- Given an xG Predict round that has already locked (REQ-1303)
+- When a player attempts to submit or resubmit a prediction for any of its
+  5 matches — including one whose own individual kickoff has not yet
+  occurred
+- Then the submission is rejected, matching this document's existing "no
+  guesses/predictions accepted once locked" convention (REQ-201, REQ-302)
+
+**Test level:** Unit (validation of the two-non-negative-integer shape),
+API (submit/resubmit before lock succeeds and overwrites the prior value;
+submit after lock is rejected for every match in the round, not only ones
+that have individually kicked off).
+
+**REQ-1303 – Round lock at the first match's kickoff (exploit prevention)**
+> As xG Arcade, I want an entire xG Predict round to lock the instant the
+> first of its five matches kicks off, so a player can never see one
+> match's real result before locking in predictions for the other four.
+
+- Given an xG Predict round with 5 selected matches, each carrying its own
+  scheduled kickoff time (REQ-1301)
+- When the earliest of those 5 kickoff times arrives
+- Then the entire round locks at that instant — no further prediction
+  submission or resubmission (REQ-1302) is accepted for any of the round's
+  5 matches from that point on, including matches whose own individual
+  kickoff has not yet occurred
+- And this is a deliberate exploit-prevention rule, not an incidental side
+  effect of one match's own kickoff: without it, a player could submit a
+  prediction for the earliest-kicking-off match, observe its real result
+  once available, and only then predict the remaining matches with that
+  result already known — locking the whole round at the first kickoff
+  removes that window entirely, since every other match's own kickoff is,
+  by construction (REQ-1301's tightest-clustering selection), no earlier
+  than this instant
+- Given a specific match in the round whose own kickoff is later than the
+  round's lock instant (true for every match except whichever one kicks
+  off earliest)
+- When a player attempts to submit a prediction for that specific match
+  after the round has locked but before that match's own individual
+  kickoff
+- Then the submission is still rejected — that match not having kicked
+  off yet does not, on its own, make a late prediction acceptable once the
+  round-level lock above has occurred
+- And this lock is a distinct concept from REQ-302's round `Closed`
+  status: an xG Predict round can be simultaneously `Active` per REQ-302
+  (its own `StartTime`/`EndTime` window has not yet ended) and locked per
+  this requirement (no further predictions accepted) — REQ-302's
+  `Upcoming`/`Active`/`Closed` derivation is unchanged by this requirement
+  and continues to govern only whether the round exists/has ended, not
+  whether predictions are currently being accepted
+
+**Test level:** Unit (lock instant computed as the minimum kickoff time
+across the round's 5 matches), API (a prediction submitted for a
+not-yet-kicked-off match is rejected once the round's lock instant has
+passed; a prediction submitted for any match before the lock instant
+succeeds), E2E (submitting predictions for matches 2-5 after match 1 has
+kicked off, but before match 2 individually kicks off, is rejected end to
+end).
+
+**REQ-1304 – Independent, partial-credit scoring per match**
+> As a player, I want each match prediction scored on three independent
+> components, so a close-but-not-exact prediction still earns partial
+> credit instead of an all-or-nothing result against the exact scoreline.
+
+- **Scoring direction — deliberate, product-owner-confirmed exception to
+  ADR-0021 (2026-08-30):** unlike every other game on this platform, xG
+  Predict uses conventional higher-is-better scoring, not this platform's
+  golf-style convention. A correct component **awards** points; an
+  incorrect component awards none; points accumulate normally across a
+  round; and a player's (and the leaderboard's) goal is to **maximize**
+  their total for `GameKey="xg-predict"`, not minimize it. This was asked
+  directly and confirmed explicitly by the product owner as a deliberate
+  exception, not an oversight or a drift from ADR-0021 — every other game
+  (xG Grid, xG Path) is completely unaffected and remains golf-style
+  exactly as ADR-0021 and §2's "Points/Score" definition already require.
+  See ADR-0095 for the full rationale and the resulting structural changes (e.g. how a
+  per-`GameKey` leaderboard sort direction is represented) — this REQ
+  records only the acceptance criteria that follow from the decision, not
+  how it's implemented.
+- Given a graded match (REQ-1305) with a confirmed real final score and a
+  player's stored prediction for that match
+- When that prediction is scored
+- Then three independent point components are computed for it:
+  1. **Outcome component** — awards points if the predicted 1X2 outcome
+     (home win / draw / away win, derived by comparing predicted home
+     goals to predicted away goals) matches the actual match's 1X2
+     outcome (derived the same way from the real final score); awards
+     nothing if it does not match
+  2. **Home-goals component** — awards points if the predicted home-team
+     goal count exactly matches the actual home-team goal count; awards
+     nothing if it does not match
+  3. **Away-goals component** — awards points if the predicted away-team
+     goal count exactly matches the actual away-team goal count; awards
+     nothing if it does not match
+- And these three components are scored independently of one another — a
+  prediction can earn the outcome component's points without earning
+  either goal-count component's points, or vice versa (e.g. predicting
+  2-1 for an actual 3-1 result earns the outcome and away-goals
+  components' points but not the home-goals component's)
+- And each component's award value (points for a match, 0 for a miss) is a
+  `ScoringRules`-owned constant — following the same "exact point values
+  are an implementation detail, not specified by the REQ text" precedent
+  as `MaxPointsPerCell`/`ScoringRules.PointsFromUniqueScore` (REQ-204/205)
+  and `ClueEfficiencyScoringStrategy` (REQ-1206); only that naming/
+  ownership convention carries over from those precedents — their
+  golf-style direction does not, per the scoring-direction bullet above
+- And a player's total score for a round is the sum of all components
+  across all 5 matches (up to 15 components total, each contributing
+  either 0 or its award value), following REQ-206's existing "total score
+  per round" pattern in structure only — REQ-206's own total is itself
+  golf-style (xG Grid); this REQ's total is higher-is-better, per the
+  scoring-direction bullet above
+- And xG Predict's own leaderboard ranking (REQ-401/410, extended to this
+  third `GameKey` — see §4.14's "Leaderboard participation" note) ranks
+  `GameKey="xg-predict"` by **highest** total first — rank #1 is the
+  highest total, the reverse of REQ-404's existing ascending (lowest-wins)
+  sort, which is unaffected and continues to apply exactly as written to
+  every other `GameKey`. The mechanism by which the leaderboard's sort
+  direction becomes per-`GameKey` rather than a single platform-wide
+  direction is not decided by this REQ — see ADR-0095
+- And this requirement does not itself decide the mechanism — a new
+  per-`GameKey` `IScoringStrategy` implementation for
+  `GameKey="xg-predict"`, following ADR-0040's existing per-game
+  scoring-strategy resolution, is the expected shape, not fixed here
+
+**Test level:** Unit (each of the 8 match/no-match combinations across the
+3 components, plus an exact-scoreline case, computes the correct
+component-level and summed points, higher-is-better; a not-yet-graded
+match contributes no components to any total).
+
+**REQ-1305 – Asynchronous, per-match grading after the round has locked**
+> As xG Arcade, I want each match in a locked xG Predict round graded
+> sometime after that match actually finishes, once its real final score
+> is confirmed, so a round can be scored even though the correct answers
+> don't exist yet when the round opens or locks.
+
+- **Context — this is a new lifecycle shape, distinct from every other
+  game's round-close scoring flow.** REQ-205 (xG Grid) and its xG Path
+  equivalent both compute and lock a round's scores at round close,
+  because the correct answer — a cell's population of correct guesses, or
+  a puzzle's fixed target player — already exists by the time the round
+  closes. An xG Predict round's correct answers (each match's real final
+  score) do not exist at round-open or round-lock (REQ-1303) time at all —
+  they only exist after each individual match finishes, which happens
+  hours to days after the round locks, and not necessarily by the round's
+  own scheduled `EndTime`/close (REQ-302). Grading an xG Predict round is
+  therefore a genuinely separate, asynchronous concern from "the round is
+  locked," and this requirement deliberately does not assume it is
+  triggered by, or reuses, `ScoreLockingService.LockRoundScoresAsync`'s
+  existing round-close trigger point (REQ-205) — a distinct trigger is
+  required. What that trigger is (a new scheduled job, an event, or
+  something else) is an architecture/implementation decision, not made
+  here — see "Needs an ADR" below.
+- Given a match in a locked xG Predict round whose scheduled kickoff plus
+  its typical duration has already passed
+- When the grading process next runs and checks that match
+- Then it fetches that match's real final score from API-Football's
+  fixtures endpoint (see ADR-0094) and, if that match's fixture status is reported as
+  confirmed/finished, grades every player's stored prediction for that
+  match per REQ-1304 and persists the resulting components
+- Given a match's fixture status is checked but is not yet reported as
+  confirmed/finished — accounting for API-Football's own documented
+  allowance of up to 48 hours for some competitions to fully confirm a
+  result
+- When the grading process runs for that match
+- Then that match is left ungraded, not scored with any placeholder or
+  default value, and is retried on a subsequent run — the grading process
+  never assumes a single fetch attempt is sufficient
+- Given a match that has already been graded (its real final score was
+  confirmed and every stored prediction for it scored)
+- When the grading process runs again and reaches that match
+- Then it does not re-fetch or re-grade it — grading is idempotent,
+  matching this document's existing idempotency convention (REQ-205's
+  "safe to call again on an already-closed round")
+- And a round's total-score contribution to the leaderboard (REQ-401/
+  REQ-410) reflects only matches that have actually been graded — an
+  ungraded match contributes no components (not a placeholder worst-case
+  value) to a player's total until it is graded
+- **Proposed default (not yet confirmed by the product owner — see §7): a
+  postponed or abandoned match is voided, not penalized.** Given a match
+  in a locked round that is postponed or abandoned (never played to a
+  confirmed final result) — when the grading process determines this from
+  API-Football's fixture status — then that match's three point
+  components are voided for every player: none of the three components is
+  computed or contributes anything to any player's round total, as if that
+  match were not part of the round for scoring purposes — while the round's other 4
+  matches continue to grade normally and independently, per the criteria
+  above. This specific criterion is a proposed default, not a confirmed
+  product decision — see §7's matching entry before implementing it as
+  written.
+
+**Test level:** Unit (grading a confirmed match applies REQ-1304's formula
+and persists results; a not-yet-confirmed match is left ungraded and is
+retried, not scored; a match already graded is not re-fetched or
+re-scored on a second run — idempotency; a postponed/abandoned match's
+components are voided, contributing nothing rather than being computed,
+per the proposed default above), API/Integration (round total-score reads reflect only
+graded matches, growing as further matches are graded over time).
+
+**Needs an ADR:** two structural questions are deliberately left open
+here, not decided in this requirement:
+1. **What triggers grading.** Whether a new scheduled job (analogous to
+   `generate-grid-round.yml`/`generate-path-round.yml`'s cron pattern,
+   ADR-0072), an event-driven mechanism, or something else checks
+   locked-but-ungraded matches and how often, is left to
+   architecture/implementation.
+2. **How REQ-302's round `Closed` status and REQ-401/404/410's
+   leaderboard participation interact with a round that is locked
+   (REQ-1303) but not yet fully graded.** Whether a round's `EndTime` is
+   scheduled generously enough that grading is always complete by the
+   time it closes in practice, whether a round can be `Closed` while some
+   of its matches remain ungraded, and whether the leaderboard shows a
+   partial/growing total for such a round or withholds it until every
+   match is graded, are not decided here — this requirement governs only
+   how and when an individual match is graded.
+
+Flagged for `architecture-reviewer`/the implementer to resolve via a new
+ADR before or alongside implementation — a requirements document specifies
+WHAT and HOW TO VERIFY, not HOW TO BUILD.
+
+**Leaderboard participation:** xG Predict needs no new leaderboard
+requirement of its own. REQ-401 (Global League membership) and REQ-410
+(Global League's all-time ranking scoped per `GameKey`) are both already
+written in fully game-generic terms — REQ-401 never names a specific game,
+and REQ-410's acceptance criteria are phrased as "the platform hosts more
+than one game, each with its own `GameKey`," not "exactly two games." A
+third `GameKey` (`"xg-predict"`) is covered by their existing text without
+modification, the same way REQ-410 already required no edit when xG Path
+was added as the second game. See this document's own accompanying
+summary for confirmation that REQ-401/410 were checked and found to
+generalize cleanly, rather than assumed.
+
+---
+
 ## 5. Decisions made as sensible technical defaults
 
 The following were open questions in earlier drafts. They're implementation
@@ -10315,3 +10647,47 @@ build-order/scope question this document shouldn't answer by default.
 Recorded here pending a product decision; REQ-1210's own acceptance
 criteria describe only the trigger condition and content, not replay
 frequency, until this is resolved.
+
+**New (2026-08-30), unresolved:** REQ-1305 (xG Predict's asynchronous,
+per-match grading) proposes that a postponed or abandoned match's three
+point components are voided for every player — none of the three
+components contributes anything to any player's total for that match,
+whether that would otherwise have gone in the player's favor or against
+them — while the round's other 4 matches still grade normally. (Phrasing
+note, 2026-08-30: this entry originally described "awarded" vs. "counted
+against" in golf-style best-case/worst-case terms; reworded here to be
+neutral to scoring direction, since REQ-1304's scoring direction for xG
+Predict specifically was still undecided when this entry was first
+written and has since been confirmed as higher-is-better, a deliberate
+exception to ADR-0021 — see REQ-1304's own scoring-direction note. The
+open question this entry raises is unaffected by that direction decision
+either way.) This is a reasonable default (it treats a match nobody could
+have fairly predicted as if it weren't part of the round, rather than
+guessing at a fairer alternative), but it was proposed as a default by
+`requirements-writer`, not confirmed by the product owner. An alternative
+the product owner might prefer instead — e.g. redistributing that match's
+weight across the remaining 4, or scoring it as a fixed neutral value
+rather than a true no-op — was not requested and is not written into
+REQ-1305; only the "voided, contributes nothing" default is. Needs an
+explicit product decision before REQ-1305's voiding criterion is treated
+as final; until then it is marked "proposed default" in REQ-1305 itself,
+not silently treated as confirmed.
+
+**New (2026-08-30), unresolved:** REQ-1210 (round-completion animation)
+is written, and its own §4.13 section intro claims, to apply "uniformly to
+every game xG Arcade hosts... and any game added later." Its actual
+trigger condition — "every cell in the round now has a locked outcome for
+that player" — assumes a game whose cells resolve synchronously with the
+player's own guessing activity, true for xG Grid and xG Path but not for
+xG Predict, whose matches resolve asynchronously via grading (REQ-1305)
+that can happen days after the round locked and while the player isn't
+using the product at all. It is a genuine open product question, not a
+technical default, whether xG Predict should get an analogous
+completion-style moment at all — and if so, what event should trigger it
+(all 5 predictions submitted, even though nothing is graded yet? all 5
+matches graded, which could happen while the player is offline and would
+need some other delivery mechanism than an in-session animation? some
+other milestone?) — because each answer changes what "complete" means for
+this specific game in a way REQ-1210's existing wording doesn't answer.
+REQ-1210 itself is unchanged pending this decision; see the xG Predict
+section's (§4.14) own note pointing here.

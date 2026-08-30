@@ -9243,3 +9243,73 @@ and `quality-architect` returned PASS on the full diff after this fix. See
 `docs/decisions/0093-recent-transfer-sweep-writes-playerattribute.md` for
 the Grid-vs-Path freshness-asymmetry correction this story makes to
 ADR-0092, rather than re-explaining it here.
+
+**S-190 · xG Predict: requirements, data-source/scoring ADRs, and module scaffold (REQ-1301-1305)**
+New game, requested directly by the product owner (not a Tier 1/2 pull
+without a trigger — this is the platform's third game, scoped from a
+product conversation, same category of deliberate decision as S-031/S-063/
+S-070/S-089/S-097/S-098's own precedent for pulling a feature forward by
+explicit request rather than a trigger firing).
+
+xG Predict: a match-outcome prediction game. A round is 5 matches drawn
+from an upcoming Premier League gameweek, selected for the tightest
+kickoff-time clustering available; players predict each match's final
+score before kickoff; the whole round locks at the first of the 5
+matches' kickoff (closes the "predict the rest after seeing an early
+result" exploit); each match grades three independent components (1X2
+outcome, home goals, away goals) once its real result is confirmed,
+asynchronously, sometime after the round has already locked — a genuinely
+new lifecycle shape distinct from xG Grid/xG Path's round-close scoring.
+
+*Accept:* REQ-1301-1305 exist in `docs/requirements-document.md` §4.14 in
+Given/When/Then form; ADR-0094 (API-Football fixtures/results as the data
+source — free tier confirmed sufficient, new precondition independent of
+xG Grid's own Tier 1 API-Football trigger, ToS scoping note distinct from
+ADR-0008's narrower player-data-caching review) and ADR-0095 (xG Predict's
+conventional higher-is-better scoring, a named, product-confirmed
+exception to ADR-0021's platform-wide golf-style convention — the product
+owner was asked directly and chose to break consistency here since that's
+how the prediction genre already works) both exist; `XGArcade.Games.XGPredict`
+exists as a real project, registered as `IGameModule` under GameKey
+`"xg-predict"`, every method stubbed (`NotImplementedException` for
+REQ-1301-1305's not-yet-built logic, `NotSupportedException`/`null` for
+REQ-215/216 which don't apply, mirroring `XGPathGameModule`'s own
+precedents for both) — no round generation, prediction submission, or
+scoring is actually implemented by this story.
+
+*Deps:* none — this is the first story for a new game, same starting shape
+as xG Path's own S-079/S-080.
+
+*Explicitly out of scope, queued as follow-up stories, not bundled here*
+(same "one story per session/PR" discipline this backlog already follows
+throughout): the round/match/prediction entity shape (`XGPredictGameModule`'s
+own doc comment and COMP-15's architecture-document.md row flag this as
+needing its own ADR, mirroring ADR-0045's xG Path entity-shape ADR, before
+`GenerateInstanceAsync` can be implemented — deliberately not decided by
+this story); the API-Football fixtures client itself (ADR-0094 describes
+it, `DataSync.Clients` doesn't have it yet); `IScoringStrategy`'s new
+`LowerIsBetter` member and the xG Predict scoring strategy (ADR-0095);
+`LeaderboardService`'s three `OrderBy` call sites migrating to per-`GameKey`
+sort direction (ADR-0095); round scheduling config for `"xg-predict"`
+(mirrors ADR-0051's per-`GameKey` resolver, not yet registered); frontend
+work; the postponed/abandoned-match voiding default (REQ-1305, proposed
+but not yet confirmed by the product owner — §7).
+
+*Built as (2026-08-30):* as described above. `requirements-writer` drafted
+REQ-1301-1305 (and, after the scoring-direction question was put to the
+product owner directly mid-session, revised REQ-1304 from an initial
+golf-style translation to the confirmed higher-is-better version), the
+orchestrating session wrote ADR-0094/ADR-0095 directly plus a partial-
+supersede cross-reference on ADR-0021 and a status note on REQ-404
+(REQ text itself not rewritten in place, per this document's ID-stability
+convention), and `game-scaffolder` built the module/project/DI-registration
+scaffold and COMP-15's architecture-document.md entry, flagging the
+entity-shape gap back rather than inventing one.
+
+Testing: no local `dotnet` SDK available in-sandbox — `game-scaffolder`
+verified the new/changed C# files by hand (usings, types, `IGameModule`
+signatures) and the `.sln` file's structural integrity programmatically,
+but could not run `dotnet build`/`dotnet test` locally; a CI verification
+run (`ci.yml` `workflow_dispatch`) is needed before this is considered
+fully done, same recurring constraint as every other recent backend story
+in this file.
