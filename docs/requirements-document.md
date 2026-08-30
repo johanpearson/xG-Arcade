@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.23"
+version: "2.24"
 status: draft
 last_updated: 2026-08-30
 owner: Johan
@@ -10345,25 +10345,24 @@ match contributes no components to any total).
   REQ-410) reflects only matches that have actually been graded — an
   ungraded match contributes no components (not a placeholder worst-case
   value) to a player's total until it is graded
-- **Proposed default (not yet confirmed by the product owner — see §7): a
-  postponed or abandoned match is voided, not penalized.** Given a match
-  in a locked round that is postponed or abandoned (never played to a
-  confirmed final result) — when the grading process determines this from
-  API-Football's fixture status — then that match's three point
-  components are voided for every player: none of the three components is
-  computed or contributes anything to any player's round total, as if that
-  match were not part of the round for scoring purposes — while the round's other 4
-  matches continue to grade normally and independently, per the criteria
-  above. This specific criterion is a proposed default, not a confirmed
-  product decision — see §7's matching entry before implementing it as
-  written.
+- **Confirmed by the product owner (2026-08-30): a postponed or abandoned
+  match is voided, not penalized.** Given a match in a locked round that
+  is postponed or abandoned (never played to a confirmed final result) —
+  when the grading process determines this from API-Football's fixture
+  status — then that match's three point components are voided for every
+  player: none of the three components is computed or contributes
+  anything to any player's round total, as if that match were not part of
+  the round for scoring purposes — while the round's other 4 matches
+  continue to grade normally and independently, per the criteria above.
+  This was originally logged as a proposed, unconfirmed default (see §7's
+  matching entry for the resolution) — now settled, not open.
 
 **Test level:** Unit (grading a confirmed match applies REQ-1304's formula
 and persists results; a not-yet-confirmed match is left ungraded and is
 retried, not scored; a match already graded is not re-fetched or
 re-scored on a second run — idempotency; a postponed/abandoned match's
 components are voided, contributing nothing rather than being computed,
-per the proposed default above), API/Integration (round total-score reads reflect only
+per the confirmed voiding rule above), API/Integration (round total-score reads reflect only
 graded matches, growing as further matches are graded over time).
 
 **Needs an ADR:** two structural questions are deliberately left open
@@ -10398,6 +10397,66 @@ modification, the same way REQ-410 already required no edit when xG Path
 was added as the second game. See this document's own accompanying
 summary for confirmation that REQ-401/410 were checked and found to
 generalize cleanly, rather than assumed.
+
+**REQ-1306 – Explicit "confirm and lock" action for a round's predictions**
+> As a player, I want to explicitly confirm that my 5 predictions are
+> final, so I have a clear personal sense of closure even though xG
+> Predict has no completion celebration and I won't know the outcome for
+> hours or days.
+
+- **Context — this replaces, rather than reproduces, REQ-1210's
+  completion celebration for this game.** REQ-1210 (round-completion
+  animation) triggers immediately when a player finishes their last cell,
+  because xG Grid/xG Path both reveal correctness synchronously — the
+  player knows right then whether they did well. xG Predict cannot offer
+  that: predictions are gradable only after each real match finishes
+  (REQ-1305), which can be hours to days later, often while the player
+  isn't using the product at all. The product owner confirmed directly
+  (2026-08-30) that xG Predict gets **no** completion celebration of any
+  kind — not on submission, not on full grading — closing the open
+  question this document previously logged in §7. Instead, submission
+  itself gets an explicit confirmation step, giving the player a clear
+  "I'm done" moment without pretending to know a result that doesn't
+  exist yet.
+- Given a player has entered a score prediction for all 5 matches in the
+  active xG Predict round (REQ-1302), and the round has not yet locked
+  (REQ-1303)
+- When the player chooses to confirm and lock their predictions (a
+  distinct, explicit action — not merely having filled in all 5 fields)
+- Then the UI presents a confirmation prompt stating the predictions
+  cannot be edited after this point, requiring an explicit second
+  affirmation (e.g. "Are you sure? You can't change your predictions
+  after confirming.") before proceeding
+- Given the player affirms the confirmation prompt
+- When their predictions are locked
+- Then further edits to any of that round's 5 predictions are rejected
+  from that point on for that player specifically, even though the round
+  itself (REQ-1303) has not yet locked for other players and even though
+  the round's own automatic lock (first match's kickoff) has not yet
+  occurred
+- Given the player dismisses or cancels the confirmation prompt instead of
+  affirming it
+- When they return to the round
+- Then their 5 predictions remain freely editable exactly as REQ-1302
+  already specifies, unaffected by having opened (and backed out of) the
+  confirmation prompt
+- And this per-player early lock is independent of, and does not
+  substitute for, the round-wide automatic lock at the first match's
+  kickoff (REQ-1303) — a player who never uses this action still has
+  their predictions locked automatically at that point, exactly as
+  REQ-1303 already specifies
+- And confirming and locking is entirely optional — REQ-1302's existing
+  "freely resubmittable before lock" behavior remains the default for any
+  player who never uses this action
+
+**Test level:** Unit (predictions are rejected after this per-player lock
+even though the round's own automatic lock time hasn't arrived; canceling
+the confirmation prompt leaves predictions editable; a player who never
+confirms is unaffected and still locks automatically at REQ-1303's round
+lock). UI (the confirmation prompt requires an explicit second
+affirmation, not a single click — REQ-718's own guest-logout confirmation
+prompt is the closest existing precedent for a player-facing, irreversible
+action warranting one).
 
 ---
 
@@ -10648,46 +10707,22 @@ Recorded here pending a product decision; REQ-1210's own acceptance
 criteria describe only the trigger condition and content, not replay
 frequency, until this is resolved.
 
-**New (2026-08-30), unresolved:** REQ-1305 (xG Predict's asynchronous,
-per-match grading) proposes that a postponed or abandoned match's three
-point components are voided for every player — none of the three
-components contributes anything to any player's total for that match,
-whether that would otherwise have gone in the player's favor or against
-them — while the round's other 4 matches still grade normally. (Phrasing
-note, 2026-08-30: this entry originally described "awarded" vs. "counted
-against" in golf-style best-case/worst-case terms; reworded here to be
-neutral to scoring direction, since REQ-1304's scoring direction for xG
-Predict specifically was still undecided when this entry was first
-written and has since been confirmed as higher-is-better, a deliberate
-exception to ADR-0021 — see REQ-1304's own scoring-direction note. The
-open question this entry raises is unaffected by that direction decision
-either way.) This is a reasonable default (it treats a match nobody could
-have fairly predicted as if it weren't part of the round, rather than
-guessing at a fairer alternative), but it was proposed as a default by
-`requirements-writer`, not confirmed by the product owner. An alternative
-the product owner might prefer instead — e.g. redistributing that match's
-weight across the remaining 4, or scoring it as a fixed neutral value
-rather than a true no-op — was not requested and is not written into
-REQ-1305; only the "voided, contributes nothing" default is. Needs an
-explicit product decision before REQ-1305's voiding criterion is treated
-as final; until then it is marked "proposed default" in REQ-1305 itself,
-not silently treated as confirmed.
+REQ-1305's postponed/abandoned-match voiding question was resolved
+2026-08-30: the product owner confirmed the proposed default as written
+— a postponed or abandoned match's three point components are voided for
+every player (none contributes anything to any player's total for that
+match), while the round's other 4 matches still grade normally. No
+alternative (redistributing that match's weight, scoring it as a fixed
+neutral value) was requested. REQ-1305 itself now states this as
+confirmed, not proposed — see its own text.
 
-**New (2026-08-30), unresolved:** REQ-1210 (round-completion animation)
-is written, and its own §4.13 section intro claims, to apply "uniformly to
-every game xG Arcade hosts... and any game added later." Its actual
-trigger condition — "every cell in the round now has a locked outcome for
-that player" — assumes a game whose cells resolve synchronously with the
-player's own guessing activity, true for xG Grid and xG Path but not for
-xG Predict, whose matches resolve asynchronously via grading (REQ-1305)
-that can happen days after the round locked and while the player isn't
-using the product at all. It is a genuine open product question, not a
-technical default, whether xG Predict should get an analogous
-completion-style moment at all — and if so, what event should trigger it
-(all 5 predictions submitted, even though nothing is graded yet? all 5
-matches graded, which could happen while the player is offline and would
-need some other delivery mechanism than an in-session animation? some
-other milestone?) — because each answer changes what "complete" means for
-this specific game in a way REQ-1210's existing wording doesn't answer.
-REQ-1210 itself is unchanged pending this decision; see the xG Predict
-section's (§4.14) own note pointing here.
+REQ-1210's applicability to xG Predict was resolved 2026-08-30: the
+product owner confirmed xG Predict gets **no** completion celebration at
+all — not on prediction submission, not once all 5 matches are graded.
+REQ-1210's existing wording (triggered by synchronous cell resolution) is
+therefore correctly scoped to xG Grid/xG Path only and needs no edit; it
+simply doesn't extend to xG Predict, which has its own closure mechanism
+instead — REQ-1306 (new), an explicit, player-initiated "confirm and lock
+my predictions" action with a destructive-action-style confirmation
+prompt, giving the player a clear sense of finishing without any
+celebration implying a result that isn't known yet.

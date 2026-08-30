@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-30 — `docs/requirements-document.md` (REQ-1305's postponed/
+  abandoned-match voiding rule confirmed by the product owner, no longer a
+  proposed default; new REQ-1306, an explicit player-initiated "confirm
+  and lock my predictions" action with a destructive-action-style
+  confirmation prompt; both §7 open questions this PR's own predecessor
+  logged — the voiding default and REQ-1210's applicability to xG Predict
+  — resolved: xG Predict gets no completion celebration at all, REQ-1306
+  is its closure mechanism instead) — REQ/ADR refs: REQ-1305, REQ-1306,
+  REQ-1210 (unchanged, confirmed out of scope for xG Predict).
+
 - 2026-08-30 — `docs/backlog.md` (new S-190 entry), `MVP-SCOPE.md` (new
   precondition note, additive, added after the Tier 0 section, before Tier
   1) — closes out the doc-sync pass for xG Predict's requirements/ADR/scaffold
