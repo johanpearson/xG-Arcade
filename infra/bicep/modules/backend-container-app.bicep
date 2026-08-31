@@ -89,36 +89,54 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           passwordSecretRef: 'registry-password'
         }
       ]
-      secrets: [
-        {
-          name: 'registry-password'
-          value: registryPassword
-        }
-        {
-          name: 'database-connection-string'
-          value: databaseConnectionString
-        }
-        {
-          name: 'supabase-anon-key'
-          value: supabaseAnonKey
-        }
-        {
-          name: 'supabase-service-role-key'
-          value: supabaseServiceRoleKey
-        }
-        {
-          name: 'internal-job-token'
-          value: internalJobToken
-        }
-        {
-          name: 'github-incident-report-token'
-          value: githubIncidentReportToken
-        }
-        {
-          name: 'api-football-api-key'
-          value: apiFootballApiKey
-        }
-      ]
+      // Azure Container Apps rejects a `secrets` entry with an empty string
+      // value outright (ContainerAppSecretInvalid: "value or keyVaultUrl and
+      // identity should be provided") — found the hard way (NOTES.md,
+      // 2026-08-31) when apiFootballApiKey's own empty default reached a
+      // real deployment and failed deploy-infra entirely, not just xg-predict.
+      // githubIncidentReportToken carries the identical optional/default-''
+      // shape and was silently exposed to the same bug — it happened to
+      // never fire only because INCIDENT_REPORT_PAT already had a real value
+      // set before its first deploy. Both optional secrets are therefore
+      // only included here when non-empty; concat's own env entries below
+      // (GitHub__IncidentReportToken/ApiFootball__ApiKey) mirror this with
+      // the matching secretRef-or-empty-value split.
+      secrets: concat(
+        [
+          {
+            name: 'registry-password'
+            value: registryPassword
+          }
+          {
+            name: 'database-connection-string'
+            value: databaseConnectionString
+          }
+          {
+            name: 'supabase-anon-key'
+            value: supabaseAnonKey
+          }
+          {
+            name: 'supabase-service-role-key'
+            value: supabaseServiceRoleKey
+          }
+          {
+            name: 'internal-job-token'
+            value: internalJobToken
+          }
+        ],
+        !empty(githubIncidentReportToken) ? [
+          {
+            name: 'github-incident-report-token'
+            value: githubIncidentReportToken
+          }
+        ] : [],
+        !empty(apiFootballApiKey) ? [
+          {
+            name: 'api-football-api-key'
+            value: apiFootballApiKey
+          }
+        ] : []
+      )
     }
     template: {
       containers: [
@@ -155,12 +173,18 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
               secretRef: 'internal-job-token'
             }
             {
+              // Bicep drops a property assigned `null` from the compiled
+              // template, so exactly one of secretRef/value ends up set —
+              // never both, which Container Apps also rejects. Same
+              // conditional shape below for ApiFootball__ApiKey.
               name: 'GitHub__IncidentReportToken'
-              secretRef: 'github-incident-report-token'
+              secretRef: !empty(githubIncidentReportToken) ? 'github-incident-report-token' : null
+              value: empty(githubIncidentReportToken) ? '' : null
             }
             {
               name: 'ApiFootball__ApiKey'
-              secretRef: 'api-football-api-key'
+              secretRef: !empty(apiFootballApiKey) ? 'api-football-api-key' : null
+              value: empty(apiFootballApiKey) ? '' : null
             }
             {
               name: 'Admin__UserIds'
