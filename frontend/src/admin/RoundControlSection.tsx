@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
-import { closeAdminRound, updateAdminRoundEndTime } from '../lib/admin';
+import { closeAdminRound, startUpcomingAdminRound, updateAdminRoundEndTime } from '../lib/admin';
 import type { AdminActiveRound } from '../lib/types';
 import type { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
 
@@ -39,6 +39,12 @@ export function RoundControlSection({
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
+  // REQ-505 (2026-08-31 addition): for when there's no active round left to
+  // close (REQ-301's already-provisioned successor may still be scheduled
+  // days out) — pulls it to start right now instead.
+  const [startingUpcoming, setStartingUpcoming] = useState(false);
+  const [startUpcomingError, setStartUpcomingError] = useState<string | null>(null);
+
   async function handleEndRoundConfirmed() {
     setEnding(true);
     setEndError(null);
@@ -54,6 +60,23 @@ export function RoundControlSection({
       setEndError(describeError(err));
     } finally {
       setEnding(false);
+    }
+  }
+
+  async function handleStartUpcoming() {
+    setStartingUpcoming(true);
+    setStartUpcomingError(null);
+    try {
+      await startUpcomingAdminRound(accessToken, gameKey);
+      await onRefresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      setStartUpcomingError(describeError(err));
+    } finally {
+      setStartingUpcoming(false);
     }
   }
 
@@ -87,6 +110,19 @@ export function RoundControlSection({
         </p>
       ) : (
         <p className="admin-screen__empty">No active round right now.</p>
+      )}
+
+      {!activeRound.hasActiveRound && (
+        <div className="admin-screen__action-group">
+          <button type="button" onClick={handleStartUpcoming} disabled={startingUpcoming}>
+            {startingUpcoming ? 'Starting…' : 'Start upcoming round now'}
+          </button>
+          {startUpcomingError && (
+            <p className="admin-screen__error" role="alert">
+              {startUpcomingError}
+            </p>
+          )}
+        </div>
       )}
 
       {activeRound.hasActiveRound && (

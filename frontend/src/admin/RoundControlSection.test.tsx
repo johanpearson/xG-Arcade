@@ -74,6 +74,116 @@ describe('RoundControlSection', () => {
     expect(screen.getByLabelText('New end time')).toBeInTheDocument();
   });
 
+  // ---- REQ-505 (2026-08-31 addition): "Start upcoming round now" --------
+
+  it('REQ-505: "Start upcoming round now" is shown only when there is no active round', () => {
+    const { rerender } = render(
+      <RoundControlSection
+        accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
+        activeRound={activeRound}
+        onAuthError={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Start upcoming round now' })).not.toBeInTheDocument();
+
+    rerender(
+      <RoundControlSection
+        accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
+        activeRound={noActiveRound}
+        onAuthError={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Start upcoming round now' })).toBeInTheDocument();
+  });
+
+  it('REQ-505: clicking "Start upcoming round now" calls the start-upcoming endpoint and onRefresh on success', async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse({ ...activeRound.round, startTime: '2026-07-19T00:00:00Z' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(
+      <RoundControlSection
+        accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
+        activeRound={noActiveRound}
+        onAuthError={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start upcoming round now' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/rounds/xg-grid/start-upcoming'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
+  });
+
+  it('REQ-505: a 409 (round already active) starting the upcoming round shows an inline error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse(
+          { title: 'A round is already active', detail: 'Close the currently active round before starting the upcoming one early.' },
+          409,
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+
+    render(
+      <RoundControlSection
+        accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
+        activeRound={noActiveRound}
+        onAuthError={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start upcoming round now' }));
+
+    expect(await screen.findByText('Close the currently active round before starting the upcoming one early.')).toBeInTheDocument();
+  });
+
+  it('REQ-505: a 401 starting the upcoming round calls onAuthError', async () => {
+    const onAuthError = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401)),
+    );
+    const user = userEvent.setup();
+
+    render(
+      <RoundControlSection
+        accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
+        activeRound={noActiveRound}
+        onAuthError={onAuthError}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start upcoming round now' }));
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
   it('REQ-505: "End round now" requires a second, explicit confirm click before calling the close endpoint', async () => {
     const fetchMock = vi.fn().mockImplementation(() => jsonResponse(activeRound.round));
     vi.stubGlobal('fetch', fetchMock);

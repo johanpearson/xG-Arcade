@@ -92,6 +92,28 @@ public class AdminManagementEndpointTests
         return round;
     }
 
+    // REQ-505 (2026-08-31 addition): a not-yet-started round for POST
+    // /admin/rounds/{gameKey}/start-upcoming — same shape as
+    // SeedActiveRoundAsync except StartTime defaults into the future.
+    private async Task<Round> SeedUpcomingRoundAsync(DateTime? startTime = null, DateTime? endTime = null)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
+            StartTime = startTime ?? DateTime.UtcNow.AddDays(2),
+            EndTime = endTime ?? DateTime.UtcNow.AddDays(4),
+            AllowGuessChange = false,
+        };
+        dbContext.Rounds.Add(round);
+        await dbContext.SaveChangesAsync();
+        return round;
+    }
+
     private async Task<User> SeedDeletableUserAsync(string email)
     {
         using var scope = _factory.Services.CreateScope();
@@ -295,6 +317,77 @@ public class AdminManagementEndpointTests
         var client = productionFactory.CreateClient();
 
         var response = await client.PostAsync($"/admin/rounds/{GridGameModule.XGGridGameKey}/close", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // ---- REQ-505 (2026-08-31 addition): POST /admin/rounds/{gameKey}/start-upcoming --
+
+    [Test]
+    public async Task REQ505_StartUpcoming_Post_PullsTheUpcomingRoundToStartNow_ForAnAdmin()
+    {
+        var upcoming = await SeedUpcomingRoundAsync(
+            startTime: DateTime.UtcNow.AddDays(2), endTime: DateTime.UtcNow.AddDays(4));
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsync($"/admin/rounds/{GridGameModule.XGGridGameKey}/start-upcoming", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<AdminRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.RoundId, Is.EqualTo(upcoming.Id));
+        Assert.That(body.StartTime, Is.EqualTo(DateTime.UtcNow).Within(TimeSpan.FromSeconds(5)));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var persisted = await dbContext.Rounds.AsNoTracking().SingleAsync(r => r.Id == upcoming.Id);
+        Assert.That(persisted.GetStatus(DateTime.UtcNow), Is.EqualTo(RoundStatus.Active),
+            "pulling start_time to now must make the round immediately playable");
+    }
+
+    [Test]
+    public async Task StartUpcoming_Post_ReturnsConflict_WhenARoundIsAlreadyActive()
+    {
+        await SeedActiveRoundAsync();
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsync($"/admin/rounds/{GridGameModule.XGGridGameKey}/start-upcoming", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("A round is already active"));
+    }
+
+    [Test]
+    public async Task StartUpcoming_Post_ReturnsNotFound_WhenNoUpcomingRoundExists()
+    {
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsync($"/admin/rounds/{GridGameModule.XGGridGameKey}/start-upcoming", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    [Test]
+    public async Task StartUpcoming_Post_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        await SeedUpcomingRoundAsync();
+        var client = CreateAuthenticatedClient(Guid.NewGuid());
+
+        var response = await client.PostAsync($"/admin/rounds/{GridGameModule.XGGridGameKey}/start-upcoming", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    [Test]
+    public async Task StartUpcoming_Post_IsNeverRegistered_WhenEnvironmentIsProduction()
+    {
+        using var _ = EnterProductionEnvironment();
+
+        var productionFactory = _factory.WithWebHostBuilder(builder => { });
+        var client = productionFactory.CreateClient();
+
+        var response = await client.PostAsync($"/admin/rounds/{GridGameModule.XGGridGameKey}/start-upcoming", content: null);
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }

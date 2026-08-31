@@ -78,4 +78,31 @@ public class RoundCloseService(IRoundRepository roundRepository, IScoreLockingSe
 
         return round;
     }
+
+    // REQ-505 (2026-08-31 addition): the companion to the reschedule logic
+    // above, exposed directly for when there's no active round left to
+    // close at all (e.g. one was already ended, and REQ-301's
+    // already-provisioned successor is the only round left for this
+    // GameKey) — the admin's "start upcoming round now" action.
+    // Deliberately independent of CloseRoundAsync's own inline reschedule
+    // (not a shared private helper): CloseRoundAsync's chain-repair only
+    // ever applies to a round it can prove is the successor of the one
+    // just closed (`latest.Id != round.Id`), while this method has no such
+    // "round just closed" to exclude — it always targets the latest round
+    // for this GameKey, whatever that is.
+    public async Task<Round?> StartUpcomingRoundNowAsync(string gameKey, DateTime now, CancellationToken cancellationToken = default)
+    {
+        var latest = await roundRepository.GetLatestByGameKeyAsync(gameKey, cancellationToken);
+        if (latest is null || latest.StartTime <= now)
+            return null;
+
+        var round = await roundRepository.GetByIdAsync(latest.Id, cancellationToken)
+            ?? throw new InvalidOperationException($"Round '{latest.Id}' was found moments ago and no longer exists.");
+        var duration = round.EndTime - round.StartTime;
+        round.StartTime = now;
+        round.EndTime = now + duration;
+        await roundRepository.UpdateAsync(round, cancellationToken);
+
+        return round;
+    }
 }

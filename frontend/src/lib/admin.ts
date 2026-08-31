@@ -107,6 +107,18 @@ export async function closeAdminRound(accessToken: string, gameKey: string): Pro
   });
 }
 
+// REQ-505 (2026-08-31 addition): for when there's no active round left to
+// close at all — REQ-301's already-provisioned "one round ahead" successor
+// may still be scheduled days out. Pulls it to start right now. A 409
+// (a round is already active — close it first) and a 404 (no upcoming round
+// exists) are both left to throw so the caller shows the server's own
+// `detail`/generic message inline, same convention as closeAdminRound.
+export async function startUpcomingAdminRound(accessToken: string, gameKey: string): Promise<AdminRound> {
+  return apiRequest<AdminRound>(accessToken, `/admin/rounds/${gameKey}/start-upcoming`, {
+    method: 'POST',
+  });
+}
+
 // REQ-505: 400 problem-details ("Invalid end time") when the chosen time
 // isn't after both the round's start time and now — left to throw so the
 // caller can show `detail` inline.

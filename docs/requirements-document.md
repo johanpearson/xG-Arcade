@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.33"
+version: "2.34"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -4777,8 +4777,9 @@ Tier 0, S-026)*
 > schedule on demand, so I don't have to wait for real time to pass to test
 > round-close behavior outside of the existing E2E harness.
 
-- **Built as (S-026):** `GET/POST /admin/rounds/{gameKey}/active|close` and
-  `PUT /admin/rounds/{gameKey}/end-time`
+- **Built as (S-026):** `GET/POST /admin/rounds/{gameKey}/active|close`,
+  `POST /admin/rounds/{gameKey}/start-upcoming` (2026-08-31 addition, see
+  status note below), and `PUT /admin/rounds/{gameKey}/end-time`
   (`XGArcade.Api.Admin.AdminManagementEndpoints`), all non-Production-only
   (fail-closed per ADR-0006 — the whole route group is never registered
   when `ASPNETCORE_ENVIRONMENT == Production`, checked before any route is
@@ -4839,6 +4840,38 @@ Tier 0, S-026)*
   forward — i.e. only on the early-close path; a round closing at its
   natural `end_time` never has a successor rescheduled, since that's
   already the correct, expected chain. No API/DTO shape change.
+
+  This only fixes the reschedule for *future* early closes, though — it
+  doesn't retroactively touch a round that was already left orphaned by an
+  early close made before this fix shipped, and more generally there was
+  still no way to reach a not-yet-started round at all once the round that
+  chained it had *already* been closed by the time this fix deployed (no
+  active round left to close through, so nothing triggers the reschedule).
+  Added a genuinely new capability for that: `POST
+  /admin/rounds/{gameKey}/start-upcoming` (`IRoundCloseService.
+  StartUpcomingRoundNowAsync`) pulls the latest not-yet-started round for a
+  `GameKey` to start right now, preserving its own configured duration.
+  Refuses with `409 Conflict` ("A round is already active") if a round is
+  currently active for that `GameKey` — starting the upcoming round early
+  while another is still live would create two simultaneously-active
+  rounds, which REQ-301/REQ-303 assume never happens; close the active
+  round first. Returns `404` if no not-yet-started round exists at all.
+  `RoundControlSection.tsx` shows a "Start upcoming round now" button
+  whenever `hasActiveRound` is false (alongside the existing "No active
+  round right now." message), calling this endpoint and refreshing on
+  success.
+- Given an admin is authenticated, `ASPNETCORE_ENVIRONMENT != Production`,
+  and no round is currently active for a `GameKey`
+- When the admin starts the upcoming round now
+- Then the latest not-yet-started round for that `GameKey` (REQ-301's
+  already-provisioned successor) has its `start_time` set to the current
+  time and its `end_time` moved forward by the same amount, preserving its
+  original configured duration — and it is immediately playable
+  (`GET /rounds/current` reflects it right away)
+- Given a round is currently active for a `GameKey`
+- When the admin attempts to start the upcoming round now
+- Then the request is rejected with `409 Conflict` and neither round's
+  schedule is touched
 
 **Test level:** API, UI
 
