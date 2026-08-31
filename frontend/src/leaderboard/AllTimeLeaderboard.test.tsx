@@ -68,6 +68,59 @@ describe('AllTimeLeaderboard', () => {
     expect(rows[2]).toHaveTextContent('142 pts');
   });
 
+  // REQ-404/ADR-0095 (S-198): the sibling case to the ascending test above,
+  // for the one named `GameKey` exception — xG Predict's leaderboard sorts
+  // descending (highest total first). This mock is deliberately given in
+  // that same descending order (Alex 142 > Player One 138 > Sam 120), and
+  // the assertions check actual DOM order/rank numbers rather than just
+  // that all three names appear somewhere — proving the frontend renders
+  // whatever order the API returns verbatim, without assuming ascending
+  // (LeaderboardRowsList.tsx does no sorting of its own; see this file's
+  // module-level comment).
+  it('REQ-404/ADR-0095: for gameKey=xg-predict, renders rows in the exact (descending) order the API returns them, without re-sorting', async () => {
+    const fetchMock = routedFetch([
+      [
+        /gameKey=xg-predict/,
+        () =>
+          jsonResponse({
+            rows: [
+              { rank: 1, userId: 'user-1', displayName: 'Alex', totalPoints: 142, isRequestingUser: false },
+              { rank: 2, userId: 'user-2', displayName: 'Player One', totalPoints: 138, isRequestingUser: true },
+              { rank: 3, userId: 'user-3', displayName: 'Sam', totalPoints: 120, isRequestingUser: false },
+            ],
+            requestingUserRow: {
+              rank: 2,
+              userId: 'user-2',
+              displayName: 'Player One',
+              totalPoints: 138,
+              isRequestingUser: true,
+            },
+            nextCursor: null,
+            hasMore: false,
+          }),
+      ],
+      [/gameKey=xg-grid/, () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} initialGameKey="xg-predict" />);
+
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    const rankOf = (row: HTMLElement) => row.querySelector('.leaderboard-screen__rank')?.textContent;
+    expect(rankOf(rows[0])).toBe('1');
+    expect(rows[0]).toHaveTextContent('Alex');
+    expect(rows[0]).toHaveTextContent('142 pts');
+    expect(rankOf(rows[1])).toBe('2');
+    expect(rows[1]).toHaveTextContent('Player One');
+    expect(rows[1]).toHaveTextContent('138 pts');
+    expect(rows[1]).toHaveTextContent('you');
+    expect(rankOf(rows[2])).toBe('3');
+    expect(rows[2]).toHaveTextContent('Sam');
+    expect(rows[2]).toHaveTextContent('120 pts');
+  });
+
   it('REQ-404/ADR-0021: shows "Lowest total wins" so a player does not assume the opposite from habit', async () => {
     vi.stubGlobal(
       'fetch',
