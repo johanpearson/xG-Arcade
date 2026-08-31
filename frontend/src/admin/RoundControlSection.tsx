@@ -2,10 +2,14 @@ import { useState, type FormEvent } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
 import { closeAdminRound, updateAdminRoundEndTime } from '../lib/admin';
 import type { AdminActiveRound } from '../lib/types';
-import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
+import type { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
 
 interface RoundControlSectionProps {
   accessToken: string;
+  gameKey: typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY | typeof XG_PREDICT_GAME_KEY;
+  // The human-readable round label prefix (REQ-304), e.g. "Grid Round"/
+  // "Predict Round" — never the raw roundId GUID (see the render below).
+  roundLabel: string;
   activeRound: AdminActiveRound;
   onAuthError: () => void;
   onRefresh: () => Promise<void>;
@@ -14,10 +18,19 @@ interface RoundControlSectionProps {
 // REQ-505: rendered only when the round-control/user-deletion probe found
 // the feature present (AdminScreen's `activeRound !== null` gate) — never
 // disabled-but-visible in Production, since the probe itself 404s there.
-// REQ-304: this section is Grid-only (hardcoded XG_GRID_GAME_KEY above), so
-// the round label always uses the "Grid Round #{sequenceNumber}" phrasing —
-// the raw roundId GUID is never rendered as visible text.
-export function RoundControlSection({ accessToken, activeRound, onAuthError, onRefresh }: RoundControlSectionProps) {
+// REQ-304/REQ-505: generalized (2026-08-31) from its original Grid-only
+// shape to any game with round-control UI — `gameKey`/`roundLabel` are now
+// props rather than a hardcoded `XG_GRID_GAME_KEY` import, per REQ-304's own
+// "apply whenever a round-control UI element is added for another GameKey"
+// note. AdminScreen renders one instance per game that needs it.
+export function RoundControlSection({
+  accessToken,
+  gameKey,
+  roundLabel,
+  activeRound,
+  onAuthError,
+  onRefresh,
+}: RoundControlSectionProps) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
@@ -30,7 +43,7 @@ export function RoundControlSection({ accessToken, activeRound, onAuthError, onR
     setEnding(true);
     setEndError(null);
     try {
-      await closeAdminRound(accessToken, XG_GRID_GAME_KEY);
+      await closeAdminRound(accessToken, gameKey);
       setConfirmingEnd(false);
       await onRefresh();
     } catch (err) {
@@ -51,7 +64,7 @@ export function RoundControlSection({ accessToken, activeRound, onAuthError, onR
     setUpdateError(null);
     try {
       const endTimeIso = new Date(newEndTime).toISOString();
-      await updateAdminRoundEndTime(accessToken, XG_GRID_GAME_KEY, endTimeIso);
+      await updateAdminRoundEndTime(accessToken, gameKey, endTimeIso);
       setNewEndTime('');
       await onRefresh();
     } catch (err) {
@@ -67,10 +80,10 @@ export function RoundControlSection({ accessToken, activeRound, onAuthError, onR
 
   return (
     <section className="admin-screen__section">
-      <h3 className="admin-screen__section-title">Round control — {XG_GRID_GAME_KEY}</h3>
+      <h3 className="admin-screen__section-title">Round control — {gameKey}</h3>
       {activeRound.hasActiveRound && activeRound.round ? (
         <p className="admin-screen__row-summary">
-          Grid Round #{activeRound.round.sequenceNumber} · ends {activeRound.round.endTime}
+          {roundLabel} #{activeRound.round.sequenceNumber} · ends {activeRound.round.endTime}
         </p>
       ) : (
         <p className="admin-screen__empty">No active round right now.</p>

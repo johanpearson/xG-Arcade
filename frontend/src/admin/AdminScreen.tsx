@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { ApiError } from '../lib/apiClient';
 import { fetchActiveAdminRound, fetchUnverifiedPlayerData } from '../lib/admin';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
-import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
+import { XG_GRID_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
 import { PlayerSuggestionsEntry } from './PlayerSuggestionsEntry';
 import { IncidentReportsEntry } from './IncidentReportsEntry';
 import { AnnouncementBannerSection } from './AnnouncementBannerSection';
@@ -24,16 +24,20 @@ export interface AdminScreenProps {
   onOpenSuggestions: () => void;
 }
 
-// REQ-516 (S-177): the five grouped-nav tabs, in this fixed order — "Users"
-// is first/default (no persistence of the last-selected group across a
-// reload is in scope; REQ-516 explicitly leaves that out and says "always
-// opens to the same default group, left to implementation").
-type AdminNavGroup = 'users' | 'grid' | 'path' | 'announcements' | 'issues';
+// REQ-516 (S-177): the grouped-nav tabs, in this fixed order — "Users" is
+// first/default (no persistence of the last-selected group across a reload
+// is in scope; REQ-516 explicitly leaves that out and says "always opens to
+// the same default group, left to implementation"). "Predict" added
+// 2026-08-31 alongside xG Predict's own RoundControlSection instance below
+// (REQ-304/REQ-505's generalization) — same order GameSelectScreen's own
+// tiles use (Grid, Path, Predict).
+type AdminNavGroup = 'users' | 'grid' | 'path' | 'predict' | 'announcements' | 'issues';
 
 const ADMIN_NAV_GROUPS: Array<{ value: AdminNavGroup; label: string }> = [
   { value: 'users', label: 'Users' },
   { value: 'grid', label: 'Grid' },
   { value: 'path', label: 'Path' },
+  { value: 'predict', label: 'Predict' },
   { value: 'announcements', label: 'Announcements' },
   { value: 'issues', label: 'Issues' },
 ];
@@ -89,11 +93,32 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
     refetch: refreshActiveRound,
   } = useAuthedFetch(activeRoundFetchFn, { onAuthError });
 
-  // REQ-504/505: a 403 from either endpoint is a page-wide decision, unlike
-  // every other admin sub-section's own 403 (which only hides that one
-  // section) — this is the one exception, preserved from the pre-S-157
-  // single-pageState version.
-  if (rowsHidden || activeRoundHidden) {
+  // REQ-304/505 (2026-08-31): xG Predict's own active-round probe, same
+  // shape/resilience as the Grid one above (404-as-null in Production,
+  // every other non-401/403 failure also swallowed to null) — a fully
+  // independent fetch/refetch pair, not a second call derived from the
+  // Grid one, since the two games' rounds are entirely unrelated.
+  const predictActiveRoundFetchFn = useCallback(async () => {
+    try {
+      return await fetchActiveAdminRound(accessToken, XG_PREDICT_GAME_KEY);
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) throw err;
+      return null;
+    }
+  }, [accessToken]);
+  const {
+    data: predictActiveRound,
+    hidden: predictActiveRoundHidden,
+    refetch: refreshPredictActiveRound,
+  } = useAuthedFetch(predictActiveRoundFetchFn, { onAuthError });
+
+  // REQ-504/505: a 403 from any of these probes is a page-wide decision,
+  // unlike every other admin sub-section's own 403 (which only hides that
+  // one section) — this is the one exception, preserved from the pre-S-157
+  // single-pageState version, now extended to the Predict probe too since
+  // it is the same underlying "not an admin" failure mode regardless of
+  // which GameKey the round-control probe happened to be for.
+  if (rowsHidden || activeRoundHidden || predictActiveRoundHidden) {
     // REQ-504: the defense-in-depth half — reachable even if a non-admin
     // somehow lands on this screen directly, independent of App.tsx's
     // nav-hiding.
@@ -122,11 +147,12 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
           wrapper, never conditional rendering, so no section's fetch is
           ever re-triggered by a group switch (mirrors the
           "always mounted, active-controlled" pattern LeaderboardScreen.tsx's
-          scope tabs already established). The one exception is
-          RoundControlSection/UserDeletionSection below, which stay a real
-          `activeRound !== null` conditional nested inside the "Grid"/"Users"
-          groups — that gate must still unmount them in Production, not just
-          hide them behind an unselected tab. */}
+          scope tabs already established). The one exception is the
+          RoundControlSection instances/UserDeletionSection below, which
+          stay a real `activeRound !== null`/`predictActiveRound !== null`
+          conditional nested inside the "Grid"/"Predict"/"Users" groups —
+          that gate must still unmount them in Production, not just hide
+          them behind an unselected tab. */}
       <div className="admin-screen__nav" role="tablist" aria-label="Admin section">
         {ADMIN_NAV_GROUPS.map(({ value, label }) => (
           <button
@@ -185,6 +211,8 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
         {activeRound !== null && (
           <RoundControlSection
             accessToken={accessToken}
+            gameKey={XG_GRID_GAME_KEY}
+            roundLabel="Grid Round"
             activeRound={activeRound}
             onAuthError={onAuthError}
             onRefresh={refreshActiveRound}
@@ -200,6 +228,27 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
           probe. */}
       <div className="admin-screen__group" hidden={activeGroup !== 'path'}>
         <XGPathCycleSection accessToken={accessToken} onAuthError={onAuthError} />
+      </div>
+
+      {/* Predict: round control for xG Predict (REQ-304/505's
+          generalization, 2026-08-31) — same Production-gated
+          `predictActiveRound !== null` pattern as the Grid group's own
+          RoundControlSection instance above, using the independent Predict
+          probe/refetch pair. Added specifically so a stale/stuck xg-predict
+          round (e.g. one generated against an already-elapsed matchday
+          before ADR-0099's lookahead fix) can be cleared from the admin UI
+          instead of only via a direct API call. */}
+      <div className="admin-screen__group" hidden={activeGroup !== 'predict'}>
+        {predictActiveRound !== null && (
+          <RoundControlSection
+            accessToken={accessToken}
+            gameKey={XG_PREDICT_GAME_KEY}
+            roundLabel="Predict Round"
+            activeRound={predictActiveRound}
+            onAuthError={onAuthError}
+            onRefresh={refreshPredictActiveRound}
+          />
+        )}
       </div>
 
       {/* Announcements: site-wide announcement banner (REQ-511) — own

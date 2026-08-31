@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/requirements-document.md` (2.31→2.32) — REQ-304/
+  REQ-505's admin round-control UI, previously Grid-only, now also covers
+  xG Predict: `RoundControlSection.tsx` takes `gameKey`/`roundLabel` props
+  instead of a hardcoded `XG_GRID_GAME_KEY`, and `AdminScreen.tsx` gets a
+  new "Predict" nav group with its own independent active-round
+  fetch/refetch pair, so a stuck/stale xg-predict round (e.g. one
+  generated before ADR-0099's matchday-lookahead fix) can be cleared from
+  the admin UI instead of only via a direct API call. Found needed when a
+  real stuck round from before that fix had no way to be closed in the
+  UI. No new ADR — this is the generalization REQ-304's own text already
+  anticipated ("apply whenever a round-control UI element is added for
+  another GameKey"), not a new structural choice. Four new
+  `AdminScreen.test.tsx` cases plus the existing `RoundControlSection.test.tsx`
+  suite (updated for the new required props) — 760/760 frontend tests,
+  `tsc -b`, and `npm run lint` all clean, run locally in this sandbox —
+  REQ-304, REQ-505.
 - 2026-08-31 — `docs/decisions/0099-*.md` — fixed a real bug found on the
   first production round generation with a working football-data.org key:
   a Monday run returned the just-finished weekend's matchday (already
