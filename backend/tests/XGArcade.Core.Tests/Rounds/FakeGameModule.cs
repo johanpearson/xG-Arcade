@@ -93,4 +93,23 @@ internal class FakeGameModule(string gameKey) : IGameModule
         ResolveWrongGuessPlayerAsyncCallCount++;
         return Task.FromResult(ResolveWrongGuessPlayerResult(instanceId, submittedName));
     }
+
+    // REQ-710/S-201: AccountDeletionServiceTests uses this fake for all
+    // three registered-module slots (Grid/Path/Predict) to prove
+    // DeleteAccountAsync calls PurgeUserDataAsync on every one of them,
+    // without pulling XGArcade.Core.Tests into a real Games.XGGrid/
+    // Games.XGPath/Games.XGPredict dependency — same "Core must never
+    // reference a game module directly" reasoning this file's own
+    // top-of-file comment already gives for GenerateInstanceAsync etc.
+    // (xG Predict's own real anonymize/hard-delete PurgeUserDataAsync
+    // behavior is covered separately, in XGPredictGameModuleTests, where
+    // that logic actually lives.) Defaults to a no-op, matching Grid/Path's
+    // own real no-op implementation of this method.
+    public int PurgeUserDataAsyncCallCount { get; private set; }
+
+    public Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        PurgeUserDataAsyncCallCount++;
+        return Task.CompletedTask;
+    }
 }

@@ -224,4 +224,38 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    // Load-then-save rather than ExecuteUpdateAsync: this codebase's tests
+    // run against EF Core's InMemory provider (docs/coding-guidelines.md),
+    // which doesn't support translating bulk ExecuteUpdate/ExecuteDelete
+    // calls — same reason GuessRepository.AnonymizeByUserIdAsync does too.
+    public async Task AnonymizePredictionsByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var predictions = await dbContext.PredictMatchPredictions
+            .Where(p => p.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var prediction in predictions)
+        {
+            prediction.UserId = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    // Hard delete, not anonymize — PredictPlayerLock.UserId is non-nullable
+    // (half of the composite primary key), so setting it to null isn't an
+    // option the way it is for Guess/PredictMatchPrediction. Still routed
+    // through the change tracker (RemoveRange + SaveChangesAsync) rather
+    // than ExecuteDeleteAsync, for the same InMemory-provider reason as
+    // every other write in this repository.
+    public async Task DeletePlayerLocksByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var locks = await dbContext.PredictPlayerLocks
+            .Where(l => l.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        dbContext.PredictPlayerLocks.RemoveRange(locks);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Core.Auth;
+using XGArcade.Core.Games;
+using XGArcade.Core.Tests.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -8,9 +10,26 @@ namespace XGArcade.Core.Tests.Auth;
 
 // REQ-710 (docs/requirements-document.md §4.9): AccountDeletionService's own
 // unit coverage. Same no-mocking-framework, real-InMemory-backed-repository
-// pattern as LeaderboardServiceTests — the only fake here is
-// ISupabaseAuthClient, since a real HTTP call to Supabase's Admin API is
-// exactly what unit tests must never do (docs/coding-guidelines.md).
+// pattern as LeaderboardServiceTests — the only fakes here are
+// ISupabaseAuthClient (a real HTTP call to Supabase's Admin API is exactly
+// what unit tests must never do) and, as of S-201 below, IGameModule.
+//
+// S-201 (quality-gate fix): AccountDeletionService now depends on
+// IEnumerable<IGameModule> instead of IPredictInstanceRepository directly
+// (ADR-0003 — see AccountDeletionService's own doc comment), so this class's
+// job is only to prove DeleteAccountAsync calls PurgeUserDataAsync on every
+// registered module — three FakeGameModule (XGArcade.Core.Tests/Rounds/
+// FakeGameModule.cs) instances stand in for Grid/Path/Predict, since which
+// GameKey and how many are registered doesn't matter to that assertion.
+// Each game module's OWN PurgeUserDataAsync behavior (xG Grid/xG Path's
+// genuine no-op; xG Predict's anonymize-PredictMatchPrediction/hard-delete-
+// PredictPlayerLock logic) is proven where it's actually implemented —
+// XGPredictGameModuleTests (XGArcade.Games.XGPredict.Tests) carries the
+// REQ710_PurgeUserDataAsync_* cases for that — keeping this project free of
+// any game-specific project reference, same as before this story (a real
+// XGPredictGameModule was tried here first and reverted: XGArcade.Core.Tests
+// referencing a specific game's assembly at all, even for tests, was itself
+// a boundary smell worth avoiding, not just a Core-production-code one).
 public class AccountDeletionServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
@@ -18,6 +37,9 @@ public class AccountDeletionServiceTests
     private IGuessRepository _guessRepository = null!;
     private ILeagueRepository _leagueRepository = null!;
     private FakeSupabaseAuthClient _fakeAuthClient = null!;
+    private FakeGameModule _gridModule = null!;
+    private FakeGameModule _pathModule = null!;
+    private FakeGameModule _predictModule = null!;
     private AccountDeletionService _service = null!;
 
     [SetUp]
@@ -31,7 +53,12 @@ public class AccountDeletionServiceTests
         _guessRepository = new GuessRepository(_dbContext);
         _leagueRepository = new LeagueRepository(_dbContext);
         _fakeAuthClient = new FakeSupabaseAuthClient();
-        _service = new AccountDeletionService(_userRepository, _guessRepository, _leagueRepository, _fakeAuthClient);
+        _gridModule = new FakeGameModule("xg-grid");
+        _pathModule = new FakeGameModule("xg-path");
+        _predictModule = new FakeGameModule("xg-predict");
+        var gameModules = new IGameModule[] { _gridModule, _pathModule, _predictModule };
+        _service = new AccountDeletionService(
+            _userRepository, _guessRepository, gameModules, _leagueRepository, _fakeAuthClient);
     }
 
     [TearDown]
@@ -92,6 +119,25 @@ public class AccountDeletionServiceTests
     }
 
     [Test]
+    public async Task REQ710_DeleteAccountAsync_CallsPurgeUserDataAsyncOnEveryRegisteredGameModule()
+    {
+        // S-201: proves DeleteAccountAsync reaches every game's per-user
+        // data exclusively through IGameModule.PurgeUserDataAsync (never a
+        // direct game-specific repository dependency, ADR-0003) — each
+        // module's OWN purge behavior (xG Predict's real
+        // anonymize/hard-delete logic included) is covered where it's
+        // actually implemented, not here (see this file's own doc comment).
+        var user = await SeedUserAsync();
+
+        var result = await _service.DeleteAccountAsync(user.Id);
+
+        Assert.That(result.Success, Is.True);
+        Assert.That(_gridModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
+        Assert.That(_pathModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
+        Assert.That(_predictModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task REQ710_DeleteAccountAsync_RemovesLeagueMembershipAndUserRow()
     {
         var user = await SeedUserAsync();
@@ -148,6 +194,11 @@ public class AccountDeletionServiceTests
         Assert.That(remainingUser, Is.Null);
         var remainingGuesses = await _dbContext.Guesses.AsNoTracking().ToListAsync();
         Assert.That(remainingGuesses.Single().UserId, Is.Null);
+        // S-201 quality-gate fix: proves the "committed before the Supabase
+        // failure" guarantee extends through IGameModule.PurgeUserDataAsync
+        // too, not just Guess — every registered module's purge already ran
+        // by the time the (later, non-transactional) Supabase call fails.
+        Assert.That(_predictModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
     }
 
     // Test double for ISupabaseAuthClient — never makes a real HTTP call.

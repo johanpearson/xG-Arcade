@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.35"
+version: "2.36"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -6589,6 +6589,22 @@ account/settings screen existed in `design-document.md` either. S-039
 closed that gap, scoped narrowly to the delete-account flow only (no
 general profile/settings page) — see "Built as (S-039)" below for what was
 actually built.
+
+**Extended (S-201, Epic 13, ADR-0101, 2026-08-31):** this REQ's "past
+records are anonymized rather than deleted outright" acceptance criterion
+originally only covered `Guess`, since xG Grid/xG Path have no other
+per-user table. xG Predict does — `PredictMatchPrediction`/
+`PredictPlayerLock` — closing a gap flagged during S-197. On account
+deletion, `PredictMatchPrediction.UserId` is now anonymized the same way
+`Guess.UserId` already was (never hard-deleted — other users' xG Predict
+round totals depend on the row surviving, the same historical-scoring-
+integrity reasoning this REQ already gives for `Guess`). `PredictPlayerLock`
+rows for the deleted user are hard-deleted instead: its `UserId` is
+non-nullable (half of its composite primary key), so anonymize-in-place is
+structurally unavailable, and a lock row is a flag rather than a scoring
+row, so nothing depends on it surviving. `AccountDeletionService` reaches
+both through a new `IGameModule.PurgeUserDataAsync` method (ADR-0101), not
+a direct dependency on xG Predict's own repository — see that ADR for why.
 
 **Built as (S-039):** the frontend UI this REQ's Given/When/Then always
 implied but S-025 didn't build. A "Delete account" header link (the only

@@ -87,4 +87,28 @@ public interface IGameModule
     // own comment.
     Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
         Guid instanceId, string submittedName, CancellationToken cancellationToken = default);
+
+    // REQ-710/S-201 (quality-gate fix): AccountDeletionService (Core.Auth,
+    // COMP-01) calls this once per registered IGameModule for every deleted
+    // user, so each game module can anonymize/hard-delete whatever per-user
+    // data IT owns — mirroring this interface's existing "every method is
+    // resolved through the owning module, Core never reaches into
+    // game-specific storage directly" discipline (ADR-0003). Replaces an
+    // earlier version of this story that had AccountDeletionService take a
+    // direct constructor dependency on IPredictInstanceRepository
+    // (Games.XGPredict/COMP-15's own persistence) — the exact anti-pattern
+    // IRoundScoreSource's own doc comment (Core.Scoring) already calls out
+    // by name as something Core must never do.
+    //
+    // Not every game has per-user data of its own to purge: xG Grid/xG
+    // Path's only per-user table is Guess, which is Core.Scoring's OWN
+    // entity (COMP-04) and is already anonymized directly by
+    // AccountDeletionService via IGuessRepository before this loop runs —
+    // both modules' implementations are a genuine no-op. A game that DOES
+    // own per-user storage (xG Predict's PredictMatchPrediction/
+    // PredictPlayerLock) anonymizes/hard-deletes it here instead, exactly
+    // the way it would decide to anonymize vs. hard-delete for its own
+    // schema — Core never needs to know which strategy applies to which
+    // game's tables.
+    Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default);
 }

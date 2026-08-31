@@ -1,3 +1,4 @@
+using XGArcade.Core.Games;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Core.Auth;
@@ -25,14 +26,28 @@ public record AccountDeletionResult
 }
 
 // Order matches implementation-document.md §6.8's documented flow: anonymize
-// Guess rows, remove LeagueMembership rows, delete the local User row, then
-// delete the Supabase Auth identity last. NotificationPreference (also named
-// in that flow and in REQ-710) has no Tier 0 table yet — Resend/notification
-// preferences are Tier 1 (MVP-SCOPE.md) — so that step is a no-op here, not
-// silently skipped without explanation.
+// Guess rows, purge each registered game module's own per-user data
+// (REQ-710/S-201 — see below), remove LeagueMembership rows, delete the
+// local User row, then delete the Supabase Auth identity last.
+// NotificationPreference (also named in that flow and in REQ-710) has no
+// Tier 0 table yet — Resend/notification preferences are Tier 1
+// (MVP-SCOPE.md) — so that step is a no-op here, not silently skipped
+// without explanation.
+//
+// Quality-gate fix (S-201): this class used to take a direct constructor
+// dependency on IPredictInstanceRepository (Games.XGPredict/COMP-15's own
+// persistence) to anonymize/delete its two per-user tables — an ADR-0003
+// boundary violation (Core referencing a game-specific repository/entity
+// directly), the exact anti-pattern IRoundScoreSource's own doc comment
+// (Core.Scoring) already names and forbids. Fixed by reaching every game's
+// per-user data through IGameModule.PurgeUserDataAsync instead — Core.Users
+// does not need to know which games exist or what each one purges; a game
+// with no per-user data of its own (xG Grid, xG Path — see each module's own
+// PurgeUserDataAsync doc comment) is simply a no-op.
 public class AccountDeletionService(
     IUserRepository userRepository,
     IGuessRepository guessRepository,
+    IEnumerable<IGameModule> gameModules,
     ILeagueRepository leagueRepository,
     ISupabaseAuthClient authClient) : IAccountDeletionService
 {
@@ -56,6 +71,17 @@ public class AccountDeletionService(
         // players' historical uniqueness scores and leaderboard totals
         // depend on the total guess count staying intact.
         await guessRepository.AnonymizeByUserIdAsync(user.Id, cancellationToken);
+
+        // REQ-710/S-201: every registered game module gets a chance to purge
+        // whatever per-user data IT owns (e.g. xG Predict's
+        // PredictMatchPrediction/PredictPlayerLock) — see
+        // IGameModule.PurgeUserDataAsync's own doc comment for the full
+        // contract and why this replaced a direct
+        // IPredictInstanceRepository dependency here.
+        foreach (var gameModule in gameModules)
+        {
+            await gameModule.PurgeUserDataAsync(user.Id, cancellationToken);
+        }
 
         await leagueRepository.RemoveMembershipsByUserIdAsync(user.Id, cancellationToken);
 

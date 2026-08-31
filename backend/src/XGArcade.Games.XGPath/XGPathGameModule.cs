@@ -272,6 +272,17 @@ public class XGPathGameModule(
         Guid instanceId, string submittedName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WrongGuessPlayerInfo?>(null);
 
+    // REQ-710/S-201: xG Path's only per-user table is Guess, which is
+    // Core.Scoring's OWN entity (COMP-04) — AccountDeletionService already
+    // anonymizes it directly via IGuessRepository before ever reaching this
+    // loop (see IGameModule.PurgeUserDataAsync's own doc comment). xG Path
+    // itself (PathInstance/PathPuzzle/PathCycleState/PathCycleTargetUsage)
+    // owns no per-user row at all, so there is nothing left here for this
+    // module to purge — a genuine no-op, not a deferred TODO, mirroring
+    // GridGameModule.PurgeUserDataAsync's own identical reasoning.
+    public Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
     // REQ-1202: pick `count` distinct entries from `pool` uniformly at
     // random, without replacement — Fisher-Yates-style pick, using the
     // injected _random rather than GridGameModule's static Shuffle helper

@@ -309,6 +309,92 @@ public class XGPredictGameModuleTests
         Assert.That(result, Is.Null);
     }
 
+    // ---- REQ-710/S-201: account-deletion purge -------------------------
+    // AccountDeletionService (Core.Auth) never references PredictMatchPrediction/
+    // PredictPlayerLock/IPredictInstanceRepository directly (ADR-0003) — it
+    // reaches this module's own per-user data exclusively through
+    // IGameModule.PurgeUserDataAsync, exercised here against the real,
+    // InMemory-backed _repository this test class already uses everywhere
+    // else. AccountDeletionServiceTests (XGArcade.Core.Tests) only proves the
+    // generic "called on every registered module" loop, via FakeGameModule —
+    // this is where the actual anonymize/hard-delete behavior is covered.
+
+    [Test]
+    public async Task REQ710_PurgeUserDataAsync_AnonymizesPredictMatchPredictionRows_SeversLinkWithoutDeletingRows()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var ownPrediction = await SeedPredictionAsync(userId);
+        var otherPrediction = await SeedPredictionAsync(otherUserId);
+
+        await _module.PurgeUserDataAsync(userId);
+
+        // The row itself must survive — other users' PredictInstance point
+        // totals (IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync)
+        // depend on it, same reasoning as Guess (REQ-710).
+        var remainingOwnPrediction = await _dbContext.PredictMatchPredictions
+            .AsNoTracking().SingleAsync(p => p.Id == ownPrediction.Id);
+        Assert.That(remainingOwnPrediction.UserId, Is.Null);
+        // A different user's prediction in the same seed data must be
+        // completely untouched (proves scoping, not an over-broad update).
+        var remainingOtherPrediction = await _dbContext.PredictMatchPredictions
+            .AsNoTracking().SingleAsync(p => p.Id == otherPrediction.Id);
+        Assert.That(remainingOtherPrediction.UserId, Is.EqualTo(otherUserId));
+    }
+
+    [Test]
+    public async Task REQ710_PurgeUserDataAsync_HardDeletesPredictPlayerLockRows_ForDeletedUserOnly()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        await SeedPlayerLockAsync(userId);
+        var otherLock = await SeedPlayerLockAsync(otherUserId);
+
+        await _module.PurgeUserDataAsync(userId);
+
+        // Unlike Guess/PredictMatchPrediction, PredictPlayerLock.UserId is
+        // non-nullable (half of its composite primary key) — the row is
+        // hard-deleted rather than anonymized (XGArcadeDbContext's own
+        // OnModelCreating comment on PredictPlayerLock).
+        var remaining = await _dbContext.PredictPlayerLocks
+            .AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
+        Assert.That(remaining, Is.Empty);
+        // A different user's lock row in the same seed data must survive.
+        var remainingOtherLock = await _dbContext.PredictPlayerLocks
+            .AsNoTracking()
+            .SingleOrDefaultAsync(l => l.PredictInstanceId == otherLock.PredictInstanceId && l.UserId == otherLock.UserId);
+        Assert.That(remainingOtherLock, Is.Not.Null);
+    }
+
+    private async Task<PredictMatchPrediction> SeedPredictionAsync(Guid userId)
+    {
+        var prediction = new PredictMatchPrediction
+        {
+            Id = Guid.NewGuid(),
+            PredictMatchId = Guid.NewGuid(),
+            UserId = userId,
+            HomeGoals = 2,
+            AwayGoals = 1,
+            SubmittedAt = DateTime.UtcNow,
+        };
+        _dbContext.PredictMatchPredictions.Add(prediction);
+        await _dbContext.SaveChangesAsync();
+        return prediction;
+    }
+
+    private async Task<PredictPlayerLock> SeedPlayerLockAsync(Guid userId, Guid? predictInstanceId = null)
+    {
+        var predictPlayerLock = new PredictPlayerLock
+        {
+            PredictInstanceId = predictInstanceId ?? Guid.NewGuid(),
+            UserId = userId,
+            LockedAt = DateTime.UtcNow,
+        };
+        _dbContext.PredictPlayerLocks.Add(predictPlayerLock);
+        await _dbContext.SaveChangesAsync();
+        return predictPlayerLock;
+    }
+
     // ---- helpers --------------------------------------------------
 
     private async Task<PredictTemplate> AddTemplateAsync(int matchCount)

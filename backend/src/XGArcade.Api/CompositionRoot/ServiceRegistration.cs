@@ -66,6 +66,15 @@ public static class ServiceRegistration
         // REQ-710: reusable anonymize/delete logic — AuthController's self-service
         // DeleteAccount endpoint and (per docs/backlog.md S-026) a future
         // admin-triggered endpoint both call this, never a second implementation.
+        // S-201 (quality-gate fix): depends on IEnumerable<IGameModule> instead
+        // of any one game's repository directly — every IGameModule registered
+        // below (xG Grid/xG Path/xG Predict) is given a chance to purge its own
+        // per-user data (IGameModule.PurgeUserDataAsync) rather than this
+        // service reaching into a game-specific repository itself, which would
+        // violate ADR-0003 (see AccountDeletionService's own doc comment). DI
+        // registration order doesn't matter here — the container resolves
+        // IEnumerable<IGameModule> from every AddScoped<IGameModule, ...> call
+        // below lazily, not in registration order.
         builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 
         // COMP-02 (Core.Leagues) — S-011's REQ-401 (global league auto-membership)

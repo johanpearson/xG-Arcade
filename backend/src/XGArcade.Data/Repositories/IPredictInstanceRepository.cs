@@ -149,4 +149,26 @@ public interface IPredictInstanceRepository
     // harmless no-op (load-then-check-then-insert, never a raw insert that
     // could violate the composite key).
     Task LockPlayerPredictionsAsync(Guid predictInstanceId, Guid userId, DateTime lockedAt, CancellationToken cancellationToken = default);
+
+    // REQ-710/S-201: severs every one of this user's PredictMatchPrediction
+    // rows from them (UserId = NULL) without deleting the rows themselves —
+    // same reasoning as Guess (Core.Scoring): other users' PredictInstance
+    // point totals (GetTotalPointsByInstanceIdAsync) and participation
+    // counts (GetParticipantUserIdsByInstanceIdAsync) depend on the row and
+    // its FinalPoints surviving, only the ownership link needs to go.
+    // Load-then-save through the change tracker, not ExecuteUpdateAsync —
+    // mirrors GuessRepository.AnonymizeByUserIdAsync exactly (the InMemory
+    // test provider can't translate ExecuteUpdateAsync/ExecuteDeleteAsync).
+    Task AnonymizePredictionsByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    // REQ-710/S-201: hard-deletes every PredictPlayerLock row for this user,
+    // rather than anonymizing it — unlike PredictMatchPrediction.UserId,
+    // PredictPlayerLock.UserId is non-nullable (it's half of the table's
+    // composite primary key, per XGArcadeDbContext.OnModelCreating's own
+    // comment on this entity), so anonymize-in-place is structurally
+    // unavailable here. A lock row is a flag (REQ-1306: its mere existence
+    // IS the lock), not a scoring row, so nothing depends on it surviving
+    // the way REQ-710 depends on Guess/PredictMatchPrediction rows
+    // surviving — hard-deleting it on account deletion is safe.
+    Task DeletePlayerLocksByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 }

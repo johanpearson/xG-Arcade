@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.15"
+version: "1.16"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -2513,6 +2513,23 @@ consequences for the accepted trade-off. `IUserRepository`/`IGuessRepository`/
 the EF Core change tracker rather than `ExecuteDeleteAsync`/
 `ExecuteUpdateAsync` — this codebase's tests run against EF Core's InMemory
 provider (§7), which doesn't support translating those bulk operations.
+
+**Extended (S-201, ADR-0101):** the pseudocode above only ever named
+`Guess`/`NotificationPreference`/`LeagueMembership`/`User` because xG Grid
+and xG Path have no per-user table of their own beyond `Guess`. xG Predict
+does — `PredictMatchPrediction`/`PredictPlayerLock` — so `Guess`
+anonymization is now followed by a step this pseudocode's flat SQL sketch
+can't express directly: `AccountDeletionService` calls a new
+`IGameModule.PurgeUserDataAsync(userId)` once per registered game module
+(not a direct `IPredictInstanceRepository` reference — ADR-0101 explains
+why). xG Grid/xG Path implement it as a no-op; `XGPredictGameModule`
+implements it as `UPDATE PredictMatchPrediction SET UserId = NULL WHERE
+UserId = deletedUserId` (mirroring `Guess`'s own anonymize-don't-delete
+reasoning — other users' `PredictInstance` point totals depend on the row
+surviving) followed by `DELETE FROM PredictPlayerLock WHERE UserId =
+deletedUserId` (hard-deleted, not anonymized: `PredictPlayerLock.UserId` is
+non-nullable, half of its composite primary key, and a lock row is a flag
+rather than a scoring row, so nothing depends on it surviving).
 
 ## 6a. External API shapes (reference)
 
