@@ -67,6 +67,24 @@ as items complete or new ones surface; don't let it silently go stale.
   to trigger a real GitHub Actions dispatch — so this is code-reviewed but
   not field-verified until done.
 
+## xG Predict / API-Football wiring follow-up (blocking `xg-predict` round generation)
+
+- [ ] **Sign up for API-Football's free tier** at api-football.com and grab
+  the API key (`SETUP.md` §4) — needs a real human/account, not doable from
+  this sandbox. Until this is done, `generate-predict-round.yml` will keep
+  failing every run with `API-Football is not configured on this
+  environment yet.`
+- [ ] Set the key as the `API_FOOTBALL_API_KEY` GitHub Actions repository
+  secret (`infra/README.md`) — `deploy.yml`/`main.bicep`/
+  `backend-container-app.bicep` now thread it through to the Container
+  App's `ApiFootball__ApiKey` env var automatically on the next deploy; no
+  further code change needed once the secret is set.
+- [ ] Send both ADR-0008's and ADR-0094 item 4's written ToS confirmation
+  emails to API-Football support before public launch (draft at
+  `docs/decisions/correspondence/api-football-confirmation-email.md`) —
+  already tracked below under "Before public launch," listed here too
+  since it's the same account-setup pass.
+
 ## Tier 1 — revisit only after real testing shows a specific need
 
 See `MVP-SCOPE.md`'s Tier 1 section for the full list and the reasoning
