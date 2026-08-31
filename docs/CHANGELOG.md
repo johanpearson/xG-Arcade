@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/decisions/0098-predict-confirm-lock-placement-and-storage.md`,
+  `docs/backlog.md` — S-200 (Epic 13): closed the security risk ADR-0098's
+  Consequences section flagged — `GuessEndpoints`/`GuessSubmissionService`
+  had no `GameKey` allow-list, so REQ-1306's per-player confirm-lock
+  (enforced only in `PredictEndpoints`) was only incidentally protected by
+  `XGPredictGameModule.GetMaxAttemptsForCellAsync` still throwing
+  `NotImplementedException`. `GuessSubmissionService` now takes a new
+  `GuessSubmissionAllowedGameKeys` dependency, supplied by the composition
+  root (never hardcoded in `Core.Scoring`, ADR-0003) as `{"xg-grid",
+  "xg-path"}` — an allow-list, not a `"xg-predict"` deny-list — and checks
+  `round.GameKey` against it immediately after resolving the `Round`,
+  before `IGameModuleResolver.Resolve`/`GetMaxAttemptsForCellAsync`/
+  `ScoreSubmissionAsync` are ever reached. Rejected with a new
+  `GuessSubmissionOutcome.GameNotSupported`, mapped to a 400 by
+  `GuessEndpoints`. New `GuessSubmissionServiceTests`/`GuessEndpointTests`
+  coverage (`ADR0098_*` naming, since this is ADR-0098's own structural
+  mechanism, not a REQ-201/202/1306 acceptance criterion) proves the guard
+  is structural — it fires even when the game module is rigged to succeed
+  if it were ever called. ADR-0098's Consequences section updated to mark
+  the risk closed — REQ-201/202, ADR-0098.
 - 2026-08-31 — `docs/requirements-document.md` (2.34→2.35),
   `docs/architecture-document.md` (1.29→1.30), `docs/backlog.md` — S-199
   (Epic 13, ADR-0100): wired `"xg-predict"` round totals into

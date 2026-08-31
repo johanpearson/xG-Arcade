@@ -208,6 +208,29 @@ public class GuessEndpointTests
         return (round.Id, cellId, sharedName, first.Id, second.Id);
     }
 
+    // S-200: seeds a bare Round with an arbitrary GameKey and no backing
+    // game-instance data at all — sufficient because GuessSubmissionService's
+    // allow-list check (ADR-0098 Consequences) rejects before any cell/game-
+    // instance resolution is ever attempted.
+    private async Task<Guid> SeedRoundWithGameKeyAsync(string gameKey, DateTime startTime, DateTime endTime)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = gameKey,
+            GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
+            StartTime = startTime,
+            EndTime = endTime,
+            AllowGuessChange = true,
+        };
+        dbContext.Rounds.Add(round);
+        await dbContext.SaveChangesAsync();
+        return round.Id;
+    }
+
     private HttpClient CreateAuthenticatedClient(Guid authProviderUserId)
     {
         var client = _factory.CreateClient();
@@ -667,6 +690,37 @@ public class GuessEndpointTests
         var stored = await dbContext.Guesses.SingleAsync(g => g.RoundId == roundId && g.CellId == cellId && g.UserId == userId);
         Assert.That(stored.AttemptCount, Is.EqualTo(1));
         Assert.That(stored.IsCorrect, Is.False);
+    }
+
+    // ---- S-200/ADR-0098 Consequences: GameKey allow-list -------------------
+    // ADR-0098's Consequences section flagged that this endpoint reaching
+    // XGPredictGameModule.ScoreSubmissionAsync would bypass REQ-1306's
+    // confirm-lock (enforced only in PredictEndpoints). No PredictInstance/
+    // matches are seeded here at all — the allow-list check
+    // (GuessSubmissionService) must reject before any of that would ever be
+    // touched, proving the guard runs at the very top of the request, not
+    // buried behind game-specific data lookups.
+
+    [Test]
+    public async Task ADR0098_Guess_Post_XGPredictRound_ReturnsBadRequest_NotAFallthroughToScoring()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var roundId = await SeedRoundWithGameKeyAsync(
+            "xg-predict", DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{Guid.NewGuid()}/guesses", new SubmitGuessRequest("Thierry Henry"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Game not supported"));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stored = await dbContext.Guesses.SingleOrDefaultAsync(g => g.RoundId == roundId);
+        Assert.That(stored, Is.Null, "a rejected-by-allow-list submission must never persist a Guess row");
     }
 
     // ---- REQ-718/ADR-0038: a submitted guess is one of the four

@@ -294,6 +294,16 @@ public static class ServiceRegistration
         // and S-011's score locking (REQ-205, IScoreLockingService — Core.Rounds'
         // RoundCloseService calls this rather than computing scores itself).
         builder.Services.AddScoped<IGuessRepository, GuessRepository>();
+        // S-200/ADR-0098 Consequences: the explicit allow-list of GameKeys
+        // this Guess-based submission path serves, supplied here (never
+        // hardcoded inside Core.Scoring, per ADR-0003) — "xg-predict" is
+        // deliberately absent, closing the risk ADR-0098's Consequences
+        // section flagged (REQ-1306's confirm-lock, enforced only in
+        // PredictEndpoints, must never become reachable through this path).
+        builder.Services.AddSingleton(new GuessSubmissionAllowedGameKeys
+        {
+            GameKeys = [GridGameModule.XGGridGameKey, XGPathGameModule.XGPathGameKey],
+        });
         builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
         builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
         // REQ-215/ADR-0052 (S-089): PlayerSuggestion's own repository — see that

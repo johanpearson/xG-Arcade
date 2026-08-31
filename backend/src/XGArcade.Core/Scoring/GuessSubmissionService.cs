@@ -19,12 +19,24 @@ namespace XGArcade.Core.Scoring;
 // S-106 (pure refactor): IPlayerStoreRepository's own GetPlayerByIdAsync
 // moved to IPlayerRepository — this class's only player-store call, so it
 // takes the narrower interface directly rather than IPlayerStoreRepository.
+//
+// S-200/ADR-0098 Consequences: allowedGameKeys is an explicit allow-list of
+// the GameKeys this Guess-based submission path is built for, supplied by
+// the composition root (never hardcoded here — ADR-0003, same shape as
+// IScoringStrategy.GameKey/GuessRoundScoreSource.GameKey) — an allow-list,
+// not a deny-list naming "xg-predict", so Core.Scoring never references
+// Games.XGPredict and any future non-Guess-based game is rejected the same
+// way without a further change here. A dedicated type
+// (GuessSubmissionAllowedGameKeys) rather than a raw
+// IReadOnlyCollection<string>, so this DI registration can never collide
+// with some other component's future need for a plain string collection.
 public class GuessSubmissionService(
     IRoundRepository roundRepository,
     IGuessRepository guessRepository,
     IGameModuleResolver gameModuleResolver,
     IPlayerRepository playerRepository,
-    TimeProvider timeProvider) : IGuessSubmissionService
+    TimeProvider timeProvider,
+    GuessSubmissionAllowedGameKeys allowedGameKeys) : IGuessSubmissionService
 {
     public async Task<GuessSubmissionResult> SubmitGuessAsync(
         Guid roundId, Guid userId, Guid cellId, string submittedName, Guid? chosenPlayerId = null, CancellationToken cancellationToken = default)
@@ -32,6 +44,15 @@ public class GuessSubmissionService(
         var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
         if (round is null)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.RoundNotFound);
+
+        // S-200/ADR-0098 Consequences: checked before IGameModuleResolver is
+        // ever consulted (and therefore before GetMaxAttemptsForCellAsync/
+        // ScoreSubmissionAsync could ever be called) — this guard is
+        // structural, not dependent on any particular IGameModule's
+        // implementation state. See allowedGameKeys' own doc comment above
+        // for why this is an allow-list, not a "xg-predict" deny-list.
+        if (!allowedGameKeys.GameKeys.Contains(round.GameKey))
+            return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.GameNotSupported);
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
         // REQ-201: guesses are only accepted for an active (not closed,

@@ -10089,6 +10089,35 @@ regardless of `GetMaxAttemptsForCellAsync`'s implementation state; a new
 Consequences section to mark this risk closed.
 *Deps:* none.
 
+*Built as (2026-08-31):* `backend-implementer` added a new
+`GuessSubmissionOutcome.GameNotSupported` value
+(`backend/src/XGArcade.Core/Scoring/GuessSubmissionResult.cs`) and a new
+`GuessSubmissionAllowedGameKeys` type
+(`backend/src/XGArcade.Core/Scoring/GuessSubmissionAllowedGameKeys.cs`) — an
+explicit allow-list, not a `"xg-predict"` deny-list, so `Core.Scoring` still
+never references `Games.XGPredict` (ADR-0003), following the same
+composition-root-supplied-`GameKey` shape already established by
+`GuessRoundScoreSource`/`IRoundScoreSourceResolver` (ADR-0100). `GuessSubmissionService`
+now takes this as a constructor dependency and checks `round.GameKey`
+against it immediately after resolving the `Round`, before
+`IGameModuleResolver.Resolve`/`GetMaxAttemptsForCellAsync`/
+`ScoreSubmissionAsync` are ever reached — unconditional on
+`GetMaxAttemptsForCellAsync`'s implementation state for any game.
+`ServiceRegistration.cs` registers it as `{GridGameModule.XGGridGameKey,
+XGPathGameModule.XGPathGameKey}`. `GuessEndpoints` maps the new outcome to a
+400 (`"Game not supported"`) — a 400, not a 409, since nothing about the
+round's state is in conflict. New tests: two `GuessSubmissionServiceTests`
+cases (a `"xg-predict"` round rejected even though the fake game module is
+rigged to succeed if it were ever called, proving the guard is structural;
+and the mirror-image case confirming an allow-listed `GameKey` still reaches
+the game module normally) and one `GuessEndpointTests` case proving the real
+composition-root-wired endpoint returns 400 for a bare `"xg-predict"` round
+with no backing game-instance data at all. ADR-0098's Consequences section
+updated to mark the flagged risk closed. Built without a local `dotnet` SDK
+in this sandbox — hand-traced, not locally run; CI verification via
+`ci.yml`'s `workflow_dispatch` is required before this is considered done,
+same recurring constraint as other recent backend stories in this log.
+
 **S-201 · Wire REQ-710 account-deletion handling for `PredictPlayerLock`/`PredictMatchPrediction` (REQ-710)**
 Flagged in S-197 via `XGArcadeDbContext.cs`'s own comment on
 `PredictPlayerLock`'s `OnModelCreating` registration

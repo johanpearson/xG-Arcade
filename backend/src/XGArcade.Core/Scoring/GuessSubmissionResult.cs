@@ -35,6 +35,22 @@ public enum GuessSubmissionOutcome
     // no Guess row is written and no attempt is consumed, so the player gets
     // a genuine retry, not a wasted one.
     LiveLookupUnavailable,
+
+    // S-200/ADR-0098 Consequences: this Guess-based submission path
+    // (GuessEndpoints/GuessSubmissionService) is only meant for GameKeys
+    // whose owning IGameModule is actually scored through
+    // ScoreSubmissionAsync's Guess-attempt shape (today "xg-grid"/
+    // "xg-path") — checked against an explicit allow-list supplied by the
+    // composition root (ADR-0003: Core never hardcodes a GameKey constant
+    // or references a specific game module), rejected before
+    // IGameModuleResolver.Resolve/GetMaxAttemptsForCellAsync/
+    // ScoreSubmissionAsync are ever called. Closes the risk ADR-0098's
+    // Consequences section flagged: xG Predict's REQ-1306 confirm-lock
+    // lives only in PredictEndpoints, so a "xg-predict" round reaching
+    // XGPredictGameModule.ScoreSubmissionAsync through this path would
+    // bypass it. This outcome is unconditional on GetMaxAttemptsForCellAsync's
+    // implementation state — it fires before that call is ever made.
+    GameNotSupported,
 }
 
 public class GuessSubmissionResult
