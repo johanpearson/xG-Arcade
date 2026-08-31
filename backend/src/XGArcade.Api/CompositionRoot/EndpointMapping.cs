@@ -58,6 +58,13 @@ public static class EndpointMapping
         // PathEndpoints.cs's own doc comment).
         app.MapPathEndpoints();
         app.MapGuessEndpoints();
+        // REQ-1302/1303/1306: xG Predict's own read/write surface (GET
+        // /predict/current, POST /predict/matches/{matchId}/predictions,
+        // POST /predict/confirm) — deliberately NOT routed through
+        // MapGuessEndpoints above (ADR-0096: predictions are structurally
+        // incompatible with Guess/IGuessSubmissionService). See
+        // PredictEndpoints.cs's own doc comment.
+        app.MapPredictEndpoints();
         // REQ-215 (S-089): the submission-only half — REQ-509/510's admin review/
         // commit/reject half is MapAdminSuggestionEndpoints below.
         app.MapSuggestionEndpoints();

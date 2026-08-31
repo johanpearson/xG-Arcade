@@ -760,6 +760,74 @@ describe('App (REQ-720: "Games" nav entry)', () => {
   });
 });
 
+// REQ-1301/1302/1303/1306 (SCREEN-14): App.tsx's routing for the third
+// game, xG Predict — reached via GameSelectScreen's own tile. HeaderNav's
+// "Games" → "xG Predict" entry is covered separately below (quality-gate
+// fix, 2026-08-31: this file's own comment previously said that entry
+// didn't exist yet — App.tsx was updated to wire it the same story it was
+// flagged, so this description was stale).
+describe('App (REQ-1301: xG Predict routing)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function stubFetchForPredict() {
+    return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/predict/current')) return jsonResponse(null);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it('REQ-1301: selecting the xG Predict tile reaches PredictScreen and updates location.hash to #/predict', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForPredict());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'xG Predict' }));
+
+    expect(await screen.findByText('No round to predict right now')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/predict');
+
+    // The title still routes back to GameSelectScreen from inside the new
+    // screen, same as every other game (REQ-720).
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+
+  // REQ-1301/1306 (quality-gate fix, 2026-08-31): mirrors REQ-720's own
+  // "Games → xG Grid reaches the grid screen" test above for the third
+  // entry, closing the HeaderNav/GameSelectScreen parity gap SCREEN-14's
+  // status note originally flagged.
+  it('REQ-1301: Games → xG Predict reaches PredictScreen, and the "xG Arcade" title still reaches GameSelectScreen unchanged', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForPredict());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    // Scoped to the nav: GameSelectScreen's own "xG Predict" tile also
+    // renders "xG Predict" text while game-select is showing, so an
+    // unscoped query here would match two elements.
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    await user.click(within(nav).getByRole('button', { name: 'xG Predict' }));
+
+    expect(await screen.findByText('No round to predict right now')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/predict');
+
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+});
+
 // REQ-721/ADR-0039: hash-based URL-per-screen support. E2E
 // (tests/e2e/url-routing.spec.ts) covers the full real-browser reload
 // round trip; this covers the ordering constraints that must hold

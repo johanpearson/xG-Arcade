@@ -16,6 +16,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
   const onSelectSettings = vi.fn();
   const onSelectGrid = vi.fn();
   const onSelectPath = vi.fn();
+  const onSelectPredict = vi.fn();
   const onLogout = vi.fn();
 
   render(
@@ -25,17 +26,27 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       isSettingsCurrent={false}
       isGridCurrent={false}
       isPathCurrent={false}
+      isPredictCurrent={false}
       onSelectLeaderboard={onSelectLeaderboard}
       onSelectLeagues={onSelectLeagues}
       onSelectSettings={onSelectSettings}
       onSelectGrid={onSelectGrid}
       onSelectPath={onSelectPath}
+      onSelectPredict={onSelectPredict}
       onLogout={onLogout}
       {...overrides}
     />,
   );
 
-  return { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onSelectGrid, onSelectPath, onLogout };
+  return {
+    onSelectLeaderboard,
+    onSelectLeagues,
+    onSelectSettings,
+    onSelectGrid,
+    onSelectPath,
+    onSelectPredict,
+    onLogout,
+  };
 }
 
 describe('HeaderNav', () => {
@@ -225,7 +236,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
   // S-085/SCREEN-09: the "Games" list's second entry, added alongside xG
   // Grid's existing one — same order GameSelectScreen's tiles use (xG Grid
   // first, xG Path second, never alphabetical/recency).
-  it('REQ-720/S-085: the "Games" list contains "xG Grid" then "xG Path", in that order', async () => {
+  it('REQ-720/S-085/REQ-1301: the "Games" list contains "xG Grid" then "xG Path" then "xG Predict", in that order', async () => {
     renderHeaderNav();
     const user = userEvent.setup();
 
@@ -234,7 +245,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     const gamesList = screen.getByTestId('header-nav-games-toggle').nextElementSibling as HTMLElement;
     const entryNames = Array.from(gamesList.querySelectorAll('button')).map((button) => button.textContent);
 
-    expect(entryNames).toEqual(['xG Grid', 'xG Path']);
+    expect(entryNames).toEqual(['xG Grid', 'xG Path', 'xG Predict']);
   });
 
   it('REQ-720: selecting "xG Grid" calls onSelectGrid and closes both the Games list and the outer menu', async () => {
@@ -283,6 +294,39 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+  // REQ-1301/1306/SCREEN-14: mirrors the "xG Grid"/"xG Path" selection tests
+  // above for the new "xG Predict" entry.
+  it('REQ-1301/1306: selecting "xG Predict" calls onSelectPredict and closes both the Games list and the outer menu', async () => {
+    const {
+      onSelectPredict,
+      onSelectGrid,
+      onSelectPath,
+      onSelectLeaderboard,
+      onSelectLeagues,
+      onSelectSettings,
+      onLogout,
+    } = renderHeaderNav();
+    const user = userEvent.setup();
+    const outerToggle = screen.getByTestId('header-nav-toggle');
+    const gamesToggle = screen.getByTestId('header-nav-games-toggle');
+
+    await user.click(outerToggle);
+    await user.click(gamesToggle);
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'xG Predict' }));
+
+    expect(onSelectPredict).toHaveBeenCalledTimes(1);
+    expect(onSelectGrid).not.toHaveBeenCalled();
+    expect(onSelectPath).not.toHaveBeenCalled();
+    expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
+    expect(onSelectSettings).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(outerToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('REQ-720: closing the outer menu also closes the nested Games list', async () => {
     renderHeaderNav();
     const user = userEvent.setup();
@@ -308,11 +352,13 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isSettingsCurrent={false}
         isGridCurrent={false}
         isPathCurrent={false}
+        isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
+        onSelectPredict={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -327,11 +373,13 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isSettingsCurrent={false}
         isGridCurrent
         isPathCurrent={false}
+        isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
+        onSelectPredict={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -351,11 +399,13 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isSettingsCurrent={false}
         isGridCurrent={false}
         isPathCurrent={false}
+        isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
+        onSelectPredict={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -370,11 +420,13 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isSettingsCurrent={false}
         isGridCurrent={false}
         isPathCurrent
+        isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
+        onSelectPredict={vi.fn()}
         onLogout={vi.fn()}
       />,
     );

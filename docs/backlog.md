@@ -9801,3 +9801,113 @@ xG Predict rounds are actually generating in production (needs S-196 plus
 a live API-Football key, MVP-SCOPE.md's xG-Predict-specific precondition)
 and the 48h default is observed to produce awkwardly-timed or overlapping
 rounds against real Premier League gameweek scheduling.
+
+**S-197 · xG Predict round/prediction screen: submission, round lock, and confirm-and-lock endpoints + frontend (REQ-1301/1302/1303/1306, ADR-0098)**
+Direct continuation of S-190 through S-196, closing the last gap those
+stories explicitly deferred: REQ-1302/1303 prediction submission had no
+real HTTP endpoint, and REQ-1306 (confirm-and-lock) had no code at all.
+Run through `/orchestrate` end to end (intake → scope check → ADR
+scaffold → delegation → quality gate → doc sync → CI verification).
+
+*Accept:* a new `XGArcade.Api.Predict.PredictEndpoints`
+(`GET /predict/current`, `POST /predict/matches/{matchId}/predictions`,
+`POST /predict/confirm`) calls
+`IGameModuleResolver.Resolve("xg-predict").ScoreSubmissionAsync` directly —
+never through `Guess`/`IGuessSubmissionService` (ADR-0096 already ruled
+that shape out); a new `PredictPlayerLock` entity (composite-keyed on
+`(PredictInstanceId, UserId)`, migration
+`20260831090000_AddPredictPlayerLock`) backs two new
+`IPredictInstanceRepository` methods, `IsPlayerLockedAsync`/
+`LockPlayerPredictionsAsync`, implementing REQ-1306's per-player lock,
+checked in the API endpoint before `ScoreSubmissionAsync` is ever called
+(not inside `XGPredictGameModule` — see ADR-0098); `PredictInstance`
+gained a `[NotMapped]` computed `LockInstant` property, extracted after
+`Matches.Min(m => m.KickoffUtc)` was independently re-derived at three
+call sites (a quality-gate fix, no migration). On the frontend, a new
+`frontend/src/predict/` module (`PredictScreen.tsx`, `PredictMatchInput.tsx`,
+`PredictConfirmDialog.tsx`, SCREEN-14) shows the round's 5-match slate at
+once, each match its own card with a per-match "Save" button, a
+round-wide-lock notice (REQ-1303) and a per-player-lock notice (REQ-1306)
+each shown independently, and a confirm dialog reusing
+`GuestLogoutConfirm.tsx`'s exact structural/accessibility pattern.
+`GameSelectScreen`/`HeaderNav` gained a third tile/nav entry for xG
+Predict, kept in agreement per SCREEN-09. Deliberately does NOT wire
+`RoundCompletionBanner`/REQ-1210 (confirmed inapplicable to this game,
+per §4.14's own note).
+
+*Deps:* S-190 (COMP-15 module scaffold), S-192
+(`XGPredictGameModule.ScoreSubmissionAsync`, the method this story finally
+gives a real caller), S-196 (round generation reachable end to end, so a
+round exists for this screen to show).
+
+*Explicitly out of scope, unaffected by this story:* `ILeaderboardService`/
+`LeaderboardEndpoints` wiring of `GetTotalPointsByInstanceIdAsync` for
+`"xg-predict"` round totals (pre-existing gap from S-195/S-196); a
+`GameKey` allow-list on `GuessEndpoints`/`GuessSubmissionService` (flagged
+as a risk in ADR-0098's Consequences section, not fixed — see the
+follow-up below); REQ-710 account-deletion wiring for
+`PredictPlayerLock`/`PredictMatchPrediction` (flagged in
+`XGArcadeDbContext.cs`'s own comment on `PredictPlayerLock`'s
+`OnModelCreating` registration, not fixed — see the follow-up below); a
+Playwright E2E spec for xG Predict (no `play-predict.spec.ts` exists yet,
+unlike `play-grid.spec.ts`/`play-path.spec.ts`).
+
+*Built as (2026-08-31):* `backend-implementer` built the endpoint file,
+`PredictPlayerLock` entity/migration, and the two new repository methods;
+`ui-implementer` built the frontend screen against SCREEN-14 (added to
+`docs/design-document.md` by this same story, version 0.84). A same-session
+quality-gate follow-up commit extracted `PredictInstance.LockInstant` (the
+round-lock formula had been independently re-derived at three call sites)
+and fixed stale comments. New backend tests: `PredictEndpointTests.cs`
+(`REQ1301_`/`REQ1302_`/`REQ1303_`/`REQ1306_`-prefixed, end to end against
+all three endpoints, including the full REQ-1306 confirm-lock lifecycle)
+and extended `PredictInstanceRepositoryTests` coverage for
+`GetPredictionsForInstanceAndUserAsync`. New frontend tests:
+`PredictScreen.test.tsx`, `PredictMatchInput` coverage inline in it,
+`PredictConfirmDialog.test.tsx`, plus updated `GameSelectScreen.test.tsx`/
+`HeaderNav.test.tsx`/`App.test.tsx` for the third game tile/nav entry.
+
+Quality gate (`architecture-reviewer` + `quality-architect`, run in
+parallel): `architecture-reviewer` PASSed clean — no boundary violations
+against `docs/architecture-document.md`, ADR-0003, ADR-0006, or ADR-0096,
+and confirmed ADR-0098 was the right call for a new structural decision
+(lock-check placement, lock storage shape) rather than a silent choice.
+`quality-architect` found the `LockInstant`-formula duplication and two
+stale comments (fixed same session, see the `df22345` commit) and flagged
+the `GuessEndpoints`/`GameKey`-allow-list risk and the `PredictPlayerLock`
+REQ-710 gap as backlog-worthy rather than blocking — both now tracked
+below.
+
+Testing: no local `dotnet`/`npm` available in-sandbox for the full
+suite — CI verification (`ci.yml` `workflow_dispatch`) confirmed green
+(backend, frontend unit, E2E) before this story was considered done, same
+recurring constraint as every other recent story in this file.
+
+**Follow-up (flagged 2026-08-31, S-197, ADR-0098's Consequences section): add a `GameKey` allow-list to `GuessEndpoints`/`GuessSubmissionService`.**
+ADR-0098's Decision §1 (REQ-1306's lock check lives in `PredictEndpoints`,
+not `XGPredictGameModule`) depends on `GuessSubmissionService` never
+becoming a second, unguarded path into
+`XGPredictGameModule.ScoreSubmissionAsync`. Today `GuessEndpoints`'
+`POST /rounds/{roundId}/cells/{cellId}/guesses` has no `GameKey`
+allow-list at all — it is safe only because
+`XGPredictGameModule.GetMaxAttemptsForCellAsync` still throws
+`NotImplementedException` for `"xg-predict"`, so `GuessSubmissionService`
+never actually reaches `ScoreSubmissionAsync` through that route. That
+safety is incidental, not structural. Trigger: whoever implements
+`GetMaxAttemptsForCellAsync` for xG Predict must, in the same story, either
+add an explicit `GameKey` guard to `GuessEndpoints`/`GuessSubmissionService`
+or move REQ-1306's lock check somewhere both paths pass through — do not
+implement that method without addressing this.
+
+**Follow-up (flagged 2026-08-31, S-197, `XGArcadeDbContext.cs`'s own comment on `PredictPlayerLock`): wire REQ-710 account-deletion handling for `PredictPlayerLock`/`PredictMatchPrediction`.**
+`AccountDeletionService` does not reference either table today.
+`PredictMatchPrediction.UserId` is nullable and shaped to mirror
+`Guess.UserId`'s anonymize-in-place path, but nothing calls that path yet
+for this table specifically. `PredictPlayerLock.UserId` is *not* nullable
+(it is half of the table's composite primary key), so the usual
+"anonymize by setting `UserId = NULL`" approach is structurally
+unavailable for it — the only viable path is a hard delete of the row on
+account deletion, expected to be safe once wired (a lock row is a flag,
+not a scoring row the way `Guess` is, so nothing else depends on it
+surviving). Trigger: before xG Predict is considered feature-complete for
+a real user base, or sooner if a REQ-710 compliance review is scheduled.

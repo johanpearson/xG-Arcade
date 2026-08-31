@@ -161,4 +161,47 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
 
         return totals.ToDictionary(t => t.UserId, t => t.Total);
     }
+
+    // REQ-1302/ADR-0098: same explicit-join shape as
+    // GetTotalPointsByInstanceIdAsync above (no navigation property from
+    // PredictMatchPrediction to PredictMatch), scoped to one user instead of
+    // grouped by every user.
+    public async Task<IReadOnlyList<PredictMatchPrediction>> GetPredictionsForInstanceAndUserAsync(
+        Guid predictInstanceId, Guid userId, CancellationToken cancellationToken = default) =>
+        await (
+            from prediction in dbContext.PredictMatchPredictions.AsNoTracking()
+            join match in dbContext.PredictMatches.AsNoTracking()
+                on prediction.PredictMatchId equals match.Id
+            where match.PredictInstanceId == predictInstanceId && prediction.UserId == userId
+            select prediction)
+            .ToListAsync(cancellationToken);
+
+    public async Task<bool> IsPlayerLockedAsync(Guid predictInstanceId, Guid userId, CancellationToken cancellationToken = default) =>
+        await dbContext.PredictPlayerLocks
+            .AsNoTracking()
+            .AnyAsync(l => l.PredictInstanceId == predictInstanceId && l.UserId == userId, cancellationToken);
+
+    public async Task LockPlayerPredictionsAsync(
+        Guid predictInstanceId, Guid userId, DateTime lockedAt, CancellationToken cancellationToken = default)
+    {
+        // Load-then-save (coding-guidelines.md — never ExecuteUpdateAsync),
+        // and idempotent by construction: a second call for an already-
+        // locked pair finds the existing row and simply does nothing further
+        // rather than attempting a second insert that would violate the
+        // composite key.
+        var existing = await dbContext.PredictPlayerLocks
+            .FirstOrDefaultAsync(l => l.PredictInstanceId == predictInstanceId && l.UserId == userId, cancellationToken);
+
+        if (existing is not null)
+            return;
+
+        dbContext.PredictPlayerLocks.Add(new PredictPlayerLock
+        {
+            PredictInstanceId = predictInstanceId,
+            UserId = userId,
+            LockedAt = lockedAt,
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

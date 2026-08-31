@@ -1,0 +1,125 @@
+/* design-document.md SCREEN-14: one match card — surface-card, hairline
+   border, tokens only, no per-game accent color (matches SCREEN-09's tile
+   treatment: "a tile's identity comes from its name/description, not a
+   color code"). */
+.predict-match-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+}
+
+.predict-match-input__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.predict-match-input__teams {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.predict-match-input__vs {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* design-document.md §2: any number meant to be compared at a glance is
+   always mono/tabular — the scheduled kickoff instant is exactly that
+   (players compare kickoff times across the round's 5 matches to see which
+   one determines REQ-1303's lock instant). */
+.predict-match-input__kickoff {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.predict-match-input__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.predict-match-input__field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.predict-match-input__field-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* design-document.md §2: score inputs are entered numbers meant to be
+   compared/read at a glance, same mono/tabular rule as the kickoff time
+   above. */
+.predict-match-input__field {
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-size: 16px;
+  text-align: center;
+}
+
+.predict-match-input__field:disabled {
+  opacity: 0.6;
+}
+
+.predict-match-input__separator {
+  color: var(--color-text-muted);
+  padding-bottom: var(--space-3);
+}
+
+.predict-match-input__save {
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.predict-match-input__save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* §2: accent-gold(-text) means "settled/correct" in this system — a saved
+   prediction is neither graded nor known-correct (REQ-1304/1305's grading is
+   asynchronous and has no reachable frontend surface here), so using gold
+   would misleadingly imply a correctness signal this screen never has.
+   accent-green-text (this codebase's other "successful action" color, e.g.
+   PathGuessInput's own submit button) is the correct token instead. */
+.predict-match-input__saved {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-accent-green-text);
+}
+
+.predict-match-input__error {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+}

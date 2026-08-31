@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/requirements-document.md` (§4.14 intro note and
+  REQ-1302/1303's own status notes updated — prediction submission and the
+  round-wide lock are now reachable through a real HTTP endpoint, no
+  longer "a player still cannot submit a prediction through any production
+  code path"; REQ-1306 given its first status note — previously "design-only,
+  no code implements it yet," now implemented; version 2.28 → 2.29),
+  `docs/architecture-document.md` (COMP-15's row and §5.3's ADR-evolution
+  table entry rewritten for ADR-0098; §6.11's prediction-submission sketch
+  replaced with the real `PredictEndpoints` flow plus a new confirm-lock
+  leg, its header, "Open questions" paragraph, and one stale
+  "grading has nothing to grade yet" note all updated to match; version
+  1.27 → 1.28), `docs/implementation-document.md` (§4 project structure
+  gained `PredictEndpoints`, `PredictPlayerLock`, `PredictInstance.LockInstant`,
+  and a new `/predict` frontend feature-folder entry; §5 data model gained
+  `PredictPlayerLock` and `PredictInstance.LockInstant`; test-inventory
+  notes extended for `PredictEndpointTests`/`PredictInstanceRepositoryTests`;
+  version 1.13 → 1.14), `docs/backlog.md` (new S-197 entry, plus two
+  follow-up items: a `GuessEndpoints`/`GuessSubmissionService` `GameKey`
+  allow-list gap and `PredictPlayerLock`/`PredictMatchPrediction`'s missing
+  REQ-710 account-deletion wiring, both previously flagged only in
+  ADR-0098/inline code comments) — implements REQ-1301/1302/1303/1306:
+  the first real HTTP endpoints for xG Predict gameplay
+  (`XGArcade.Api.Predict.PredictEndpoints`: `GET /predict/current`,
+  `POST /predict/matches/{matchId}/predictions`, `POST /predict/confirm`),
+  calling `IGameModuleResolver.Resolve("xg-predict").ScoreSubmissionAsync`
+  directly per ADR-0096, plus REQ-1306's confirm-and-lock action end to
+  end (a new `PredictPlayerLock` entity/migration, checked in the API
+  endpoint per new ADR-0098, not inside `XGPredictGameModule`) and the
+  matching frontend round/prediction screen
+  (`frontend/src/predict/PredictScreen.tsx`/`PredictMatchInput.tsx`/
+  `PredictConfirmDialog.tsx`, SCREEN-14, xG Predict now a third tile/nav
+  entry on `GameSelectScreen`/`HeaderNav`). Deliberately not done, flagged
+  rather than silently left undiscoverable: `ILeaderboardService` wiring
+  for `"xg-predict"` round totals (pre-existing S-195/S-196 gap,
+  unaffected), a `GameKey` allow-list on `GuessEndpoints`/
+  `GuessSubmissionService` (ADR-0098's flagged risk), REQ-710
+  account-deletion wiring for `PredictPlayerLock`/`PredictMatchPrediction`,
+  and a Playwright E2E spec for xG Predict. `architecture-reviewer`/
+  `quality-architect` both ran, no blocking findings (one same-session
+  follow-up commit extracted `PredictInstance.LockInstant` and fixed stale
+  comments); CI (`ci.yml` `workflow_dispatch`) confirmed green. REQ/ADR
+  refs: REQ-1301, REQ-1302, REQ-1303, REQ-1306, ADR-0098.
+
 - 2026-08-30 — `docs/requirements-document.md` (REQ-1305 given a status
   note pointing at `PredictGradingService`/the new endpoint/workflow;
   §4.14's intro paragraph corrected — REQ-1305 no longer described as
