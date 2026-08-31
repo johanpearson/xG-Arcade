@@ -55,7 +55,7 @@ public class RoundRepository(XGArcadeDbContext dbContext) : IRoundRepository
     // index/migration; see XGArcadeDbContext.OnModelCreating's Round.HasIndex
     // comment. Returns full Round rows, not ids-only (ADR-0100 §5 — a second
     // caller now needs GameInstanceId per round too).
-    public async Task<IReadOnlyList<Round>> GetClosedIdsWithinWindowAsync(
+    public async Task<IReadOnlyList<Round>> GetClosedWithinWindowAsync(
         string gameKey, DateTime windowStartUtc, DateTime windowEndUtc, CancellationToken cancellationToken = default) =>
         await dbContext.Rounds
             .AsNoTracking()

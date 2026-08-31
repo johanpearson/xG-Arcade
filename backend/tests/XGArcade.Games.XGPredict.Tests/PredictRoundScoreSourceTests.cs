@@ -40,7 +40,7 @@ public class PredictRoundScoreSourceTests
     // ---- GetPerRoundTotalsByUserIdsAsync (REQ-409) ---------------------
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_ParticipantWithGradedMatch_ContributesGradedTotal()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_ParticipantWithGradedMatch_ContributesGradedTotal()
     {
         var userId = Guid.NewGuid();
         var (instanceId, matchId) = await SeedInstanceWithOneMatchAsync();
@@ -58,7 +58,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_ParticipantWithPredictionsButNothingGradedYet_StillQualifiesContributingZero()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_ParticipantWithPredictionsButNothingGradedYet_StillQualifiesContributingZero()
     {
         // ADR-0100 §3's own example: a closed round where the user predicted
         // but grading hasn't run yet must still count as a qualifying round
@@ -74,7 +74,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_UserNeverPredictedInThisRound_AbsentFromResult()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_UserNeverPredictedInThisRound_AbsentFromResult()
     {
         var participantId = Guid.NewGuid();
         var neverPredictedId = Guid.NewGuid();
@@ -90,7 +90,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_RequestedUserIdsFilter_ExcludesParticipantsNotInTheList()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_RequestedUserIdsFilter_ExcludesParticipantsNotInTheList()
     {
         var requestedUserId = Guid.NewGuid();
         var otherParticipantId = Guid.NewGuid();
@@ -106,7 +106,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_ClosedRoundsForAnotherGameKey_NeverContributeAnything()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_ClosedRoundsForAnotherGameKey_NeverContributeAnything()
     {
         var userId = Guid.NewGuid();
         var (instanceId, matchId) = await SeedInstanceWithOneMatchAsync();
@@ -130,7 +130,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_MultipleClosedRounds_OneListEntryPerRoundInOrderSupplied()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_MultipleClosedRounds_OneListEntryPerRoundInOrderSupplied()
     {
         var userId = Guid.NewGuid();
         var (firstInstanceId, firstMatchId) = await SeedInstanceWithOneMatchAsync();
@@ -149,7 +149,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_ApplyGuestEligibilityRulesTrue_GuestMemberExcluded()
+    public async Task REQ717_GetPerRoundTotalsByUserIdsAsync_ApplyGuestEligibilityRulesTrue_GuestMemberExcluded()
     {
         var guestId = Guid.NewGuid();
         var guest = new User
@@ -172,7 +172,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_ApplyGuestEligibilityRulesFalse_GuestMemberIncluded()
+    public async Task REQ717_GetPerRoundTotalsByUserIdsAsync_ApplyGuestEligibilityRulesFalse_GuestMemberIncluded()
     {
         var guestId = Guid.NewGuid();
         var guest = new User
@@ -195,7 +195,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_RoundClosedBeforeClaiming_ExcludedFromClaimedAccount()
+    public async Task REQ717_GetPerRoundTotalsByUserIdsAsync_RoundClosedBeforeClaiming_ExcludedFromClaimedAccount()
     {
         var userId = Guid.NewGuid();
         var claimedAt = Now.AddDays(-1);
@@ -221,7 +221,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_RoundClosedAfterClaiming_IncludedForClaimedAccount()
+    public async Task REQ717_GetPerRoundTotalsByUserIdsAsync_RoundClosedAfterClaiming_IncludedForClaimedAccount()
     {
         var userId = Guid.NewGuid();
         var claimedAt = Now.AddDays(-5);
@@ -247,7 +247,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetPerRoundTotalsByUserIdsAsync_RoundWithZeroParticipants_ContributesNothingToAnyone()
+    public async Task REQ409_GetPerRoundTotalsByUserIdsAsync_RoundWithZeroParticipants_ContributesNothingToAnyone()
     {
         var userId = Guid.NewGuid();
         var (instanceId, _) = await SeedInstanceWithOneMatchAsync();
@@ -286,7 +286,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetActiveRoundTotalsByUserIdAsync_ParticipantWithNothingGradedYet_AbsentNotZero()
+    public async Task REQ407_GetActiveRoundTotalsByUserIdAsync_ParticipantWithNothingGradedYet_AbsentNotZero()
     {
         var userId = Guid.NewGuid();
         var (instanceId, matchId) = await SeedInstanceWithOneMatchAsync();
@@ -310,7 +310,7 @@ public class PredictRoundScoreSourceTests
     // ---- GetTotalsByRoundAsync (REQ-408) --------------------------------
 
     [Test]
-    public async Task ADR0100_GetTotalsByRoundAsync_ClosedRound_ReturnsGradedTotalsPerUser()
+    public async Task REQ408_GetTotalsByRoundAsync_ClosedRound_ReturnsGradedTotalsPerUser()
     {
         var firstUserId = Guid.NewGuid();
         var secondUserId = Guid.NewGuid();
@@ -329,7 +329,7 @@ public class PredictRoundScoreSourceTests
     // ---- GetTotalsByRoundsAsync (REQ-405) --------------------------------
 
     [Test]
-    public async Task ADR0100_GetTotalsByRoundsAsync_SumsGradedTotalsAcrossEveryRoundSupplied()
+    public async Task REQ405_GetTotalsByRoundsAsync_SumsGradedTotalsAcrossEveryRoundSupplied()
     {
         var userId = Guid.NewGuid();
         var (firstInstanceId, firstMatchId) = await SeedInstanceWithOneMatchAsync();
@@ -347,7 +347,7 @@ public class PredictRoundScoreSourceTests
     }
 
     [Test]
-    public async Task ADR0100_GetTotalsByRoundsAsync_RoundWithNothingGradedYet_ContributesZeroNotAbsent()
+    public async Task REQ405_GetTotalsByRoundsAsync_RoundWithNothingGradedYet_ContributesZeroNotAbsent()
     {
         var userId = Guid.NewGuid();
         var (gradedInstanceId, gradedMatchId) = await SeedInstanceWithOneMatchAsync();

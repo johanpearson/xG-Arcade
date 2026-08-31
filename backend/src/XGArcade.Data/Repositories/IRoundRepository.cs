@@ -55,7 +55,7 @@ public interface IRoundRepository
     // inventing a narrower projection type — Round is small and
     // already-loaded-everywhere; there is no performance case for keeping
     // the narrower ids-only shape now that a second caller needs more of it.
-    Task<IReadOnlyList<Round>> GetClosedIdsWithinWindowAsync(
+    Task<IReadOnlyList<Round>> GetClosedWithinWindowAsync(
         string gameKey, DateTime windowStartUtc, DateTime windowEndUtc, CancellationToken cancellationToken = default);
 
     Task<Round?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);

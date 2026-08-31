@@ -273,10 +273,10 @@ public class LeaderboardService(
         else
         {
             var (windowStartUtc, windowEndUtc) = GetCalendarWindow(resolution, nowUtc);
-            // ADR-0100 §5: GetClosedIdsWithinWindowAsync now returns full
+            // ADR-0100 §5: GetClosedWithinWindowAsync now returns full
             // Round rows (not ids-only) — PredictRoundScoreSource needs each
             // round's GameInstanceId, not just its Id.
-            var closedRoundsInWindow = await roundRepository.GetClosedIdsWithinWindowAsync(gameKey, windowStartUtc, windowEndUtc, cancellationToken);
+            var closedRoundsInWindow = await roundRepository.GetClosedWithinWindowAsync(gameKey, windowStartUtc, windowEndUtc, cancellationToken);
             totalsByUserId = await roundScoreSource.GetTotalsByRoundsAsync(closedRoundsInWindow, cancellationToken);
         }
 

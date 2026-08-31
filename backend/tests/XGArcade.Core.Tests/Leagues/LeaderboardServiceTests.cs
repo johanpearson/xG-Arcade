@@ -1549,7 +1549,7 @@ public class LeaderboardServiceTests
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(7));
     }
 
-    // ADR-0100 §5: proves GetClosedIdsWithinWindowAsync's widened
+    // ADR-0100 §5: proves GetClosedWithinWindowAsync's widened
     // Round-not-Guid-ids return shape actually flows through to
     // GetTotalsByRoundsAsync — asserting GameInstanceId (not just Id) is
     // populated on what the resolved source receives is what distinguishes

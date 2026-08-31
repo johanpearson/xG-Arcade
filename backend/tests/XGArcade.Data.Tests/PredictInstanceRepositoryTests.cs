@@ -384,6 +384,95 @@ public class PredictInstanceRepositoryTests
         Assert.That(totals, Is.Empty, "a voided match must contribute nothing to any player's round total");
     }
 
+    // ---- REQ-1305/ADR-0100 §3: GetParticipantUserIdsByInstanceIdAsync --
+    // Unlike GetTotalPointsByInstanceIdAsync above, this answers "did this
+    // user participate" rather than "how many points has this user earned
+    // so far" — so, unlike that method, a Pending or Voided match's
+    // predicting user still counts.
+
+    [Test]
+    public async Task REQ1305_GetParticipantUserIdsByInstanceIdAsync_PendingMatchPredictingUser_StillCountsAsParticipant()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var match = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 1,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(1),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [match] });
+        await _repository.AddOrUpdatePredictionAsync(match.Id, userId, 2, 1, DateTime.UtcNow);
+
+        var result = await _repository.GetParticipantUserIdsByInstanceIdAsync(instanceId);
+
+        Assert.That(result, Is.EquivalentTo(new[] { userId }),
+            "a still-Pending match's predicting user must count as a participant, unlike GetTotalPointsByInstanceIdAsync which excludes non-Graded matches entirely");
+    }
+
+    [Test]
+    public async Task REQ1305_GetParticipantUserIdsByInstanceIdAsync_VoidedMatchPredictingUser_StillCountsAsParticipant()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var match = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 1,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(-5),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [match] });
+        await _repository.AddOrUpdatePredictionAsync(match.Id, userId, 2, 1, DateTime.UtcNow);
+        await _repository.VoidMatchAsync(match.Id);
+
+        var result = await _repository.GetParticipantUserIdsByInstanceIdAsync(instanceId);
+
+        Assert.That(result, Is.EquivalentTo(new[] { userId }),
+            "a Voided match's predicting user must still count as a participant");
+    }
+
+    [Test]
+    public async Task REQ1305_GetParticipantUserIdsByInstanceIdAsync_UserPredictedOnMultipleMatchesInSameInstance_AppearsExactlyOnce()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var matchOne = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 1,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(1),
+        };
+        var matchTwo = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 2,
+            HomeTeamName = "C", AwayTeamName = "D", KickoffUtc = DateTime.UtcNow.AddHours(2),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [matchOne, matchTwo] });
+        await _repository.AddOrUpdatePredictionAsync(matchOne.Id, userId, 2, 1, DateTime.UtcNow);
+        await _repository.AddOrUpdatePredictionAsync(matchTwo.Id, userId, 0, 0, DateTime.UtcNow);
+
+        var result = await _repository.GetParticipantUserIdsByInstanceIdAsync(instanceId);
+
+        Assert.That(result, Has.Count.EqualTo(1), "a user who predicted on multiple matches in the same instance must appear exactly once");
+        Assert.That(result, Is.EquivalentTo(new[] { userId }));
+    }
+
+    [Test]
+    public async Task REQ1305_GetParticipantUserIdsByInstanceIdAsync_AnonymizedPredictionWithNullUserId_DoesNotProduceParticipantEntry()
+    {
+        var instanceId = Guid.NewGuid();
+        var match = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 1,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(1),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [match] });
+        // REQ-710: an anonymized prediction row keeps UserId = null rather
+        // than being deleted — must not surface as a participant.
+        await _repository.AddOrUpdatePredictionAsync(match.Id, userId: null, 2, 1, DateTime.UtcNow);
+
+        var result = await _repository.GetParticipantUserIdsByInstanceIdAsync(instanceId);
+
+        Assert.That(result, Is.Empty, "an anonymized (null UserId) prediction must never produce a participant entry");
+    }
+
     // ---- helpers (REQ-1305) --------------------------------------------
 
     private async Task<PredictMatch> SeedMatchAsync(DateTime kickoffUtc)
