@@ -45,4 +45,66 @@ public interface IPredictInstanceRepository
     // why it is named SubmittedAt rather than CreatedAt (quality-gate fix,
     // 2026-08-30).
     Task AddOrUpdatePredictionAsync(Guid predictMatchId, Guid? userId, int homeGoals, int awayGoals, DateTime submittedAt, CancellationToken cancellationToken = default);
+
+    // REQ-1305/ADR-0097 §3: the grading job's own query — every PredictMatch
+    // still Pending whose kickoff, plus this GameKey-wide typical match
+    // duration, has already passed `nowUtc`. No Round/IRoundRepository
+    // dependency: a match's own kickoff having passed already implies its
+    // round is locked (ADR-0097's Context — the round lock instant is
+    // always the MINIMUM of its 5 matches' own kickoffs, so any one
+    // match's kickoff is, by construction, always >= that minimum).
+    // GradingStatus == Pending is the WHOLE idempotency mechanism (Decision
+    // §3) — a Graded/Voided match is never returned here again, so
+    // PredictGradingService never re-fetches or re-grades it.
+    Task<IReadOnlyList<PredictMatch>> GetMatchesReadyForGradingAsync(
+        TimeSpan typicalMatchDuration, DateTime nowUtc, CancellationToken cancellationToken = default);
+
+    // REQ-1305: every stored prediction for one match, read so
+    // PredictGradingService can score each one via
+    // XGPredictScoringStrategy.ScorePrediction before persisting the
+    // result via GradeMatchAsync below. Mirrors GetPredictionAsync's own
+    // read-only, AsNoTracking shape.
+    Task<IReadOnlyList<PredictMatchPrediction>> GetPredictionsForMatchAsync(
+        Guid predictMatchId, CancellationToken cancellationToken = default);
+
+    // REQ-1305/ADR-0097 §3: persists a confirmed/Finished match's grading
+    // outcome atomically — the match's GradingStatus/ActualHomeGoals/
+    // ActualAwayGoals AND every one of its predictions' FinalPoints
+    // (keyed by PredictMatchPrediction.Id in finalPointsByPredictionId),
+    // in the same unit of work (one SaveChangesAsync call), so a crash
+    // mid-write cannot leave FinalPoints set on some predictions while the
+    // match itself is still Pending (which would make a retry re-grade and
+    // double-count), or vice versa. Load-then-save, never
+    // ExecuteUpdateAsync/ExecuteDeleteAsync — same convention
+    // AddOrUpdatePredictionAsync's own doc comment already follows (the
+    // InMemory test provider can't translate those).
+    Task GradeMatchAsync(
+        Guid predictMatchId,
+        int actualHomeGoals,
+        int actualAwayGoals,
+        IReadOnlyDictionary<Guid, int> finalPointsByPredictionId,
+        CancellationToken cancellationToken = default);
+
+    // REQ-1305/ADR-0097 §3: persists a postponed/abandoned match's voided
+    // outcome — GradingStatus = Voided only. No ActualHomeGoals/
+    // ActualAwayGoals write (API-Football's own values for this outcome
+    // are untrustworthy per ApiFootballFixtureOutcome's own doc comment),
+    // and no PredictMatchPrediction row for this match is ever touched —
+    // every one keeps FinalPoints == null permanently, indistinguishable
+    // from "not yet graded," which is REQ-1305's own deliberate voiding
+    // behavior.
+    Task VoidMatchAsync(Guid predictMatchId, CancellationToken cancellationToken = default);
+
+    // REQ-1305/ADR-0097 §2: a PredictInstance's running total per user —
+    // UserId -> SUM(FinalPoints), summed only over predictions whose
+    // parent PredictMatch.GradingStatus == Graded. Pending and Voided
+    // matches are excluded entirely (not a placeholder worst-case value),
+    // satisfying REQ-1305's "an ungraded match contributes no components"
+    // and "a round's total... grow[s]... over time" criteria directly:
+    // calling this again after another match is graded returns a larger
+    // sum for any user with predictions on it, with no other state to
+    // update. Deliberately NOT wired into ILeaderboardService in this
+    // story — see ADR-0097 Decision §2's own explicit scope note.
+    Task<IReadOnlyDictionary<Guid, int>> GetTotalPointsByInstanceIdAsync(
+        Guid predictInstanceId, CancellationToken cancellationToken = default);
 }

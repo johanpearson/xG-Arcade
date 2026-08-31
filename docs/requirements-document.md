@@ -10108,15 +10108,18 @@ REQ-1304 (scoring) is now implemented — see its own status note below for
 what's built (`IScoringStrategy.LowerIsBetter`, `XGPredictScoringStrategy`,
 and all four of `LeaderboardService`'s ranking scopes, including
 REQ-401/409/410's median ranking, closed same-day as a direct follow-up).
-REQ-1305 (asynchronous grading) and REQ-1306 (confirm-and-lock
-action) remain design-only — no code implements them yet, and this
-section's original framing still applies to those two: every REQ below is
+**Status (2026-08-30, ADR-0097):** REQ-1305 (asynchronous grading) is now
+implemented — see its own status note below for what's built
+(`PredictGradingService`, the new `PredictMatchGradingStatus`/
+`FinalPoints` columns, and the `/internal/grade-predict-matches` endpoint/
+workflow). REQ-1306 (confirm-and-lock
+action) remains design-only — no code implements it yet, and this
+section's original framing still applies to it: every REQ below is
 written to the same standard as §4.1/§4.12's requirements for xG
-Grid/xG Path, but REQ-1305/1306 (and, per its status note, the
-not-yet-built remainder of REQ-1304) describe intended behavior for a game
-surface that has not been built, not a claim about current behavior.
-**Status (2026-08-30, round-scheduling wiring story):** REQ-1301's round
-*generation* is now reachable in production — `InternalRoundEndpoints`'s
+Grid/xG Path, but REQ-1306 describes intended behavior for a game surface
+that has not been built, not a claim about current behavior.
+**Status (2026-08-30, round-scheduling wiring story, S-196):** REQ-1301's
+round *generation* is now reachable in production — `InternalRoundEndpoints`'s
 `gameKey` switch routes `"xg-predict"`, and both `RoundSchedulingOptions`
 (this story) and `IScoringStrategy` (S-193/REQ-1304/ADR-0095) are
 registered for `"xg-predict"` alongside xG Grid/xG Path's own. See
@@ -10126,7 +10129,11 @@ extend to REQ-1302/1303's prediction *submission*: nothing wires
 any real HTTP endpoint yet — only round generation via
 `/internal/generate-round?gameKey=xg-predict` is reachable end to end; a
 player still cannot submit a prediction through any production code path.
-See REQ-1302/1303's own status notes below, which are unchanged by this
+REQ-1305's own `/internal/grade-predict-matches` endpoint and its hourly
+workflow (ADR-0097, S-195) are a real, reachable HTTP/CI surface today,
+but — since submission is still unwired — there are no stored predictions
+for it to grade yet even once a generated round exists. See
+REQ-1302/1303/1305's own status notes below, otherwise unchanged by this
 story.
 
 **Note on §4.13's cross-game requirements:** REQ-1210 (round-completion
@@ -10510,6 +10517,49 @@ here, not decided in this requirement:
 Flagged for `architecture-reviewer`/the implementer to resolve via a new
 ADR before or alongside implementation — a requirements document specifies
 WHAT and HOW TO VERIFY, not HOW TO BUILD.
+
+**Status (2026-08-30, ADR-0097):** Implemented —
+`IPredictGradingService`/`PredictGradingService`
+(`backend/src/XGArcade.Games.XGPredict/PredictGradingService.cs`) fetches
+every `Pending` `PredictMatch` whose kickoff plus
+`PredictGradingOptions.TypicalMatchDuration` has passed
+(`IPredictInstanceRepository.GetMatchesReadyForGradingAsync`, no
+`Round`/`IRoundRepository` dependency — ADR-0097's kickoff-implies-lock
+proof), calls `IApiFootballClient.GetFixtureResultAsync` for each, and
+grades every stored prediction via `XGPredictScoringStrategy.ScorePrediction`
+(REQ-1304) before persisting the match's `GradingStatus`/
+`ActualHomeGoals`/`ActualAwayGoals` and each prediction's `FinalPoints`
+atomically (`IPredictInstanceRepository.GradeMatchAsync`). A
+`NotYetConfirmed` result leaves the match untouched for retry; a
+`PostponedOrAbandoned` result sets `GradingStatus = Voided`
+(`VoidMatchAsync`) with no points ever written for that match, per the
+product-owner-confirmed voiding rule. `GradingStatus == Pending` is the
+sole idempotency gate — an already-`Graded`/`Voided` match is never
+re-fetched or re-scored. A round's growing total is readable via the new
+`IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync`, summed only
+over `Graded` matches. The trigger is a new bearer-token-gated endpoint,
+`POST /internal/grade-predict-matches`
+(`backend/src/XGArcade.Api/Predict/InternalPredictGradingEndpoints.cs`,
+registered unconditionally like `/internal/generate-round`), polled hourly
+plus `workflow_dispatch` by `.github/workflows/grade-predict-matches.yml` —
+see ADR-0097 for the full cadence/budget reasoning. Unit-tested in
+`PredictGradingServiceTests` (confirmed/not-yet-confirmed/postponed/
+idempotent-second-run cases) and `PredictInstanceRepositoryTests`
+(the new repository methods); the endpoint itself is covered by
+`InternalPredictGradingEndpointTests` (authorization/happy-path shape;
+the endpoint's graded/voided-count response itself is not yet exercised
+against a fake `IApiFootballClient` end to end — a coverage nicety, not a
+gap in the grading logic itself, which the service-level tests above
+already cover thoroughly). **Not yet reachable end-to-end in production:**
+`ILeaderboardService`/`LeaderboardEndpoints` do not call
+`GetTotalPointsByInstanceIdAsync` yet — no leaderboard surface can show an
+xG Predict round's total today, even once graded (flagged explicitly as
+an ADR-0097 follow-up, tracked in `docs/backlog.md`). This is additionally
+moot in practice today since no `"xg-predict"` round can exist yet at all
+— `RoundSchedulingOptions`/round-generation wiring for this `GameKey`
+remains unregistered (unchanged from every prior xG Predict story's own
+scope note), so `PredictGradingService`'s query will find zero matches to
+grade in production until that separate story lands.
 
 **Leaderboard participation:** xG Predict needs no new leaderboard
 requirement of its own. REQ-401 (Global League membership) and REQ-410

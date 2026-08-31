@@ -385,9 +385,43 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    "xg-predict" (2026-08-30, ADR-0095):
                                    XGPredictScoringStrategy, LowerIsBetter =
                                    false, ScorePrediction implements
-                                   REQ-1304's formula with no production
-                                   caller yet — see requirements-document.md
-                                   §4.14's REQ-1304 status note.
+                                   REQ-1304's formula — see
+                                   requirements-document.md §4.14's REQ-1304
+                                   status note. As of 2026-08-30 (REQ-1305,
+                                   ADR-0097), this project also hosts
+                                   IPredictGradingService/PredictGradingService
+                                   and PredictGradingOptions
+                                   (TypicalMatchDuration): fetches each ready
+                                   match's result via DataSync's
+                                   IApiFootballClient.GetFixtureResultAsync,
+                                   grades every stored prediction via
+                                   XGPredictScoringStrategy.ScorePrediction
+                                   (the concrete class, registered directly
+                                   in DI, not through IScoringStrategy), and
+                                   persists via two new
+                                   IPredictInstanceRepository methods
+                                   (GradeMatchAsync/VoidMatchAsync), gated on
+                                   a new PredictMatch.GradingStatus
+                                   discriminator (§5) that is the sole
+                                   idempotency mechanism. Triggered by a new
+                                   bearer-token-gated endpoint,
+                                   POST /internal/grade-predict-matches
+                                   (XGArcade.Api.Predict.
+                                   InternalPredictGradingEndpoints, registered
+                                   unconditionally like
+                                   /internal/generate-round), polled hourly
+                                   plus workflow_dispatch by a new
+                                   .github/workflows/grade-predict-matches.yml
+                                   (see the CI/CD subsection below).
+                                   Deliberately NOT wired into
+                                   ILeaderboardService/LeaderboardEndpoints
+                                   yet (GetTotalPointsByInstanceIdAsync
+                                   exists at the repository level only —
+                                   ADR-0097 Decision §2, tracked as a
+                                   docs/backlog.md follow-up) and
+                                   RoundSchedulingOptions for "xg-predict"
+                                   remains unregistered, unaffected by this
+                                   story.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -435,6 +469,17 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    FakeApiFootballClient, InMemory-backed
                                    repositories, same pattern as
                                    GridGameModule.Tests/XGPathGameModuleTests.
+                                   Extended 2026-08-30 (REQ-1305, ADR-0097)
+                                   with PredictGradingServiceTests
+                                   (confirmed/not-yet-confirmed/postponed/
+                                   idempotent-second-run cases against the
+                                   same fakes) and extended
+                                   PredictInstanceRepositoryTests coverage
+                                   for the new grading-query/persist/
+                                   round-total-read repository methods;
+                                   XGArcade.Api.Tests gained
+                                   InternalPredictGradingEndpointTests
+                                   (authorization/happy-path shape).
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config).
                                    Added PredictInstanceRepositoryTests
                                    2026-08-30 (ADR-0096); extended same day
@@ -1126,8 +1171,12 @@ public class PathPuzzle
 //
 // Unlike GridCell (dynamically-matched category pair) and PathPuzzle (one
 // fixed TargetPlayerId FK), a PredictMatch has no "answer" at all until
-// REQ-1305's asynchronous grading (a separate, later story, not yet built)
-// confirms the real final score — see ADR-0096 for the full reasoning.
+// REQ-1305's asynchronous grading confirms the real final score — see
+// ADR-0096 for the original entity-shape reasoning. REQ-1305/ADR-0097
+// (2026-08-30, migration 20260830130000_AddPredictMatchGrading) then added
+// PredictMatch.GradingStatus/ActualHomeGoals/ActualAwayGoals and
+// PredictMatchPrediction.FinalPoints below — grading is now real, not a
+// future concern.
 
 public class PredictTemplate
 {
@@ -1149,14 +1198,25 @@ public class PredictMatch
 {
     public Guid Id { get; set; }              // the "cell" GetCellIdsAsync returns
     public Guid PredictInstanceId { get; set; }
-    public int ExternalFixtureId { get; set; } // API-Football's own fixture id (ADR-0094) — REQ-1305's future grading lookup key
+    public int ExternalFixtureId { get; set; } // API-Football's own fixture id (ADR-0094) — REQ-1305's grading lookup key
     public string HomeTeamName { get; set; }
     public string AwayTeamName { get; set; }
     // Always normalized to UTC. REQ-1303's round-lock instant is
     // Matches.Min(m => m.KickoffUtc) across a PredictInstance's Matches,
     // reconstructable from these rows alone without a second fetch.
     public DateTime KickoffUtc { get; set; }
+
+    // REQ-1305/ADR-0097 §2 (2026-08-30). Sole source of truth for "has this
+    // match been graded" — PredictGradingService's whole idempotency
+    // mechanism: only Pending matches are ever selected for grading.
+    // ActualHomeGoals/ActualAwayGoals are set only when Graded; a Voided
+    // (postponed/abandoned) match never gets them written.
+    public PredictMatchGradingStatus GradingStatus { get; set; } = PredictMatchGradingStatus.Pending;
+    public int? ActualHomeGoals { get; set; }
+    public int? ActualAwayGoals { get; set; }
 }
+
+public enum PredictMatchGradingStatus { Pending, Graded, Voided }
 
 // A separate, top-level table — NOT owned by PredictMatch's own collection
 // — since predictions accumulate independently, from many different users,
@@ -1178,6 +1238,14 @@ public class PredictMatchPrediction
     // established precedent, so the CreatedAt name would misleadingly
     // imply the same semantics here.
     public DateTime SubmittedAt { get; set; }
+
+    // REQ-1305/ADR-0097 §2 (2026-08-30). Same shape/meaning as
+    // Guess.FinalPoints: null means "no points computed yet," set exactly
+    // once by PredictGradingService when the parent PredictMatch is graded
+    // (never recomputed). A prediction belonging to a Voided match keeps
+    // this null permanently — indistinguishable from "not yet graded,"
+    // which is the deliberately correct behavior for a voided match.
+    public int? FinalPoints { get; set; }
 }
 
 // --- Core (xG Arcade) entities (XGArcade.Core) ---
@@ -2756,6 +2824,14 @@ split and sync approach.
   daily cron and `workflow_dispatch` input, one per `GameKey`): scheduled
   per the configured frequency (REQ-301), calls a backend endpoint to
   create a new Round for its own `GameKey` only
+- **`grade-predict-matches.yml`** (REQ-1305/ADR-0097): a new, independent
+  workflow (not folded into `generate-grid-round.yml`/
+  `generate-path-round.yml` — grading is not round generation), scheduled
+  hourly (`0 * * * *`) plus `workflow_dispatch`, calls
+  `POST /internal/grade-predict-matches` (same bearer-token pattern as
+  `/internal/generate-round`) to fetch each ready xG Predict match's real
+  result and grade every stored prediction for it — see ADR-0097 for the
+  hourly-cadence budget reasoning
 - **`purge-guest-accounts.yml`** (REQ-718/ADR-0038): scheduled daily
   (07:00 UTC, offset from `generate-grid-round.yml`'s/`generate-path-round.yml`'s
   shared 06:00), calls

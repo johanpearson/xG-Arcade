@@ -17,6 +17,18 @@ namespace XGArcade.Data.Entities;
 // normalization) — REQ-1303's round-lock instant is
 // `Matches.Min(m => m.KickoffUtc)` across a PredictInstance's Matches,
 // reconstructable from these rows alone without a second fetch.
+//
+// GradingStatus/ActualHomeGoals/ActualAwayGoals: REQ-1305/ADR-0097 §2 —
+// added by this story. GradingStatus is the SOLE source of truth for
+// "has this match been graded," never inferred from whether prediction
+// rows happen to carry FinalPoints (PredictMatchPrediction.cs's own doc
+// comment) — this is also PredictGradingService's whole idempotency
+// mechanism (ADR-0097 Decision §3): a match is only ever considered by
+// the grading query while GradingStatus == Pending. ActualHomeGoals/
+// ActualAwayGoals are set only when GradingStatus == Graded; a Voided
+// match never gets these written (API-Football's own values for a
+// postponed/abandoned fixture are untrustworthy — see
+// ApiFootballFixtureOutcome.PostponedOrAbandoned's own doc comment).
 public class PredictMatch
 {
     public Guid Id { get; set; }
@@ -25,4 +37,23 @@ public class PredictMatch
     public required string HomeTeamName { get; set; }
     public required string AwayTeamName { get; set; }
     public required DateTime KickoffUtc { get; set; }
+    public PredictMatchGradingStatus GradingStatus { get; set; } = PredictMatchGradingStatus.Pending;
+    public int? ActualHomeGoals { get; set; }
+    public int? ActualAwayGoals { get; set; }
+}
+
+// REQ-1305/ADR-0097 §2: modeled as a plain enum (no HasConversion — same
+// "no existing precedent for storing an enum as a string" convention
+// PlayerSuggestionStatus/AvatarSubmissionStatus already establish; see
+// AvatarSubmission.Status's own doc comment). Every match — including
+// every one that already existed before this migration — starts and stays
+// Pending until a grading run moves it to Graded or Voided; nothing ever
+// moves a match backward out of Graded/Voided (mirrors REQ-205's "closing
+// a round never re-scores it" precedent, extended here to "grading a
+// match never re-grades it").
+public enum PredictMatchGradingStatus
+{
+    Pending,
+    Graded,
+    Voided,
 }

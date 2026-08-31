@@ -13,6 +13,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-30 — `docs/requirements-document.md` (REQ-1305 given a status
+  note pointing at `PredictGradingService`/the new endpoint/workflow;
+  §4.14's intro paragraph corrected — REQ-1305 no longer described as
+  design-only, REQ-1306 still is; version 2.27 → 2.28),
+  `docs/architecture-document.md` (COMP-15's row and §5.3's ADR-evolution
+  table entry rewritten; §6.11's grading sketch replaced with the real
+  `PredictGradingService`/endpoint/workflow flow, its header and "Open
+  questions" paragraph updated to match; version 1.26 → 1.27),
+  `docs/implementation-document.md` (§4 project structure gained
+  `IPredictGradingService`/`PredictGradingService`/`PredictGradingOptions`
+  and extended test coverage, §5 data model gained
+  `PredictMatch.GradingStatus`/`ActualHomeGoals`/`ActualAwayGoals` and
+  `PredictMatchPrediction.FinalPoints`, the CI/CD subsection gained
+  `grade-predict-matches.yml`; version 1.12 → 1.13), `docs/backlog.md`
+  (new S-195 entry) — implements REQ-1305 (asynchronous, per-match
+  grading): `PredictGradingService` fetches each ready match's result via
+  `IApiFootballClient.GetFixtureResultAsync`, grades every stored
+  prediction via `XGPredictScoringStrategy.ScorePrediction`, voids
+  postponed/abandoned matches, retries not-yet-confirmed ones, and is
+  idempotent via a new `PredictMatchGradingStatus` discriminator; a new
+  bearer-token-gated `POST /internal/grade-predict-matches` endpoint is
+  polled hourly by a new `grade-predict-matches.yml` workflow. Deliberately
+  deferred, per ADR-0097's own explicit scope and flagged as a
+  `docs/backlog.md` follow-up (not silently left undiscoverable):
+  `ILeaderboardService`/`LeaderboardEndpoints` wiring of the new
+  `GetTotalPointsByInstanceIdAsync` for `"xg-predict"` round totals;
+  `RoundSchedulingOptions`/round-generation wiring for `"xg-predict"`
+  remains unaffected and unchanged (closed independently the same day —
+  see the round-scheduling wiring entry below). Two small, non-blocking
+  quality-gate notes recorded in the new S-195 backlog entry rather than
+  fixed here: `XGPredictScoringStrategy`'s double DI registration, and
+  `InternalPredictGradingEndpointTests.cs` not exercising a non-zero
+  graded/voided count end-to-end. `architecture-reviewer`/
+  `quality-architect` both PASSed with no blocking findings. REQ/ADR refs:
+  REQ-1305, ADR-0097.
+
 - 2026-08-30 — `docs/decisions/0051-per-gamekey-round-scheduling.md` (amendment,
   written directly by the orchestrating session, re-deriving its own
   "if a third game is added" Follow-up note — the three-armed `gameKey`
@@ -33,7 +69,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   third independent round-generation workflow file; version 1.26 → 1.27),
   `docs/implementation-document.md` (COMP-15's project-structure note and
   the `XGArcade.Data.Tests`/`XGArcade.Api.Tests` test-inventory notes
-  updated to match), `docs/backlog.md` (new S-195 entry, plus a small
+  updated to match), `docs/backlog.md` (new S-196 entry, plus a small
   follow-up item recording the open question ADR-0072's amendment flags:
   whether `RoundScheduling:XGPredict:RoundDurationHours`'s 48h default
   should eventually be tuned toward a weekly Premier-League-gameweek

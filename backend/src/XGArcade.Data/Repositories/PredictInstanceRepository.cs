@@ -67,4 +67,98 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    // REQ-1305/ADR-0097 §3: cutoff computed once, in C#, rather than
+    // writing `m.KickoffUtc + typicalMatchDuration <= nowUtc` in the LINQ
+    // query — a plain DateTime <= DateTime comparison translates
+    // identically (and unambiguously) against both the real Npgsql
+    // provider and the InMemory provider tests use, avoiding any doubt
+    // about whether DateTime/TimeSpan addition itself translates cleanly
+    // against Postgres interval arithmetic.
+    public async Task<IReadOnlyList<PredictMatch>> GetMatchesReadyForGradingAsync(
+        TimeSpan typicalMatchDuration, DateTime nowUtc, CancellationToken cancellationToken = default)
+    {
+        var cutoffKickoffUtc = nowUtc - typicalMatchDuration;
+
+        return await dbContext.PredictMatches
+            .AsNoTracking()
+            .Where(m => m.GradingStatus == PredictMatchGradingStatus.Pending && m.KickoffUtc <= cutoffKickoffUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PredictMatchPrediction>> GetPredictionsForMatchAsync(
+        Guid predictMatchId, CancellationToken cancellationToken = default) =>
+        await dbContext.PredictMatchPredictions
+            .AsNoTracking()
+            .Where(p => p.PredictMatchId == predictMatchId)
+            .ToListAsync(cancellationToken);
+
+    public async Task GradeMatchAsync(
+        Guid predictMatchId,
+        int actualHomeGoals,
+        int actualAwayGoals,
+        IReadOnlyDictionary<Guid, int> finalPointsByPredictionId,
+        CancellationToken cancellationToken = default)
+    {
+        // Load-then-save (coding-guidelines.md — never ExecuteUpdateAsync),
+        // tracked (unlike the AsNoTracking reads above) since this writes
+        // both the match row and, below, its predictions' rows.
+        var match = await dbContext.PredictMatches
+            .FirstOrDefaultAsync(m => m.Id == predictMatchId, cancellationToken)
+            ?? throw new InvalidOperationException($"PredictMatch '{predictMatchId}' not found.");
+
+        match.GradingStatus = PredictMatchGradingStatus.Graded;
+        match.ActualHomeGoals = actualHomeGoals;
+        match.ActualAwayGoals = actualAwayGoals;
+
+        if (finalPointsByPredictionId.Count > 0)
+        {
+            var predictionIds = finalPointsByPredictionId.Keys.ToList();
+            var predictions = await dbContext.PredictMatchPredictions
+                .Where(p => predictionIds.Contains(p.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var prediction in predictions)
+                prediction.FinalPoints = finalPointsByPredictionId[prediction.Id];
+        }
+
+        // One SaveChangesAsync call — the match's own row and every
+        // touched prediction row are written together, so a crash between
+        // them cannot happen (ADR-0097 Decision §3).
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task VoidMatchAsync(Guid predictMatchId, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.PredictMatches
+            .FirstOrDefaultAsync(m => m.Id == predictMatchId, cancellationToken)
+            ?? throw new InvalidOperationException($"PredictMatch '{predictMatchId}' not found.");
+
+        match.GradingStatus = PredictMatchGradingStatus.Voided;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalPointsByInstanceIdAsync(
+        Guid predictInstanceId, CancellationToken cancellationToken = default)
+    {
+        // No navigation property from PredictMatchPrediction to PredictMatch
+        // (XGArcadeDbContext.OnModelCreating configures that FK with no nav
+        // property, mirroring Guess's own shape) — an explicit join, not a
+        // Predictions-then-filter shape, is how this crosses from
+        // PredictMatch's GradingStatus/PredictInstanceId over to
+        // PredictMatchPrediction's FinalPoints/UserId.
+        var totals = await (
+            from prediction in dbContext.PredictMatchPredictions.AsNoTracking()
+            join match in dbContext.PredictMatches.AsNoTracking()
+                on prediction.PredictMatchId equals match.Id
+            where match.PredictInstanceId == predictInstanceId
+                && match.GradingStatus == PredictMatchGradingStatus.Graded
+                && prediction.UserId != null
+            group prediction by prediction.UserId!.Value into userPredictions
+            select new { UserId = userPredictions.Key, Total = userPredictions.Sum(p => p.FinalPoints ?? 0) })
+            .ToListAsync(cancellationToken);
+
+        return totals.ToDictionary(t => t.UserId, t => t.Total);
+    }
 }

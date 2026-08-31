@@ -151,7 +151,7 @@ one.
 | COMP-12 | Core.IncidentReporting | `IncidentReportService`/`IGitHubIssueClient` (`XGArcade.Core.IncidentReporting`) implement REQ-903: a logged-in, non-guest player can file `POST /incidents`, which creates a fixed-template GitHub issue (title/description/screen/environment plus non-PII triage context) via a fine-grained PAT (`GitHubIncidentReportToken`, set per-request, never on the shared `HttpClient`'s default headers). Rate-limited per-user (default 3/10min, a dedicated `PartitionedRateLimiter<Guid>`, distinct from the IP-partitioned auth rate-limit policies). `ICachedIncidentIssueSummaryProvider` (REQ-904/ADR-0066) gives admins a polled, cached (60s TTL, serves-stale-through-an-outage) count of open `user-reported`-labeled issues via `GET /admin/incident-reports`, reusing the same PAT's read scope — no PAT scope widening, no in-app moderation queue (a deliberate ADR-0064 boundary). | `XGArcade.Core` (`IncidentReporting/`), `XGArcade.Api` (`Incidents/`, `Admin/`) |
 | COMP-13 | Core.Announcements | `AnnouncementBanner` (`XGArcade.Data.Entities`) is a true singleton — at most one row, ever (REQ-511/ADR-0065): a site-wide, admin-managed banner (maintenance notices, announcements) visible to every visitor including a fully logged-out one. `GET /announcement-banner` is one of only two unauthenticated endpoints in the whole API, alongside `GET /health`. Admin create/activate/deactivate live under the standard `"Admin"` policy, no new authorization policy introduced. Deliberately no scheduling, no per-user dismissal, no multiple-concurrent-banner support — see REQ-511's own "Out of scope" list. | `XGArcade.Core` conceptually; entity/repository in `XGArcade.Data`, endpoints in `XGArcade.Api` (`Announcements/`, `Admin/`) |
 | COMP-14 | Core.AvatarSubmissions | `AvatarSubmission` (`XGArcade.Data.Entities`, REQ-722/ADR-0087) mirrors `PlayerSuggestion`'s submit/review/decide shape: `Pending`/`Approved`/`Rejected` status, `SubmittingUserId` deliberately unconstrained by an FK (same "no FK" reasoning as `PlayerSuggestion.SubmittingUserId`/`Guess.UserId`, since REQ-710 account deletion hard-deletes `User` rows and this story defines no anonymize-on-delete semantics for this entity yet), `ImageStorageKey` holding only the storage object key, never a URL or the raw bytes. `IAvatarStorage` (`XGArcade.Core.Storage`) is the narrow upload/best-effort-delete contract; its concrete implementation, `SupabaseAvatarStorage`, lives in a new project, `XGArcade.Storage`, referencing only `XGArcade.Core` — the first hosting-specific Supabase client built strictly to ADR-0004's boundary (deliberately not copying `Core.Auth.SupabaseAuthClient`'s pre-existing in-`Core` placement; see ADR-0087). `POST /users/me/avatar` (`XGArcade.Api.Avatars.AvatarEndpoints`) enforces the size/type limit REQ-722 leaves to implementation (5 MB; `image/jpeg`/`image/png`/`image/webp` only, no SVG/GIF — recorded in `implementation-document.md` §5) and replaces rather than duplicates an existing `Pending` submission, best-effort deleting the superseded image via `IAvatarStorage.DeleteAsync`. `IAvatarStorage.GetPreviewUrlAsync` (REQ-517/S-181, ADR-0087's own anticipated Follow-up — not a new structural decision) resolves a storage key into a short-lived (5 min) signed URL, generated server-side per request, never cached or persisted. `GET /admin/avatar-submissions`/`POST .../approve`/`POST .../reject` (`XGArcade.Api.Admin.AdminAvatarEndpoints`, its own file, mirroring `AdminSuggestionEndpoints`'s list/act-on-one-by-id/terminal-state-409 shape) list the `Pending` queue oldest-first with a resolved preview URL and submitter `DisplayName` (batched, no N+1), and race-safely (`IAvatarSubmissionRepository.ApproveAsync`/`RejectAsync` re-check `Status==Pending` inside the same tracked load, mirroring `PlayerSuggestionRepository.ResolveAsync`) approve or reject a submission. Approving supersedes ("a player has at most one visible avatar at a time") any prior `Approved` row for the same player by deleting it in the same `SaveChangesAsync` — `AvatarSubmissionStatus` gained no `Superseded` member, following `CreateOrReplacePendingAsync`'s existing "replace, don't invent a new status" precedent — and best-effort deletes that row's now-orphaned image. Rejecting never touches a prior `Approved` row. `IAvatarStorage.DownloadAsync` (REQ-722/S-182, built in parallel with S-181 and merged afterward) is a second, deliberately narrower mediation shape on the same interface: it streams the raw bytes + content type back through the backend rather than resolving a signed URL, for `GET /users/me/avatar` (three independent Pending/Rejected/Approved summaries for the caller, never one mutually-exclusive status) and `GET /users/me/avatar/{id}/image` (owner-only stream, 404 for a missing/not-owned/underlying-storage-missing row — never distinguished from "unknown id" to avoid leaking existence) in `XGArcade.Api.Avatars.AvatarEndpoints`. Two "resolve a stored key into something viewable" shapes now coexist on `IAvatarStorage` deliberately, not redundantly: `GetPreviewUrlAsync`'s signed URL is acceptable exposure for an admin reviewer's browser (a different trust boundary), while a general player-facing surface viewing their own image goes through the backend-streamed `DownloadAsync` instead, per ADR-0013's "backend mediates, frontend never talks to the provider directly" convention — see ADR-0087's Consequences section (S-182 follow-up paragraph) for the fuller reasoning and which shape is canonical for any future avatar-viewing surface (e.g. REQ-411 eventually showing another player's `Approved` avatar). That anticipated case is now built (REQ-722/S-184): `GET /users/{userId}/avatar/image`, a fourth `AvatarEndpoints` handler, calls the same `DownloadAsync` shape but for an arbitrary target `userId` rather than the caller's own — the caller is verified as logged-in only, never compared against `{userId}`, the deliberate opposite of `GET /users/me/avatar/{id}/image`'s ownership check. No new repository or storage method was needed; `GetApprovedAsync`/`DownloadAsync` were already generic on `submittingUserId`/storage key. Consumed by a new shared frontend component, `PlayerAvatar.tsx` (`frontend/src/components/`), rendered on `UserStatsScreen.tsx` (COMP-02/REQ-411's stats view). All four `AvatarEndpoints` handlers (`POST /users/me/avatar`, the three `GET`s above) share one caller-identity-resolution helper, `ResolveCurrentUserAsync`, extracted during S-182's quality gate rather than left duplicated a third time. | `XGArcade.Core` (`Storage/IAvatarStorage.cs`) conceptually; entity/repository in `XGArcade.Data`, concrete storage client in `XGArcade.Storage`, endpoints in `XGArcade.Api` (`Avatars/`, `Admin/`) |
-| COMP-15 | Games.XGPredict | The third game on the platform, alongside Games.XGGrid (COMP-05) and Games.XGPath (COMP-11) — a match-outcome prediction game (REQ-1301-1305, `docs/requirements-document.md` §4.14). As of 2026-08-30 (ADR-0096), `XGPredictGameModule.GenerateInstanceAsync` (REQ-1301), `ScoreSubmissionAsync` (REQ-1302/1303), and `GetCellIdsAsync` are real, tested implementations against a persisted `PredictTemplate`/`PredictInstance`/`PredictMatch`/`PredictMatchPrediction` schema (`XGArcade.Data`, via `IPredictInstanceRepository`) — see ADR-0096 for the full entity-shape and submission-contract reasoning. `GetMaxAttemptsForCellAsync` still throws `NotImplementedException` (xG Predict's attempt-cap model is explicitly out of this ADR's scope — REQ-1302 rules out a bounded-guess cap the way REQ-210 imposes one on xG Grid/xG Path, and no decision has been made on what, if anything, this method should return instead). `GetCellCategoryTypesAsync` throws `NotSupportedException` (REQ-215's row/col category concept genuinely does not apply to this game, mirroring COMP-11's own precedent), and `ResolveWrongGuessPlayerAsync` returns `null` unconditionally (REQ-216 does not apply — no player-name-guess concept exists here either, same precedent). Registered in `ServiceRegistration.cs` so `IGameModuleResolver.Resolve("xg-predict")` returns a real module, same as xG Grid/xG Path. **Built 2026-08-30 (round-scheduling wiring story):** `RoundSchedulingOptions` for `"xg-predict"` is now registered too (`RoundScheduling:XGPredict:RoundDurationHours`, default 48h), alongside `IScoringStrategy` (already registered, S-193/ADR-0095) — both gaps this row used to describe as deliberately deferred are closed. `InternalRoundEndpoints`'s `gameKey` switch now routes `"xg-predict"` (a third arm, mirroring the xG Grid/xG Path arms, resolving a `PredictTemplate` via the new `PredictTemplateResolver`), and `LeaderboardEndpoints.ValidateGameKey`'s allow-list now includes `"xg-predict"` too — round generation for this `GameKey` is reachable in production via `POST /internal/generate-round?gameKey=xg-predict`, scheduled by the new `.github/workflows/generate-predict-round.yml` (daily cron, its own independent file per ADR-0072's 2026-08-30 amendment, not a loop extension of a shared workflow). `GuessSubmissionService` is still **not** wired to this module — REQ-1302 prediction submission has no real HTTP endpoint yet; that remains a separate, later story. Uses API-Football's fixtures/results endpoint as its data source (ADR-0094) — the first live match-schedule/result data this codebase has ever needed, distinct from every other game's Wikidata career/bio data — and is the platform's first named exception to ADR-0021's golf-style scoring convention (ADR-0095: conventional higher-is-better scoring, confirmed by the product owner). **Built 2026-08-30:** `XGPredictScoringStrategy` (`Core.Scoring`, COMP-04) implements this — `LowerIsBetter = false`, registered against `"xg-predict"` in `ServiceRegistration.cs` — and its `ScorePrediction` method implements REQ-1304's three-component formula, unit-tested directly; no production caller exists yet (REQ-1305's grading job, still not built, would be that caller). `LeaderboardService`'s three plain-total ranking scopes (COMP-02) also now resolve `"xg-predict"` descending as a result; its separate median-based all-time ranking (REQ-409/410) now does too, closed same-day as a direct follow-up — see COMP-02's row and REQ-1304's status note. The round/match/prediction entity shape (a fixed set of 5 real-world matches with a whole-round lock at the first kickoff, not a dynamically-matched grid cell or a single fixed target player) is now decided by ADR-0096 (amended same-day for the exception-hierarchy/field-naming detail): `PredictScoringException` derives from `Core.Games.GameEntityNotFoundException` (the "not found" case, matching `PathScoringException`/`GuessScoringException` precedent); a separate `PredictInvalidSubmissionException`/`PredictRoundLockedException` cover invalid-goal-count and post-lock rejection respectively. Depends on `XGArcade.Data` (entities/repository) and `XGArcade.DataSync` (API-Football client) for real now, not deferred. | `XGArcade.Games.XGPredict` |
+| COMP-15 | Games.XGPredict | The third game on the platform, alongside Games.XGGrid (COMP-05) and Games.XGPath (COMP-11) — a match-outcome prediction game (REQ-1301-1305, `docs/requirements-document.md` §4.14). As of 2026-08-30 (ADR-0096), `XGPredictGameModule.GenerateInstanceAsync` (REQ-1301), `ScoreSubmissionAsync` (REQ-1302/1303), and `GetCellIdsAsync` are real, tested implementations against a persisted `PredictTemplate`/`PredictInstance`/`PredictMatch`/`PredictMatchPrediction` schema (`XGArcade.Data`, via `IPredictInstanceRepository`) — see ADR-0096 for the full entity-shape and submission-contract reasoning. `GetMaxAttemptsForCellAsync` still throws `NotImplementedException` (xG Predict's attempt-cap model is explicitly out of this ADR's scope — REQ-1302 rules out a bounded-guess cap the way REQ-210 imposes one on xG Grid/xG Path, and no decision has been made on what, if anything, this method should return instead). `GetCellCategoryTypesAsync` throws `NotSupportedException` (REQ-215's row/col category concept genuinely does not apply to this game, mirroring COMP-11's own precedent), and `ResolveWrongGuessPlayerAsync` returns `null` unconditionally (REQ-216 does not apply — no player-name-guess concept exists here either, same precedent). Registered in `ServiceRegistration.cs` so `IGameModuleResolver.Resolve("xg-predict")` returns a real module, same as xG Grid/xG Path. **Built 2026-08-30 (round-scheduling wiring story, S-196):** `RoundSchedulingOptions` for `"xg-predict"` is now registered too (`RoundScheduling:XGPredict:RoundDurationHours`, default 48h), alongside `IScoringStrategy` (already registered, S-193/ADR-0095) — both gaps this row used to describe as deliberately deferred are closed. `InternalRoundEndpoints`'s `gameKey` switch now routes `"xg-predict"` (a third arm, mirroring the xG Grid/xG Path arms, resolving a `PredictTemplate` via the new `PredictTemplateResolver`), and `LeaderboardEndpoints.ValidateGameKey`'s allow-list now includes `"xg-predict"` too — round generation for this `GameKey` is reachable in production via `POST /internal/generate-round?gameKey=xg-predict`, scheduled by the new `.github/workflows/generate-predict-round.yml` (daily cron, its own independent file per ADR-0072's 2026-08-30 amendment, not a loop extension of a shared workflow). `GuessSubmissionService` is still **not** wired to this module — REQ-1302 prediction submission has no real HTTP endpoint yet; that remains a separate, later story. Uses API-Football's fixtures/results endpoint as its data source (ADR-0094) — the first live match-schedule/result data this codebase has ever needed, distinct from every other game's Wikidata career/bio data — and is the platform's first named exception to ADR-0021's golf-style scoring convention (ADR-0095: conventional higher-is-better scoring, confirmed by the product owner). **Built 2026-08-30:** `XGPredictScoringStrategy` (`Core.Scoring`, COMP-04) implements this — `LowerIsBetter = false`, registered against `"xg-predict"` in `ServiceRegistration.cs` — and its `ScorePrediction` method implements REQ-1304's three-component formula, unit-tested directly. `LeaderboardService`'s three plain-total ranking scopes (COMP-02) also now resolve `"xg-predict"` descending as a result; its separate median-based all-time ranking (REQ-409/410) now does too, closed same-day as a direct follow-up — see COMP-02's row and REQ-1304's status note. **Built 2026-08-30 (ADR-0097, S-195):** `ScorePrediction` now has a real production caller — `IPredictGradingService`/`PredictGradingService` (this component's own new service) fetches every ready match's real result via COMP-07's `IApiFootballClient.GetFixtureResultAsync`, grades every stored prediction through `XGPredictScoringStrategy` (the concrete class, not `IScoringStrategy`, per ADR-0097's own reasoning), and persists via two new `IPredictInstanceRepository` methods (`GradeMatchAsync`/`VoidMatchAsync`), gated on a new `PredictMatch.GradingStatus` (`PredictMatchGradingStatus`: `Pending`/`Graded`/`Voided`) discriminator that is the sole idempotency mechanism — a `Graded`/`Voided` match is never re-fetched. `PredictMatchPrediction.FinalPoints` (nullable int, same shape as `Guess.FinalPoints`) holds each graded prediction's points; a prediction belonging to a `Voided` match keeps it `null` permanently, by design. A new `IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync` sums `FinalPoints` per user over `Graded` matches only, giving a round a partial, always-growing total with no placeholder for an ungraded match — this exists at the repository level only; `ILeaderboardService`/`LeaderboardEndpoints` do not call it yet (flagged as a `docs/backlog.md` follow-up per ADR-0097 Decision §2, not silently left undiscoverable). The trigger is a new bearer-token-gated endpoint, `POST /internal/grade-predict-matches` (`XGArcade.Api.Predict.InternalPredictGradingEndpoints`, registered unconditionally like `/internal/generate-round`), polled hourly plus `workflow_dispatch` by a new `.github/workflows/grade-predict-matches.yml` — a deliberately separate workflow from `generate-grid-round.yml`/`generate-path-round.yml`/`generate-predict-round.yml`, since grading is not round generation (ADR-0072's boundary, extended). REQ-302's `Closed` status and `RoundCloseService` remain completely untouched by grading completeness — a round can close with matches still `Pending`, by design (ADR-0097 Decision §4). Note: grading has nothing to grade yet even once a round is generated (S-196), since REQ-1302 prediction submission is still unwired — the two gaps close independently. The round/match/prediction entity shape (a fixed set of 5 real-world matches with a whole-round lock at the first kickoff, not a dynamically-matched grid cell or a single fixed target player) is now decided by ADR-0096 (amended same-day for the exception-hierarchy/field-naming detail): `PredictScoringException` derives from `Core.Games.GameEntityNotFoundException` (the "not found" case, matching `PathScoringException`/`GuessScoringException` precedent); a separate `PredictInvalidSubmissionException`/`PredictRoundLockedException` cover invalid-goal-count and post-lock rejection respectively. Depends on `XGArcade.Data` (entities/repository) and `XGArcade.DataSync` (API-Football client) for real now, not deferred. | `XGArcade.Games.XGPredict` |
 
 **"Maps to" column note (ADR-0014):** for COMP-01, COMP-03, COMP-04, and
 COMP-05 specifically, this column names where each component's
@@ -250,7 +250,7 @@ rationale, don't expect this list to explain anything on its own.
 | COMP-12 Core.IncidentReporting | ADR-0064 (incident reporting design), ADR-0066 (cached admin issue summary) |
 | COMP-13 Core.Announcements | ADR-0065 (singleton banner design) |
 | COMP-14 Core.AvatarSubmissions | ADR-0087 (avatar storage: Supabase Storage, client kept out of Core/Api) |
-| COMP-15 Games.XGPredict | ADR-0094 (API-Football fixtures/results as data source), ADR-0095 (higher-is-better scoring exception to ADR-0021 — `LowerIsBetter`/`XGPredictScoringStrategy`/the leaderboard migration built 2026-08-30, see COMP-04/COMP-02 rows), ADR-0096 (round/match/prediction entity shape and `ScoreSubmissionAsync` return/exception contract for REQ-1301/1302/1303, amended same-day for the exception-hierarchy/field-naming detail) |
+| COMP-15 Games.XGPredict | ADR-0094 (API-Football fixtures/results as data source), ADR-0095 (higher-is-better scoring exception to ADR-0021 — `LowerIsBetter`/`XGPredictScoringStrategy`/the leaderboard migration built 2026-08-30, see COMP-04/COMP-02 rows), ADR-0096 (round/match/prediction entity shape and `ScoreSubmissionAsync` return/exception contract for REQ-1301/1302/1303, amended same-day for the exception-hierarchy/field-naming detail), ADR-0097 (REQ-1305's grading trigger — a new hourly scheduled job/endpoint, mirroring ADR-0072's per-`GameKey` workflow shape — plus the `PredictMatch`/`PredictMatchPrediction` grading-state/read-path shape, and the decision that a locked-but-ungraded round's `Closed` status/leaderboard participation are fully decoupled from grading completeness) |
 
 ## 6. Key data flows
 
@@ -1120,17 +1120,21 @@ job isn't restricted to non-Production the way `Testing.SeedManager`/COMP-09
 is (ADR-0006).
 
 **6.11 xG Predict round generation, prediction submission, and asynchronous
-grading** (realizes REQ-1301–REQ-1305, ADR-0094, ADR-0095, ADR-0096 —
-scaffolded 2026-08-30, REQ-1301/1302/1303's generation and submission legs
-implemented for real the same day per ADR-0096; **the grading leg
-[Asynchronous grading — REQ-1304/1305] below remains a sketch only — not
-built yet** — that section's arrows are still the intended shape a later
-story will follow, not current behavior, matching §4.14's own intro status
-for REQ-1304/1305/1306. The generation leg is now also wired end to end in
-production (2026-08-30, round-scheduling wiring story — see the block
-below); the submission leg, by contrast, still describes real, tested
-`XGPredictGameModule.ScoreSubmissionAsync` behavior with no HTTP-facing
-caller, noted inline below)
+grading** (realizes REQ-1301–REQ-1305, ADR-0094, ADR-0095, ADR-0096,
+ADR-0097 — scaffolded 2026-08-30, REQ-1301/1302/1303's generation and
+submission legs implemented for real the same day per ADR-0096, and
+REQ-1305's grading leg implemented for real the same day per ADR-0097 (see
+[Asynchronous grading — REQ-1304/1305] below, now describing real,
+tested `PredictGradingService`/endpoint/workflow behavior, not a sketch).
+All three legs now describe real, tested behavior. The generation leg is
+also wired end to end in production (2026-08-30, round-scheduling wiring
+story, S-196 — see the block below); the submission leg, by contrast,
+still has no HTTP-facing caller (`GuessSubmissionService` is not wired to
+`XGPredictGameModule.ScoreSubmissionAsync`), and grading's own
+leaderboard-total wiring (`GetTotalPointsByInstanceIdAsync`) remains a
+`docs/backlog.md` follow-up — both noted inline below. REQ-1306
+(confirm-and-lock) remains entirely unbuilt, matching §4.14's own intro
+status)
 
 Unlike §6.1/§6.2's xG Grid flow and §6.2b's xG Path flow — both of which
 resolve a submission's correctness synchronously, inside the same request
@@ -1220,26 +1224,64 @@ Player → Web Frontend → Backend API: POST /rounds/{roundId}/cells/{cellId}/g
     not yet gradable," never "wrong" — no per-match attempt cap, unlike
     REQ-210's cap for xG Grid/xG Path
 
-[Asynchronous grading — REQ-1305, NOT built — still a design sketch,
-  after the round has locked. REQ-1304's own scoring formula and the
-  leaderboard-direction mechanism it depends on ARE built — see the note
-  below the arrow they used to be sketched against]
-[triggered sometime after each match's real kickoff — mechanism TBD, a
-  polling job per ADR-0094's "poll live/result status only for that
-  round's own 5 fixtures" posture, stopping once each result is confirmed]
-Grading Job → DataSync.Clients (COMP-07, ADR-0094): poll API-Football for
-  this match's live/final status
-  → [not yet confirmed] retry later (up to ~48h per ADR-0094) — never a
-    permanent failure
-  → [confirmed final score] Games.XGPredict: compute the 3 independent
-    components (outcome/home-goals/away-goals, REQ-1304) for every stored
-    prediction against this match, higher-is-better (ADR-0095, a named
-    exception to ADR-0021) — the formula itself is now built and
-    unit-tested (XGPredictScoringStrategy.ScorePrediction, 2026-08-30) but
-    has no production caller yet; this Grading Job is the caller REQ-1305
-    would provide, still not built, so persistence via Core.Scoring's
-    IScoreLockingService-equivalent path remains a mechanism not yet
-    decided
+[Asynchronous grading — REQ-1305, built 2026-08-30 per ADR-0097, after the
+  round has locked. REQ-1304's own scoring formula and the
+  leaderboard-direction mechanism it depends on are also built — see the
+  note below the arrow they were previously sketched against]
+[triggered hourly (0 * * * *) plus workflow_dispatch,
+  .github/workflows/grade-predict-matches.yml — a new, independent
+  workflow, deliberately not folded into generate-grid-round.yml/
+  generate-path-round.yml (ADR-0072's boundary, extended by ADR-0097
+  Decision §1: grading is a wholly separate concern from round
+  generation), calling POST /internal/grade-predict-matches
+  (XGArcade.Api.Predict.InternalPredictGradingEndpoints, bearer-token-gated,
+  registered unconditionally like /internal/generate-round)]
+Grading Job (grade-predict-matches.yml) → XGArcade.Api:
+  POST /internal/grade-predict-matches
+  → Games.XGPredict (COMP-15): PredictGradingService.GradeReadyMatchesAsync
+    queries IPredictInstanceRepository.GetMatchesReadyForGradingAsync —
+    every PredictMatch still GradingStatus == Pending whose KickoffUtc +
+    PredictGradingOptions.TypicalMatchDuration has passed now (no
+    Round/IRoundRepository dependency — ADR-0097's kickoff-implies-lock
+    proof: a match's own kickoff having passed already implies its round's
+    lock instant, the minimum of its 5 kickoffs, has passed too)
+    → DataSync.Clients (COMP-07, ADR-0094):
+      IApiFootballClient.GetFixtureResultAsync polls this match's
+      live/final status
+      → [NotYetConfirmed] leave the match Pending, retried on next
+        hourly run (up to ~48h per ADR-0094) — never a permanent failure,
+        no write at all
+      → [PostponedOrAbandoned] Games.XGPredict:
+        IPredictInstanceRepository.VoidMatchAsync sets
+        GradingStatus = Voided only — no ActualHomeGoals/ActualAwayGoals,
+        no PredictMatchPrediction.FinalPoints ever written for this match
+        (product-owner-confirmed voiding rule)
+      → [Finished] Games.XGPredict: XGPredictScoringStrategy.ScorePrediction
+        (the concrete class, not IScoringStrategy — ADR-0097's own
+        "don't widen a shared interface for one caller" reasoning) computes
+        the 3 independent components (outcome/home-goals/away-goals,
+        REQ-1304) for every stored prediction against this match,
+        higher-is-better (ADR-0095, a named exception to ADR-0021) →
+        IPredictInstanceRepository.GradeMatchAsync persists the match's
+        GradingStatus = Graded/ActualHomeGoals/ActualAwayGoals and every
+        prediction's FinalPoints atomically (one SaveChangesAsync), so a
+        mid-write crash can never leave the two out of sync —
+        GradingStatus == Pending is the query's whole idempotency gate
+        (Decision §3): a Graded/Voided match is never re-fetched or
+        re-scored on a later run
+  → Core.Leagues (COMP-02, not yet wired): a round's growing total is
+    readable via the new IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync
+    (sums FinalPoints per user over Graded matches only — Pending/Voided
+    matches contribute nothing, never a placeholder), but
+    ILeaderboardService/LeaderboardEndpoints do not call it yet — flagged
+    as an explicit docs/backlog.md follow-up per ADR-0097 Decision §2, not
+    silently left undiscoverable. This is moot in production today anyway,
+    since no "xg-predict" round can exist until round-generation wiring for
+    this GameKey lands separately (unchanged scope note from every prior
+    xG Predict story). REQ-302's Closed status and RoundCloseService remain
+    completely unaffected by grading completeness either way — a round can
+    close with matches still Pending, by design (ADR-0097 Decision §4), not
+    a gap to fix.
   → Core.Leagues (COMP-02): leaderboard for GameKey="xg-predict" sorts
     descending (highest total first) — built 2026-08-30 (ADR-0095 Decision
     §3): IScoringStrategy.LowerIsBetter and LeaderboardService's three
@@ -1263,14 +1305,18 @@ now exists as a Core-side DTO, but no real HTTP endpoint or
 `GuessSubmissionService`-equivalent caller constructs one yet); whether
 `ScoreResult` needs widening (or xG Predict needs a parallel,
 non-`IGameModule.ScoreSubmissionAsync` entry point) to properly represent
-"accepted, pending" rather than reusing `IsCorrect = false`; and the
-concrete grading-job trigger mechanism (scheduled poll vs. some other
-shape). The round/match/prediction entity shape itself is no longer open —
-decided by ADR-0096. None of the remaining open questions block
-`GenerateInstanceAsync`/`ScoreSubmissionAsync`/`GetCellIdsAsync` being real
-and unit-tested as of 2026-08-30 — they block the follow-up stories that
-wire a real HTTP-facing endpoint and implement REQ-1304/1305/1306 for
-real.
+"accepted, pending" rather than reusing `IsCorrect = false`; and REQ-1306
+(confirm-and-lock) remains entirely unbuilt. The round/match/prediction
+entity shape itself is no longer open — decided by ADR-0096 — and neither
+is the grading-job trigger mechanism, or how a locked-but-ungraded round's
+`Closed` status/leaderboard participation interact — both decided by
+ADR-0097. None of the remaining open questions block
+`GenerateInstanceAsync`/`ScoreSubmissionAsync`/`GetCellIdsAsync`/
+`PredictGradingService` being real and unit-tested as of 2026-08-30 — they
+block the follow-up stories that wire a real HTTP-facing submission
+endpoint, wire `"xg-predict"` into round generation, wire
+`GetTotalPointsByInstanceIdAsync` into `ILeaderboardService`, and implement
+REQ-1306 for real.
 
 ## 7. Cross-cutting concerns
 

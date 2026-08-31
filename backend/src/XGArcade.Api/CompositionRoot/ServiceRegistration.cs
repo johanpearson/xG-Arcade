@@ -163,6 +163,23 @@ public static class ServiceRegistration
         // applies unchanged for this third GameKey; no structural deviation).
         builder.Services.AddScoped<IPredictInstanceRepository, PredictInstanceRepository>();
         builder.Services.AddScoped<IGameModule, XGPredictGameModule>();
+        // REQ-1305/ADR-0097: PredictGradingOptions is a plain, non-
+        // appsettings-bound constant (see that class's own doc comment,
+        // mirrors GridGenerationOptions' registration above) — a singleton
+        // is fine since it's immutable configuration, not per-request state.
+        builder.Services.AddSingleton(new PredictGradingOptions());
+        // ADR-0097 Decision §2: PredictGradingService takes the CONCRETE
+        // XGPredictScoringStrategy type directly, registered as itself
+        // alongside its existing IScoringStrategy registration further
+        // below — a deliberate, ADR-approved choice (not an
+        // interface-widening workaround; see that ADR's Alternatives
+        // table for why IScoringStrategy itself is not widened for this
+        // one caller).
+        builder.Services.AddScoped(_ => new XGPredictScoringStrategy
+        {
+            GameKey = XGPredictGameModule.XGPredictGameKey,
+        });
+        builder.Services.AddScoped<IPredictGradingService, PredictGradingService>();
         // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
         // GridGenerationOptions' role/precedent above for xG Path's own generation
         // config (deliberately not a field on RoundSchedulingOptions; see that

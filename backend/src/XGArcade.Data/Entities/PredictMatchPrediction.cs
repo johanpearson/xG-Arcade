@@ -39,4 +39,14 @@ public class PredictMatchPrediction
     public required int HomeGoals { get; set; }
     public required int AwayGoals { get; set; }
     public DateTime SubmittedAt { get; set; }
+
+    // REQ-1305/ADR-0097 §2: same shape/meaning as Guess.FinalPoints — null
+    // means "no points computed for this row yet," set exactly once, by
+    // PredictGradingService, when its parent PredictMatch is graded (never
+    // recomputed afterward). A prediction belonging to a Voided match is
+    // never touched and keeps this null permanently — indistinguishable at
+    // the row level from "not yet graded," which is the deliberately
+    // correct behavior for a voided match (REQ-1305: "as if that match
+    // were not part of the round for scoring purposes").
+    public int? FinalPoints { get; set; }
 }
