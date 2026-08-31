@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/requirements-document.md` (2.33→2.34) — REQ-505: added
+  `POST /admin/rounds/{gameKey}/start-upcoming`
+  (`IRoundCloseService.StartUpcomingRoundNowAsync`) and a "Start upcoming
+  round now" button in `RoundControlSection.tsx` (shown whenever there's no
+  active round). Needed because the previous entry's early-close reschedule
+  fix only helps *future* early closes — a round already left orphaned by an
+  early close made before that fix shipped, or any case where the round
+  that would have chained it is already closed by the time the fix
+  deploys, still has no active round to close through, so nothing triggers
+  a reschedule. This gives the admin a direct way to pull an
+  already-provisioned-but-not-yet-started round to start now regardless.
+  Refuses (409) while a round is genuinely still active, to avoid two
+  simultaneously-active rounds for the same GameKey. New
+  `RoundCloseServiceTests`/`AdminManagementEndpointTests`/
+  `RoundControlSection.test.tsx` cases — REQ-505.
 - 2026-08-31 — `docs/requirements-document.md` (2.32→2.33) — fixed a real
   bug found on live dev/prod data: `RoundCloseService.CloseRoundAsync`
   only ever updated the round being closed, so ending a round early via

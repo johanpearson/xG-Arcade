@@ -14,4 +14,15 @@ public interface IRoundCloseService
     // Returns null if roundId doesn't exist, so callers (e.g. REQ-806's
     // endpoint) can map that to 404 without a try/catch.
     Task<Round?> CloseRoundAsync(Guid roundId, DateTime closedAt, CancellationToken cancellationToken = default);
+
+    // REQ-505 (2026-08-31 addition): pulls the latest not-yet-started Round
+    // for this GameKey — REQ-301's already-provisioned "one round ahead"
+    // successor — to start right now, preserving its own configured
+    // duration. Returns null when no such round exists for this GameKey
+    // (nothing to do). Callers are responsible for confirming there's no
+    // currently active round for this GameKey first: pulling an upcoming
+    // round's StartTime forward while another round is still live would
+    // create two simultaneously-active rounds for the same GameKey, which
+    // REQ-301/REQ-303 assume never happens.
+    Task<Round?> StartUpcomingRoundNowAsync(string gameKey, DateTime now, CancellationToken cancellationToken = default);
 }

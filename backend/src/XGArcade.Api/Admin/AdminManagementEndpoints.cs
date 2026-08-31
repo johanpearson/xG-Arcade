@@ -75,6 +75,38 @@ public static class AdminManagementEndpoints
             return closedRound is null ? Results.NotFound() : Results.Ok(ToResponse(closedRound));
         }).RequireAuthorization("Admin");
 
+        // REQ-505 (2026-08-31 addition): the counterpart to the close action
+        // above for when there's no active round left to close at all —
+        // REQ-301's "one round ahead" scheduling may already have
+        // provisioned a successor round, but chained onto whatever the
+        // previous round's end time happened to be, which can be days out.
+        // Refuses (409) while a round is still actively running: pulling
+        // the upcoming round's start_time to now while another round is
+        // live would create two simultaneously-active rounds for this
+        // GameKey, which REQ-301/REQ-303 assume never happens — close the
+        // active round first.
+        app.MapPost("/admin/rounds/{gameKey}/start-upcoming", async (
+            string gameKey,
+            IRoundRepository roundRepository,
+            IRoundCloseService roundCloseService,
+            TimeProvider timeProvider,
+            CancellationToken cancellationToken) =>
+        {
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var activeRound = await roundRepository.GetActiveByGameKeyAsync(gameKey, now, cancellationToken);
+            if (activeRound is not null)
+            {
+                return Results.Problem(
+                    title: "A round is already active",
+                    detail: "Close the currently active round before starting the upcoming one early.",
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            var startedRound = await roundCloseService.StartUpcomingRoundNowAsync(gameKey, now, cancellationToken);
+
+            return startedRound is null ? Results.NotFound() : Results.Ok(ToResponse(startedRound));
+        }).RequireAuthorization("Admin");
+
         // REQ-505's second capability, which REQ-806 doesn't cover at all:
         // adjusting the active round's schedule rather than only closing it
         // immediately. Can only push end_time later or to a still-future

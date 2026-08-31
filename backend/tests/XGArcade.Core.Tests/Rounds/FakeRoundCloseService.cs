@@ -18,4 +18,7 @@ internal class FakeRoundCloseService : IRoundCloseService
         Calls.Add((roundId, closedAt));
         return Task.FromResult<Round?>(null);
     }
+
+    public Task<Round?> StartUpcomingRoundNowAsync(string gameKey, DateTime now, CancellationToken cancellationToken = default) =>
+        throw new NotImplementedException("Not exercised by RoundGenerationServiceTests — only CloseRoundAsync is under test via this fake.");
 }

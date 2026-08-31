@@ -124,6 +124,46 @@ public class RoundCloseServiceTests
         Assert.That(closed!.EndTime, Is.EqualTo(now));
     }
 
+    // ---- REQ-505 (2026-08-31 addition): StartUpcomingRoundNowAsync --------
+
+    [Test]
+    public async Task REQ505_StartUpcomingRoundNowAsync_UpcomingRoundExists_PullsItToStartNowPreservingDuration()
+    {
+        var now = new DateTime(2026, 8, 31, 14, 0, 0, DateTimeKind.Utc);
+        var upcoming = await SeedRoundAsync(startTime: now.AddDays(2), endTime: now.AddDays(4));
+
+        var result = await _service.StartUpcomingRoundNowAsync("xg-grid", now);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.StartTime, Is.EqualTo(now));
+        Assert.That(result.EndTime, Is.EqualTo(now.AddDays(2)), "the round's own configured 2-day duration must be preserved");
+        var persisted = await _roundRepository.GetByIdAsync(upcoming.Id);
+        Assert.That(persisted!.StartTime, Is.EqualTo(now));
+        Assert.That(persisted.EndTime, Is.EqualTo(now.AddDays(2)));
+    }
+
+    [Test]
+    public async Task REQ505_StartUpcomingRoundNowAsync_NoRoundsForGameKey_ReturnsNull()
+    {
+        var result = await _service.StartUpcomingRoundNowAsync("xg-grid", DateTime.UtcNow);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ505_StartUpcomingRoundNowAsync_LatestRoundAlreadyStarted_ReturnsNullAndLeavesItUntouched()
+    {
+        var now = new DateTime(2026, 8, 31, 14, 0, 0, DateTimeKind.Utc);
+        var active = await SeedRoundAsync(startTime: now.AddDays(-1), endTime: now.AddDays(1));
+
+        var result = await _service.StartUpcomingRoundNowAsync("xg-grid", now);
+
+        Assert.That(result, Is.Null);
+        var persisted = await _roundRepository.GetByIdAsync(active.Id);
+        Assert.That(persisted!.StartTime, Is.EqualTo(now.AddDays(-1)));
+        Assert.That(persisted.EndTime, Is.EqualTo(now.AddDays(1)));
+    }
+
     [Test]
     public async Task REQ505_CloseRoundAsync_RoundAlreadyEndedNaturally_DoesNotRescheduleSuccessor()
     {
