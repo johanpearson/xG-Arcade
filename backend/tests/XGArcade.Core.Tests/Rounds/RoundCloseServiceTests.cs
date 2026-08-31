@@ -93,6 +93,57 @@ public class RoundCloseServiceTests
         Assert.That(result, Is.Null);
     }
 
+    // ---- REQ-505 bug fix (2026-08-31): rescheduling an orphaned successor --
+
+    [Test]
+    public async Task REQ505_CloseRoundAsync_EarlyClose_ReschedulesAlreadyProvisionedSuccessorToStartNow()
+    {
+        var now = new DateTime(2026, 8, 31, 13, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(startTime: now.AddDays(-1), endTime: now.AddDays(2));
+        // REQ-301's "one round ahead" chain: a successor already provisioned
+        // onto this round's original EndTime, before the early close below.
+        var successor = await SeedRoundAsync(startTime: round.EndTime, endTime: round.EndTime.AddDays(2));
+
+        await _service.CloseRoundAsync(round.Id, now);
+
+        var persistedSuccessor = await _roundRepository.GetByIdAsync(successor.Id);
+        Assert.That(persistedSuccessor!.StartTime, Is.EqualTo(now),
+            "an already-provisioned successor must be pulled to start at the moment of the early close, not left at its stale original StartTime");
+        Assert.That(persistedSuccessor.EndTime, Is.EqualTo(now.AddDays(2)),
+            "the successor's own configured duration (2 days) must be preserved, only its anchor point moves");
+    }
+
+    [Test]
+    public async Task REQ505_CloseRoundAsync_EarlyClose_NoSuccessorProvisionedYet_DoesNotThrow()
+    {
+        var now = new DateTime(2026, 8, 31, 13, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(startTime: now.AddDays(-1), endTime: now.AddDays(2));
+
+        var closed = await _service.CloseRoundAsync(round.Id, now);
+
+        Assert.That(closed!.EndTime, Is.EqualTo(now));
+    }
+
+    [Test]
+    public async Task REQ505_CloseRoundAsync_RoundAlreadyEndedNaturally_DoesNotRescheduleSuccessor()
+    {
+        // Mirrors RoundGenerationService's own predecessor-close call: closedAt
+        // is always >= the round's already-past EndTime there, so the
+        // EndTime-pull-forward guard (and therefore the reschedule logic
+        // nested inside it) must never fire for this path.
+        var originalEndTime = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(startTime: originalEndTime.AddDays(-3), endTime: originalEndTime);
+        var successor = await SeedRoundAsync(startTime: originalEndTime, endTime: originalEndTime.AddDays(2));
+        var muchLater = originalEndTime.AddDays(5);
+
+        await _service.CloseRoundAsync(round.Id, muchLater);
+
+        var persistedSuccessor = await _roundRepository.GetByIdAsync(successor.Id);
+        Assert.That(persistedSuccessor!.StartTime, Is.EqualTo(originalEndTime),
+            "a natural (already-ended) close must never reschedule the successor");
+        Assert.That(persistedSuccessor.EndTime, Is.EqualTo(originalEndTime.AddDays(2)));
+    }
+
     // ---- REQ-408: Round.ClosedAt -------------------------------------------
 
     [Test]
