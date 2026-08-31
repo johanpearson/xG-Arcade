@@ -3283,17 +3283,18 @@ GuestLogoutConfirm (REQ-718):
   — same calm, non-error empty-state voice (§5: "empty states are
   invitations") `PathScreen`'s own SCREEN-10 empty state already
   establishes, reworded for this game's own vocabulary.
-- **Reached only via `GameSelectScreen`'s third tile** (SCREEN-09,
-  "xG Predict" / "Predict the final score"), not from a `HeaderNav`
-  "Games" quick-jump entry — **a flagged, intentional scope boundary in
-  this change, not an oversight.** SCREEN-09's own spec already requires
+- **Reached via `GameSelectScreen`'s third tile** (SCREEN-09, "xG Predict"
+  / "Predict the final score") **and `HeaderNav`'s "Games" quick-jump
+  list** (third entry, after xG Grid/xG Path). **Status note:** this
+  screen was first landed with only the tile wired (`HeaderNav.tsx`
+  deliberately left untouched, flagged as a gap rather than silently
+  treated as parity with xG Grid/xG Path) — SCREEN-09's own spec requires
   `GameSelectScreen`'s tile order and `HeaderNav`'s "Games" list order to
-  "never disagree," which strictly implies both should gain a third entry
-  together; this change adds only the tile (`App.tsx`/
-  `GameSelectScreen.tsx`, as its task explicitly scoped) and leaves
-  `HeaderNav.tsx` untouched. Revisit in a follow-up story rather than
-  silently treating xG Predict as fully on par with xG Grid/xG Path's
-  navigation surface until then.
+  "never disagree," so that gap was closed in the same story, same-day,
+  once flagged: `HeaderNav.tsx`/`HeaderNav.test.tsx` gained
+  `isPredictCurrent`/`onSelectPredict` mirroring `isPathCurrent`/
+  `onSelectPath` exactly, and `App.tsx` wires both through. Both
+  navigation surfaces now agree on all three games.
 - **Tokens only** — `surface-card`/`border-hairline` cards,
   `surface-sunken` for lock notices, `accent-green-text` for every
   primary/successful-action use, `accent-red` for errors, existing

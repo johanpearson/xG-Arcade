@@ -13,6 +13,9 @@ export interface HeaderNavProps {
   // S-085/SCREEN-09: mirrors isGridCurrent above for xG Path — whether xG
   // Path's own screen is currently showing.
   isPathCurrent: boolean;
+  // REQ-1301/1306/SCREEN-14: mirrors isGridCurrent/isPathCurrent above for
+  // xG Predict — whether xG Predict's own screen is currently showing.
+  isPredictCurrent: boolean;
   onSelectLeaderboard: () => void;
   onSelectLeagues: () => void;
   onSelectSettings: () => void;
@@ -24,6 +27,11 @@ export interface HeaderNavProps {
   // Keeps this list and GameSelectScreen's tile order in agreement (xG Grid
   // first, xG Path second).
   onSelectPath: () => void;
+  // REQ-1301/1306/SCREEN-14: mirrors onSelectGrid/onSelectPath above for xG
+  // Predict — same destination GameSelectScreen's own "xG Predict" tile
+  // already triggers. Keeps this list and GameSelectScreen's tile order in
+  // agreement (xG Grid, xG Path, then xG Predict).
+  onSelectPredict: () => void;
   onLogout: () => void;
 }
 
@@ -46,11 +54,13 @@ export function HeaderNav({
   isSettingsCurrent,
   isGridCurrent,
   isPathCurrent,
+  isPredictCurrent,
   onSelectLeaderboard,
   onSelectLeagues,
   onSelectSettings,
   onSelectGrid,
   onSelectPath,
+  onSelectPredict,
   onLogout,
 }: HeaderNavProps) {
   const [open, setOpen] = useState(false);
@@ -149,6 +159,18 @@ export function HeaderNav({
               onClick={() => selectAndClose(onSelectPath)}
             >
               xG Path
+            </button>
+            {/* REQ-1301/1306/SCREEN-14: mirrors the xG Grid/xG Path entries
+                above, positioned third — keeps this list and
+                GameSelectScreen's tile order in agreement (never
+                alphabetical/recency). */}
+            <button
+              type="button"
+              className="header-nav__link header-nav__games-item"
+              aria-current={isPredictCurrent ? 'page' : undefined}
+              onClick={() => selectAndClose(onSelectPredict)}
+            >
+              xG Predict
             </button>
           </div>
         </div>

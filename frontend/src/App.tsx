@@ -45,11 +45,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // clue-reveal UI (SCREEN-10) is S-086's separate, not-yet-built work.
 // 'predict' (REQ-1301/1302/1303/1306, SCREEN-14) is xG Predict's own
 // destination — reached the same way 'grid'/'path' are, via
-// GameSelectScreen's third tile. Unlike 'grid'/'path', it is deliberately
-// not given a HeaderNav "Games" quick-jump entry in this change (see this
-// story's own report/design-document.md SCREEN-14 status note for why
-// that's a flagged, intentional scope boundary, not an oversight) — it
-// remains reachable only via GameSelectScreen until that's revisited.
+// GameSelectScreen's third tile or HeaderNav's "Games" → "xG Predict"
+// entry (added same-story, closing the gap the SCREEN-14 status note had
+// flagged as a scope boundary).
 // 'admin-suggestions' (REQ-509/REQ-510, S-090, ADR-0053) is
 // SuggestionsScreen's own destination — reachable only via a link inside
 // AdminScreen itself, one hop further than 'admin', mirroring how 'admin'
@@ -374,6 +372,7 @@ function App() {
             isSettingsCurrent={screen === 'settings'}
             isGridCurrent={screen === 'grid'}
             isPathCurrent={screen === 'path'}
+            isPredictCurrent={screen === 'predict'}
             onSelectLeaderboard={() => {
               // REQ-1210/ADR-0083: a normal, explicit nav-menu visit always
               // clears any completion-banner-seeded target — otherwise a
@@ -388,6 +387,7 @@ function App() {
             onSelectSettings={() => navigateTo('settings')}
             onSelectGrid={() => navigateTo('grid')}
             onSelectPath={() => navigateTo('path')}
+            onSelectPredict={() => navigateTo('predict')}
             onLogout={handleLogoutClick}
           />
         )}
