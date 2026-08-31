@@ -189,6 +189,27 @@ public class XGPredictGameModule(
         Guid instanceId, string submittedName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WrongGuessPlayerInfo?>(null);
 
+    // REQ-710/S-201 (quality-gate fix): xG Predict's two per-user tables —
+    // PredictMatchPrediction and PredictPlayerLock — are this module's OWN
+    // persistence (COMP-15), so AccountDeletionService (Core.Auth) never
+    // reaches them directly; it calls this method through IGameModule
+    // instead (see that interface's own doc comment). Split by which
+    // treatment is structurally possible for each — see
+    // IPredictInstanceRepository's own doc comments on both methods for why
+    // they differ (PredictPlayerLock.UserId is non-nullable, half of its
+    // composite primary key, so it is hard-deleted rather than anonymized;
+    // PredictMatchPrediction.UserId is nullable, so it is anonymized instead
+    // — other users' PredictInstance point totals depend on the row
+    // surviving, same reasoning as Guess/REQ-710). This is the one place in
+    // the codebase allowed to reference IPredictInstanceRepository directly
+    // from outside Games.XGPredict's own boundary, because this class IS
+    // Games.XGPredict/COMP-15, not Core.
+    public async Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        await predictInstanceRepository.AnonymizePredictionsByUserIdAsync(userId, cancellationToken);
+        await predictInstanceRepository.DeletePlayerLocksByUserIdAsync(userId, cancellationToken);
+    }
+
     // REQ-1301: the minimum-span k-subset of a value sequence is always some
     // contiguous window of that sequence once sorted — any subset that
     // "skips over" a smaller value in favor of a larger one can only ever

@@ -93,4 +93,20 @@ internal class FakeGameModule(string gameKey) : IGameModule
         ResolveWrongGuessPlayerAsyncCallCount++;
         return Task.FromResult(ResolveWrongGuessPlayerResult(instanceId, submittedName));
     }
+
+    // REQ-710/S-201: AccountDeletionServiceTests uses this fake (in place of
+    // GridGameModule/XGPathGameModule) to prove DeleteAccountAsync calls
+    // PurgeUserDataAsync on every registered game module, without pulling
+    // XGArcade.Core.Tests into a real Games.XGGrid/Games.XGPath dependency —
+    // same "Core must never reference a game module directly" reasoning
+    // this file's own top-of-file comment already gives for GenerateInstanceAsync
+    // etc. Defaults to a no-op, matching Grid/Path's own real no-op
+    // implementation of this method.
+    public int PurgeUserDataAsyncCallCount { get; private set; }
+
+    public Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        PurgeUserDataAsyncCallCount++;
+        return Task.CompletedTask;
+    }
 }

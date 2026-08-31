@@ -33,6 +33,25 @@
          just the interface types. -->
     <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
     <ProjectReference Include="..\XGArcade.TestSupport\XGArcade.TestSupport.csproj" />
+    <!-- REQ-710/S-201 (quality-gate fix): AccountDeletionServiceTests
+         constructs a real XGPredictGameModule (backed by the real,
+         InMemory PredictInstanceRepository already referenced above) so its
+         two existing DB-assertion tests keep proving actual
+         anonymize/hard-delete behavior through IGameModule.PurgeUserDataAsync,
+         not just that the method was called. xG Grid/xG Path use the
+         existing FakeGameModule (XGArcade.Core.Tests/Rounds/FakeGameModule.cs)
+         instead of a real GridGameModule/XGPathGameModule for that same
+         slot — both are genuine no-ops for PurgeUserDataAsync, and pulling
+         in Games.XGGrid/Games.XGPath here would also require duplicating
+         their Wikidata/football-data test fakes (which are private to
+         their own test projects), for zero behavioral difference in this
+         test class. -->
+    <ProjectReference Include="..\..\src\XGArcade.Games.XGPredict\XGArcade.Games.XGPredict.csproj" />
+    <!-- NeverCalledFootballDataClient (Auth/AccountDeletionServiceTests.cs)
+         implements IFootballDataClient directly, same "not just the
+         transitive reference" reasoning XGArcade.Games.XGPredict.Tests'
+         own .csproj comment gives for its identical reference. -->
+    <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
 </Project>

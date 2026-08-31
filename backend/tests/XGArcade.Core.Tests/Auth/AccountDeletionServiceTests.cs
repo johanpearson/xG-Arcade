@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Core.Auth;
+using XGArcade.Core.Games;
+using XGArcade.Core.Tests.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.FootballData;
+using XGArcade.Games.XGPredict;
 
 namespace XGArcade.Core.Tests.Auth;
 
@@ -11,6 +15,20 @@ namespace XGArcade.Core.Tests.Auth;
 // pattern as LeaderboardServiceTests — the only fake here is
 // ISupabaseAuthClient, since a real HTTP call to Supabase's Admin API is
 // exactly what unit tests must never do (docs/coding-guidelines.md).
+//
+// S-201 (quality-gate fix): AccountDeletionService now depends on
+// IEnumerable<IGameModule> instead of IPredictInstanceRepository directly
+// (ADR-0003 — see AccountDeletionService's own doc comment). The
+// IGameModule[] passed to it below uses a REAL XGPredictGameModule (backed
+// by the same real, InMemory-backed _predictInstanceRepository this file
+// already used) so the two DB-assertion tests below keep proving actual
+// anonymize/hard-delete behavior, not just that a method was called.
+// xG Grid/xG Path use FakeGameModule (XGArcade.Core.Tests/Rounds/
+// FakeGameModule.cs) instead of a real GridGameModule/XGPathGameModule —
+// both are genuine no-op implementations of PurgeUserDataAsync (see each
+// module's own doc comment on that method), so a fake is behaviorally
+// identical here and avoids pulling their Wikidata/football-data-client
+// test infrastructure (private to their own test projects) into this one.
 public class AccountDeletionServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
@@ -33,8 +51,42 @@ public class AccountDeletionServiceTests
         _predictInstanceRepository = new PredictInstanceRepository(_dbContext);
         _leagueRepository = new LeagueRepository(_dbContext);
         _fakeAuthClient = new FakeSupabaseAuthClient();
+
+        // S-201: PurgeUserDataAsync never touches IFootballDataClient (it's
+        // only used by XGPredictGameModule.GenerateInstanceAsync, never
+        // called from here) — NeverCalledFootballDataClient below throws if
+        // that assumption is ever wrong.
+        var predictModule = new XGPredictGameModule(_predictInstanceRepository, new NeverCalledFootballDataClient());
+        var gameModules = new IGameModule[]
+        {
+            new FakeGameModule(GridGameKeyForTests),
+            new FakeGameModule(PathGameKeyForTests),
+            predictModule,
+        };
         _service = new AccountDeletionService(
-            _userRepository, _guessRepository, _predictInstanceRepository, _leagueRepository, _fakeAuthClient);
+            _userRepository, _guessRepository, gameModules, _leagueRepository, _fakeAuthClient);
+    }
+
+    // S-201: mirrors GridGameModule.XGGridGameKey/XGPathGameModule.XGPathGameKey's
+    // real values without referencing those projects (see this file's own
+    // doc comment for why xG Grid/xG Path use FakeGameModule here) — the
+    // exact GameKey string doesn't matter to any assertion in this file,
+    // only that every registered module is looped over.
+    private const string GridGameKeyForTests = "xg-grid";
+    private const string PathGameKeyForTests = "xg-path";
+
+    // S-201: a trivial IFootballDataClient stub — XGPredictGameModule's
+    // constructor requires one, but PurgeUserDataAsync (the only method this
+    // test file's real predictModule instance ever calls) never touches it.
+    // Throws if that ever changes, rather than silently returning an empty
+    // result that could mask a real behavior change.
+    private sealed class NeverCalledFootballDataClient : IFootballDataClient
+    {
+        public Task<IReadOnlyList<FootballDataFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException("Not exercised by AccountDeletionServiceTests — PurgeUserDataAsync never calls this.");
+
+        public Task<FootballDataFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException("Not exercised by AccountDeletionServiceTests — PurgeUserDataAsync never calls this.");
     }
 
     [TearDown]
@@ -216,6 +268,7 @@ public class AccountDeletionServiceTests
     {
         var user = await SeedUserAsync();
         await SeedGuessAsync(user.Id);
+        var prediction = await SeedPredictPredictionAsync(user.Id);
         _fakeAuthClient.DeleteUserResult = _ => false;
 
         var result = await _service.DeleteAccountAsync(user.Id);
@@ -229,6 +282,13 @@ public class AccountDeletionServiceTests
         Assert.That(remainingUser, Is.Null);
         var remainingGuesses = await _dbContext.Guesses.AsNoTracking().ToListAsync();
         Assert.That(remainingGuesses.Single().UserId, Is.Null);
+        // S-201 quality-gate fix: proves the "committed before the Supabase
+        // failure" guarantee extends through IGameModule.PurgeUserDataAsync
+        // to xG Predict's own PredictMatchPrediction table too, not just
+        // Guess — same ordering, same non-transactional boundary.
+        var remainingPrediction = await _dbContext.PredictMatchPredictions
+            .AsNoTracking().SingleAsync(p => p.Id == prediction.Id);
+        Assert.That(remainingPrediction.UserId, Is.Null);
     }
 
     // Test double for ISupabaseAuthClient — never makes a real HTTP call.
