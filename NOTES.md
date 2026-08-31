@@ -27,6 +27,29 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-31 — Azure Container Apps rejects a `secrets` entry with an empty string value
+
+Discovered when `apiFootballApiKey`'s own optional/default-`''` Bicep
+parameter (mirroring the existing `githubIncidentReportToken` pattern) hit
+a real deploy before `API_FOOTBALL_API_KEY` was set: `deploy-infra` failed
+outright — `ContainerAppSecretInvalid: value or keyVaultUrl and identity
+should be provided` — not a per-call fallback like `ApiFootballClient`'s
+own code-level "fails closed" story, a full deployment failure that broke
+every other change riding the same push (backend never got redeployed
+until fixed). `githubIncidentReportToken` carried the identical shape and
+was exposed to the same bug the whole time — it just never fired because
+`INCIDENT_REPORT_PAT` already had a real value before its first deploy.
+
+Fix: `backend-container-app.bicep`'s `secrets` array now only includes an
+optional secret when its value is non-empty (`concat` with a conditional
+single-item array), and the matching `env` entries use `secretRef` when
+present or an explicit `value: ''` otherwise (Bicep drops a property
+assigned `null`, so exactly one of the two ends up in the compiled
+template). Any *future* optional `@secure()` Bicep parameter with an
+empty-string default needs this same conditional treatment — a plain
+`value: someOptionalSecureParam` secrets entry looks fine locally and only
+breaks once someone actually deploys with it still unset.
+
 ### 2026-08-18 — S-141: xG Path eligible-pool re-verification could not be run against real data in this sandbox; reset tooling built and handed off instead
 
 S-141 (Epic 12, docs/backlog.md) asks for a before/after eligible-player
