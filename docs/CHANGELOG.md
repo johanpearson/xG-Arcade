@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/requirements-document.md` (2.34→2.35),
+  `docs/architecture-document.md` (1.29→1.30), `docs/backlog.md` — S-199
+  (Epic 13, ADR-0100): wired `"xg-predict"` round totals into
+  `LeaderboardService` — every scope (REQ-404/406/407/408/409/411) now
+  sources round totals through a new per-`GameKey`
+  `Core.Scoring.IRoundScoreSource`/`IRoundScoreSourceResolver`, closing the
+  gap S-193/S-195/S-197/S-198 each flagged and ADR-0097 explicitly
+  deferred. `GuessRoundScoreSource` (zero-behavior-change for
+  `"xg-grid"`/`"xg-path"`) and `PredictRoundScoreSource`
+  (`Games.XGPredict`, wraps `IPredictInstanceRepository` only) are the two
+  implementations; `IPredictInstanceRepository` gained
+  `GetParticipantUserIdsByInstanceIdAsync` (participation, not points) and
+  `IRoundRepository.GetClosedIdsWithinWindowAsync` widened from ids-only to
+  full `Round` rows. New `IRoundScoreSource`/`GuessRoundScoreSource`/
+  `RoundScoreSourceResolver`/`PredictRoundScoreSource` types;
+  `LeaderboardService` no longer injects `IGuessRepository`/
+  `ILiveRoundContributionService` directly. New
+  `LeaderboardServiceTests`/`PredictRoundScoreSourceTests`/
+  `LeaderboardEndpointTests` coverage — REQ-404/406/407/408/409/411,
+  ADR-0100.
 - 2026-08-31 — `docs/requirements-document.md` (2.33→2.34) — REQ-505: added
   `POST /admin/rounds/{gameKey}/start-upcoming`
   (`IRoundCloseService.StartUpcomingRoundNowAsync`) and a "Start upcoming

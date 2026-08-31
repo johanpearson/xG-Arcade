@@ -10038,6 +10038,35 @@ rounds until closed, and record that as part of the new ADR rather than
 guessing silently.
 *Deps:* none (S-195/S-197/S-198 already merged).
 
+*Built as (2026-08-31):* `backend-implementer` wrote ADR-0100 (accepted
+before implementation, per this story's own instruction) and implemented
+exactly what it specifies — new `Core.Scoring.IRoundScoreSource`/
+`IRoundScoreSourceResolver` (`backend/src/XGArcade.Core/Scoring/`);
+`GuessRoundScoreSource` (zero-behavior-change pass-through for
+`"xg-grid"`/`"xg-path"`, registered twice) and `PredictRoundScoreSource`
+(`backend/src/XGArcade.Games.XGPredict/PredictRoundScoreSource.cs`,
+wrapping `IPredictInstanceRepository` only, never `IRoundRepository`/
+`IUserRepository`); a new `IPredictInstanceRepository.GetParticipantUserIdsByInstanceIdAsync`
+(participation, not points); `IRoundRepository.GetClosedIdsWithinWindowAsync`
+widened from ids-only to full `Round` rows. `LeaderboardService`'s four
+scopes now resolve `roundScoreSourceResolver.Resolve(gameKey)` instead of
+injecting `IGuessRepository`/`ILiveRoundContributionService` directly —
+those two are no longer constructor dependencies of `LeaderboardService`
+itself. Composition-root wiring in `ServiceRegistration.cs` builds the
+resolver's `GameKey -> IRoundScoreSource` dictionary directly (not a second
+multi-registration of `IRoundScoreSource`, since the interface carries no
+`GameKey` property of its own). New tests: `LeaderboardServiceTests`
+(`ADR0100_`-prefixed cases, a hand-rolled `FakeRoundScoreSource` proving
+resolver routing without this test project referencing Games.XGPredict),
+`PredictRoundScoreSourceTests` (`XGArcade.Games.XGPredict.Tests`, real
+InMemory-backed `PredictInstanceRepository`, no fakes), and one new
+`LeaderboardEndpointTests` case proving a closed `"xg-predict"` round's
+graded total is visible end to end through the real composition root.
+Built without a local `dotnet` SDK in this sandbox — hand-traced, not
+locally run; CI verification via `ci.yml`'s `workflow_dispatch` is required
+before this is considered done, same recurring constraint as other recent
+backend stories in this log.
+
 **S-200 · Add a `GameKey` allow-list to `GuessEndpoints`/`GuessSubmissionService` (ADR-0098's Consequences section)**
 Security follow-up flagged in S-197: ADR-0098 relies on REQ-1306's
 confirm-and-lock check living only in `PredictEndpoints`, which only holds
