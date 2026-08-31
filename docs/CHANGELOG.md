@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/decisions/0101-account-deletion-purges-per-game-data-via-igamemodule.md`,
+  `docs/requirements-document.md` (2.35→2.36), `docs/architecture-document.md`
+  (1.30→1.31), `docs/implementation-document.md` (1.15→1.16),
+  `docs/legal/privacy-policy-draft.md` (0.11→0.12) — S-201
+  (Epic 13, REQ-710): account deletion now anonymizes
+  `PredictMatchPrediction.UserId` (nullable, same treatment as `Guess`) and
+  hard-deletes `PredictPlayerLock` rows (`UserId` non-nullable, half its
+  composite primary key) for the deleted user, closing the gap flagged in
+  S-197 via `XGArcadeDbContext.cs`'s own comment on `PredictPlayerLock`.
+  First implementation gave `AccountDeletionService` a direct constructor
+  dependency on `IPredictInstanceRepository` (Games.XGPredict/COMP-15's own
+  persistence) — a same-day quality-gate architecture review caught this as
+  an ADR-0003 boundary violation, the exact anti-pattern ADR-0100 already
+  named and forbade for the leaderboard path. Fixed (ADR-0101) by adding
+  `IGameModule.PurgeUserDataAsync(userId)`, called once per registered
+  module by `AccountDeletionService` (now depending on
+  `IEnumerable<IGameModule>` instead) — a no-op for xG Grid/xG Path, real
+  anonymize/hard-delete logic in `XGPredictGameModule` via its own
+  already-injected `IPredictInstanceRepository`. Test coverage follows the
+  same split: `AccountDeletionServiceTests` (`XGArcade.Core.Tests`) uses
+  `FakeGameModule` for every module slot and only proves the generic
+  per-module loop, keeping that test project free of any game-specific
+  project reference (matching the precedent `FakeRoundScoreSource.cs`
+  already set for ADR-0100); the real anonymize/hard-delete behavior is
+  proven by two new `REQ710_PurgeUserDataAsync_*` cases in
+  `XGPredictGameModuleTests` (`XGArcade.Games.XGPredict.Tests`), which
+  already legitimately depends on that repository. Privacy policy draft
+  updated to describe predictions alongside guesses, and the
+  confirm-and-lock flag's hard-delete (vs. anonymize) treatment — REQ-710,
+  ADR-0003, ADR-0101.
 - 2026-08-31 — `docs/decisions/0098-predict-confirm-lock-placement-and-storage.md`,
   `docs/backlog.md` — S-200 (Epic 13): closed the security risk ADR-0098's
   Consequences section flagged — `GuessEndpoints`/`GuessSubmissionService`

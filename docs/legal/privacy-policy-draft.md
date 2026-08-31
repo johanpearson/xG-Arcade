@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.11"
+version: "0.12"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-08-24
+last_updated: 2026-08-31
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -105,10 +105,15 @@ last_updated: 2026-08-24
 
 - Account and gameplay data is kept while your account is active.
 - If you delete your account, your personal data (email, credentials) is
-  permanently deleted. Your past guesses are anonymized rather than
-  deleted outright — the record that "someone guessed X for this cell" is
-  kept (it's needed for other players' scores to remain accurate), but the
-  link between that guess and you is permanently severed.
+  permanently deleted. Your past guesses (xG Grid/xG Path) and match
+  predictions (xG Predict) are anonymized rather than deleted outright —
+  the record that "someone guessed X for this cell" or "someone predicted
+  this score" is kept (it's needed for other players' scores to remain
+  accurate), but the link between that guess/prediction and you is
+  permanently severed. The one exception is xG Predict's own "confirm and
+  lock" flag, which is deleted outright rather than anonymized — it's just
+  a marker that you locked in your predictions for a round, not something
+  any other player's score depends on.
 - **Guest accounts are removed automatically** if never converted into a
   full account: when you log out of a guest session that was never
   claimed, when a guest account has gone unclaimed for more than 30 days,
