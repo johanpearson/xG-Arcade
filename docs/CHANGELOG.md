@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/requirements-document.md` (2.32→2.33) — fixed a real
+  bug found on live dev/prod data: `RoundCloseService.CloseRoundAsync`
+  only ever updated the round being closed, so ending a round early via
+  the admin UI (REQ-505) left any already-provisioned "one round ahead"
+  successor (REQ-301) orphaned at its stale original start time — "end
+  round now, then generate a new one" silently returned that same stale
+  successor, still days out, instead of anything usable for immediate
+  testing. Now reschedules a not-yet-started successor to start at
+  `closedAt` (preserving its own duration) whenever `EndTime` is actually
+  pulled forward — never on a round closing at its natural end time. Three
+  new `RoundCloseServiceTests` cases. No API/DTO shape change — REQ-301,
+  REQ-505.
+
 - 2026-08-31 — `docs/requirements-document.md` (2.31→2.32) — REQ-304/
   REQ-505's admin round-control UI, previously Grid-only, now also covers
   xG Predict: `RoundControlSection.tsx` takes `gameKey`/`roundLabel` props

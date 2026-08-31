@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.32"
+version: "2.33"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -4821,6 +4821,24 @@ Tier 0, S-026)*
   action is registered at all — same fail-closed pattern REQ-806/ADR-0006
   already established for `XGArcade.Testing`, checked in `Program.cs`
   before routing, never guarded only by an attribute
+
+- **Status note (2026-08-31, REQ-505/REQ-301):** found and fixed a real bug
+  in production/dev data — ending a round early via `POST .../close` only
+  ever updated the round being closed. REQ-301's "one round ahead"
+  scheduling can already have chained a successor `Round` onto that round's
+  originally-scheduled `end_time` (`RoundGenerationService`:
+  `startTime = latest?.EndTime ?? now`) before the early close happens —
+  left alone, that successor sat orphaned at a stale future `start_time`
+  with no relation to when the round was actually ended, so "end round now,
+  then generate a new one" silently handed back the same stale successor
+  instead of anything usable for immediate testing, defeating this
+  requirement's own "don't have to wait for real time to pass" purpose.
+  `RoundCloseService.CloseRoundAsync` now also reschedules an already-
+  provisioned, not-yet-started successor to start at `closedAt` (preserving
+  its own configured duration) whenever it actually pulls `EndTime`
+  forward — i.e. only on the early-close path; a round closing at its
+  natural `end_time` never has a successor rescheduled, since that's
+  already the correct, expected chain. No API/DTO shape change.
 
 **Test level:** API, UI
 
