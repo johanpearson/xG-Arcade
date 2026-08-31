@@ -20,15 +20,59 @@ public class FootballDataClient(
     HttpClient httpClient,
     FootballDataApiKey apiKey,
     FootballDataOptions options,
+    TimeProvider timeProvider,
     ILogger<FootballDataClient> logger) : IFootballDataClient
 {
+    // Found the hard way in production (2026-08-31, real dev deploy): a
+    // Monday round generation returned the immediately-preceding weekend's
+    // already-finished matchday — football-data.org's currentSeason.
+    // currentMatchday can keep pointing at the just-concluded gameweek for
+    // some time after its last kickoff, before advancing to the next one.
+    // Trusting it blindly as "the upcoming gameweek" (this client's
+    // original design, carried over unchanged from ADR-0094's identical
+    // assumption about API-Football's own "current round" concept — never
+    // actually exercised against real data until now) produced a round
+    // that was locked (REQ-1303) before any player could ever see it.
+    // Bounded look-ahead below is the fix: advance past any matchday whose
+    // fixtures are empty or already partly/fully kicked off, capped so a
+    // genuine upstream data problem still fails loudly rather than
+    // spinning through matchdays forever.
+    private const int MaxMatchdayLookahead = 4;
+
     public async Task<IReadOnlyList<FootballDataFixture>> GetUpcomingGameweekFixturesAsync(
         CancellationToken cancellationToken = default)
     {
         EnsureApiKeyConfigured();
 
-        var currentMatchday = await FetchCurrentMatchdayAsync(cancellationToken);
-        return await FetchFixturesForMatchdayAsync(currentMatchday, cancellationToken);
+        var matchday = await FetchCurrentMatchdayAsync(cancellationToken);
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        for (var offset = 0; offset < MaxMatchdayLookahead; offset++)
+        {
+            var candidateMatchday = matchday + offset;
+            var fixtures = await FetchFixturesForMatchdayAsync(candidateMatchday, cancellationToken);
+
+            // "Upcoming" (REQ-1301) means every one of this matchday's
+            // fixtures still has a future kickoff — not merely that
+            // football-data.org happened to label it "current." A
+            // matchday with even one already-kicked-off fixture (e.g. the
+            // gameweek currently in progress) is rejected the same as an
+            // empty one, rather than silently returning a partially-stale
+            // list — REQ-1301's own "unfiltered, unsliced" contract on the
+            // fixture list still holds for whichever matchday is chosen.
+            if (fixtures.Count > 0 && fixtures.All(fixture => fixture.KickoffUtc > now))
+            {
+                return fixtures;
+            }
+
+            logger.LogWarning(
+                "football-data.org matchday {Matchday} is not upcoming ({FixtureCount} fixtures, " +
+                "already-passed-kickoff check failed) — trying matchday {NextMatchday}.",
+                candidateMatchday, fixtures.Count, candidateMatchday + 1);
+        }
+
+        throw new FootballDataClientException(
+            $"Could not find an upcoming matchday within {MaxMatchdayLookahead} matchdays of the current one ({matchday}).");
     }
 
     public async Task<FootballDataFixtureResult> GetFixtureResultAsync(

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.30"
+version: "2.31"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -10200,6 +10200,15 @@ persisting `PredictTemplate`/`PredictInstance`/`PredictMatch` rows via
 `IPredictInstanceRepository` (`XGArcade.Data`). Unit-tested in
 `XGPredictGameModuleTests` (selection determinism/tie-breaking, the
 abort-on-too-few-fixtures case).
+
+**Status note (2026-08-31, ADR-0099):** "upcoming" was under-specified in
+practice — the first real round generation returned an already-finished
+gameweek (football-data.org's `currentMatchday` can lag behind for a
+while after a gameweek concludes), locked before any player could see it.
+`FootballDataClient.GetUpcomingGameweekFixturesAsync` now guarantees
+"upcoming" itself: a matchday with even one already-kicked-off fixture is
+rejected in favor of the next one, within a bounded lookahead. See
+ADR-0099's Decision item 3 status update for the full incident and fix.
 
 **Status (2026-08-30, round-scheduling wiring story):** Now reachable end
 to end via `POST /internal/generate-round?gameKey=xg-predict` —

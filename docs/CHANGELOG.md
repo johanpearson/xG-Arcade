@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/decisions/0099-*.md` — fixed a real bug found on the
+  first production round generation with a working football-data.org key:
+  a Monday run returned the just-finished weekend's matchday (already
+  locked, REQ-1303, before any player could ever predict it) instead of
+  the genuinely upcoming one — `currentSeason.currentMatchday` can keep
+  pointing at a just-concluded gameweek for a while before advancing.
+  `FootballDataClient.GetUpcomingGameweekFixturesAsync` now takes a
+  `TimeProvider` and advances through a bounded lookahead
+  (`MaxMatchdayLookahead = 4`) until it finds a matchday whose fixtures
+  are all still in the future, rejecting one with even a single
+  already-kicked-off fixture rather than a silent partial match. Five new
+  `FootballDataClientTests` cases cover the lookahead directly; existing
+  tests unaffected via a fixed early default clock. Documented as a dated
+  status update on ADR-0099's Decision item 3 rather than a new ADR (a
+  refinement of the same client's contract, not a new structural choice)
+  — REQ-1301, REQ-1303, ADR-0099.
 - 2026-08-31 — `docs/decisions/0099-*.md`, `docs/decisions/correspondence/football-data-org-terms.md`
   (new), `TODO.md`, `SETUP.md` — closed ADR-0099's open ToS-verification
   action item: the product owner retrieved football-data.org's real terms

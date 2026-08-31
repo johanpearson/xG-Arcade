@@ -46,12 +46,21 @@ namespace XGArcade.DataSync.FootballData;
 public interface IFootballDataClient
 {
     // REQ-1301: fetches one upcoming Premier League gameweek's full
-    // fixture list. Implemented as two HTTP round trips against
+    // fixture list. Implemented as HTTP round trips against
     // football-data.org's documented v4 endpoints:
     //   1. GET /v4/competitions/{code} -> { "currentSeason": { "currentMatchday": N, ... } }
-    //      (take currentSeason.currentMatchday).
+    //      (take currentSeason.currentMatchday as a starting point, not
+    //      the answer — see below).
     //   2. GET /v4/competitions/{code}/matches?matchday={N} -> the full
-    //      fixture list for that matchday.
+    //      fixture list for that matchday. If any of its fixtures already
+    //      has a passed kickoff (or the matchday is empty), currentMatchday
+    //      does NOT actually mean "upcoming" yet — football-data.org can
+    //      keep it pointing at the just-concluded gameweek for a while
+    //      after its last kickoff — so the implementation advances to
+    //      matchday+1, +2, ... (bounded) until it finds one whose fixtures
+    //      are genuinely all still in the future. Found the hard way in
+    //      production (2026-08-31): see FootballDataClient's own
+    //      MaxMatchdayLookahead doc comment for the full story.
     //
     // Deliberately returns the WHOLE matchday's fixture list, unfiltered,
     // unsorted, and unsliced (may be zero, fewer than 5, or more than 5
@@ -59,14 +68,19 @@ public interface IFootballDataClient
     // is XGPredictGameModule's job, not this client's; that caller decides
     // what to do with whatever size list comes back, including REQ-1301's
     // own "abort and log" acceptance criterion for a round with too few
-    // fixtures.
+    // fixtures. The lookahead above only decides WHICH matchday to return
+    // whole — it never filters within a matchday it does return.
     //
     // Error contract: throws FootballDataClientException on HTTP failure,
-    // non-success status, timeout, or unparseable/unexpected JSON from
-    // EITHER call — and also when the competition call returns no
+    // non-success status, timeout, or unparseable/unexpected JSON from ANY
+    // call — when the competition call returns no
     // currentSeason.currentMatchday (an account/config problem, not a
-    // legitimate empty state). Never swallows to an empty list — this is a
-    // job-style batch fetch whose success metric matters, same reasoning
+    // legitimate empty state) — and when no upcoming matchday is found
+    // within the bounded lookahead (a genuine upstream data problem, not
+    // "this gameweek has fewer than 5 fixtures," which throws too, just
+    // from XGPredictGameModule instead — see REQ-1301's own acceptance
+    // criteria). Never swallows to an empty list — this is a job-style
+    // batch fetch whose success metric matters, same reasoning
     // ApiFootballClientException's own doc comment (ADR-0094) already used:
     // a caller needs to distinguish "football-data.org is unreachable"
     // from "this gameweek genuinely has fewer than 5 fixtures."

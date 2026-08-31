@@ -17,12 +17,20 @@ public class FootballDataClientTests
 {
     private static readonly FootballDataOptions Options = new("PL");
 
+    // Comfortably before every fixture date used across this file's tests
+    // (all 2026-09-12 or later) — so it never accidentally makes an
+    // "upcoming" fixture look already-started unless a test deliberately
+    // overrides the clock (the lookahead-specific tests below do).
+    private static readonly DateTimeOffset DefaultNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
     private static FootballDataClient BuildClient(
-        HttpMessageHandler handler, string? apiKey = "a-test-api-key", FootballDataOptions? options = null) =>
+        HttpMessageHandler handler, string? apiKey = "a-test-api-key", FootballDataOptions? options = null,
+        TimeProvider? timeProvider = null) =>
         new(
             new HttpClient(handler) { BaseAddress = new Uri("https://api.football-data.org/v4/") },
             new FootballDataApiKey(apiKey),
             options ?? Options,
+            timeProvider ?? new ManualTimeProvider(DefaultNow),
             NullLogger<FootballDataClient>.Instance);
 
     // Scripts two different responses by request path — FakeHttpMessageHandler's
@@ -30,12 +38,46 @@ public class FootballDataClientTests
     // extension of its existing style rather than a change to the shared
     // class itself: GetUpcomingGameweekFixturesAsync makes two sequential
     // calls (competitions/{code}, then competitions/{code}/matches), which
-    // land on two distinct AbsolutePaths.
+    // land on two distinct AbsolutePaths. Every matchday query gets the same
+    // matchesJson — fine for every test using this helper, none of which
+    // exercise the multi-matchday lookahead (see BuildLookaheadHandler for
+    // those).
     private static FakeHttpMessageHandler BuildTwoCallHandler(string competitionJson, string matchesJson) =>
         new((request, _) =>
         {
             var body = request.RequestUri!.AbsolutePath.EndsWith("/matches", StringComparison.Ordinal)
                 ? matchesJson : competitionJson;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            });
+        });
+
+    // Routes the matches call by its actual ?matchday= value rather than
+    // returning the same body for every matchday — needed to exercise
+    // FootballDataClient's bounded matchday lookahead (a different
+    // response per matchday it tries). Plain string parsing of the query
+    // string is enough since this client only ever sends exactly one
+    // "matchday" param with no other query params or encoding to worry
+    // about.
+    private static FakeHttpMessageHandler BuildLookaheadHandler(
+        string competitionJson, IReadOnlyDictionary<int, string> matchesJsonByMatchday) =>
+        new((request, _) =>
+        {
+            var uri = request.RequestUri!;
+            string body;
+            if (uri.AbsolutePath.EndsWith("/matches", StringComparison.Ordinal))
+            {
+                var matchday = int.Parse(uri.Query.Replace("?matchday=", string.Empty, StringComparison.Ordinal));
+                body = matchesJsonByMatchday.TryGetValue(matchday, out var matchesJson)
+                    ? matchesJson
+                    : throw new InvalidOperationException($"Test handler has no response configured for matchday {matchday}.");
+            }
+            else
+            {
+                body = competitionJson;
+            }
+
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
@@ -165,7 +207,17 @@ public class FootballDataClientTests
     public async Task GetUpcomingGameweekFixturesAsync_SendsApiKeyHeader_AndConfiguredCompetitionCodeMatchday()
     {
         const string competitionJson = """{ "currentSeason": { "currentMatchday": 4 } }""";
-        const string matchesJson = """{ "matches": [] }""";
+        // Non-empty and in the future (relative to BuildClient's DefaultNow)
+        // so the lookahead accepts matchday 4 on the first attempt — this
+        // test only cares about the request that was sent, not the
+        // lookahead behavior itself (see the dedicated tests below for that).
+        const string matchesJson = """
+        {
+          "matches": [
+            { "id": 1, "utcDate": "2026-09-12T14:00:00Z", "status": "SCHEDULED", "homeTeam": { "id": 1, "name": "A" }, "awayTeam": { "id": 2, "name": "B" } }
+          ]
+        }
+        """;
         var handler = BuildTwoCallHandler(competitionJson, matchesJson);
         var client = BuildClient(handler, apiKey: "a-test-api-key", options: new FootballDataOptions("PL"));
 
@@ -174,6 +226,129 @@ public class FootballDataClientTests
         Assert.That(handler.LastRequest!.Headers.GetValues("X-Auth-Token"), Is.EqualTo(new[] { "a-test-api-key" }));
         Assert.That(handler.LastRequest.RequestUri!.AbsoluteUri, Is.EqualTo(
             "https://api.football-data.org/v4/competitions/PL/matches?matchday=4"));
+    }
+
+    // ---- Matchday lookahead (found in production 2026-08-31 — see
+    // FootballDataClient.MaxMatchdayLookahead's own doc comment) -----------
+
+    [Test]
+    public async Task GetUpcomingGameweekFixturesAsync_CurrentMatchdayAlreadyKickedOff_AdvancesToNextMatchday()
+    {
+        const string competitionJson = """{ "currentSeason": { "currentMatchday": 4 } }""";
+        const string matchday4Json = """
+        {
+          "matches": [
+            { "id": 1, "utcDate": "2026-08-28T21:00:00Z", "status": "FINISHED", "homeTeam": { "id": 1, "name": "A" }, "awayTeam": { "id": 2, "name": "B" } }
+          ]
+        }
+        """;
+        const string matchday5Json = """
+        {
+          "matches": [
+            { "id": 2, "utcDate": "2026-09-05T14:00:00Z", "status": "SCHEDULED", "homeTeam": { "id": 3, "name": "C" }, "awayTeam": { "id": 4, "name": "D" } }
+          ]
+        }
+        """;
+        var handler = BuildLookaheadHandler(competitionJson, new Dictionary<int, string>
+        {
+            [4] = matchday4Json,
+            [5] = matchday5Json,
+        });
+        // "Now" sits after matchday 4's own kickoff (already played, per the
+        // real incident this reproduces) but well before matchday 5's.
+        var client = BuildClient(handler, timeProvider: new ManualTimeProvider(new DateTimeOffset(2026, 8, 31, 12, 0, 0, TimeSpan.Zero)));
+
+        var result = await client.GetUpcomingGameweekFixturesAsync();
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].FixtureId, Is.EqualTo(2), "matchday 4 already kicked off — must return matchday 5's fixtures instead");
+    }
+
+    [Test]
+    public async Task GetUpcomingGameweekFixturesAsync_CurrentMatchdayEmpty_AdvancesToNextMatchday()
+    {
+        const string competitionJson = """{ "currentSeason": { "currentMatchday": 4 } }""";
+        const string matchday5Json = """
+        {
+          "matches": [
+            { "id": 2, "utcDate": "2026-09-05T14:00:00Z", "status": "SCHEDULED", "homeTeam": { "id": 3, "name": "C" }, "awayTeam": { "id": 4, "name": "D" } }
+          ]
+        }
+        """;
+        var handler = BuildLookaheadHandler(competitionJson, new Dictionary<int, string>
+        {
+            [4] = """{ "matches": [] }""",
+            [5] = matchday5Json,
+        });
+        var client = BuildClient(handler);
+
+        var result = await client.GetUpcomingGameweekFixturesAsync();
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].FixtureId, Is.EqualTo(2), "an empty matchday 4 must not be returned as-is — must advance to matchday 5");
+    }
+
+    [Test]
+    public async Task GetUpcomingGameweekFixturesAsync_MatchdayWithOneAlreadyStartedFixture_TreatedEntirelyAsNotUpcoming()
+    {
+        // Even one already-kicked-off fixture disqualifies the WHOLE
+        // matchday, per REQ-1301's "upcoming" contract — never a silent
+        // partial filter within the matchday that is ultimately returned.
+        const string competitionJson = """{ "currentSeason": { "currentMatchday": 4 } }""";
+        const string matchday4Json = """
+        {
+          "matches": [
+            { "id": 1, "utcDate": "2026-08-28T21:00:00Z", "status": "FINISHED", "homeTeam": { "id": 1, "name": "A" }, "awayTeam": { "id": 2, "name": "B" } },
+            { "id": 2, "utcDate": "2026-09-05T14:00:00Z", "status": "SCHEDULED", "homeTeam": { "id": 3, "name": "C" }, "awayTeam": { "id": 4, "name": "D" } }
+          ]
+        }
+        """;
+        const string matchday5Json = """
+        {
+          "matches": [
+            { "id": 3, "utcDate": "2026-09-12T14:00:00Z", "status": "SCHEDULED", "homeTeam": { "id": 5, "name": "E" }, "awayTeam": { "id": 6, "name": "F" } }
+          ]
+        }
+        """;
+        var handler = BuildLookaheadHandler(competitionJson, new Dictionary<int, string>
+        {
+            [4] = matchday4Json,
+            [5] = matchday5Json,
+        });
+        var client = BuildClient(handler, timeProvider: new ManualTimeProvider(new DateTimeOffset(2026, 8, 31, 12, 0, 0, TimeSpan.Zero)));
+
+        var result = await client.GetUpcomingGameweekFixturesAsync();
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].FixtureId, Is.EqualTo(3),
+            "matchday 4 has fixture 2 still upcoming, but fixture 1 already kicked off — the whole matchday must be rejected, not filtered down to fixture 2");
+    }
+
+    [Test]
+    public void GetUpcomingGameweekFixturesAsync_NoUpcomingMatchdayWithinLookahead_Throws()
+    {
+        const string competitionJson = """{ "currentSeason": { "currentMatchday": 4 } }""";
+        const string alreadyStartedJson = """
+        {
+          "matches": [
+            { "id": 1, "utcDate": "2026-08-28T21:00:00Z", "status": "FINISHED", "homeTeam": { "id": 1, "name": "A" }, "awayTeam": { "id": 2, "name": "B" } }
+          ]
+        }
+        """;
+        // Every matchday the bounded lookahead will try (4, 5, 6, 7) is
+        // already-started — a genuine upstream data problem, not "this
+        // gameweek has fewer than 5 fixtures" (XGPredictGameModule's own,
+        // separate abort case).
+        var handler = BuildLookaheadHandler(competitionJson, new Dictionary<int, string>
+        {
+            [4] = alreadyStartedJson,
+            [5] = alreadyStartedJson,
+            [6] = alreadyStartedJson,
+            [7] = alreadyStartedJson,
+        });
+        var client = BuildClient(handler, timeProvider: new ManualTimeProvider(new DateTimeOffset(2026, 8, 31, 12, 0, 0, TimeSpan.Zero)));
+
+        Assert.ThrowsAsync<FootballDataClientException>(async () => await client.GetUpcomingGameweekFixturesAsync());
     }
 
     [Test]
