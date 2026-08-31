@@ -81,7 +81,25 @@ public class LeaderboardServiceTests
             new UniquenessScoringStrategy { GameKey = GameKey },
             new UniquenessScoringStrategy { GameKey = OtherGameKey },
         ]);
-        _service = new LeaderboardService(_leagueRepository, _userRepository, _guessRepository, _roundRepository, liveRoundContributionService, scoringStrategyResolver);
+        // ADR-0100: LeaderboardService no longer takes IGuessRepository/
+        // ILiveRoundContributionService directly — every call site now goes
+        // through the resolved IRoundScoreSource instead. GuessRoundScoreSource
+        // is the real, zero-behavior-change implementation for "xg-grid"/
+        // "xg-path" (registered twice, once per GameKey, exactly as
+        // ServiceRegistration.cs does at the composition root) — every
+        // pre-existing test in this file keeps exercising the real
+        // IGuessRepository/ILiveRoundContributionService queries through it,
+        // unchanged. The dedicated ADR0100-named tests below register their
+        // own resolver with a FakeRoundScoreSource instead, for a third,
+        // "xg-predict"-shaped GameKey this test project can't construct the
+        // real PredictRoundScoreSource for (Games.XGPredict isn't referenced
+        // here — see FakeRoundScoreSource's own doc comment).
+        var roundScoreSourceResolver = new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
+        {
+            [GameKey] = new GuessRoundScoreSource(_guessRepository, liveRoundContributionService) { GameKey = GameKey },
+            [OtherGameKey] = new GuessRoundScoreSource(_guessRepository, liveRoundContributionService) { GameKey = OtherGameKey },
+        });
+        _service = new LeaderboardService(_leagueRepository, _userRepository, _roundRepository, roundScoreSourceResolver, scoringStrategyResolver);
     }
 
     [TearDown]
@@ -1376,9 +1394,190 @@ public class LeaderboardServiceTests
         var scoringStrategyResolver = new ScoringStrategyResolver([
             new FakeScoringStrategy(DescendingGameKey) { LowerIsBetter = false },
         ]);
+        var roundScoreSourceResolver = new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
+        {
+            [DescendingGameKey] = new GuessRoundScoreSource(_guessRepository, liveRoundContributionService) { GameKey = DescendingGameKey },
+        });
         var service = new LeaderboardService(
-            _leagueRepository, _userRepository, _guessRepository, _roundRepository, liveRoundContributionService, scoringStrategyResolver);
+            _leagueRepository, _userRepository, _roundRepository, roundScoreSourceResolver, scoringStrategyResolver);
         return (service, gameModule);
+    }
+
+    // ---- ADR-0100: per-GameKey IRoundScoreSource resolver routing ----
+    // LeaderboardService now sources every scope's round totals through
+    // roundScoreSourceResolver.Resolve(gameKey) instead of calling
+    // IGuessRepository/ILiveRoundContributionService directly. The
+    // "xg-grid"/"xg-path" behavior is already exhaustively covered above
+    // (unchanged, via the real GuessRoundScoreSource every other test in
+    // this file goes through) — these tests instead register a
+    // FakeRoundScoreSource against a third, "xg-predict"-shaped GameKey,
+    // proving each scope (a) resolves and calls the RIGHT IRoundScoreSource
+    // for the requested GameKey and (b) correctly uses whatever it returns
+    // (ranking, pagination, ADR-0095 sort direction), without depending on
+    // the real PredictRoundScoreSource (Games.XGPredict isn't referenced by
+    // this test project — see FakeRoundScoreSource's own doc comment; that
+    // implementation's own participation/graded-points/guest-eligibility
+    // logic is covered by PredictRoundScoreSourceTests instead).
+
+    private const string PredictLikeGameKey = "xg-predict";
+
+    private (LeaderboardService Service, FakeRoundScoreSource RoundScoreSource) CreatePredictLikeService()
+    {
+        var fakeRoundScoreSource = new FakeRoundScoreSource();
+        var scoringStrategyResolver = new ScoringStrategyResolver([
+            // ADR-0095: xg-predict is the one named higher-is-better exception.
+            new FakeScoringStrategy(PredictLikeGameKey) { LowerIsBetter = false },
+        ]);
+        var roundScoreSourceResolver = new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
+        {
+            [PredictLikeGameKey] = fakeRoundScoreSource,
+        });
+        var service = new LeaderboardService(
+            _leagueRepository, _userRepository, _roundRepository, roundScoreSourceResolver, scoringStrategyResolver);
+        return (service, fakeRoundScoreSource);
+    }
+
+    [Test]
+    public async Task ADR0100_GetGlobalLeaderboardAsync_XgPredictLikeGameKey_RanksUsingResolvedRoundScoreSourcesPerRoundTotals()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        var alex = await SeedMemberAsync("Alex");
+        fakeSource.GetPerRoundTotalsByUserIdsResult = (_, _, _, _) => new Dictionary<Guid, IReadOnlyList<int>>
+        {
+            [you.Id] = new List<int> { 10, 20, 30, 40, 50 }, // median 30
+            [alex.Id] = new List<int> { 60, 70, 80, 90, 100 }, // median 80
+        };
+
+        var page = await service.GetGlobalLeaderboardAsync(you.Id, PredictLikeGameKey, cursor: 0, pageSize: 50);
+
+        // LowerIsBetter == false for this GameKey (ADR-0095): the HIGHER
+        // median ranks first, proving both the resolver routed to the fake
+        // source AND the sort direction was resolved for the same GameKey.
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "You" }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 80, 30 }));
+    }
+
+    [Test]
+    public async Task ADR0100_GetGlobalLeaderboardAsync_PassesEveryClosedRoundForThisGameKeyOnlyToResolvedRoundScoreSource()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        var predictLikeClosedRound = await SeedRoundAsync(
+            DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1), gameKey: PredictLikeGameKey);
+        // A closed round under a DIFFERENT GameKey must never be handed to
+        // this GameKey's resolved source (ADR-0100 §6/§7: fetched via
+        // GetClosedByGameKeyAsync(gameKey, ...), already scoped).
+        await SeedRoundAsync(DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1), gameKey: GameKey);
+        IReadOnlyCollection<Round>? capturedClosedRounds = null;
+        fakeSource.GetPerRoundTotalsByUserIdsResult = (_, closedRounds, _, _) =>
+        {
+            capturedClosedRounds = closedRounds;
+            return new Dictionary<Guid, IReadOnlyList<int>>();
+        };
+
+        await service.GetGlobalLeaderboardAsync(you.Id, PredictLikeGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(capturedClosedRounds!.Select(r => r.Id), Is.EqualTo(new[] { predictLikeClosedRound.Id }));
+    }
+
+    [Test]
+    public async Task ADR0100_GetUserStatsAsync_XgPredictLikeGameKey_UsesResolvedRoundScoreSourcesPerRoundTotalsWithGuestEligibilityRulesDisabled()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        bool? capturedApplyGuestEligibilityRules = null;
+        fakeSource.GetPerRoundTotalsByUserIdsResult = (_, _, _, applyGuestEligibilityRules) =>
+        {
+            capturedApplyGuestEligibilityRules = applyGuestEligibilityRules;
+            return new Dictionary<Guid, IReadOnlyList<int>> { [you.Id] = new List<int> { 40, 10, 30, 20 } };
+        };
+
+        var stats = await service.GetUserStatsAsync(you.Id, PredictLikeGameKey);
+
+        Assert.That(capturedApplyGuestEligibilityRules, Is.False, "REQ-411's stats figures must never apply the guest-eligibility gate");
+        Assert.That(stats.HasRoundsPlayed, Is.True);
+        Assert.That(stats.RoundsPlayed, Is.EqualTo(4));
+        Assert.That(stats.BestFinalPoints, Is.EqualTo(10));
+        Assert.That(stats.AverageFinalPoints, Is.EqualTo(25.0));
+    }
+
+    [Test]
+    public async Task ADR0100_GetActiveRoundLeaderboardAsync_XgPredictLikeGameKey_UsesResolvedRoundScoreSourcesActiveRoundTotals()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1), gameKey: PredictLikeGameKey);
+        fakeSource.GetActiveRoundTotalsByUserIdResult = r =>
+            r.Id == round.Id ? new Dictionary<Guid, int> { [you.Id] = 9 } : new Dictionary<Guid, int>();
+
+        var page = await service.GetActiveRoundLeaderboardAsync(you.Id, round, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().DisplayName, Is.EqualTo("You"));
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(9));
+    }
+
+    [Test]
+    public async Task ADR0100_GetClosedRoundLeaderboardAsync_XgPredictLikeGameKey_UsesResolvedRoundScoreSourcesRoundTotals()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        var round = await SeedRoundAsync(
+            DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1), gameKey: PredictLikeGameKey);
+        fakeSource.GetTotalsByRoundResult = r =>
+            r.Id == round.Id ? new Dictionary<Guid, int> { [you.Id] = 12 } : new Dictionary<Guid, int>();
+
+        var result = await service.GetClosedRoundLeaderboardAsync(round.Id, you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(result.Status, Is.EqualTo(ClosedRoundLeaderboardStatus.Found));
+        Assert.That(result.Page!.Rows.Single().TotalPoints, Is.EqualTo(12));
+    }
+
+    [Test]
+    public async Task ADR0100_GetWindowedLeaderboardAsync_RoundResolution_XgPredictLikeGameKey_UsesResolvedRoundScoreSourcesRoundTotals()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        var now = DateTime.UtcNow;
+        var round = await SeedRoundAsync(now.AddDays(-2), now.AddDays(-1), closedAt: now.AddDays(-1), gameKey: PredictLikeGameKey);
+        fakeSource.GetTotalsByRoundResult = r =>
+            r.Id == round.Id ? new Dictionary<Guid, int> { [you.Id] = 7 } : new Dictionary<Guid, int>();
+
+        var page = await service.GetWindowedLeaderboardAsync(
+            you.Id, PredictLikeGameKey, LeaderboardWindowResolution.Round, now, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(7));
+    }
+
+    // ADR-0100 §5: proves GetClosedIdsWithinWindowAsync's widened
+    // Round-not-Guid-ids return shape actually flows through to
+    // GetTotalsByRoundsAsync — asserting GameInstanceId (not just Id) is
+    // populated on what the resolved source receives is what distinguishes
+    // this from the old ids-only shape.
+    [Test]
+    public async Task ADR0100_GetWindowedLeaderboardAsync_MonthResolution_XgPredictLikeGameKey_PassesFullClosedRoundEntitiesToGetTotalsByRoundsAsync()
+    {
+        var (service, fakeSource) = CreatePredictLikeService();
+        var you = await SeedMemberAsync("You");
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(
+            new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc),
+            gameKey: PredictLikeGameKey);
+        IReadOnlyCollection<Round>? capturedRounds = null;
+        fakeSource.GetTotalsByRoundsResult = rounds =>
+        {
+            capturedRounds = rounds;
+            return new Dictionary<Guid, int> { [you.Id] = 5 };
+        };
+
+        var page = await service.GetWindowedLeaderboardAsync(
+            you.Id, PredictLikeGameKey, LeaderboardWindowResolution.Month, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(capturedRounds!.Select(r => r.Id), Is.EqualTo(new[] { round.Id }));
+        Assert.That(capturedRounds.Single().GameInstanceId, Is.EqualTo(round.GameInstanceId), "must be a full Round entity, not a bare id");
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(5));
     }
 
     [Test]
