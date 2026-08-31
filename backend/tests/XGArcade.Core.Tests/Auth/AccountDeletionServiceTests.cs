@@ -5,38 +5,41 @@ using XGArcade.Core.Tests.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
-using XGArcade.DataSync.FootballData;
-using XGArcade.Games.XGPredict;
 
 namespace XGArcade.Core.Tests.Auth;
 
 // REQ-710 (docs/requirements-document.md §4.9): AccountDeletionService's own
 // unit coverage. Same no-mocking-framework, real-InMemory-backed-repository
-// pattern as LeaderboardServiceTests — the only fake here is
-// ISupabaseAuthClient, since a real HTTP call to Supabase's Admin API is
-// exactly what unit tests must never do (docs/coding-guidelines.md).
+// pattern as LeaderboardServiceTests — the only fakes here are
+// ISupabaseAuthClient (a real HTTP call to Supabase's Admin API is exactly
+// what unit tests must never do) and, as of S-201 below, IGameModule.
 //
 // S-201 (quality-gate fix): AccountDeletionService now depends on
 // IEnumerable<IGameModule> instead of IPredictInstanceRepository directly
-// (ADR-0003 — see AccountDeletionService's own doc comment). The
-// IGameModule[] passed to it below uses a REAL XGPredictGameModule (backed
-// by the same real, InMemory-backed _predictInstanceRepository this file
-// already used) so the two DB-assertion tests below keep proving actual
-// anonymize/hard-delete behavior, not just that a method was called.
-// xG Grid/xG Path use FakeGameModule (XGArcade.Core.Tests/Rounds/
-// FakeGameModule.cs) instead of a real GridGameModule/XGPathGameModule —
-// both are genuine no-op implementations of PurgeUserDataAsync (see each
-// module's own doc comment on that method), so a fake is behaviorally
-// identical here and avoids pulling their Wikidata/football-data-client
-// test infrastructure (private to their own test projects) into this one.
+// (ADR-0003 — see AccountDeletionService's own doc comment), so this class's
+// job is only to prove DeleteAccountAsync calls PurgeUserDataAsync on every
+// registered module — three FakeGameModule (XGArcade.Core.Tests/Rounds/
+// FakeGameModule.cs) instances stand in for Grid/Path/Predict, since which
+// GameKey and how many are registered doesn't matter to that assertion.
+// Each game module's OWN PurgeUserDataAsync behavior (xG Grid/xG Path's
+// genuine no-op; xG Predict's anonymize-PredictMatchPrediction/hard-delete-
+// PredictPlayerLock logic) is proven where it's actually implemented —
+// XGPredictGameModuleTests (XGArcade.Games.XGPredict.Tests) carries the
+// REQ710_PurgeUserDataAsync_* cases for that — keeping this project free of
+// any game-specific project reference, same as before this story (a real
+// XGPredictGameModule was tried here first and reverted: XGArcade.Core.Tests
+// referencing a specific game's assembly at all, even for tests, was itself
+// a boundary smell worth avoiding, not just a Core-production-code one).
 public class AccountDeletionServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IUserRepository _userRepository = null!;
     private IGuessRepository _guessRepository = null!;
-    private IPredictInstanceRepository _predictInstanceRepository = null!;
     private ILeagueRepository _leagueRepository = null!;
     private FakeSupabaseAuthClient _fakeAuthClient = null!;
+    private FakeGameModule _gridModule = null!;
+    private FakeGameModule _pathModule = null!;
+    private FakeGameModule _predictModule = null!;
     private AccountDeletionService _service = null!;
 
     [SetUp]
@@ -48,45 +51,14 @@ public class AccountDeletionServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _userRepository = new UserRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
-        _predictInstanceRepository = new PredictInstanceRepository(_dbContext);
         _leagueRepository = new LeagueRepository(_dbContext);
         _fakeAuthClient = new FakeSupabaseAuthClient();
-
-        // S-201: PurgeUserDataAsync never touches IFootballDataClient (it's
-        // only used by XGPredictGameModule.GenerateInstanceAsync, never
-        // called from here) — NeverCalledFootballDataClient below throws if
-        // that assumption is ever wrong.
-        var predictModule = new XGPredictGameModule(_predictInstanceRepository, new NeverCalledFootballDataClient());
-        var gameModules = new IGameModule[]
-        {
-            new FakeGameModule(GridGameKeyForTests),
-            new FakeGameModule(PathGameKeyForTests),
-            predictModule,
-        };
+        _gridModule = new FakeGameModule("xg-grid");
+        _pathModule = new FakeGameModule("xg-path");
+        _predictModule = new FakeGameModule("xg-predict");
+        var gameModules = new IGameModule[] { _gridModule, _pathModule, _predictModule };
         _service = new AccountDeletionService(
             _userRepository, _guessRepository, gameModules, _leagueRepository, _fakeAuthClient);
-    }
-
-    // S-201: mirrors GridGameModule.XGGridGameKey/XGPathGameModule.XGPathGameKey's
-    // real values without referencing those projects (see this file's own
-    // doc comment for why xG Grid/xG Path use FakeGameModule here) — the
-    // exact GameKey string doesn't matter to any assertion in this file,
-    // only that every registered module is looped over.
-    private const string GridGameKeyForTests = "xg-grid";
-    private const string PathGameKeyForTests = "xg-path";
-
-    // S-201: a trivial IFootballDataClient stub — XGPredictGameModule's
-    // constructor requires one, but PurgeUserDataAsync (the only method this
-    // test file's real predictModule instance ever calls) never touches it.
-    // Throws if that ever changes, rather than silently returning an empty
-    // result that could mask a real behavior change.
-    private sealed class NeverCalledFootballDataClient : IFootballDataClient
-    {
-        public Task<IReadOnlyList<FootballDataFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException("Not exercised by AccountDeletionServiceTests — PurgeUserDataAsync never calls this.");
-
-        public Task<FootballDataFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException("Not exercised by AccountDeletionServiceTests — PurgeUserDataAsync never calls this.");
     }
 
     [TearDown]
@@ -126,35 +98,6 @@ public class AccountDeletionServiceTests
         return guess;
     }
 
-    private async Task<PredictMatchPrediction> SeedPredictPredictionAsync(Guid userId)
-    {
-        var prediction = new PredictMatchPrediction
-        {
-            Id = Guid.NewGuid(),
-            PredictMatchId = Guid.NewGuid(),
-            UserId = userId,
-            HomeGoals = 2,
-            AwayGoals = 1,
-            SubmittedAt = DateTime.UtcNow,
-        };
-        _dbContext.PredictMatchPredictions.Add(prediction);
-        await _dbContext.SaveChangesAsync();
-        return prediction;
-    }
-
-    private async Task<PredictPlayerLock> SeedPredictPlayerLockAsync(Guid userId, Guid? predictInstanceId = null)
-    {
-        var predictPlayerLock = new PredictPlayerLock
-        {
-            PredictInstanceId = predictInstanceId ?? Guid.NewGuid(),
-            UserId = userId,
-            LockedAt = DateTime.UtcNow,
-        };
-        _dbContext.PredictPlayerLocks.Add(predictPlayerLock);
-        await _dbContext.SaveChangesAsync();
-        return predictPlayerLock;
-    }
-
     [Test]
     public async Task REQ710_DeleteAccountAsync_AnonymizesGuessRows_SeversLinkWithoutDeletingRows()
     {
@@ -176,52 +119,22 @@ public class AccountDeletionServiceTests
     }
 
     [Test]
-    public async Task REQ710_DeleteAccountAsync_AnonymizesPredictMatchPredictionRows_SeversLinkWithoutDeletingRows()
+    public async Task REQ710_DeleteAccountAsync_CallsPurgeUserDataAsyncOnEveryRegisteredGameModule()
     {
+        // S-201: proves DeleteAccountAsync reaches every game's per-user
+        // data exclusively through IGameModule.PurgeUserDataAsync (never a
+        // direct game-specific repository dependency, ADR-0003) — each
+        // module's OWN purge behavior (xG Predict's real
+        // anonymize/hard-delete logic included) is covered where it's
+        // actually implemented, not here (see this file's own doc comment).
         var user = await SeedUserAsync();
-        var otherUser = await SeedUserAsync();
-        var ownPrediction = await SeedPredictPredictionAsync(user.Id);
-        var otherPrediction = await SeedPredictPredictionAsync(otherUser.Id);
 
         var result = await _service.DeleteAccountAsync(user.Id);
 
         Assert.That(result.Success, Is.True);
-        // The row itself must survive — other users' PredictInstance point
-        // totals (IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync)
-        // depend on it, same reasoning as Guess (REQ-710).
-        var remainingOwnPrediction = await _dbContext.PredictMatchPredictions
-            .AsNoTracking().SingleAsync(p => p.Id == ownPrediction.Id);
-        Assert.That(remainingOwnPrediction.UserId, Is.Null);
-        // A different user's prediction in the same seed data must be
-        // completely untouched (proves scoping, not an over-broad update).
-        var remainingOtherPrediction = await _dbContext.PredictMatchPredictions
-            .AsNoTracking().SingleAsync(p => p.Id == otherPrediction.Id);
-        Assert.That(remainingOtherPrediction.UserId, Is.EqualTo(otherUser.Id));
-    }
-
-    [Test]
-    public async Task REQ710_DeleteAccountAsync_HardDeletesPredictPlayerLockRows_ForDeletedUserOnly()
-    {
-        var user = await SeedUserAsync();
-        var otherUser = await SeedUserAsync();
-        await SeedPredictPlayerLockAsync(user.Id);
-        var otherLock = await SeedPredictPlayerLockAsync(otherUser.Id);
-
-        var result = await _service.DeleteAccountAsync(user.Id);
-
-        Assert.That(result.Success, Is.True);
-        // Unlike Guess/PredictMatchPrediction, PredictPlayerLock.UserId is
-        // non-nullable (half of its composite primary key) — the row is
-        // hard-deleted rather than anonymized (XGArcadeDbContext's own
-        // OnModelCreating comment on PredictPlayerLock).
-        var remaining = await _dbContext.PredictPlayerLocks
-            .AsNoTracking().Where(l => l.UserId == user.Id).ToListAsync();
-        Assert.That(remaining, Is.Empty);
-        // A different user's lock row in the same seed data must survive.
-        var remainingOtherLock = await _dbContext.PredictPlayerLocks
-            .AsNoTracking()
-            .SingleOrDefaultAsync(l => l.PredictInstanceId == otherLock.PredictInstanceId && l.UserId == otherLock.UserId);
-        Assert.That(remainingOtherLock, Is.Not.Null);
+        Assert.That(_gridModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
+        Assert.That(_pathModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
+        Assert.That(_predictModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
     }
 
     [Test]
@@ -268,7 +181,6 @@ public class AccountDeletionServiceTests
     {
         var user = await SeedUserAsync();
         await SeedGuessAsync(user.Id);
-        var prediction = await SeedPredictPredictionAsync(user.Id);
         _fakeAuthClient.DeleteUserResult = _ => false;
 
         var result = await _service.DeleteAccountAsync(user.Id);
@@ -284,11 +196,9 @@ public class AccountDeletionServiceTests
         Assert.That(remainingGuesses.Single().UserId, Is.Null);
         // S-201 quality-gate fix: proves the "committed before the Supabase
         // failure" guarantee extends through IGameModule.PurgeUserDataAsync
-        // to xG Predict's own PredictMatchPrediction table too, not just
-        // Guess — same ordering, same non-transactional boundary.
-        var remainingPrediction = await _dbContext.PredictMatchPredictions
-            .AsNoTracking().SingleAsync(p => p.Id == prediction.Id);
-        Assert.That(remainingPrediction.UserId, Is.Null);
+        // too, not just Guess — every registered module's purge already ran
+        // by the time the (later, non-transactional) Supabase call fails.
+        Assert.That(_predictModule.PurgeUserDataAsyncCallCount, Is.EqualTo(1));
     }
 
     // Test double for ISupabaseAuthClient — never makes a real HTTP call.
