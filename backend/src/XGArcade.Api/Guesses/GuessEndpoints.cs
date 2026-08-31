@@ -106,6 +106,15 @@ public static class GuessEndpoints
                             .Select(c => new DisambiguationCandidateResponse(c.PlayerId, c.Name, c.DistinguishingAttributes))
                             .ToList())),
                 GuessSubmissionOutcome.RoundNotFound => Results.NotFound(),
+                // S-200/ADR-0098 Consequences: this Round's GameKey isn't
+                // one this Guess-based endpoint serves (today: any GameKey
+                // other than "xg-grid"/"xg-path") — a 400, not a 409, since
+                // nothing about the round's *state* is in conflict; this
+                // game/endpoint pairing is simply not supported.
+                GuessSubmissionOutcome.GameNotSupported => Results.Problem(
+                    title: "Game not supported",
+                    detail: "This round's game is not played through guess submissions.",
+                    statusCode: StatusCodes.Status400BadRequest),
                 GuessSubmissionOutcome.RoundNotActive => Results.Problem(
                     title: "Round is not active",
                     detail: "Guesses can only be submitted while the round is active.",

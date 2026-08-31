@@ -43,8 +43,13 @@ public class GuessSubmissionServiceTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
-    private GuessSubmissionService BuildService() =>
-        new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerRepository, new FixedTimeProvider(Now));
+    // S-200: defaults to allowing "xg-grid" and "xg-path" (every seeded
+    // round in this file uses "xg-grid") — existing tests don't care about
+    // the allow-list itself; only the S200_* tests below construct their own
+    // FakeGameModule/round with a GameKey outside this default.
+    private GuessSubmissionService BuildService(GuessSubmissionAllowedGameKeys? allowedGameKeys = null) =>
+        new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerRepository, new FixedTimeProvider(Now),
+            allowedGameKeys ?? new GuessSubmissionAllowedGameKeys { GameKeys = ["xg-grid", "xg-path"] });
 
     private async Task<Guid> SeedPlayerAsync(string fullName, string? photoUrl = null)
     {
@@ -73,6 +78,26 @@ public class GuessSubmissionServiceTests
 
     private Task<Round> SeedActiveRoundAsync(bool allowGuessChange = true) =>
         SeedRoundAsync(Now.UtcDateTime.AddDays(-1), Now.UtcDateTime.AddDays(1), allowGuessChange);
+
+    // S-200: same shape as SeedActiveRoundAsync, but lets a test pick a
+    // GameKey other than the hardcoded "xg-grid" every other seed helper in
+    // this file uses — needed to exercise a GameKey outside the allow-list.
+    private async Task<Round> SeedActiveRoundWithGameKeyAsync(string gameKey, bool allowGuessChange = true)
+    {
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = gameKey,
+            GameInstanceId = Guid.NewGuid(),
+            SequenceNumber = 1,
+            StartTime = Now.UtcDateTime.AddDays(-1),
+            EndTime = Now.UtcDateTime.AddDays(1),
+            AllowGuessChange = allowGuessChange,
+        };
+        _dbContext.Rounds.Add(round);
+        await _dbContext.SaveChangesAsync();
+        return round;
+    }
 
     private static void SetNextResult(FakeGameModule gameModule, bool isCorrect, Guid? playerAnswerId = null) =>
         gameModule.ScoreSubmissionResult = (_, _, _) => new ScoreResult { IsCorrect = isCorrect, PlayerAnswerId = playerAnswerId };
@@ -830,5 +855,58 @@ public class GuessSubmissionServiceTests
         // leniency.
         var thirdAttempt = await service.SubmitGuessAsync(round.Id, guestUserId, cellId, "Third Guess");
         Assert.That(thirdAttempt.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+    }
+
+    // ---- S-200/ADR-0098 Consequences: GameKey allow-list -------------------
+    // ADR-0098's Consequences section flagged that GuessEndpoints/
+    // GuessSubmissionService reaching XGPredictGameModule.ScoreSubmissionAsync
+    // would bypass REQ-1306's confirm-lock (enforced only in
+    // PredictEndpoints). This proves the guard is structural — it fires
+    // before the game module is ever consulted at all, not merely because
+    // GetMaxAttemptsForCellAsync happens to be unimplemented for xg-predict
+    // today.
+
+    [Test]
+    public async Task S200_SubmitGuess_RoundGameKeyNotInAllowList_RejectedWithGameNotSupported_WithoutEverCallingTheGameModule()
+    {
+        // The fake is rigged to succeed if it were ever called — a valid
+        // max-attempts cap and a correct score — so a leaked call would show
+        // up as Accepted instead of GameNotSupported, not as some other
+        // failure. This is what makes the assertion below prove the guard
+        // is structural rather than incidental.
+        _gameModule = new FakeGameModule("xg-predict") { MaxAttemptsForCellResult = (_, _) => 1 };
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var round = await SeedActiveRoundWithGameKeyAsync("xg-predict");
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Thierry Henry");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.GameNotSupported));
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.Zero,
+            "GetMaxAttemptsForCellAsync must never be called for a GameKey outside the allow-list");
+        Assert.That(_gameModule.ScoreSubmissionAsyncCallCount, Is.Zero,
+            "ScoreSubmissionAsync must never be called for a GameKey outside the allow-list");
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored, Is.Null, "a rejected-by-allow-list submission must never persist a Guess row");
+    }
+
+    [Test]
+    public async Task S200_SubmitGuess_RoundGameKeyInAllowList_ReachesGameModule_NotRejectedWithGameNotSupported()
+    {
+        // The mirror-image case: a GameKey the composition root did include
+        // (e.g. "xg-path") must still reach the game module normally —
+        // proves the allow-list check itself, not just its absence for
+        // "xg-predict".
+        var round = await SeedActiveRoundWithGameKeyAsync("xg-path");
+        _gameModule = new FakeGameModule("xg-path");
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Some Guess");
+
+        Assert.That(result.Outcome, Is.Not.EqualTo(GuessSubmissionOutcome.GameNotSupported));
+        Assert.That(_gameModule.ScoreSubmissionAsyncCallCount, Is.EqualTo(1));
     }
 }

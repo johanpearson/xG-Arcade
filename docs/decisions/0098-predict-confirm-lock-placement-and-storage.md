@@ -120,9 +120,34 @@ shape. Reasoning for departing from it:
   editable" helper. Acceptable for now (only one caller, `PredictEndpoints`,
   needs either check); revisit if a third call site needs the same combined
   check.
-- **Risk flagged (architecture-review, 2026-08-31): this decision's Decision
-  §1 reasoning — "the check has exactly one real caller" — depends on
-  `GuessEndpoints`/`GuessSubmissionService` never becoming a second path
+- **Risk closed (S-200, 2026-08-31):** the risk flagged below (originally by
+  architecture-review the same day) — this decision's Decision §1 reasoning
+  depending on `GuessEndpoints`/`GuessSubmissionService` never becoming a
+  second path into `XGPredictGameModule.ScoreSubmissionAsync` — is now
+  structural rather than incidental. `GuessSubmissionService`
+  (`backend/src/XGArcade.Core/Scoring/GuessSubmissionService.cs`) takes a new
+  constructor dependency, `GuessSubmissionAllowedGameKeys`
+  (`backend/src/XGArcade.Core/Scoring/GuessSubmissionAllowedGameKeys.cs`) — an
+  explicit allow-list of the `GameKey`s this Guess-based submission path
+  serves, supplied by the composition root
+  (`backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs`) as
+  `{GridGameModule.XGGridGameKey, XGPathGameModule.XGPathGameKey}` — an
+  allow-list, not a `"xg-predict"` deny-list, per ADR-0003 (Core never
+  references a specific game module or hardcodes its `GameKey` string).
+  `SubmitGuessAsync` checks `round.GameKey` against this list immediately
+  after resolving the `Round` and rejects with the new
+  `GuessSubmissionOutcome.GameNotSupported` (mapped to a 400 by
+  `GuessEndpoints`) *before* `IGameModuleResolver.Resolve` is ever called —
+  so this no longer depends on `GetMaxAttemptsForCellAsync`'s implementation
+  state for any game. `GetMaxAttemptsForCellAsync` can now be implemented for
+  xG Predict at any time without reopening this risk.
+  `GuessSubmissionServiceTests`/`GuessEndpointTests` each add a case proving
+  an `"xg-predict"` round is rejected even when the (fake, at the unit level)
+  game module is rigged to succeed if it were ever called — the original
+  risk text is preserved immediately below for context.
+- ~~**Risk flagged (architecture-review, 2026-08-31): this decision's
+  Decision §1 reasoning — "the check has exactly one real caller" — depends
+  on `GuessEndpoints`/`GuessSubmissionService` never becoming a second path
   into `XGPredictGameModule.ScoreSubmissionAsync`.** Today `GuessEndpoints`'
   `POST /rounds/{roundId}/cells/{cellId}/guesses` has no `GameKey`
   allow-list — if called against an active xG Predict round, it currently
@@ -138,7 +163,7 @@ shape. Reasoning for departing from it:
   this game must either add an explicit `GameKey` guard to
   `GuessEndpoints`/`GuessSubmissionService`, or move REQ-1306's check
   somewhere both paths pass through — do not implement that method without
-  addressing this.
+  addressing this.**~~
 - Follow-up: if a future requirement needs "how many players in this round
   have confirmed" (e.g. an admin/ops view), `PredictPlayerLock` already
   supports a `COUNT(*) WHERE PredictInstanceId = ...` query with no schema
