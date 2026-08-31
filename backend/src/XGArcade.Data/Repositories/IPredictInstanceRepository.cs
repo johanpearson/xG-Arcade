@@ -103,8 +103,11 @@ public interface IPredictInstanceRepository
     // and "a round's total... grow[s]... over time" criteria directly:
     // calling this again after another match is graded returns a larger
     // sum for any user with predictions on it, with no other state to
-    // update. Deliberately NOT wired into ILeaderboardService in this
-    // story — see ADR-0097 Decision §2's own explicit scope note.
+    // update. ADR-0097 Decision §2 deliberately left this NOT wired into
+    // ILeaderboardService when this method was built (S-195) — ADR-0100/
+    // S-199 closed that gap: PredictRoundScoreSource (Games.XGPredict) is
+    // now the only caller, reached exclusively through
+    // IRoundScoreSourceResolver, never directly from Core.Leagues.
     Task<IReadOnlyDictionary<Guid, int>> GetTotalPointsByInstanceIdAsync(
         Guid predictInstanceId, CancellationToken cancellationToken = default);
 

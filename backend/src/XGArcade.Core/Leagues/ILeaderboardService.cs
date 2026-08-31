@@ -146,10 +146,11 @@ public interface ILeaderboardService
     // ADR-0021) single round's FinalPoints total, average FinalPoints, and
     // current all-time rank, all reused from data already computed for the
     // leaderboard rather than a new aggregate path. RoundsPlayed/Best/Average
-    // come straight from IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync
-    // (REQ-408/409's existing per-round-total/qualifying-round query, called
-    // here with a single-element userIds collection, applyGuestEligibilityRules:
-    // false) — the exact same "absent from the dictionary means zero
+    // come straight from the resolved IRoundScoreSource.GetPerRoundTotalsByUserIdsAsync
+    // (ADR-0100; REQ-408/409's existing per-round-total/qualifying-round
+    // concept, called here with a single-element userIds collection,
+    // applyGuestEligibilityRules: false) — the exact same "absent from the
+    // dictionary means zero
     // qualifying rounds" convention GetGlobalLeaderboardAsync already relies
     // on, except a guest's own rounds count for these three figures per
     // REQ-411's own "Out of scope" text ("a guest's rounds-played/best/
