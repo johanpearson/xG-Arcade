@@ -334,7 +334,13 @@ that `LockRoundScoresAsync` is already a no-op for an xG Predict round:
   `LeaderboardService`'s closed-round/windowed scopes for `"xg-predict"`,
   once that story also resolves how `GetClosedRoundsAsync`'s `ClosedAt`
   gating should read for a round whose total may still be growing (not
-  decided here — flagged, not answered).
+  decided here — flagged, not answered). **Resolved 2026-08-31, ADR-0100
+  (S-199):** `PredictRoundScoreSource` now calls this method from all four
+  `LeaderboardService` scopes via `IRoundScoreSourceResolver`;
+  `GetClosedRoundsAsync`'s `ClosedAt` gating itself was not changed —
+  `Round.ClosedAt` remains fully decoupled from grading completeness, per
+  Decision §4 above, and a closed-but-partially-graded round simply shows
+  its current partial total, growing on later reads.
 - Follow-up: `RoundSchedulingOptions`/round-generation wiring for
   `"xg-predict"` remains a separate, unstarted piece of work, unaffected by
   this ADR — `PredictGradingService`'s query (Decision §3) works without it,

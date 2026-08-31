@@ -280,6 +280,60 @@ public class LeaderboardEndpointTests
         return round.Id;
     }
 
+    // ADR-0100/S-199: a closed "xg-predict" Round backed by a real
+    // PredictInstance/PredictMatch/PredictMatchPrediction, the match already
+    // graded — mirrors PredictEndpointTests' own SeedPredictRoundAsync shape
+    // but pre-grades the one match/prediction pair directly (this file's own
+    // scope is proving LeaderboardEndpoints' HTTP wiring, not
+    // PredictGradingService's grading run, which has its own dedicated
+    // tests).
+    private async Task<Guid> SeedClosedPredictRoundWithGradedPredictionAsync(Guid userId, int finalPoints)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var instanceId = Guid.NewGuid();
+        var match = new PredictMatch
+        {
+            Id = Guid.NewGuid(),
+            PredictInstanceId = instanceId,
+            ExternalFixtureId = 1,
+            HomeTeamName = "Home",
+            AwayTeamName = "Away",
+            KickoffUtc = DateTime.UtcNow.AddDays(-2),
+            GradingStatus = PredictMatchGradingStatus.Graded,
+            ActualHomeGoals = 2,
+            ActualAwayGoals = 1,
+        };
+        dbContext.PredictInstances.Add(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [match] });
+        dbContext.PredictMatchPredictions.Add(new PredictMatchPrediction
+        {
+            Id = Guid.NewGuid(),
+            PredictMatchId = match.Id,
+            UserId = userId,
+            HomeGoals = 2,
+            AwayGoals = 1,
+            SubmittedAt = DateTime.UtcNow.AddDays(-3),
+            FinalPoints = finalPoints,
+        });
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = XGPredictGameModule.XGPredictGameKey,
+            GameInstanceId = instanceId,
+            SequenceNumber = 1,
+            StartTime = DateTime.UtcNow.AddDays(-3),
+            EndTime = DateTime.UtcNow.AddDays(-1),
+            AllowGuessChange = true,
+            ClosedAt = DateTime.UtcNow.AddDays(-1),
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return round.Id;
+    }
+
     private async Task<Guid> SeedRoundNotYetClosedAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -626,6 +680,34 @@ public class LeaderboardEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
         Assert.That(body!.Rows, Is.Empty, "no xg-predict rounds were seeded in this test");
+    }
+
+    // ADR-0100/S-199: end-to-end proof that a closed "xg-predict" round's
+    // graded PredictMatchPrediction total is now visible through
+    // ILeaderboardService/LeaderboardEndpoints — the gap ADR-0097 explicitly
+    // deferred ("Deliberately not wired into ILeaderboardService... a real,
+    // separate piece of work") and this ADR closes. Uses the real,
+    // DI-registered PredictRoundScoreSource (via IRoundScoreSourceResolver)
+    // through the full HTTP pipeline, not a fake — the Core-level
+    // participation/eligibility edge cases are already exhaustively covered
+    // by PredictRoundScoreSourceTests (Games.XGPredict.Tests) and
+    // LeaderboardServiceTests' own ADR0100-named resolver-routing cases; this
+    // test only proves the wiring reaches all the way through the real
+    // composition root.
+    [Test]
+    public async Task ADR0100_LeaderboardGet_ClosedRoundWithGameKeyXgPredict_ShowsGradedPredictionTotal()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedMemberAsync(authProviderUserId, "You");
+        var roundId = await SeedClosedPredictRoundWithGradedPredictionAsync(userId, finalPoints: 9);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Single().DisplayName, Is.EqualTo("You"));
+        Assert.That(body.Rows.Single().TotalPoints, Is.EqualTo(9));
     }
 
     // Smoke-test coverage for one other gameKey-accepting route (closed-rounds)

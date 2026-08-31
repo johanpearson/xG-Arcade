@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.34"
+version: "2.35"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -4190,6 +4190,20 @@ live-round fold was removed from this endpoint entirely, not left dormant
 `GetUserIdsWithAnyGuessAsync` repository methods were removed (no other
 callers). See REQ-404's own added status note for what it now describes as
 superseded interim behavior.)*
+*(Status update, 2026-08-31, ADR-0100/S-199: `GetPerRoundFinalPointsByUserIdsAsync`
+is no longer called directly by `LeaderboardService` — every `GameKey`
+now goes through a resolved `Core.Scoring.IRoundScoreSource`
+(`GuessRoundScoreSource` for `"xg-grid"`/`"xg-path"`, still backed by that
+same repository method) so this REQ's qualifying-round/median logic
+applies uniformly across every game, not just Guess-backed ones. For
+`"xg-predict"`, which never writes a `Guess` row (ADR-0096),
+`PredictRoundScoreSource` (`Games.XGPredict`) treats a closed round as
+qualifying once the player has submitted >= 1 prediction for it
+(`IPredictInstanceRepository.GetParticipantUserIdsByInstanceIdAsync`),
+contributing 0 to the median if nothing is graded yet rather than failing
+to qualify or being defaulted later — the same "closed + participated"
+qualifying-round test this REQ already specifies, expressed in
+prediction-submission terms instead of guess-submission terms.)*
 > As a player, I want the all-time leaderboard to rank players by how
 > consistently they perform per round, not by a raw cumulative total that
 > only ever grows the more rounds someone plays, and only once they've
@@ -4417,6 +4431,14 @@ the *rank* figure inherits guest-eligibility rules. Fixed by adding an
 are unaffected); `GetUserStatsAsync` is the one caller that passes `false`
 for the three stats figures, while Rank still goes through the unchanged,
 guest-excluding path.
+**Status update (2026-08-31, ADR-0100/S-199):** `GetUserStatsAsync` no
+longer calls `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync`
+directly — it resolves a `Core.Scoring.IRoundScoreSource` for the
+requested `gameKey` and calls its `GetPerRoundTotalsByUserIdsAsync`
+instead, the same resolver `GetRankedMembersAsync`'s Rank figure already
+used. This is what makes `"xg-predict"`'s stats/rank figures correct for
+the first time — see REQ-409's own 2026-08-31 status update for
+`PredictRoundScoreSource`'s participation-based qualifying-round test.
 **Frontend (S-179, same day):** a single new `UserStatsScreen.tsx`
 (SCREEN-13, `frontend/src/users/`) renders both "own stats" and "another
 player's stats" — the component itself has no own-vs-other concept beyond
@@ -10192,13 +10214,21 @@ submit, resubmit, and explicitly confirm-and-lock predictions through a
 production code path end to end, and view them via the xG Predict tile on
 `GameSelectScreen`/the "Games" entry in `HeaderNav`. See each REQ's own
 status note below for the exact endpoint/file. This does not change
-REQ-1301's round-*generation* status above, and does not add
-`ILeaderboardService`/leaderboard wiring for `"xg-predict"` round totals
-(pre-existing gap from S-195/S-196, unaffected by this story) or REQ-710
+REQ-1301's round-*generation* status above, and does not add REQ-710
 account-deletion wiring for the new `PredictPlayerLock`/
 `PredictMatchPrediction` tables (flagged as a `docs/backlog.md` follow-up,
 not fixed here — see ADR-0098's Consequences section and `XGArcadeDbContext.cs`'s
 own comment on `PredictPlayerLock`'s `OnModelCreating` registration).
+**Status (2026-08-31, ADR-0100, S-199):** the `ILeaderboardService`/
+leaderboard wiring gap flagged above (S-195/S-196/S-197/S-198, "no
+`ILeaderboardService` wiring for `\"xg-predict\"` round totals") is now
+closed — every `LeaderboardService` scope (REQ-404/406/407/408/409/411)
+sources its round totals through a per-`GameKey` `IRoundScoreSource`
+(`Core.Scoring`), resolved via `IRoundScoreSourceResolver`; the
+`"xg-predict"` implementation, `PredictRoundScoreSource`
+(`Games.XGPredict`/COMP-15), wraps `IPredictInstanceRepository` only. See
+REQ-409's own status note below for `PredictRoundScoreSource`'s
+participation-vs-graded-points distinction.
 
 **Note on §4.13's cross-game requirements:** REQ-1210 (round-completion
 animation with a leaderboard link) is written for a game whose cells
@@ -10653,16 +10683,16 @@ idempotent-second-run cases) and `PredictInstanceRepositoryTests`
 the endpoint's graded/voided-count response itself is not yet exercised
 against a fake `IFootballDataClient` end to end — a coverage nicety, not a
 gap in the grading logic itself, which the service-level tests above
-already cover thoroughly). **Not yet reachable end-to-end in production:**
-`ILeaderboardService`/`LeaderboardEndpoints` do not call
-`GetTotalPointsByInstanceIdAsync` yet — no leaderboard surface can show an
-xG Predict round's total today, even once graded (flagged explicitly as
-an ADR-0097 follow-up, tracked in `docs/backlog.md`). This is additionally
-moot in practice today since no `"xg-predict"` round can exist yet at all
-— `RoundSchedulingOptions`/round-generation wiring for this `GameKey`
-remains unregistered (unchanged from every prior xG Predict story's own
-scope note), so `PredictGradingService`'s query will find zero matches to
-grade in production until that separate story lands.
+already cover thoroughly). **Status (2026-08-31, ADR-0100, S-199):** the
+"not yet reachable end-to-end in production" gap this paragraph used to
+flag (`ILeaderboardService`/`LeaderboardEndpoints` never calling
+`GetTotalPointsByInstanceIdAsync`) is closed —
+`PredictRoundScoreSource.GetTotalsByRoundAsync`/`GetActiveRoundTotalsByUserIdAsync`
+(`Games.XGPredict`) now call it, reached from `LeaderboardEndpoints` via
+`IRoundScoreSourceResolver`. `RoundSchedulingOptions`/round-generation
+wiring for `"xg-predict"` is also registered (S-196), so this is a real,
+reachable path once matches exist to grade, not only a code path proven in
+tests.
 
 **Leaderboard participation:** xG Predict needs no new leaderboard
 requirement of its own. REQ-401 (Global League membership) and REQ-410

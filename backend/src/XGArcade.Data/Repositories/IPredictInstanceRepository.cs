@@ -103,9 +103,24 @@ public interface IPredictInstanceRepository
     // and "a round's total... grow[s]... over time" criteria directly:
     // calling this again after another match is graded returns a larger
     // sum for any user with predictions on it, with no other state to
-    // update. Deliberately NOT wired into ILeaderboardService in this
-    // story — see ADR-0097 Decision §2's own explicit scope note.
+    // update. ADR-0097 Decision §2 deliberately left this NOT wired into
+    // ILeaderboardService when this method was built (S-195) — ADR-0100/
+    // S-199 closed that gap: PredictRoundScoreSource (Games.XGPredict) is
+    // now the only caller, reached exclusively through
+    // IRoundScoreSourceResolver, never directly from Core.Leagues.
     Task<IReadOnlyDictionary<Guid, int>> GetTotalPointsByInstanceIdAsync(
+        Guid predictInstanceId, CancellationToken cancellationToken = default);
+
+    // ADR-0100 §3: every user who submitted >=1 prediction for this
+    // instance, regardless of grading state — participation, not points.
+    // Used only to decide qualifying-round membership (REQ-409);
+    // PredictRoundScoreSource (Games.XGPredict) pairs this with
+    // GetTotalPointsByInstanceIdAsync above (defaulting to 0 for a
+    // participant with nothing graded yet) to build each qualifying
+    // round's contributed value. Do NOT reuse GetTotalPointsByInstanceIdAsync's
+    // absent-key semantics as a stand-in for "did this user participate" —
+    // it means "has at least one graded point," not "predicted at all."
+    Task<IReadOnlyCollection<Guid>> GetParticipantUserIdsByInstanceIdAsync(
         Guid predictInstanceId, CancellationToken cancellationToken = default);
 
     // REQ-1302/ADR-0098: every one of this user's stored predictions across

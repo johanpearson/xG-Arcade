@@ -162,6 +162,26 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
         return totals.ToDictionary(t => t.UserId, t => t.Total);
     }
 
+    // ADR-0100 §3: every distinct user with >=1 stored prediction for this
+    // instance, regardless of the parent match's GradingStatus — unlike
+    // GetTotalPointsByInstanceIdAsync above, Pending/Voided matches are NOT
+    // excluded here, since this answers "did this user participate" rather
+    // than "how many points has this user earned so far". Same explicit-join
+    // shape (no navigation property from PredictMatchPrediction to
+    // PredictMatch) and the same prediction.UserId != null filter (REQ-710:
+    // an anonymized prediction has no user left to attribute participation
+    // to) as GetTotalPointsByInstanceIdAsync.
+    public async Task<IReadOnlyCollection<Guid>> GetParticipantUserIdsByInstanceIdAsync(
+        Guid predictInstanceId, CancellationToken cancellationToken = default) =>
+        await (
+            from prediction in dbContext.PredictMatchPredictions.AsNoTracking()
+            join match in dbContext.PredictMatches.AsNoTracking()
+                on prediction.PredictMatchId equals match.Id
+            where match.PredictInstanceId == predictInstanceId && prediction.UserId != null
+            select prediction.UserId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
     // REQ-1302/ADR-0098: same explicit-join shape as
     // GetTotalPointsByInstanceIdAsync above (no navigation property from
     // PredictMatchPrediction to PredictMatch), scoped to one user instead of

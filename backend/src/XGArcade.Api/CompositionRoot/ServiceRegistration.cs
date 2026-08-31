@@ -310,6 +310,42 @@ public static class ServiceRegistration
         // and exposes standalone (REQ-407) — recomputed on every call, never
         // cached, per ADR-0031.
         builder.Services.AddScoped<ILiveRoundContributionService, LiveRoundContributionService>();
+        // ADR-0100: LeaderboardService now sources every scope's round
+        // totals through a per-GameKey IRoundScoreSource instead of calling
+        // IGuessRepository/ILiveRoundContributionService directly.
+        // IRoundScoreSource carries no GameKey property of its own (unlike
+        // IScoringStrategy), so — unlike ScoringStrategyResolver's own
+        // FirstOrDefault(s => s.GameKey == ...) lookup over a plain
+        // IEnumerable<IScoringStrategy> DI registration — this resolver is
+        // built directly from an explicit GameKey -> IRoundScoreSource
+        // dictionary here at the composition root, rather than via a second
+        // multi-registration of IRoundScoreSource itself. GuessRoundScoreSource
+        // is constructed twice (once per GameKey it serves, mirroring
+        // UniquenessScoringStrategy/ClueEfficiencyScoringStrategy's own two
+        // registrations above); PredictRoundScoreSource once, wrapping only
+        // IPredictInstanceRepository (registered above, COMP-15) — never
+        // IRoundRepository/IUserRepository (ADR-0100's "For AI agents" rule).
+        builder.Services.AddScoped<IRoundScoreSourceResolver>(sp =>
+        {
+            var guessRoundScoreSource = new GuessRoundScoreSource(
+                sp.GetRequiredService<IGuessRepository>(), sp.GetRequiredService<ILiveRoundContributionService>())
+            {
+                GameKey = GridGameModule.XGGridGameKey,
+            };
+            var xgPathGuessRoundScoreSource = new GuessRoundScoreSource(
+                sp.GetRequiredService<IGuessRepository>(), sp.GetRequiredService<ILiveRoundContributionService>())
+            {
+                GameKey = XGPathGameModule.XGPathGameKey,
+            };
+            var predictRoundScoreSource = new PredictRoundScoreSource(sp.GetRequiredService<IPredictInstanceRepository>());
+
+            return new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
+            {
+                [GridGameModule.XGGridGameKey] = guessRoundScoreSource,
+                [XGPathGameModule.XGPathGameKey] = xgPathGuessRoundScoreSource,
+                [XGPredictGameModule.XGPredictGameKey] = predictRoundScoreSource,
+            });
+        });
 
         builder.AddIncidentReportingServices();
         builder.AddAvatarStorageServices();

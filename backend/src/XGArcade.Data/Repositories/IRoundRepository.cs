@@ -41,14 +41,21 @@ public interface IRoundRepository
     // second COUNT query.
     Task<IReadOnlyList<Round>> GetClosedByGameKeyAsync(string gameKey, int skip, int take, CancellationToken cancellationToken = default);
 
-    // REQ-405: the ids of every closed round (ClosedAt != null — same
-    // locked-only rule as REQ-401/404/408) for this game whose EndTime falls
-    // within [windowStartUtc, windowEndUtc) — the half-open range
-    // LeaderboardService uses for its calendar-aligned week/month/year
-    // windows. Deliberately ids-only rather than full Round rows: callers
-    // only ever feed the result straight into
-    // IGuessRepository.GetTotalFinalPointsByRoundIdsAsync.
-    Task<IReadOnlyList<Guid>> GetClosedIdsWithinWindowAsync(
+    // REQ-405: every closed round (ClosedAt != null — same locked-only rule
+    // as REQ-401/404/408) for this game whose EndTime falls within
+    // [windowStartUtc, windowEndUtc) — the half-open range LeaderboardService
+    // uses for its calendar-aligned week/month/year windows. Full Round rows
+    // (not ids-only): ADR-0100 §5 — a second caller (PredictRoundScoreSource,
+    // via LeaderboardService's IRoundScoreSource resolution) needs each
+    // round's GameInstanceId too, not just its Id, so the old
+    // "callers only ever feed the result straight into
+    // IGuessRepository.GetTotalFinalPointsByRoundIdsAsync" assumption this
+    // method's ids-only shape used to rest on no longer holds. Reuses the
+    // same shape GetClosedByGameKeyAsync already returns rather than
+    // inventing a narrower projection type — Round is small and
+    // already-loaded-everywhere; there is no performance case for keeping
+    // the narrower ids-only shape now that a second caller needs more of it.
+    Task<IReadOnlyList<Round>> GetClosedWithinWindowAsync(
         string gameKey, DateTime windowStartUtc, DateTime windowEndUtc, CancellationToken cancellationToken = default);
 
     Task<Round?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
