@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.83"
+version: "0.84"
 status: draft
-last_updated: 2026-08-25
+last_updated: 2026-08-31
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -3135,6 +3135,171 @@ never blocking the rest of this screen's stats from rendering.
   `--color-accent-red` for the error/not-found states, existing spacing
   scale, `--touch-target-min`) — no new color or typeface introduced for
   this screen.
+
+### SCREEN-14: xG Predict round (score prediction)
+
+New for this story (REQ-1301/1302/1303/1306) — no prior SCREEN entry
+covered this. One component, `PredictScreen.tsx` (`frontend/src/predict/`),
+showing an entire round's fixed 5-match slate at once — never a
+one-match-at-a-time stepper the way SCREEN-10's puzzle sequence is,
+since REQ-1301's whole point is "a round feels like one coherent slate."
+
+```
+┌───────────────────────────────────────────┐
+│ xG Predict                                 │
+│ Predict the final score of all 5 matches.  │
+├───────────────────────────────────────────┤
+│ ┌─────────────────────────────────────┐   │
+│ │ Arsenal v Chelsea    Sat 13 Sep 15:00 │   │
+│ │ Arsenal [ 2 ]  –  [ 1 ] Chelsea [Save]│   │
+│ │ Saved.                                │   │
+│ └─────────────────────────────────────┘   │
+│ ┌─────────────────────────────────────┐   │
+│ │ Liverpool v Everton  Sat 13 Sep 15:00 │   │
+│ │ Liverpool [   ]  –  [   ] Everton [Save]│  │
+│ └─────────────────────────────────────┘   │
+│  … 3 more match cards …                    │
+├───────────────────────────────────────────┤
+│         [Confirm and lock my predictions]  │
+└───────────────────────────────────────────┘
+
+Locked state (REQ-1303 and/or REQ-1306) — every card's inputs/Save
+button disabled, plain-text notice(s) shown above the match list, the
+confirm button no longer rendered:
+
+┌───────────────────────────────────────────┐
+│ This round has locked — the first match    │
+│ has kicked off. Predictions can no longer  │
+│ be changed.                                │
+└───────────────────────────────────────────┘
+
+Confirm dialog (REQ-1306) — same structural pattern as
+GuestLogoutConfirm (REQ-718):
+
+┌───────────────────────────────┐
+│ Confirm and lock your          │
+│ predictions?                   │
+│                                 │
+│ Are you sure? You can't change │
+│ your predictions after         │
+│ confirming.                    │
+│                                 │
+│ [Cancel]   [Confirm and lock]  │
+└───────────────────────────────┘
+```
+
+- **All 5 matches shown at once, no per-match navigation.** Each match is
+  its own card (`PredictMatchInput.tsx`): team names, the scheduled
+  kickoff instant, and a home/away goal input pair with an explicit
+  per-match "Save" button — an explicit affordance was chosen over
+  submit-on-blur specifically because a match has *two* fields (home/away
+  goals), and tabbing from the first to the second would otherwise fire a
+  premature, half-typed submission on blur. Cards are a plain stacked
+  list (`--space-2` gap), tokens only (`surface-card` background,
+  `border-hairline` border, no per-game accent color) — same "identity
+  comes from name/description text, not a color code" rule SCREEN-09's
+  tiles already establish.
+- **Kickoff time and score inputs are `--font-mono`/tabular-figure**,
+  per §2's existing "any number meant to be compared at a glance is
+  always mono" rule — a player compares kickoff times across the round's
+  5 matches (the earliest one determines REQ-1303's lock instant) and
+  compares/edits score values the same deliberate way.
+- **Save feedback is text-paired, never color/icon-only (§6).** A
+  successful save shows "Saved." in `accent-green-text` (this codebase's
+  established "successful action" color, e.g. `PathGuessInput`'s own
+  submit button) — deliberately **not** `accent-gold`/`accent-gold-text`
+  ("settled/correct" per §2's own green/gold split): a saved prediction is
+  neither graded nor known-correct (REQ-1304/1305's grading is
+  asynchronous, with no reachable frontend surface on this screen), so
+  gold would misleadingly imply a correctness signal this screen never
+  has. A failed save (400 "Invalid prediction," a stale 409, or any other
+  error) shows the server's own `title`/`detail` text in `accent-red`,
+  inline on that match's own card — never a silent failure, per this
+  story's own explicit requirement that a 409 mid-edit "must surface
+  clearly."
+- **Two independent locks, both stated in plain text (§6), never
+  color-only.** REQ-1303's round-wide automatic lock ("This round has
+  locked — the first match has kicked off. Predictions can no longer be
+  changed.") and REQ-1306's per-player confirm-lock ("You've confirmed
+  and locked your predictions for this round.") each render as their own
+  plain-text notice, shown independently since either can be true without
+  the other — both disable every match card's inputs/Save button
+  identically. Notices use the same neutral `surface-sunken`/
+  `border-hairline` card treatment as any other plain informational
+  banner in this app, not a warning color — neither lock is a mistake or
+  an error state, just a fact about where the round stands.
+- **Confirm action (REQ-1306) is a separate control from any one match's
+  Save button.** "Confirm and lock my predictions" (`accent-green-text`,
+  same primary-action token as the per-match Save buttons and
+  SCREEN-12's own banner button) renders only once every one of the
+  round's 5 matches already shows a non-null prediction and neither lock
+  already applies — never a persistent, always-visible control that's
+  merely disabled while unavailable, since "all 5 filled" is itself part
+  of what makes the action meaningful, not just a precondition to gray
+  out.
+- **Confirm dialog reuses `GuestLogoutConfirm.tsx`'s exact structural/
+  accessibility pattern** (`role="dialog"`, `aria-modal`,
+  backdrop-click-to-close, Escape-to-close, focus-in-on-open/
+  focus-return-on-close, Cancel focused by default, not the confirm
+  action) — the codebase's own established precedent for a two-choice,
+  cannot-undo confirmation, cited directly in REQ-1306's own Test level
+  note. Prompt text is a close paraphrase of "Are you sure? You can't
+  change your predictions after confirming." **One deliberate difference
+  from `GuestLogoutConfirm`, flagged as a judgment call, not a silent
+  copy:** the confirm button is `accent-green-text`, not `accent-red`.
+  `GuestLogoutConfirm`'s red button reflects a genuinely destructive
+  action (deletes a guest account and everything played); confirming
+  predictions destroys nothing — it locks in a value the player already
+  chose — so it uses this codebase's other "primary action" token
+  instead, the same one every per-match Save button and the
+  "Confirm and lock my predictions" button itself already use. Every
+  other structural/accessibility choice is identical to
+  `GuestLogoutConfirm`. Cancelling closes the dialog with zero side
+  effects (predictions remain exactly as editable as before); confirming
+  calls `POST /predict/confirm` and, on success, re-fetches
+  `GET /predict/current` (mirrors `PathScreen.tsx`'s own post-submit
+  re-fetch idiom) so the screen immediately reflects the same fully-locked
+  treatment described above.
+- **No completion celebration, banner, or animation of any kind** —
+  REQ-1210/`RoundCompletionBanner.tsx` explicitly does not apply to this
+  screen (see requirements-document.md §4.14's intro note and REQ-1306's
+  own "Context" bullet: matches grade asynchronously, sometimes days
+  later, so there is no synchronous "you just finished" moment to
+  celebrate). REQ-1306's confirmation dialog above is the deliberate
+  replacement for that celebration, not an oversight that a future story
+  should "finish" by wiring the banner in.
+- **No new motion.** Nothing on this screen introduces a transition —
+  match cards, lock notices, and the confirm button all simply appear
+  with the rest of the screen's own initial render, same as `PathScreen`'s
+  guess input/timeline. The confirm dialog itself has no entrance
+  animation either, matching `GuestLogoutConfirm`'s own precedent (a
+  plain conditional mount, no keyframes). If a future revision wants any
+  of this to animate in, it must reuse the existing settle-fade character
+  (§2) already established for the badge dock/round-completion banner —
+  never a new signature animation, per this document's own "the badge
+  dock is deliberately the only bold motion moment" rule.
+- **Empty state.** No active xG Predict round (404) shows "No round to
+  predict right now" / "The next round is on its way — check back soon."
+  — same calm, non-error empty-state voice (§5: "empty states are
+  invitations") `PathScreen`'s own SCREEN-10 empty state already
+  establishes, reworded for this game's own vocabulary.
+- **Reached only via `GameSelectScreen`'s third tile** (SCREEN-09,
+  "xG Predict" / "Predict the final score"), not from a `HeaderNav`
+  "Games" quick-jump entry — **a flagged, intentional scope boundary in
+  this change, not an oversight.** SCREEN-09's own spec already requires
+  `GameSelectScreen`'s tile order and `HeaderNav`'s "Games" list order to
+  "never disagree," which strictly implies both should gain a third entry
+  together; this change adds only the tile (`App.tsx`/
+  `GameSelectScreen.tsx`, as its task explicitly scoped) and leaves
+  `HeaderNav.tsx` untouched. Revisit in a follow-up story rather than
+  silently treating xG Predict as fully on par with xG Grid/xG Path's
+  navigation surface until then.
+- **Tokens only** — `surface-card`/`border-hairline` cards,
+  `surface-sunken` for lock notices, `accent-green-text` for every
+  primary/successful-action use, `accent-red` for errors, existing
+  spacing scale (`--space-*`) and `--touch-target-min` sizing throughout.
+  No new color, typeface, or animation token was introduced for this
+  screen.
 
 ## 4. Responsive strategy
 

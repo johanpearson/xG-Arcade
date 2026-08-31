@@ -5,7 +5,7 @@ import { SuggestionsScreen } from './admin/SuggestionsScreen';
 import { AuthScreen } from './auth/AuthScreen';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Logo } from './components/Logo';
-import { GameSelectScreen, XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from './games/GameSelectScreen';
+import { GameSelectScreen, XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
 import { IncidentReportDialog } from './incidents/IncidentReportDialog';
 import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
@@ -13,6 +13,7 @@ import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen, type LeaderboardRoundTarget } from './leaderboard/LeaderboardScreen';
 import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { PathScreen } from './path/PathScreen';
+import { PredictScreen } from './predict/PredictScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
 import { UserStatsScreen } from './users/UserStatsScreen';
@@ -42,6 +43,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // way 'grid' is — GameSelectScreen's second tile or HeaderNav's "Games" →
 // "xG Path" entry. It renders only a placeholder today: the real
 // clue-reveal UI (SCREEN-10) is S-086's separate, not-yet-built work.
+// 'predict' (REQ-1301/1302/1303/1306, SCREEN-14) is xG Predict's own
+// destination — reached the same way 'grid'/'path' are, via
+// GameSelectScreen's third tile. Unlike 'grid'/'path', it is deliberately
+// not given a HeaderNav "Games" quick-jump entry in this change (see this
+// story's own report/design-document.md SCREEN-14 status note for why
+// that's a flagged, intentional scope boundary, not an oversight) — it
+// remains reachable only via GameSelectScreen until that's revisited.
 // 'admin-suggestions' (REQ-509/REQ-510, S-090, ADR-0053) is
 // SuggestionsScreen's own destination — reachable only via a link inside
 // AdminScreen itself, one hop further than 'admin', mirroring how 'admin'
@@ -59,6 +67,7 @@ type Screen =
   | 'game-select'
   | 'grid'
   | 'path'
+  | 'predict'
   | 'leaderboard'
   | 'leagues'
   | 'settings'
@@ -75,6 +84,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   'game-select': '#/game-select',
   grid: '#/grid',
   path: '#/path',
+  predict: '#/predict',
   leaderboard: '#/leaderboard',
   leagues: '#/leagues',
   settings: '#/settings',
@@ -481,6 +491,9 @@ function App() {
                   case XG_PATH_GAME_KEY:
                     navigateTo('path');
                     break;
+                  case XG_PREDICT_GAME_KEY:
+                    navigateTo('predict');
+                    break;
                   default: {
                     const _exhaustive: never = gameKey;
                     return _exhaustive;
@@ -504,6 +517,13 @@ function App() {
               onAuthError={handleLogout}
               onViewRoundLeaderboard={handleViewRoundLeaderboard}
             />
+          ) : screen === 'predict' ? (
+            // REQ-1301/1302/1303/1306, SCREEN-14: xG Predict's own round
+            // screen. No isGuest prop (nothing here is guest-gated) and no
+            // onViewRoundLeaderboard prop (REQ-1210's completion celebration
+            // deliberately does not apply to xG Predict — see
+            // PredictScreenProps' own doc comment for why).
+            <PredictScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen
               accessToken={accessToken}

@@ -1,0 +1,92 @@
+/* design-document.md SCREEN-14: same page shell as PathScreen.css/
+   GridScreen.css — a plain flex column, no new layout mechanism. */
+.predict-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-4);
+}
+
+@media (min-width: 960px) {
+  .predict-screen {
+    gap: var(--space-6);
+    padding: var(--space-6);
+  }
+}
+
+.predict-screen__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.predict-screen__subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.predict-screen__status {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+}
+
+.predict-screen__status--error {
+  color: var(--color-accent-red);
+}
+
+.predict-screen__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+}
+
+.predict-screen__empty p {
+  color: var(--color-text-muted);
+}
+
+/* REQ-1301: all 5 matches shown at once, as one coherent slate — a plain
+   stacked list, no per-match navigation/paging mechanism. */
+.predict-screen__matches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* §6: locked notices are plain text, no icon-only/color-only signal. */
+.predict-screen__lock-notice {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.predict-screen__confirm-button {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.predict-screen__confirm-error {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+  font-family: var(--font-body);
+}

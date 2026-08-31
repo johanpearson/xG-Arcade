@@ -84,3 +84,46 @@ export function formatRoundEndTime(endTimeIso: string, referenceTime: Date): Rou
 export function formatRoundEndTimeAccessibleLabel(display: RoundEndTimeDisplay): string {
   return `${display.text}. Round ends ${display.absoluteLabel}.`;
 }
+
+// REQ-1301/1302 (xG Predict): formats a single match's scheduled kickoff
+// instant for PredictScreen.tsx — a genuinely different display shape from
+// formatRoundEndTime above, so it's a new function rather than a reuse.
+// formatRoundEndTime's whole point is a *relative* "time remaining" duration
+// computed against a reference "now" (REQ-303's own design), which doesn't
+// make sense for a match kickoff: a player needs to know *when* (and, per
+// REQ-1303, implicitly *whether it's already passed and locked the round*)
+// each of the round's 5 matches kicks off, not "how long until" it in a
+// live-ticking sense — there is no equivalent "Ending soon" bucket here, and
+// showing 5 independent relative countdowns that all drift out of sync on
+// every render would be far noisier than one fixed local date/time each.
+// This is therefore a plain, single-instant-in-time formatter — same
+// "pure function, computed once, never re-invoked on a timer" discipline as
+// formatRoundEndTime above, and the same `Number.isNaN` guard against a
+// malformed ISO string leaking as "Invalid Date" into the UI.
+export interface MatchKickoffDisplay {
+  // Visible short local date/time, e.g. "Sat 12 Sep, 15:00" — always in the
+  // viewer's own local timezone (Intl/toLocaleString), never a fixed one.
+  text: string;
+  // Full accessible name, e.g. "Kicks off Sat 12 Sep, 15:00" — exposed via
+  // aria-label so a screen-reader user gets the same information a sighted
+  // player reads directly from `text`, not a hover-only tooltip.
+  accessibleLabel: string;
+}
+
+export function formatMatchKickoff(kickoffUtcIso: string): MatchKickoffDisplay {
+  const kickoff = new Date(kickoffUtcIso);
+
+  if (Number.isNaN(kickoff.getTime())) {
+    return { text: 'Kickoff time unknown', accessibleLabel: 'Kickoff time unknown' };
+  }
+
+  const text = kickoff.toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  return { text, accessibleLabel: `Kicks off ${text}` };
+}

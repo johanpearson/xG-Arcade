@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel } from './roundTime';
+import { formatMatchKickoff, formatRoundEndTime, formatRoundEndTimeAccessibleLabel } from './roundTime';
 
 // REQ-303 (2026-07-21 addition): the grid header's round end-time indicator.
 // A fixed reference "now" so every bucket boundary below is computed against
@@ -140,5 +140,41 @@ describe('formatRoundEndTimeAccessibleLabel', () => {
     expect(formatRoundEndTimeAccessibleLabel(display)).toBe(
       'Ending soon. Round ends Aug 1, 2026, 9:30 AM.',
     );
+  });
+});
+
+// REQ-1301/1302 (xG Predict): a single-instant-in-time formatter, distinct
+// from formatRoundEndTime's relative-duration one — see this function's own
+// doc comment in roundTime.ts for why.
+describe('formatMatchKickoff', () => {
+  it('REQ-1301: formats a valid kickoff instant using the viewer\'s own local date/time, matching Intl.toLocaleString\'s own output for the same options', () => {
+    const kickoffIso = '2026-09-13T14:00:00.000Z';
+    const expectedText = new Date(kickoffIso).toLocaleString(undefined, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+
+    const display = formatMatchKickoff(kickoffIso);
+
+    expect(display.text).toBe(expectedText);
+    expect(display.accessibleLabel).toBe(`Kicks off ${expectedText}`);
+  });
+
+  it('REQ-1301: two different kickoff instants produce two different display strings', () => {
+    const first = formatMatchKickoff('2026-09-13T14:00:00.000Z');
+    const second = formatMatchKickoff('2026-09-14T18:30:00.000Z');
+
+    expect(first.text).not.toBe(second.text);
+  });
+
+  it('REQ-1301: a malformed ISO string never leaks "Invalid Date" into the display', () => {
+    const display = formatMatchKickoff('not-a-real-date');
+
+    expect(display.text).toBe('Kickoff time unknown');
+    expect(display.accessibleLabel).toBe('Kickoff time unknown');
+    expect(display.text).not.toMatch(/Invalid Date/);
   });
 });
