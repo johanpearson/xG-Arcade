@@ -143,6 +143,42 @@ const GAME_TABS: Array<{ value: GameKey; label: string }> = [
   { value: XG_PREDICT_GAME_KEY, label: 'xG Predict' },
 ];
 
+// REQ-404/ADR-0095 (S-198, quality-gate fix): an exhaustive switch, not an
+// if/else or ternary chain, so a fourth `GameKey` added later is a compile
+// error here rather than a silent fallthrough — the same pattern App.tsx
+// already established for branching on this same `GameKey` union (see its
+// `onSelectGame` switch).
+function subtitleForGameKey(gameKey: GameKey): string {
+  switch (gameKey) {
+    case XG_GRID_GAME_KEY:
+    case XG_PATH_GAME_KEY:
+      return 'Lowest total wins';
+    case XG_PREDICT_GAME_KEY:
+      return 'Highest total wins';
+    default: {
+      const _exhaustive: never = gameKey;
+      return _exhaustive;
+    }
+  }
+}
+
+// Same exhaustive-switch reasoning as subtitleForGameKey above, for which
+// per-game explainer component the `(ⓘ)` button opens.
+function explainerForGameKey(gameKey: GameKey, onClose: () => void) {
+  switch (gameKey) {
+    case XG_GRID_GAME_KEY:
+      return <ScoringExplainer onClose={onClose} />;
+    case XG_PATH_GAME_KEY:
+      return <PathScoringExplainer onClose={onClose} />;
+    case XG_PREDICT_GAME_KEY:
+      return <PredictScoringExplainer onClose={onClose} />;
+    default: {
+      const _exhaustive: never = gameKey;
+      return _exhaustive;
+    }
+  }
+}
+
 // SCREEN-03: this screen still only reads the global league — custom
 // leagues (REQ-402/403/S-063) can now be created/joined via LeaguesScreen,
 // but REQ-404's own "[My League ▾] [+ New]" tab switcher and per-league
@@ -233,9 +269,7 @@ export function LeaderboardScreen({
             line must read the opposite way whenever that tab is selected,
             rather than leaving ADR-0021's wording up on screen for a game
             it doesn't describe. */}
-        <p className="leaderboard-screen__subtitle">
-          {gameKey === XG_PREDICT_GAME_KEY ? 'Highest total wins' : 'Lowest total wins'}
-        </p>
+        <p className="leaderboard-screen__subtitle">{subtitleForGameKey(gameKey)}</p>
       </div>
       {/* REQ-410/ADR-0043 (S-087): the game switcher — same plain
           underline-tab pattern as the scope tabs below (own class names
@@ -350,14 +384,7 @@ export function LeaderboardScreen({
           above closes this modal on a game switch, so by the time any
           branch below renders, `gameKey` always matches the content the
           player asked to see. */}
-      {explainerOpen &&
-        (gameKey === XG_GRID_GAME_KEY ? (
-          <ScoringExplainer onClose={() => setExplainerOpen(false)} />
-        ) : gameKey === XG_PATH_GAME_KEY ? (
-          <PathScoringExplainer onClose={() => setExplainerOpen(false)} />
-        ) : (
-          <PredictScoringExplainer onClose={() => setExplainerOpen(false)} />
-        ))}
+      {explainerOpen && explainerForGameKey(gameKey, () => setExplainerOpen(false))}
     </div>
   );
 }
