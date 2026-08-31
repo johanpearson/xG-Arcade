@@ -7,9 +7,8 @@ namespace XGArcade.Core.Leagues;
 public class LeaderboardService(
     ILeagueRepository leagueRepository,
     IUserRepository userRepository,
-    IGuessRepository guessRepository,
     IRoundRepository roundRepository,
-    ILiveRoundContributionService liveRoundContributionService,
+    IRoundScoreSourceResolver roundScoreSourceResolver,
     IScoringStrategyResolver scoringStrategyResolver) : ILeaderboardService
 {
     // REQ-409 (2026-07-20): the product owner's decided qualification floor
@@ -17,6 +16,15 @@ public class LeaderboardService(
     // >=1 Guess in it) before the median comparison is considered meaningful
     // enough to rank them at all.
     private const int MinimumQualifyingRoundsForRanking = 5;
+
+    // ADR-0100 §6/§7: GetRankedMembersAsync/GetUserStatsAsync need "every
+    // closed round for this GameKey" up front so IRoundScoreSource's
+    // GetPerRoundTotalsByUserIdsAsync can build a qualifying-round history
+    // per candidate user — reusing the existing, paginated
+    // IRoundRepository.GetClosedByGameKeyAsync(gameKey, 0, take) with a
+    // large-enough take for MVP scale, rather than adding a new
+    // "unwindowed, all closed rounds" repository method.
+    private const int MaxClosedRoundsForRankingScope = 10_000;
 
     public async Task<LeaderboardPage> GetGlobalLeaderboardAsync(
         Guid requestingUserId, string gameKey, int cursor, int pageSize, CancellationToken cancellationToken = default)
@@ -50,7 +58,13 @@ public class LeaderboardService(
         var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
         var memberUserIds = await leagueRepository.GetMemberUserIdsAsync(globalLeague.Id, cancellationToken);
         var members = await userRepository.GetByIdsAsync(memberUserIds, cancellationToken);
-        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(memberUserIds, gameKey, cancellationToken);
+        // ADR-0100 §1/§6: closedRounds is resolved here (Core.Leagues already
+        // owns IRoundRepository) and handed to the resolved IRoundScoreSource
+        // — GuessRoundScoreSource ignores it entirely; only
+        // PredictRoundScoreSource reads it.
+        var closedRounds = await roundRepository.GetClosedByGameKeyAsync(gameKey, 0, MaxClosedRoundsForRankingScope, cancellationToken);
+        var roundScoreSource = roundScoreSourceResolver.Resolve(gameKey);
+        var perRoundTotalsByUserId = await roundScoreSource.GetPerRoundTotalsByUserIdsAsync(memberUserIds, closedRounds, members, cancellationToken);
 
         // REQ-409: replaces REQ-401/404's old SUM(FinalPoints ?? 0) ranking
         // outright — see ILeaderboardService's own doc comment for the full
@@ -106,9 +120,14 @@ public class LeaderboardService(
         // (below, via GetRankedMembersAsync) still inherits REQ-409/717's
         // guest-eligibility gate. applyGuestEligibilityRules: false is what
         // keeps this call from silently reusing GetRankedMembersAsync's own
-        // guest-excluding query for these three unrelated figures.
-        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(
-            new[] { userId }, gameKey, cancellationToken, applyGuestEligibilityRules: false);
+        // guest-excluding query for these three unrelated figures. members
+        // is passed empty — unused by any IRoundScoreSource implementation
+        // when applyGuestEligibilityRules is false (see that parameter's own
+        // doc comment on IRoundScoreSource.GetPerRoundTotalsByUserIdsAsync).
+        var closedRounds = await roundRepository.GetClosedByGameKeyAsync(gameKey, 0, MaxClosedRoundsForRankingScope, cancellationToken);
+        var roundScoreSource = roundScoreSourceResolver.Resolve(gameKey);
+        var perRoundTotalsByUserId = await roundScoreSource.GetPerRoundTotalsByUserIdsAsync(
+            new[] { userId }, closedRounds, Array.Empty<User>(), cancellationToken, applyGuestEligibilityRules: false);
         var totals = perRoundTotalsByUserId.GetValueOrDefault(userId, Array.Empty<int>());
 
         if (totals.Count == 0)
@@ -157,7 +176,8 @@ public class LeaderboardService(
     public async Task<LeaderboardPage> GetActiveRoundLeaderboardAsync(
         Guid requestingUserId, Round activeRound, int cursor, int pageSize, CancellationToken cancellationToken = default)
     {
-        var liveContributionsByUserId = await liveRoundContributionService.GetContributionsByUserIdAsync(activeRound, cancellationToken);
+        var roundScoreSource = roundScoreSourceResolver.Resolve(activeRound.GameKey);
+        var liveContributionsByUserId = await roundScoreSource.GetActiveRoundTotalsByUserIdAsync(activeRound, cancellationToken);
         if (liveContributionsByUserId.Count == 0)
             return new LeaderboardPage([], null, null, false);
 
@@ -203,7 +223,8 @@ public class LeaderboardService(
         if (round.ClosedAt is null)
             return new ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus.RoundNotClosedYet, null);
 
-        var totalsByUserId = await guessRepository.GetTotalFinalPointsByRoundIdAsync(roundId, cancellationToken);
+        var roundScoreSource = roundScoreSourceResolver.Resolve(round.GameKey);
+        var totalsByUserId = await roundScoreSource.GetTotalsByRoundAsync(round, cancellationToken);
         if (totalsByUserId.Count == 0)
             return new ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus.Found, new LeaderboardPage([], null, null, false));
 
@@ -234,6 +255,7 @@ public class LeaderboardService(
         int pageSize,
         CancellationToken cancellationToken = default)
     {
+        var roundScoreSource = roundScoreSourceResolver.Resolve(gameKey);
         IReadOnlyDictionary<Guid, int> totalsByUserId;
 
         if (resolution == LeaderboardWindowResolution.Round)
@@ -246,13 +268,16 @@ public class LeaderboardService(
             if (mostRecentlyClosedRound is null)
                 return new LeaderboardPage([], null, null, false);
 
-            totalsByUserId = await guessRepository.GetTotalFinalPointsByRoundIdAsync(mostRecentlyClosedRound.Id, cancellationToken);
+            totalsByUserId = await roundScoreSource.GetTotalsByRoundAsync(mostRecentlyClosedRound, cancellationToken);
         }
         else
         {
             var (windowStartUtc, windowEndUtc) = GetCalendarWindow(resolution, nowUtc);
-            var roundIds = await roundRepository.GetClosedIdsWithinWindowAsync(gameKey, windowStartUtc, windowEndUtc, cancellationToken);
-            totalsByUserId = await guessRepository.GetTotalFinalPointsByRoundIdsAsync(roundIds, cancellationToken);
+            // ADR-0100 §5: GetClosedIdsWithinWindowAsync now returns full
+            // Round rows (not ids-only) — PredictRoundScoreSource needs each
+            // round's GameInstanceId, not just its Id.
+            var closedRoundsInWindow = await roundRepository.GetClosedIdsWithinWindowAsync(gameKey, windowStartUtc, windowEndUtc, cancellationToken);
+            totalsByUserId = await roundScoreSource.GetTotalsByRoundsAsync(closedRoundsInWindow, cancellationToken);
         }
 
         if (totalsByUserId.Count == 0)

@@ -108,6 +108,18 @@ public interface IPredictInstanceRepository
     Task<IReadOnlyDictionary<Guid, int>> GetTotalPointsByInstanceIdAsync(
         Guid predictInstanceId, CancellationToken cancellationToken = default);
 
+    // ADR-0100 §3: every user who submitted >=1 prediction for this
+    // instance, regardless of grading state — participation, not points.
+    // Used only to decide qualifying-round membership (REQ-409);
+    // PredictRoundScoreSource (Games.XGPredict) pairs this with
+    // GetTotalPointsByInstanceIdAsync above (defaulting to 0 for a
+    // participant with nothing graded yet) to build each qualifying
+    // round's contributed value. Do NOT reuse GetTotalPointsByInstanceIdAsync's
+    // absent-key semantics as a stand-in for "did this user participate" —
+    // it means "has at least one graded point," not "predicted at all."
+    Task<IReadOnlyCollection<Guid>> GetParticipantUserIdsByInstanceIdAsync(
+        Guid predictInstanceId, CancellationToken cancellationToken = default);
+
     // REQ-1302/ADR-0098: every one of this user's stored predictions across
     // this instance's matches, in one query — GET /predict/current's own
     // "bulk fetch once for the whole instance" discipline (mirrors
