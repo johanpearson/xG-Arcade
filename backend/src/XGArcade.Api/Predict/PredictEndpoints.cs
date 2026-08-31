@@ -60,12 +60,11 @@ public static class PredictEndpoints
                 ?? throw new InvalidOperationException(
                     $"Round '{round.Id}' references PredictInstance '{round.GameInstanceId}' which does not exist.");
 
-            // REQ-1303: the exact same round-wide auto-lock formula
-            // XGPredictGameModule.ScoreSubmissionAsync uses internally,
+            // REQ-1303: PredictInstance.LockInstant is the single shared
+            // formula XGPredictGameModule.ScoreSubmissionAsync also reads —
             // never re-derived differently here — so this flag is always
             // consistent with what a submission attempt would actually see.
-            var lockInstant = instance.Matches.Min(m => m.KickoffUtc);
-            var locked = now >= lockInstant;
+            var locked = now >= instance.LockInstant;
 
             // REQ-1306/ADR-0098: independent of the round-wide `locked`
             // flag above — a player can have this true well before
@@ -223,9 +222,9 @@ public static class PredictEndpoints
             }
 
             // REQ-1306's own precondition: "the round has not yet locked"
-            // (REQ-1303) — same formula GET /predict/current uses.
-            var lockInstant = instance.Matches.Min(m => m.KickoffUtc);
-            if (now >= lockInstant)
+            // (REQ-1303) — same PredictInstance.LockInstant GET
+            // /predict/current uses.
+            if (now >= instance.LockInstant)
             {
                 return Results.Problem(
                     title: "Round is locked",

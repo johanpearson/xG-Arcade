@@ -118,12 +118,15 @@ public class XGPredictGameModule(
         // REQ-1303: the whole round locks at the EARLIEST of the round's 5
         // matches' own kickoff, regardless of which specific match is being
         // predicted here — never each match's own individual kickoff.
-        var lockInstant = instance.Matches.Min(m => m.KickoffUtc);
+        // Quality-gate fix (2026-08-31): reads PredictInstance.LockInstant
+        // (the single shared formula) rather than re-deriving it inline —
+        // this call site, GET /predict/current, and POST /predict/confirm
+        // had all independently computed the exact same expression.
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        if (now >= lockInstant)
+        if (now >= instance.LockInstant)
         {
             throw new PredictRoundLockedException(
-                $"Predict instance '{instanceId}' locked at {lockInstant:o}; submissions are no longer accepted.");
+                $"Predict instance '{instanceId}' locked at {instance.LockInstant:o}; submissions are no longer accepted.");
         }
 
         await predictInstanceRepository.AddOrUpdatePredictionAsync(

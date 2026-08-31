@@ -4,11 +4,13 @@ import './PredictConfirmDialog.css';
 export interface PredictConfirmDialogProps {
   onCancel: () => void;
   onConfirm: () => void;
-  // REQ-1306: true while POST /predict/confirm is in flight — disables the
-  // confirm button (never Cancel, which has zero side effects and must
-  // always stay available) and swaps its label, mirroring every other
-  // in-flight submit button in this codebase (PathGuessInput's own
-  // "Submitting…" swap).
+  // REQ-1306: true while POST /predict/confirm is in flight — disables both
+  // Cancel and Confirm (quality-gate fix, 2026-08-31: an in-flight request
+  // is a real, if brief, race — letting Cancel through while the request is
+  // still pending could close the dialog and mislead the player about
+  // whether their predictions actually locked) and swaps the confirm
+  // button's label, mirroring every other in-flight submit button in this
+  // codebase (PathGuessInput's own "Submitting…" swap).
   confirming: boolean;
 }
 

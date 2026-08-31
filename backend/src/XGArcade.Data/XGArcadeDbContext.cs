@@ -356,6 +356,19 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // no surrogate id" precedent LeagueMembership already sets above.
         // Cascade on PredictInstanceId, same as PredictMatch's own FK to
         // PredictInstance — both are COMP-15-internal tables.
+        //
+        // Quality-gate note (2026-08-31): unlike LeagueMembership.UserId,
+        // this table's UserId has no FK to User, and unlike
+        // PredictMatchPrediction.UserId/Guess.UserId, it is NOT nullable —
+        // it can't be, since it's half of this table's composite primary
+        // key. That means REQ-710's usual "anonymize by setting UserId =
+        // NULL" path is structurally unavailable here; the only viable
+        // anonymization path for this table is a hard delete of the row on
+        // account deletion, which AccountDeletionService does not do yet (a
+        // lock row is a flag, not a scoring row, so nothing depends on it
+        // the way REQ-710 depends on Guess rows surviving — hard-deleting it
+        // is expected to be safe once wired). Tracked as a docs/backlog.md
+        // follow-up, not fixed in this diff.
         modelBuilder.Entity<PredictPlayerLock>()
             .HasKey(l => new { l.PredictInstanceId, l.UserId });
         modelBuilder.Entity<PredictPlayerLock>()

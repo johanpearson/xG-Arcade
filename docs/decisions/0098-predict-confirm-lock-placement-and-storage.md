@@ -112,11 +112,33 @@ shape. Reasoning for departing from it:
   the flag to be present-but-false.
 - Negative / trade-off accepted: the round-wide lock (`Locked`, REQ-1303)
   and the per-player lock (`ConfirmedLocked`, REQ-1306) are two independent
-  reads (`instance.Matches.Min(KickoffUtc)` vs. `IsPlayerLockedAsync`) that
-  a caller must remember to check separately — there is no single "is this
-  round/player still editable" helper. Acceptable for now (only one caller,
-  `PredictEndpoints`, needs either check); revisit if a third call site
-  needs the same combined check.
+  reads (`PredictInstance.LockInstant` vs. `IsPlayerLockedAsync` —
+  quality-gate fix, 2026-08-31: `LockInstant` is now a shared `[NotMapped]`
+  computed property on `PredictInstance`, extracted after this formula was
+  independently re-derived at three call sites) that a caller must remember
+  to check separately — there is no single "is this round/player still
+  editable" helper. Acceptable for now (only one caller, `PredictEndpoints`,
+  needs either check); revisit if a third call site needs the same combined
+  check.
+- **Risk flagged (architecture-review, 2026-08-31): this decision's Decision
+  §1 reasoning — "the check has exactly one real caller" — depends on
+  `GuessEndpoints`/`GuessSubmissionService` never becoming a second path
+  into `XGPredictGameModule.ScoreSubmissionAsync`.** Today `GuessEndpoints`'
+  `POST /rounds/{roundId}/cells/{cellId}/guesses` has no `GameKey`
+  allow-list — if called against an active xG Predict round, it currently
+  fails safely before reaching `ScoreSubmissionAsync` (`GuessSubmissionService`
+  first calls `GetMaxAttemptsForCellAsync`, which `XGPredictGameModule` still
+  throws `NotImplementedException` for), so this ADR's lock cannot be
+  bypassed today. But that safety is incidental, not structural: the moment
+  `GetMaxAttemptsForCellAsync` is implemented for xG Predict (see that
+  method's own TODO) without also gating `GuessEndpoints`/
+  `GuessSubmissionService` by `GameKey`, `ScoreSubmissionAsync` would become
+  reachable from a second, unguarded path that never checks
+  `IsPlayerLockedAsync`. Whoever implements `GetMaxAttemptsForCellAsync` for
+  this game must either add an explicit `GameKey` guard to
+  `GuessEndpoints`/`GuessSubmissionService`, or move REQ-1306's check
+  somewhere both paths pass through — do not implement that method without
+  addressing this.
 - Follow-up: if a future requirement needs "how many players in this round
   have confirmed" (e.g. an admin/ops view), `PredictPlayerLock` already
   supports a `COUNT(*) WHERE PredictInstanceId = ...` query with no schema
