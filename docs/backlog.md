@@ -9989,3 +9989,162 @@ Testing: `npm run test` (Vitest) run locally in-sandbox (frontend-only
 change, no backend touched) — 756/756 passed, including 6 new tests; `tsc
 -b` and `npm run lint` both clean. No CI-trigger fallback needed for this
 change.
+
+---
+
+## Epic 13 — xG Predict gap closure
+
+S-190 through S-198 shipped every planned xG Predict story, but several
+explicitly flagged "not fixed here, tracked as follow-up" gaps accumulated
+along the way rather than being silently closed or silently ignored (see
+each story's own "Explicitly out of scope" note). This epic closes them.
+Ordered so no story here depends on a later one; S-199/S-200/S-201 are
+independent of each other and of everything below them.
+
+**S-199 · Wire `"xg-predict"` round totals into `LeaderboardService` (REQ-404, REQ-411, ADR-0096; needs a new ADR)**
+Closes the gap S-193/S-195/S-197/S-198 each flagged and left open: every
+`LeaderboardService` scope (`GetRankedMembersAsync`/`GetUserStatsAsync` via
+`GetPerRoundFinalPointsByUserIdsAsync`; `GetActiveRoundLeaderboardAsync` via
+`ILiveRoundContributionService`; `GetClosedRoundLeaderboardAsync`/
+`GetWindowedLeaderboardAsync` via `GetTotalFinalPointsByRoundIdAsync`/
+`GetTotalFinalPointsByRoundIdsAsync`) sources totals from `IGuessRepository`
+only. `"xg-predict"` predictions never write `Guess` rows (ADR-0096), so
+every one of these scopes silently returns zero xG Predict participants —
+not just the all-time tab S-198 wired the frontend for.
+`IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync` (built in
+S-195, `backend/src/XGArcade.Data/Repositories/IPredictInstanceRepository.cs:108`)
+already computes the per-round-per-user totals needed; nothing currently
+calls it from `LeaderboardService`
+(`backend/src/XGArcade.Core/Leagues/LeaderboardService.cs`).
+*Accept:* every scope above returns correct `"xg-predict"` totals/ranks
+once real xg-predict rounds exist, verified by extending
+`LeaderboardServiceTests` with `"xg-predict"`-scoped cases per scope (mirror
+the existing `ADR0095_`-prefixed sort-direction tests' structure) and a new
+`LeaderboardEndpointTests`/`UserEndpoints`-facing API test. Because this
+touches every ranking scope's data source rather than one call site, and
+because there is a real design choice in *how* (a `GameKey`-branching
+if/else per scope vs. a small `IRoundScoreSource`-style abstraction
+resolved the same way `IScoringStrategyResolver` already is), write a new
+ADR before implementing — follow `IScoringStrategyResolver`'s existing
+per-`GameKey` resolution pattern if it fits cleanly; don't introduce a
+heavier abstraction than the two implementations (`Guess`-backed,
+`PredictMatchPrediction`-backed) actually need. Live-round scope
+(`GetActiveRoundLeaderboardAsync`) needs its own look: `ILiveRoundContributionService`
+computes *in-progress* per-cell contribution, a concept `PredictMatchPrediction`
+doesn't have in the same shape (predictions score only once matches are
+graded, per ADR-0097) — confirm whether "live" xG Predict leaderboard
+should show partial/graded-so-far totals or simply exclude xG Predict
+rounds until closed, and record that as part of the new ADR rather than
+guessing silently.
+*Deps:* none (S-195/S-197/S-198 already merged).
+
+**S-200 · Add a `GameKey` allow-list to `GuessEndpoints`/`GuessSubmissionService` (ADR-0098's Consequences section)**
+Security follow-up flagged in S-197: ADR-0098 relies on REQ-1306's
+confirm-and-lock check living only in `PredictEndpoints`, which only holds
+because `XGPredictGameModule.GetMaxAttemptsForCellAsync`
+(`backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs:166`) still
+throws `NotImplementedException`, keeping
+`POST /rounds/{roundId}/cells/{cellId}/guesses`
+(`backend/src/XGArcade.Api/Guesses/GuessEndpoints.cs:15`) from ever
+reaching `XGPredictGameModule.ScoreSubmissionAsync` through
+`GuessSubmissionService`/`IGameModuleResolver`. Still confirmed true as of
+S-198 — this is incidental safety, not structural. Fix now, ahead of
+whoever next touches `GetMaxAttemptsForCellAsync`, rather than continuing
+to carry it as a landmine.
+*Accept:* `GuessEndpoints`/`GuessSubmissionService` reject `"xg-predict"`
+explicitly (a clear 4xx, not a fallthrough to `ScoreSubmissionAsync`)
+regardless of `GetMaxAttemptsForCellAsync`'s implementation state; a new
+`GuessSubmissionServiceTests`/`GuessEndpointTests` case proves a
+`"xg-predict"` round's guess submission is rejected even if
+`GetMaxAttemptsForCellAsync` were made to return a value. Update ADR-0098's
+Consequences section to mark this risk closed.
+*Deps:* none.
+
+**S-201 · Wire REQ-710 account-deletion handling for `PredictPlayerLock`/`PredictMatchPrediction` (REQ-710)**
+Flagged in S-197 via `XGArcadeDbContext.cs`'s own comment on
+`PredictPlayerLock`'s `OnModelCreating` registration
+(`backend/src/XGArcade.Data/XGArcadeDbContext.cs:372`).
+`AccountDeletionService` (`backend/src/XGArcade.Core/Auth/AccountDeletionService.cs`)
+currently anonymizes `Guess` rows only and doesn't reference either xG
+Predict table.
+*Accept:* `PredictMatchPrediction.UserId` is anonymized (`UserId = NULL`)
+the same way `Guess.UserId` already is on account deletion — never
+hard-deleted, for the same historical-scoring-integrity reason REQ-710
+gives for `Guess`. `PredictPlayerLock` rows for the deleted user are
+hard-deleted instead: its `UserId` is non-nullable (half the composite
+primary key), so anonymize-in-place is structurally unavailable, and a
+lock row is a flag rather than a scoring row, so nothing depends on it
+surviving (this reasoning was already recorded in S-197's follow-up note —
+implement it, don't re-derive it). New `AccountDeletionServiceTests` cases
+covering both tables.
+*Deps:* none.
+
+**S-202 · Generalize `UserStatsScreen` (SCREEN-13) to a third xG Predict game tab (REQ-411, REQ-1304)**
+Frontend counterpart to S-198, explicitly left untouched by that story.
+`frontend/src/users/UserStatsScreen.tsx`'s `GAME_TABS` array is still
+hardcoded to `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` only, and its own
+"lowest total wins" copy (see `docs/design-document.md` ~line 3043-3107)
+needs the same per-`GameKey` branch `LeaderboardScreen.tsx` already gained
+in S-198. Follow that story's exact pattern: import
+`XG_PREDICT_GAME_KEY` from `GameSelectScreen.tsx` rather than redefining
+it, add the third tab, and branch the "highest/lowest total wins" copy per
+`GameKey` the same way.
+*Accept:* xG Predict is selectable as a third tab on both "own stats" and
+"another player's stats" views; copy reads "Highest total wins" for xG
+Predict; new/updated Vitest coverage in `UserStatsScreen.test.tsx`.
+Requires S-199 to be merged first — otherwise this ships the same
+"renders empty" gap S-198 explicitly flagged and this epic exists to close,
+not repeat.
+*Deps:* S-199.
+
+**S-203 · Playwright E2E coverage for xG Predict (`play-predict.spec.ts`)**
+No E2E spec exists for xG Predict, unlike `frontend/tests/e2e/play-grid.spec.ts`/
+`play-path.spec.ts` — flagged as out of scope by S-197.
+*Accept:* a new `frontend/tests/e2e/play-predict.spec.ts` mirrors the
+existing two specs' structure (test-data seed/reset via
+`/internal/test-data/*`, sign in, generate/seed a round) and covers, end to
+end: viewing the round's 5-match slate, submitting a per-match prediction,
+the round-wide-lock and per-player-lock notices (REQ-1303/1306), confirm-
+and-lock, and — once S-199 is merged — the resulting score appearing on the
+leaderboard. If run before S-199 merges, scope the leaderboard assertion
+out and file it as this spec's own follow-up rather than blocking on it.
+*Deps:* S-197 (already merged), S-199 (for the full leaderboard
+assertion — see above).
+
+**S-204 · Tune `"xg-predict"`'s `RoundDuration` default toward its real gameweek cadence**
+Flagged as an open product-tuning question by S-196's ADR-0072 amendment,
+not a bug: `RoundScheduling:XGPredict:RoundDurationHours`
+(`backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs:282`)
+defaults to 48h, copied from `"xg-grid"`/`"xg-path"` for consistency only —
+not because 48h fits a Premier League gameweek, which recurs roughly
+weekly. Decision made here rather than left open further: default to 168h
+(7 days) so one xG Predict round spans one gameweek without needing a
+mid-week round change; `generate-predict-round.yml`'s daily cron remains
+safe either way (idempotent, no-op on days no new round is due — S-196's
+own note).
+*Accept:* config default changed to 168h with a comment recording this
+story's reasoning; `RoundSchedulingOptionsResolverTests`' `"xg-predict"`
+case updated to assert the new default; ADR-0072's amendment section
+updated to mark this open item resolved.
+*Deps:* none.
+
+**S-205 · ADR note: confirm `ScorePrediction` as `XGPredictScoringStrategy`'s permanent second entry point**
+S-193's `architecture-reviewer` flagged `ScoreCorrectGuess` throwing
+`NotSupportedException` for `"xg-predict"` as an awkward, if currently
+unreachable, fit for `IScoringStrategy`'s shape, and left a standing item:
+either confirm `ScorePrediction` as this `GameKey`'s permanent second entry
+point via a short ADR note, or revisit `IScoringStrategy`'s shape itself
+(ADR-0040's own follow-up precedent). No fourth game exists yet to force
+the question, and `IScoringStrategy` has exactly two real implementations
+today — reshaping the interface now would be speculative, not something
+the codebase's current needs justify (see this file's own "don't pull
+Tier 1 items forward" discipline, applied here to interface design rather
+than features). Resolve it the cheap way: document the decision, don't
+refactor working code with no second caller yet.
+*Accept:* a short amendment to `docs/decisions/0095-xg-predict-scoring-direction-exception.md`
+(or a new ADR if the reviewers judge the existing one doesn't fit)
+recording that `ScoreCorrectGuess`/`ScorePrediction` is the deliberate,
+permanent shape for `IScoringStrategy` until a third game actually needs a
+third method shape — closing the standing item rather than leaving it open
+indefinitely.
+*Deps:* none.
