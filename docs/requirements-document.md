@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.28"
+version: "2.29"
 status: draft
-last_updated: 2026-08-30
+last_updated: 2026-08-31
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -10112,29 +10112,29 @@ REQ-401/409/410's median ranking, closed same-day as a direct follow-up).
 implemented — see its own status note below for what's built
 (`PredictGradingService`, the new `PredictMatchGradingStatus`/
 `FinalPoints` columns, and the `/internal/grade-predict-matches` endpoint/
-workflow). REQ-1306 (confirm-and-lock
-action) remains design-only — no code implements it yet, and this
-section's original framing still applies to it: every REQ below is
-written to the same standard as §4.1/§4.12's requirements for xG
-Grid/xG Path, but REQ-1306 describes intended behavior for a game surface
-that has not been built, not a claim about current behavior.
-**Status (2026-08-30, round-scheduling wiring story, S-196):** REQ-1301's
-round *generation* is now reachable in production — `InternalRoundEndpoints`'s
-`gameKey` switch routes `"xg-predict"`, and both `RoundSchedulingOptions`
-(this story) and `IScoringStrategy` (S-193/REQ-1304/ADR-0095) are
-registered for `"xg-predict"` alongside xG Grid/xG Path's own. See
-REQ-1301's own status note below for what changed. This does **not**
-extend to REQ-1302/1303's prediction *submission*: nothing wires
-`XGPredictGameModule.ScoreSubmissionAsync` into `GuessSubmissionService` or
-any real HTTP endpoint yet — only round generation via
-`/internal/generate-round?gameKey=xg-predict` is reachable end to end; a
-player still cannot submit a prediction through any production code path.
-REQ-1305's own `/internal/grade-predict-matches` endpoint and its hourly
-workflow (ADR-0097, S-195) are a real, reachable HTTP/CI surface today,
-but — since submission is still unwired — there are no stored predictions
-for it to grade yet even once a generated round exists. See
-REQ-1302/1303/1305's own status notes below, otherwise unchanged by this
-story.
+workflow). **Status (2026-08-30, round-scheduling wiring story, S-196):**
+REQ-1301's round *generation* is now reachable in production —
+`InternalRoundEndpoints`'s `gameKey` switch routes `"xg-predict"`, and both
+`RoundSchedulingOptions` (this story) and `IScoringStrategy`
+(S-193/REQ-1304/ADR-0095) are registered for `"xg-predict"` alongside xG
+Grid/xG Path's own. See REQ-1301's own status note below for what changed.
+**Status (2026-08-31, ADR-0098, S-197):** REQ-1302 (prediction submission),
+REQ-1303 (round lock), and REQ-1306 (confirm-and-lock action) are now all
+reachable through real HTTP endpoints — `XGArcade.Api.Predict.PredictEndpoints`
+(`GET /predict/current`, `POST /predict/matches/{matchId}/predictions`,
+`POST /predict/confirm`), plus a matching frontend screen
+(`frontend/src/predict/PredictScreen.tsx`, SCREEN-14). A player can now
+submit, resubmit, and explicitly confirm-and-lock predictions through a
+production code path end to end, and view them via the xG Predict tile on
+`GameSelectScreen`/the "Games" entry in `HeaderNav`. See each REQ's own
+status note below for the exact endpoint/file. This does not change
+REQ-1301's round-*generation* status above, and does not add
+`ILeaderboardService`/leaderboard wiring for `"xg-predict"` round totals
+(pre-existing gap from S-195/S-196, unaffected by this story) or REQ-710
+account-deletion wiring for the new `PredictPlayerLock`/
+`PredictMatchPrediction` tables (flagged as a `docs/backlog.md` follow-up,
+not fixed here — see ADR-0098's Consequences section and `XGArcadeDbContext.cs`'s
+own comment on `PredictPlayerLock`'s `OnModelCreating` registration).
 
 **Note on §4.13's cross-game requirements:** REQ-1210 (round-completion
 animation with a leaderboard link) is written for a game whose cells
@@ -10260,11 +10260,27 @@ the `PredictionSubmission(CellId, HomeGoals, AwayGoals)` DTO
 prediction via `IPredictInstanceRepository.AddOrUpdatePredictionAsync`
 (unique on `(PredictMatchId, UserId)`, so resubmission overwrites rather
 than inserting). Unit-tested in `XGPredictGameModuleTests`
-(resubmission-replaces semantics, negative-goal rejection). The API-level
-test level above (a real HTTP endpoint accepting a submission) is not yet
-built — no caller constructs a `PredictionSubmission` or invokes
-`ScoreSubmissionAsync` in production yet; see this section's intro note
-above.
+(resubmission-replaces semantics, negative-goal rejection).
+
+**Status (2026-08-31, ADR-0098, S-197):** The API-level test level above is
+now built — `POST /predict/matches/{matchId}/predictions`
+(`XGArcade.Api.Predict.PredictEndpoints`) calls
+`IGameModuleResolver.Resolve("xg-predict").ScoreSubmissionAsync` directly
+(never through `Guess`/`IGuessSubmissionService` — ADR-0096 already ruled
+that shape out; see ADR-0098 §Decision 1 for why the new REQ-1306 lock
+check also lives here rather than inside `ScoreSubmissionAsync`), mapping
+`PredictInvalidSubmissionException` to 400, `PredictRoundLockedException`
+to 409, and `PredictScoringException` (unresolvable match/instance id) to
+404. Covered end to end by `PredictEndpointTests`
+(`backend/tests/XGArcade.Api.Tests`), including submit/resubmit-before-lock
+and reject-after-lock cases for a match whose own individual kickoff has
+not yet occurred. The frontend calls this endpoint from
+`PredictMatchInput.tsx`'s per-match "Save" button
+(`frontend/src/lib/predict.ts`'s `submitPrediction`). No Playwright E2E
+spec exists yet for xG Predict (`frontend/tests/e2e/` has
+`play-grid.spec.ts`/`play-path.spec.ts` but no `play-predict.spec.ts`) —
+E2E coverage was out of scope for the agent that built this screen and
+remains a `docs/backlog.md` follow-up, not silently claimed as done.
 
 **REQ-1303 – Round lock at the first match's kickoff (exploit prevention)**
 > As xG Arcade, I want an entire xG Predict round to lock the instant the
@@ -10318,10 +10334,21 @@ end).
 and throws `PredictRoundLockedException` once that instant has passed, for
 any of the round's matches. Unit-tested in `XGPredictGameModuleTests`,
 including the exploit-prevention case (rejecting a not-yet-kicked-off
-match once the round lock has passed). The API and E2E test levels above
-are not yet built — `PredictRoundLockedException` has no catcher anywhere
-in the codebase yet (no HTTP endpoint calls `ScoreSubmissionAsync` in
-production); see this section's intro note above.
+match once the round lock has passed).
+
+**Status (2026-08-31, ADR-0098, S-197):** The API test level above is now
+built — `POST /predict/matches/{matchId}/predictions` catches
+`PredictRoundLockedException` and returns 409, and `GET /predict/current`
+exposes the round-wide lock as a `Locked` boolean computed from the same
+shared formula, now extracted to `PredictInstance.LockInstant`
+(`[NotMapped]`, quality-gate fix — the formula had been independently
+re-derived at three call sites) so the endpoint and
+`ScoreSubmissionAsync` can never drift apart on what "locked" means.
+Covered by `PredictEndpointTests`, including submission to matches 2-5
+after the round has locked but before their own individual kickoff. The
+E2E test level remains not built — no `play-predict.spec.ts` exists yet
+(see REQ-1302's own status note above); tracked as a `docs/backlog.md`
+follow-up, not silently claimed as covered.
 
 **REQ-1304 – Independent, partial-credit scoring per match**
 > As a player, I want each match prediction scored on three independent
@@ -10632,6 +10659,38 @@ lock). UI (the confirmation prompt requires an explicit second
 affirmation, not a single click — REQ-718's own guest-logout confirmation
 prompt is the closest existing precedent for a player-facing, irreversible
 action warranting one).
+
+**Status (2026-08-31, ADR-0098, S-197):** Implemented — `POST
+/predict/confirm` (`XGArcade.Api.Predict.PredictEndpoints`) checks that the
+player has a stored prediction for all 5 of the instance's matches and that
+the round has not yet locked (REQ-1303), then writes a `PredictPlayerLock`
+row (`backend/src/XGArcade.Data/Entities/PredictPlayerLock.cs`, composite-keyed
+on `(PredictInstanceId, UserId)`, migration
+`20260831090000_AddPredictPlayerLock`) — the row's existence is the lock;
+there is no boolean to flip back off, matching this REQ's "no un-confirm
+behavior" acceptance criteria exactly. `POST
+/predict/matches/{matchId}/predictions` checks
+`IPredictInstanceRepository.IsPlayerLockedAsync` before ever calling
+`ScoreSubmissionAsync` and returns 409 if the player has already confirmed
+— this check deliberately lives in the API endpoint, not inside
+`XGPredictGameModule.ScoreSubmissionAsync`; see ADR-0098 for the full
+reasoning, including a flagged risk that this check could be bypassed by a
+future, unguarded second write path through `GuessEndpoints`. On the
+frontend, `PredictConfirmDialog.tsx` (`frontend/src/predict/`) reuses
+`GuestLogoutConfirm.tsx`'s exact structural/accessibility pattern (a modal
+requiring an explicit second affirmation, not a single click) per this
+REQ's own Test level note above, and only renders once every one of the
+round's 5 matches shows a stored prediction. Unit/API-tested in
+`PredictEndpointTests` (`REQ1306_`-prefixed: not-all-submitted rejected,
+confirm succeeds and is reflected on `GET /predict/current`, further
+submission after confirming is rejected independent of REQ-1303's
+round-wide lock, confirming twice is rejected, and confirming has no effect
+on another player's ability to submit). UI-tested in
+`PredictConfirmDialog.test.tsx`/`PredictScreen.test.tsx`. No REQ-710
+account-deletion wiring exists yet for `PredictPlayerLock` — flagged as a
+`docs/backlog.md` follow-up, not fixed in this story (see
+`XGArcadeDbContext.cs`'s own comment on this table's `OnModelCreating`
+registration).
 
 ---
 

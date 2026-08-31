@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.13"
+version: "1.14"
 status: draft
-last_updated: 2026-08-30
+last_updated: 2026-08-31
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -375,12 +375,41 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    (daily cron, a third independent workflow
                                    file per ADR-0072's 2026-08-30 amendment)
                                    — see requirements-document.md §4.14's
-                                   REQ-1301 status note. Still NOT wired:
-                                   GuessSubmissionService — REQ-1302
-                                   prediction submission has no real HTTP
-                                   endpoint yet — see
+                                   REQ-1301 status note. As of 2026-08-31
+                                   (ADR-0098, S-197), REQ-1302/1303
+                                   prediction submission and REQ-1306's
+                                   confirm-and-lock action both have real
+                                   HTTP endpoints — never through
+                                   GuessSubmissionService/GuessEndpoints
+                                   (ADR-0096 ruled that shape out), but
+                                   through a new, dedicated
+                                   XGArcade.Api.Predict.PredictEndpoints
+                                   (GET /predict/current,
+                                   POST /predict/matches/{matchId}/predictions,
+                                   POST /predict/confirm), which calls
+                                   IGameModuleResolver.Resolve("xg-predict").
+                                   ScoreSubmissionAsync directly. The
+                                   REQ-1306 per-player lock check
+                                   (IPredictInstanceRepository.
+                                   IsPlayerLockedAsync, checked before
+                                   ScoreSubmissionAsync is called) lives in
+                                   this endpoint file, not inside
+                                   XGPredictGameModule — see ADR-0098. The
+                                   lock itself is persisted as a new
+                                   PredictPlayerLock entity (§5,
+                                   XGArcade.Data, composite-keyed on
+                                   (PredictInstanceId, UserId), migration
+                                   20260831090000_AddPredictPlayerLock) via
+                                   two new IPredictInstanceRepository
+                                   methods (IsPlayerLockedAsync/
+                                   LockPlayerPredictionsAsync) — see
                                    requirements-document.md §4.14's
-                                   REQ-1302/1303 status notes.
+                                   REQ-1302/1303/1306 status notes. Still
+                                   NOT wired: ILeaderboardService round-total
+                                   wiring (below) and a GameKey allow-list on
+                                   GuessEndpoints/GuessSubmissionService
+                                   (ADR-0098's flagged risk) — both
+                                   docs/backlog.md follow-ups.
                                    IScoringStrategy IS now registered for
                                    "xg-predict" (2026-08-30, ADR-0095):
                                    XGPredictScoringStrategy, LowerIsBetter =
@@ -418,10 +447,16 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    yet (GetTotalPointsByInstanceIdAsync
                                    exists at the repository level only —
                                    ADR-0097 Decision §2, tracked as a
-                                   docs/backlog.md follow-up) and
-                                   RoundSchedulingOptions for "xg-predict"
-                                   remains unregistered, unaffected by this
-                                   story.
+                                   docs/backlog.md follow-up).
+                                   As of 2026-08-31 (ADR-0098, S-197),
+                                   PredictInstance (§5) gained a [NotMapped]
+                                   computed LockInstant property
+                                   (Matches.Min(m => m.KickoffUtc)) — a
+                                   quality-gate extraction after this exact
+                                   formula was independently re-derived at
+                                   three call sites (ScoreSubmissionAsync
+                                   above and two new XGArcade.Api.Predict
+                                   reads, below), no migration needed.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -486,7 +521,12 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    (round-scheduling wiring story) for
                                    IPredictInstanceRepository's new
                                    GetTemplateByMatchCountAsync/
-                                   AddTemplateAsync methods.
+                                   AddTemplateAsync methods. Extended again
+                                   2026-08-31 (ADR-0098, S-197) with
+                                   REQ1302-named coverage for the new
+                                   GetPredictionsForInstanceAndUserAsync
+                                   method (only the requesting user's own
+                                   predictions across the instance).
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
                                    S-082 extended WikidataClientTests/
                                    WikidataLookupServiceTests for REQ-1207's
@@ -505,6 +545,24 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    allow-list); also added
                                    RoundSchedulingOptionsResolverTests
                                    covering all three registered GameKeys.
+                                   Added PredictEndpointTests.cs 2026-08-31
+                                   (ADR-0098, S-197): REQ1301_/REQ1302_/
+                                   REQ1303_/REQ1306_-prefixed coverage of
+                                   GET /predict/current, POST
+                                   /predict/matches/{matchId}/predictions,
+                                   and POST /predict/confirm end to end —
+                                   submit/resubmit before lock, reject after
+                                   the round-wide lock (including a
+                                   not-yet-kicked-off match), the full
+                                   REQ-1306 confirm-lock lifecycle
+                                   (not-all-submitted rejection, confirm
+                                   succeeds and reflects on GET
+                                   /predict/current, further submission
+                                   after confirming rejected independent of
+                                   REQ-1303's round-wide lock, confirming
+                                   twice rejected, and confirming one
+                                   player never affects another's ability to
+                                   submit).
 
 /frontend
   /src                          -> feature folders, not the layer folders this
@@ -521,10 +579,14 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      S-039)
     /games                        -> GameSelectScreen (REQ-303's S-021 UX
                                      addition: post-login/post-signup landing
-                                     screen; SCREEN-09, S-085 — two static
-                                     tiles, xG Grid then xG Path, still no
-                                     backend "list games" endpoint since both
-                                     game keys remain client-side constants)
+                                     screen; SCREEN-09, S-085 — originally two
+                                     static tiles, xG Grid then xG Path; a
+                                     third, xG Predict, added 2026-08-31
+                                     (ADR-0098, S-197, REQ-1301/1306) — still
+                                     no backend "list games" endpoint since
+                                     all three game keys remain client-side
+                                     constants, ordered to agree with
+                                     HeaderNav's own "Games" list)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
                                      GuessInput, ScoringExplainer
                                      (SCREEN-01/01a/02/06, S-041).
@@ -548,6 +610,31 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      change. Disambiguation picker (REQ-209)
                                      and REQ-215's suggestion entry point
                                      remain out of scope
+    /predict                       -> PredictScreen, PredictMatchInput,
+                                     PredictConfirmDialog (SCREEN-14, ADR-0098,
+                                     S-197, 2026-08-31) — xG Predict's own
+                                     round screen, added same-story as the
+                                     backend PredictEndpoints. Unlike /grid
+                                     and /path, shows the round's entire
+                                     5-match slate at once (no per-cell/
+                                     per-clue navigation) — each match its
+                                     own card with a per-match "Save" button
+                                     (PredictMatchInput.tsx) rather than
+                                     submit-on-blur, since a match has two
+                                     independent fields (home/away goals).
+                                     PredictConfirmDialog.tsx reuses
+                                     /nav's GuestLogoutConfirm.tsx's exact
+                                     structural/accessibility pattern for
+                                     REQ-1306's required second affirmation.
+                                     No RoundCompletionBanner/REQ-1210 wiring
+                                     — confirmed inapplicable to this game
+                                     (product owner, see
+                                     requirements-document.md §4.14).
+                                     No Playwright E2E spec yet
+                                     (frontend/tests/e2e/ has no
+                                     play-predict.spec.ts) — out of scope for
+                                     this story, tracked as a
+                                     docs/backlog.md follow-up.
     /components                   -> CategoryLabel, CategoryGlyph (S-086) —
                                      the one shared component used by both
                                      /grid and /path; relocated here from
@@ -1176,7 +1263,12 @@ public class PathPuzzle
 // (2026-08-30, migration 20260830130000_AddPredictMatchGrading) then added
 // PredictMatch.GradingStatus/ActualHomeGoals/ActualAwayGoals and
 // PredictMatchPrediction.FinalPoints below — grading is now real, not a
-// future concern.
+// future concern. REQ-1306/ADR-0098 (2026-08-31, migration
+// 20260831090000_AddPredictPlayerLock) added PredictPlayerLock below and
+// PredictInstance.LockInstant (a [NotMapped] computed property, no schema
+// impact) — the per-player confirm-and-lock action and the shared
+// round-wide-lock-instant formula it, GET /predict/current, and
+// ScoreSubmissionAsync all now read from one place.
 
 public class PredictTemplate
 {
@@ -1192,6 +1284,13 @@ public class PredictInstance
     public Guid Id { get; set; }              // this is the value stored as Round.GameInstanceId
     public Guid TemplateId { get; set; }
     public List<PredictMatch> Matches { get; set; } = [];  // owned collection, cascade-deleted with its parent
+
+    // REQ-1303/ADR-0098 (quality-gate fix, 2026-08-31): [NotMapped] — no
+    // backing column, no migration. Extracted after this exact formula
+    // (Matches.Min(m => m.KickoffUtc)) was independently re-derived at
+    // three call sites (ScoreSubmissionAsync, GET /predict/current, POST
+    // /predict/confirm); every caller now reads this one property instead.
+    public DateTime LockInstant => Matches.Min(m => m.KickoffUtc);
 }
 
 public class PredictMatch
@@ -1246,6 +1345,33 @@ public class PredictMatchPrediction
     // this null permanently — indistinguishable from "not yet graded,"
     // which is the deliberately correct behavior for a voided match.
     public int? FinalPoints { get; set; }
+}
+
+// REQ-1306/ADR-0098 (2026-08-31, migration
+// 20260831090000_AddPredictPlayerLock). One player's explicit, optional
+// "confirm and lock" action for one PredictInstance — independent of, and
+// does not substitute for, REQ-1303's round-wide automatic lock above.
+// Composite-keyed on (PredictInstanceId, UserId), same "no surrogate id
+// for a pure membership/flag row" precedent LeagueMembership already sets
+// (XGArcadeDbContext.OnModelCreating). The row's existence IS the lock —
+// there is no boolean to flip back off, since REQ-1306 has no un-confirm
+// behavior. Deliberately its own table, not a column on
+// PredictMatchPrediction, despite ADR-0096's own breadcrumb suggesting
+// that shape — see ADR-0098 for the full reasoning (a column would need
+// to be set identically across every one of a player's rows for the
+// instance to mean the same thing one row here already means).
+// UserId is NOT nullable (it's half the composite key), so REQ-710's usual
+// "anonymize by setting UserId = NULL" path is structurally unavailable
+// here — this table has no REQ-710 account-deletion wiring yet
+// (XGArcadeDbContext.cs's own comment on this registration flags it as a
+// docs/backlog.md follow-up; a hard delete of the row is expected to be
+// the eventual fix, since a lock row is a flag, not a scoring row like
+// Guess).
+public class PredictPlayerLock
+{
+    public Guid PredictInstanceId { get; set; } // half of the composite PK, cascade FK to PredictInstance
+    public Guid UserId { get; set; }            // half of the composite PK — NOT nullable, no FK to User
+    public DateTime LockedAt { get; set; }      // display/audit only, mirrors PredictMatchPrediction.SubmittedAt's role
 }
 
 // --- Core (xG Arcade) entities (XGArcade.Core) ---
