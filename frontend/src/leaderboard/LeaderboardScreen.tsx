@@ -19,11 +19,18 @@ import { ScoringExplainer } from '../grid/ScoringExplainer';
 // game need" reason, so this is the same established pattern, not a new
 // one.
 import { PathScoringExplainer } from '../path/PathScoringExplainer';
-// REQ-410/ADR-0043 (S-087): the same client-side `GameKey` constants
-// GameSelectScreen/HeaderNav already use — no new/duplicate string literal
-// per this repo's own established convention (see GameSelectScreen.tsx's
-// own comment on why these stay plain constants rather than API-sourced).
-import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from '../games/GameSelectScreen';
+// REQ-404/REQ-1304/ADR-0095 (S-198): xG Predict's own leaderboard explainer
+// — see PredictScoringExplainer.tsx's own doc comment for why this is a
+// third, separate component rather than a branch inside ScoringExplainer.tsx
+// or PathScoringExplainer.tsx (same reasoning PathScoringExplainer.tsx's own
+// comment already gives for being separate from ScoringExplainer.tsx).
+import { PredictScoringExplainer } from '../predict/PredictScoringExplainer';
+// REQ-410/ADR-0043 (S-087), extended for xG Predict (REQ-404/ADR-0095,
+// S-198): the same client-side `GameKey` constants GameSelectScreen/
+// HeaderNav already use — no new/duplicate string literal per this repo's
+// own established convention (see GameSelectScreen.tsx's own comment on why
+// these stay plain constants rather than API-sourced).
+import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
 import { AllTimeLeaderboard } from './AllTimeLeaderboard';
 import { LiveLeaderboard } from './LiveLeaderboard';
 import { PastRoundsLeaderboard } from './PastRoundsLeaderboard';
@@ -85,15 +92,30 @@ export interface LeaderboardScreenProps {
 // passes down without redefining this union.
 export type Scope = 'all-time' | 'live' | 'past' | 'window';
 
-// REQ-410/ADR-0043 (S-087): once a second game exists, "the" leaderboard
-// can no longer mean one thing — every scope's read is now scoped to one
+// REQ-410/ADR-0043 (S-087), widened to a third game by REQ-404/ADR-0095
+// (S-198): once a second (then third) game exists, "the" leaderboard can no
+// longer mean one thing — every scope's read is now scoped to one
 // `GameKey`. Same name/order as SCREEN-09's tiles and `HeaderNav`'s "Games"
-// list (xG Grid, then xG Path — never alphabetical), and xG Grid as the
-// default (matching GameSelectScreen's own tile order/"still the only
-// shipped game until S-085" precedent). Exported so each of the four scope
-// components can type their own `gameKey` prop against the same type
-// rather than redefining it.
-export type GameKey = typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY;
+// list (xG Grid, then xG Path, then xG Predict — never alphabetical), and
+// xG Grid as the default (matching GameSelectScreen's own tile order/"still
+// the only shipped game until S-085" precedent). Exported so each of the
+// four scope components can type their own `gameKey` prop against the same
+// type rather than redefining it.
+//
+// REQ-404/S-198 known gap (ship the tab anyway, flagged rather than
+// silently implied to be fully wired end to end): `LeaderboardService`
+// still totals every scope from `Guess.FinalPoints`
+// (`IGuessRepository`) — xG Predict never writes `Guess` rows (ADR-0096;
+// predictions live in `PredictMatchPrediction`, totaled via the separate
+// `GetTotalPointsByInstanceIdAsync` repository method). Wiring that method
+// into `LeaderboardService`/`LeaderboardEndpoints` is a still-open backend
+// follow-up (see `docs/backlog.md` S-193/S-195/S-197's own "Explicitly out
+// of scope" notes for `GetTotalPointsByInstanceIdAsync`, and the new S-198
+// entry this story adds). Net effect: this tab calls the real endpoints
+// successfully but every xG Predict leaderboard will render empty
+// (REQ-404's zero-guess exclusion filters out every xG Predict player,
+// since none have `Guess` rows) until that backend story lands.
+export type GameKey = typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY | typeof XG_PREDICT_GAME_KEY;
 
 // REQ-1210/ADR-0083: the shape GridScreen.tsx/PathScreen.tsx's round-
 // completion banner hands to App.tsx to describe exactly one round's
@@ -113,6 +135,12 @@ export interface LeaderboardRoundTarget {
 const GAME_TABS: Array<{ value: GameKey; label: string }> = [
   { value: XG_GRID_GAME_KEY, label: 'xG Grid' },
   { value: XG_PATH_GAME_KEY, label: 'xG Path' },
+  // REQ-404/ADR-0095 (S-198): third tab, same order as GameSelectScreen's
+  // tiles/HeaderNav's "Games" list — see the known-gap comment on the
+  // `GameKey` type above for why this tab is real but will render empty
+  // until `GetTotalPointsByInstanceIdAsync` is wired into
+  // `LeaderboardService` (a still-open backend follow-up).
+  { value: XG_PREDICT_GAME_KEY, label: 'xG Predict' },
 ];
 
 // SCREEN-03: this screen still only reads the global league — custom
@@ -199,8 +227,15 @@ export function LeaderboardScreen({
             corrects the natural "higher number = better" assumption before
             a player reads any rank. Must never be omitted or left implicit
             in the ranking order alone. Shown for every scope, since it's a
-            property of every ranked list this screen can show. */}
-        <p className="leaderboard-screen__subtitle">Lowest total wins</p>
+            property of every ranked list this screen can show.
+            REQ-404/ADR-0095 (S-198): xG Predict is a named exception —
+            conventional higher-is-better scoring, not golf-style — so this
+            line must read the opposite way whenever that tab is selected,
+            rather than leaving ADR-0021's wording up on screen for a game
+            it doesn't describe. */}
+        <p className="leaderboard-screen__subtitle">
+          {gameKey === XG_PREDICT_GAME_KEY ? 'Highest total wins' : 'Lowest total wins'}
+        </p>
       </div>
       {/* REQ-410/ADR-0043 (S-087): the game switcher — same plain
           underline-tab pattern as the scope tabs below (own class names
@@ -304,20 +339,24 @@ export function LeaderboardScreen({
         active={scope === 'window'}
         onSelectPlayer={onSelectPlayer}
       />
-      {/* REQ-213 (2026-08-08): game-aware — xG Grid's explainer describes
-          uniqueness/live-locked points and median ranking, none of which
-          apply to xG Path (no uniqueness, no live/locked distinction, a
-          different clue/attempt model), so each game gets its own
-          component rather than one explainer branching its copy on
-          `gameKey` internally (see PathScoringExplainer.tsx's own doc
-          comment for why). The effect above closes this modal on a game
-          switch, so by the time either branch below renders, `gameKey`
-          always matches the content the player asked to see. */}
+      {/* REQ-213 (2026-08-08), extended for xG Predict by REQ-404/ADR-0095
+          (S-198): game-aware — xG Grid's explainer describes uniqueness/
+          live-locked points and median ranking, xG Path's describes its own
+          clue/attempt model, and neither applies to xG Predict's
+          three-component (outcome/home-goals/away-goals) higher-is-better
+          formula, so each game gets its own component rather than one
+          explainer branching its copy on `gameKey` internally (see
+          PathScoringExplainer.tsx's own doc comment for why). The effect
+          above closes this modal on a game switch, so by the time any
+          branch below renders, `gameKey` always matches the content the
+          player asked to see. */}
       {explainerOpen &&
         (gameKey === XG_GRID_GAME_KEY ? (
           <ScoringExplainer onClose={() => setExplainerOpen(false)} />
-        ) : (
+        ) : gameKey === XG_PATH_GAME_KEY ? (
           <PathScoringExplainer onClose={() => setExplainerOpen(false)} />
+        ) : (
+          <PredictScoringExplainer onClose={() => setExplainerOpen(false)} />
         ))}
     </div>
   );
