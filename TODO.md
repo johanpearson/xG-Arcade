@@ -91,14 +91,16 @@ unaffected and unrelated).
   `backend-container-app.bicep` thread it through to the Container App's
   `FootballData__ApiKey` env var automatically on the next deploy; no
   further code change needed once the secret is set.
-- [ ] **Read football-data.org's actual terms of service** before relying on
-  it for real (ADR-0099's own open action item) — this sandbox's egress
-  proxy blocks `football-data.org`/`docs.football-data.org` entirely, so
-  ADR-0099's ToS section is based on secondhand summaries only, never a
-  direct reading of the real terms. Confirm free-tier commercial-use terms
-  are compatible with xG Arcade's actual use before public launch, the same
-  "confirm before relying on it, not after" discipline ADR-0008/ADR-0094
-  already followed for API-Football.
+- [x] **Read football-data.org's actual terms of service** — done
+  2026-08-31: the product owner retrieved the real terms directly (this
+  sandbox's egress proxy still blocks `football-data.org`/
+  `docs.football-data.org`) and pasted them in; saved at
+  `docs/decisions/correspondence/football-data-org-terms.md`. No
+  commercial-use restriction found (ADR-0099's Decision item 4 status
+  update has the full analysis). One real caveat: §9.1 says historical
+  data can't keep being referenced after the subscription is cancelled —
+  not a blocker while active, but re-check before ever letting the account
+  lapse.
 - [ ] Add the required "Football data provided by the Football-Data.org
   API" attribution somewhere in the frontend (footer, per
   `docs/design-document.md`'s token system) before public launch — a real

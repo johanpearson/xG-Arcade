@@ -217,15 +217,15 @@ this environment yet."`).
 
 1. Sign up for the free tier at football-data.org
 2. Grab the API token
-3. **Do this before relying on it, not after:** read football-data.org's
-   actual terms of service and confirm the free tier's commercial-use
-   terms are compatible with xG Arcade's actual use — see ADR-0099's own
-   open action item. This sandbox's egress proxy blocks
-   football-data.org/docs.football-data.org entirely, so this check has
-   **not** actually been done yet as of ADR-0099 — a real human with
-   working network access needs to do it, same "confirm before relying on
-   it, not after" discipline ADR-0008/ADR-0094 already followed for
-   API-Football.
+3. **Done (2026-08-31):** the real terms of service have been read —
+   no commercial-use restriction found, tied to a specific tier or
+   otherwise (ADR-0099's Decision item 4 status update has the full
+   analysis; the terms themselves are saved at
+   `docs/decisions/correspondence/football-data-org-terms.md`). One real
+   caveat worth knowing: §9.1 says historical data can't keep being
+   referenced once the subscription is cancelled — not a blocker while
+   the free tier stays active, but re-check before ever letting the
+   account lapse.
 4. Set the token as the `FOOTBALL_DATA_API_KEY` GitHub Actions repository
    secret (shared across environments, not `DEV_`/`PROD_`-prefixed — see
    `infra/README.md`). The next push to `main` (or a manual `deploy.yml`
