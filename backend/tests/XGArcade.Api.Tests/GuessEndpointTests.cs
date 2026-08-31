@@ -702,7 +702,7 @@ public class GuessEndpointTests
     // buried behind game-specific data lookups.
 
     [Test]
-    public async Task S200_Guess_Post_XGPredictRound_ReturnsBadRequest_NotAFallthroughToScoring()
+    public async Task ADR0098_Guess_Post_XGPredictRound_ReturnsBadRequest_NotAFallthroughToScoring()
     {
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);

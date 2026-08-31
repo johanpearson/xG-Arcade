@@ -45,8 +45,8 @@ public class GuessSubmissionServiceTests
 
     // S-200: defaults to allowing "xg-grid" and "xg-path" (every seeded
     // round in this file uses "xg-grid") — existing tests don't care about
-    // the allow-list itself; only the S200_* tests below construct their own
-    // FakeGameModule/round with a GameKey outside this default.
+    // the allow-list itself; only the ADR0098_* tests below construct their
+    // own FakeGameModule/round with a GameKey outside this default.
     private GuessSubmissionService BuildService(GuessSubmissionAllowedGameKeys? allowedGameKeys = null) =>
         new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerRepository, new FixedTimeProvider(Now),
             allowedGameKeys ?? new GuessSubmissionAllowedGameKeys { GameKeys = ["xg-grid", "xg-path"] });
@@ -867,7 +867,7 @@ public class GuessSubmissionServiceTests
     // today.
 
     [Test]
-    public async Task S200_SubmitGuess_RoundGameKeyNotInAllowList_RejectedWithGameNotSupported_WithoutEverCallingTheGameModule()
+    public async Task ADR0098_SubmitGuess_RoundGameKeyNotInAllowList_RejectedWithGameNotSupported_WithoutEverCallingTheGameModule()
     {
         // The fake is rigged to succeed if it were ever called — a valid
         // max-attempts cap and a correct score — so a leaked call would show
@@ -893,7 +893,7 @@ public class GuessSubmissionServiceTests
     }
 
     [Test]
-    public async Task S200_SubmitGuess_RoundGameKeyInAllowList_ReachesGameModule_NotRejectedWithGameNotSupported()
+    public async Task ADR0098_SubmitGuess_RoundGameKeyInAllowList_ReachesGameModule_NotRejectedWithGameNotSupported()
     {
         // The mirror-image case: a GameKey the composition root did include
         // (e.g. "xg-path") must still reach the game module normally —
