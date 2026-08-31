@@ -67,23 +67,42 @@ as items complete or new ones surface; don't let it silently go stale.
   to trigger a real GitHub Actions dispatch — so this is code-reviewed but
   not field-verified until done.
 
-## xG Predict / API-Football wiring follow-up (blocking `xg-predict` round generation)
+## xG Predict / football-data.org wiring follow-up (blocking `xg-predict` round generation)
 
-- [ ] **Sign up for API-Football's free tier** at api-football.com and grab
-  the API key (`SETUP.md` §4) — needs a real human/account, not doable from
-  this sandbox. Until this is done, `generate-predict-round.yml` will keep
-  failing every run with `API-Football is not configured on this
+**Superseded 2026-08-31 (ADR-0099):** API-Football was tried first
+(ADR-0094) but its free tier turned out to restrict season access to a
+rolling historical window that excludes the current season entirely
+(confirmed via api-football.com's own support chat) — structurally
+unusable for a live prediction game without a paid plan. Swapped for
+football-data.org instead, whose free tier explicitly includes the current
+Premier League season. The `API_FOOTBALL_API_KEY` GitHub secret, if one was
+ever set, is no longer read by anything and can be deleted; nothing in the
+codebase references API-Football for xG Predict any more (xG Grid's own,
+separate, still-dormant Tier 1 API-Football fallback per ADR-0011 is
+unaffected and unrelated).
+
+- [ ] **Sign up for football-data.org's free tier** and grab the API token
+  (`SETUP.md` §4) — needs a real human/account, not doable from this
+  sandbox. Until this is done, `generate-predict-round.yml` will keep
+  failing every run with `football-data.org is not configured on this
   environment yet.`
-- [ ] Set the key as the `API_FOOTBALL_API_KEY` GitHub Actions repository
+- [ ] Set the token as the `FOOTBALL_DATA_API_KEY` GitHub Actions repository
   secret (`infra/README.md`) — `deploy.yml`/`main.bicep`/
-  `backend-container-app.bicep` now thread it through to the Container
-  App's `ApiFootball__ApiKey` env var automatically on the next deploy; no
+  `backend-container-app.bicep` thread it through to the Container App's
+  `FootballData__ApiKey` env var automatically on the next deploy; no
   further code change needed once the secret is set.
-- [ ] Send both ADR-0008's and ADR-0094 item 4's written ToS confirmation
-  emails to API-Football support before public launch (draft at
-  `docs/decisions/correspondence/api-football-confirmation-email.md`) —
-  already tracked below under "Before public launch," listed here too
-  since it's the same account-setup pass.
+- [ ] **Read football-data.org's actual terms of service** before relying on
+  it for real (ADR-0099's own open action item) — this sandbox's egress
+  proxy blocks `football-data.org`/`docs.football-data.org` entirely, so
+  ADR-0099's ToS section is based on secondhand summaries only, never a
+  direct reading of the real terms. Confirm free-tier commercial-use terms
+  are compatible with xG Arcade's actual use before public launch, the same
+  "confirm before relying on it, not after" discipline ADR-0008/ADR-0094
+  already followed for API-Football.
+- [ ] Add the required "Football data provided by the Football-Data.org
+  API" attribution somewhere in the frontend (footer, per
+  `docs/design-document.md`'s token system) before public launch — a real
+  ToS requirement, not optional polish.
 
 ## Tier 1 — revisit only after real testing shows a specific need
 

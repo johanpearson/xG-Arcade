@@ -183,21 +183,17 @@ to hosting — no domain needed to deploy or test "prod.")
 5. Set up SPF/DKIM for your sending domain in Resend's dashboard (skip if
    using their sandbox domain for now)
 
-## 4. API-Football (player data + xG Predict fixtures)
+## 4. API-Football (player data)
 
-**As xG Grid's Tier 1 fallback source, still skip that part for MVP** — per
-the corrected Tier 0 design in `MVP-SCOPE.md`, xG Grid's own grid
-generation uses Wikidata only (no account needed, public endpoint) for full
-historical accuracy on a small hand-curated club list. That fallback
-trigger remains unfired.
-
-**But xG Predict (REQ-1301-1305, ADR-0094) needs this now, not later** — it
-is a separate, additive precondition scoped only to that game (see
-`MVP-SCOPE.md`'s xG Predict note): fixtures/live-score data that Wikidata
-cannot provide. Without a key configured, every `/internal/generate-round`
-call for `xg-predict` fails closed
-(`ApiFootballClientException: "API-Football is not configured on this
-environment yet."`).
+**Tier 1 — skip this whole section for MVP.** Per the corrected Tier 0
+design in `MVP-SCOPE.md`, Tier 0 uses Wikidata only (no account needed,
+public endpoint) for full historical accuracy on a small hand-curated club
+list. Come back here when adding API-Football as a Tier 1 fallback source.
+Note this is unrelated to xG Predict, which uses football-data.org instead
+(§4a below) — API-Football was tried for xG Predict first (ADR-0094) but
+its free tier turned out to exclude the current season entirely, so it was
+swapped out (ADR-0099) before this section's own Tier 1 fallback trigger
+ever fired.
 
 1. Sign up for the free tier at api-football.com
 2. Grab the API key
@@ -207,13 +203,36 @@ environment yet."`).
    terms — see ADR-0008. A draft is ready at
    `docs/decisions/correspondence/api-football-confirmation-email.md` —
    review it, send it, and save their reply alongside it in the same folder.
-   ADR-0094 item 4 additionally requires a second, separate confirmation
-   covering fixture/live-score polling specifically (not just permanent
-   player-data caching) before public launch — same file, same folder.
-4. Set the key as the `API_FOOTBALL_API_KEY` GitHub Actions repository
+
+## 4a. football-data.org (xG Predict fixtures)
+
+**Not Tier 1 — xG Predict (REQ-1301-1305, ADR-0099) needs this now.** It is
+a precondition scoped only to that game (see `MVP-SCOPE.md`'s xG Predict
+note): fixtures/live-score data that Wikidata cannot provide, and that
+API-Football's free tier turned out not to provide either (ADR-0099).
+Without a token configured, every `/internal/generate-round` call for
+`xg-predict` fails closed
+(`FootballDataClientException: "football-data.org is not configured on
+this environment yet."`).
+
+1. Sign up for the free tier at football-data.org
+2. Grab the API token
+3. **Do this before relying on it, not after:** read football-data.org's
+   actual terms of service and confirm the free tier's commercial-use
+   terms are compatible with xG Arcade's actual use — see ADR-0099's own
+   open action item. This sandbox's egress proxy blocks
+   football-data.org/docs.football-data.org entirely, so this check has
+   **not** actually been done yet as of ADR-0099 — a real human with
+   working network access needs to do it, same "confirm before relying on
+   it, not after" discipline ADR-0008/ADR-0094 already followed for
+   API-Football.
+4. Set the token as the `FOOTBALL_DATA_API_KEY` GitHub Actions repository
    secret (shared across environments, not `DEV_`/`PROD_`-prefixed — see
    `infra/README.md`). The next push to `main` (or a manual `deploy.yml`
    run) picks it up automatically; no code change needed.
+5. Add the required "Football data provided by the Football-Data.org API"
+   attribution somewhere in the frontend before public launch (a real ToS
+   requirement, not optional — see `TODO.md`).
 
 ## 5. Azure (hosting)
 

@@ -2,9 +2,10 @@ name: grade-predict-matches
 
 # REQ-1305/ADR-0097: polls for xG Predict matches whose kickoff (plus a
 # typical match duration, PredictGradingOptions.TypicalMatchDuration) has
-# already passed, fetches each one's real final score from API-Football,
-# and grades every stored prediction for it (POST
-# /internal/grade-predict-matches, XGArcade.Api.Predict.
+# already passed, fetches each one's real final score from
+# football-data.org (ADR-0099, replacing ADR-0094's original API-Football
+# choice — see that ADR for why), and grades every stored prediction for
+# it (POST /internal/grade-predict-matches, XGArcade.Api.Predict.
 # InternalPredictGradingEndpoints).
 #
 # This is a new, independent workflow — NOT folded into
@@ -15,13 +16,13 @@ name: grade-predict-matches
 # wholly separate concern from round *generation* (ADR-0097 Decision §1;
 # REQ-1305's own Context text: "a distinct trigger is required").
 #
-# Cadence: hourly (0 * * * *), NOT the 5-10 minute cadence
-# ADR-0094 documents for polling a fixture that is CURRENTLY in progress —
-# this job only ever checks a match once its kickoff + typical duration
-# has already passed, i.e. once the match should already be over, so
-# hourly is frequent enough without materially risking API-Football's
-# free-tier daily cap in the documented worst case (up to 48h for some
-# competitions to confirm a result). Full budget arithmetic: ADR-0097
+# Cadence: hourly (0 * * * *), NOT a much tighter (e.g. 5-10 minute)
+# cadence suited to polling a fixture that is CURRENTLY in progress — this
+# job only ever checks a match once its kickoff + typical duration has
+# already passed, i.e. once the match should already be over, so hourly is
+# frequent enough without materially risking football-data.org's
+# 10-requests/minute free-tier rate limit even if a real-world result
+# confirmation takes a while to land. Full budget arithmetic: ADR-0097
 # Decision §1 — re-derive it before changing this cron, per that ADR's own
 # "For AI agents" instruction.
 on:

@@ -10,11 +10,12 @@ namespace XGArcade.Data.Entities;
 // asynchronous grading (a separate, later story) confirms the real final
 // score.
 //
-// ExternalFixtureId is API-Football's own id for this fixture (ADR-0094) —
-// REQ-1305's future grading lookup key. HomeTeamName/AwayTeamName are
-// display data. KickoffUtc is this match's own scheduled kickoff, always
-// normalized to UTC (mirrors ApiFootballFixture.KickoffUtc's own
-// normalization) — REQ-1303's round-lock instant is
+// ExternalFixtureId is football-data.org's own id for this fixture
+// (ADR-0099, superseding ADR-0094's API-Football id) — REQ-1305's future
+// grading lookup key. HomeTeamName/AwayTeamName are display data.
+// KickoffUtc is this match's own scheduled kickoff, always normalized to
+// UTC (mirrors FootballDataFixture.KickoffUtc's own normalization) —
+// REQ-1303's round-lock instant is
 // `Matches.Min(m => m.KickoffUtc)` across a PredictInstance's Matches,
 // reconstructable from these rows alone without a second fetch.
 //
@@ -26,9 +27,9 @@ namespace XGArcade.Data.Entities;
 // mechanism (ADR-0097 Decision §3): a match is only ever considered by
 // the grading query while GradingStatus == Pending. ActualHomeGoals/
 // ActualAwayGoals are set only when GradingStatus == Graded; a Voided
-// match never gets these written (API-Football's own values for a
+// match never gets these written (football-data.org's own values for a
 // postponed/abandoned fixture are untrustworthy — see
-// ApiFootballFixtureOutcome.PostponedOrAbandoned's own doc comment).
+// FootballDataFixtureOutcome.PostponedOrAbandoned's own doc comment).
 public class PredictMatch
 {
     public Guid Id { get; set; }

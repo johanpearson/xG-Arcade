@@ -13,7 +13,7 @@ using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
-using XGArcade.DataSync.ApiFootball;
+using XGArcade.DataSync.FootballData;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
@@ -654,9 +654,9 @@ public class RoundEndpointTests
         // Mirrors REQ1202_GenerateRound_Post_WithGameKeyXgPath_... above: a
         // dedicated layered factory adds xg-predict's own
         // RoundSchedulingOptions (30h, deliberately distinct from SetUp's
-        // xg-grid 72h), a FakeApiFootballClient standing in for the real
+        // xg-grid 72h), a FakeFootballDataClient standing in for the real
         // HTTP client (XGPredictGameModule.GenerateInstanceAsync's fixture
-        // source, REQ-1301) so no real api-football.com egress happens, and
+        // source, REQ-1301) so no real football-data.org egress happens, and
         // PredictGenerationOptions.MatchCount=5 with exactly 5 fake
         // fixtures. This is the API-level proof that gameKey=xg-predict is
         // no longer rejected by InternalRoundEndpoints' up-front
@@ -664,10 +664,10 @@ public class RoundEndpointTests
         // PredictTemplateResolver — not just the unit-level proof in
         // PredictTemplateResolverTests, but the real endpoint, real DI
         // graph, and a real XGPredictGameModule.GenerateInstanceAsync run.
-        var fakeApiFootballClient = new FakeApiFootballClient
+        var fakeFootballDataClient = new FakeFootballDataClient
         {
             Fixtures = Enumerable.Range(0, 5)
-                .Select(i => new ApiFootballFixture(
+                .Select(i => new FootballDataFixture(
                     FixtureId: 100 + i,
                     HomeTeamId: 1000 + i,
                     HomeTeamName: $"Home{i}",
@@ -680,8 +680,8 @@ public class RoundEndpointTests
         {
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IApiFootballClient>();
-                services.AddSingleton<IApiFootballClient>(fakeApiFootballClient);
+                services.RemoveAll<IFootballDataClient>();
+                services.AddSingleton<IFootballDataClient>(fakeFootballDataClient);
 
                 services.RemoveAll<PredictGenerationOptions>();
                 services.AddSingleton(new PredictGenerationOptions { MatchCount = 5 });
@@ -723,19 +723,19 @@ public class RoundEndpointTests
         // REQ1208_GenerateRound_Post_WithGameKeyXgPath_InsufficientTotalEligiblePool_...'s
         // "Round generation failed" 500 assertion below, for xg-predict's own
         // abort path instead.
-        var fakeApiFootballClient = new FakeApiFootballClient
+        var fakeFootballDataClient = new FakeFootballDataClient
         {
             Fixtures =
             [
-                new ApiFootballFixture(101, 1001, "Home0", 2001, "Away0", DateTime.UtcNow.AddDays(7)),
+                new FootballDataFixture(101, 1001, "Home0", 2001, "Away0", DateTime.UtcNow.AddDays(7)),
             ], // fewer than MatchCount(5)
         };
         var xgPredictFactory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IApiFootballClient>();
-                services.AddSingleton<IApiFootballClient>(fakeApiFootballClient);
+                services.RemoveAll<IFootballDataClient>();
+                services.AddSingleton<IFootballDataClient>(fakeFootballDataClient);
 
                 services.RemoveAll<PredictGenerationOptions>();
                 services.AddSingleton(new PredictGenerationOptions { MatchCount = 5 });
@@ -764,7 +764,7 @@ public class RoundEndpointTests
 
     // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
     // "don't over-mock"), mirroring XGArcade.Games.XGPredict.Tests'
-    // FakeApiFootballClient's exact shape — duplicated here rather than
+    // FakeFootballDataClient's exact shape — duplicated here rather than
     // shared across test assemblies because no InternalsVisibleTo wiring
     // exists between them (same "a different assembly, no InternalsVisibleTo
     // wired" precedent already noted on this file's sibling
@@ -772,14 +772,14 @@ public class RoundEndpointTests
     // AdminSuggestionEndpointTests.FakeWikidataClient). GetFixtureResultAsync
     // (REQ-1305) is not exercised by anything this story wires up — not
     // implemented, throws if ever called.
-    private sealed class FakeApiFootballClient : IApiFootballClient
+    private sealed class FakeFootballDataClient : IFootballDataClient
     {
-        public IReadOnlyList<ApiFootballFixture> Fixtures { get; set; } = [];
+        public IReadOnlyList<FootballDataFixture> Fixtures { get; set; } = [];
 
-        public Task<IReadOnlyList<ApiFootballFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<FootballDataFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Fixtures);
 
-        public Task<ApiFootballFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default) =>
+        public Task<FootballDataFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException("REQ-1305 grading is out of scope for this story — GetFixtureResultAsync should never be called here.");
     }
 

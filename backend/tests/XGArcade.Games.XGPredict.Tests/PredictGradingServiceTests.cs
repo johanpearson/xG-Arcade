@@ -4,7 +4,7 @@ using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
-using XGArcade.DataSync.ApiFootball;
+using XGArcade.DataSync.FootballData;
 
 namespace XGArcade.Games.XGPredict.Tests;
 
@@ -15,13 +15,13 @@ namespace XGArcade.Games.XGPredict.Tests;
 // matches still grade normally, and an already-Graded/Voided match is
 // excluded from the next run entirely (idempotency). Same no-mocking-
 // framework pattern as XGPredictGameModuleTests: a real, InMemory-backed
-// PredictInstanceRepository plus the hand-rolled FakeApiFootballClient.
+// PredictInstanceRepository plus the hand-rolled FakeFootballDataClient.
 public class PredictGradingServiceTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IPredictInstanceRepository _repository = null!;
-    private FakeApiFootballClient _apiFootballClient = null!;
+    private FakeFootballDataClient _footballDataClient = null!;
     private ManualTimeProvider _timeProvider = null!;
     private PredictGradingService _service = null!;
 
@@ -36,12 +36,12 @@ public class PredictGradingServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _repository = new PredictInstanceRepository(_dbContext);
-        _apiFootballClient = new FakeApiFootballClient();
+        _footballDataClient = new FakeFootballDataClient();
         _timeProvider = new ManualTimeProvider(Now);
         var scoringStrategy = new XGPredictScoringStrategy { GameKey = XGPredictGameModule.XGPredictGameKey };
         var gradingOptions = new PredictGradingOptions { TypicalMatchDuration = TypicalMatchDuration };
         _service = new PredictGradingService(
-            _repository, _apiFootballClient, scoringStrategy, gradingOptions, _timeProvider,
+            _repository, _footballDataClient, scoringStrategy, gradingOptions, _timeProvider,
             NullLogger<PredictGradingService>.Instance);
     }
 
@@ -60,7 +60,7 @@ public class PredictGradingServiceTests
         var match = await SeedReadyMatchAsync(fixtureId: 101, kickoffHoursAgo: 3);
         var exactPrediction = await AddPredictionAsync(match.Id, homeGoals: 2, awayGoals: 1);
         var partialPrediction = await AddPredictionAsync(match.Id, homeGoals: 1, awayGoals: 1);
-        _apiFootballClient.Results[101] = new ApiFootballFixtureResult(101, ApiFootballFixtureOutcome.Finished, "FT", 2, 1);
+        _footballDataClient.Results[101] = new FootballDataFixtureResult(101, FootballDataFixtureOutcome.Finished, "FT", 2, 1);
 
         var result = await _service.GradeReadyMatchesAsync();
 
@@ -86,7 +86,7 @@ public class PredictGradingServiceTests
     public async Task REQ1305_GradeReadyMatchesAsync_MatchWithNoStoredPredictions_GradesWithZeroPointsToDistribute()
     {
         var match = await SeedReadyMatchAsync(fixtureId: 202, kickoffHoursAgo: 3);
-        _apiFootballClient.Results[202] = new ApiFootballFixtureResult(202, ApiFootballFixtureOutcome.Finished, "FT", 0, 0);
+        _footballDataClient.Results[202] = new FootballDataFixtureResult(202, FootballDataFixtureOutcome.Finished, "FT", 0, 0);
 
         var result = await _service.GradeReadyMatchesAsync();
 
@@ -102,7 +102,7 @@ public class PredictGradingServiceTests
     {
         var match = await SeedReadyMatchAsync(fixtureId: 303, kickoffHoursAgo: 3);
         var prediction = await AddPredictionAsync(match.Id, homeGoals: 2, awayGoals: 1);
-        _apiFootballClient.Results[303] = new ApiFootballFixtureResult(303, ApiFootballFixtureOutcome.NotYetConfirmed, "NS", null, null);
+        _footballDataClient.Results[303] = new FootballDataFixtureResult(303, FootballDataFixtureOutcome.NotYetConfirmed, "NS", null, null);
 
         var result = await _service.GradeReadyMatchesAsync();
 
@@ -124,11 +124,11 @@ public class PredictGradingServiceTests
     {
         var voidedMatch = await SeedReadyMatchAsync(fixtureId: 404, kickoffHoursAgo: 3);
         var voidedPrediction = await AddPredictionAsync(voidedMatch.Id, homeGoals: 2, awayGoals: 1);
-        _apiFootballClient.Results[404] = new ApiFootballFixtureResult(404, ApiFootballFixtureOutcome.PostponedOrAbandoned, "PST", null, null);
+        _footballDataClient.Results[404] = new FootballDataFixtureResult(404, FootballDataFixtureOutcome.PostponedOrAbandoned, "PST", null, null);
 
         var normalMatch = await SeedReadyMatchAsync(fixtureId: 405, kickoffHoursAgo: 4);
         var normalPrediction = await AddPredictionAsync(normalMatch.Id, homeGoals: 1, awayGoals: 0);
-        _apiFootballClient.Results[405] = new ApiFootballFixtureResult(405, ApiFootballFixtureOutcome.Finished, "FT", 1, 0);
+        _footballDataClient.Results[405] = new FootballDataFixtureResult(405, FootballDataFixtureOutcome.Finished, "FT", 1, 0);
 
         var result = await _service.GradeReadyMatchesAsync();
 
@@ -136,7 +136,7 @@ public class PredictGradingServiceTests
 
         var storedVoidedMatch = await _dbContext.PredictMatches.AsNoTracking().SingleAsync(m => m.Id == voidedMatch.Id);
         Assert.That(storedVoidedMatch.GradingStatus, Is.EqualTo(PredictMatchGradingStatus.Voided));
-        Assert.That(storedVoidedMatch.ActualHomeGoals, Is.Null, "a voided match's actual score must never be written — API-Football's own values are untrustworthy for this outcome");
+        Assert.That(storedVoidedMatch.ActualHomeGoals, Is.Null, "a voided match's actual score must never be written — football-data.org's own values are untrustworthy for this outcome");
         Assert.That(storedVoidedMatch.ActualAwayGoals, Is.Null);
 
         var storedVoidedPrediction = await _dbContext.PredictMatchPredictions.AsNoTracking().SingleAsync(p => p.Id == voidedPrediction.Id);
@@ -155,10 +155,10 @@ public class PredictGradingServiceTests
     {
         var match = await SeedReadyMatchAsync(fixtureId: 501, kickoffHoursAgo: 3);
         var prediction = await AddPredictionAsync(match.Id, homeGoals: 2, awayGoals: 1);
-        _apiFootballClient.Results[501] = new ApiFootballFixtureResult(501, ApiFootballFixtureOutcome.Finished, "FT", 2, 1);
+        _footballDataClient.Results[501] = new FootballDataFixtureResult(501, FootballDataFixtureOutcome.Finished, "FT", 2, 1);
         var firstRun = await _service.GradeReadyMatchesAsync();
         Assert.That(firstRun.Graded, Is.EqualTo(1));
-        Assert.That(_apiFootballClient.RequestedFixtureIds, Is.EqualTo(new[] { 501 }));
+        Assert.That(_footballDataClient.RequestedFixtureIds, Is.EqualTo(new[] { 501 }));
 
         // Second run: nothing configured for fixture 501 in Results this
         // time — if the service ever re-requested it, GetFixtureResultAsync
@@ -166,7 +166,7 @@ public class PredictGradingServiceTests
         var secondRun = await _service.GradeReadyMatchesAsync();
 
         Assert.That(secondRun, Is.EqualTo(new PredictGradingRunResult(Graded: 0, Voided: 0, StillPending: 0, Failed: 0)));
-        Assert.That(_apiFootballClient.RequestedFixtureIds, Is.EqualTo(new[] { 501 }), "a Graded match must never be re-fetched from API-Football on a later run");
+        Assert.That(_footballDataClient.RequestedFixtureIds, Is.EqualTo(new[] { 501 }), "a Graded match must never be re-fetched from football-data.org on a later run");
 
         var storedPrediction = await _dbContext.PredictMatchPredictions.AsNoTracking().SingleAsync(p => p.Id == prediction.Id);
         Assert.That(storedPrediction.FinalPoints, Is.EqualTo(3 * ScoringRules.PredictPointsPerComponent), "re-running must not change an already-graded prediction's points");
@@ -176,14 +176,14 @@ public class PredictGradingServiceTests
     public async Task REQ1305_GradeReadyMatchesAsync_AlreadyVoidedMatch_ExcludedFromNextRun_NeverRefetched()
     {
         var match = await SeedReadyMatchAsync(fixtureId: 502, kickoffHoursAgo: 3);
-        _apiFootballClient.Results[502] = new ApiFootballFixtureResult(502, ApiFootballFixtureOutcome.PostponedOrAbandoned, "PST", null, null);
+        _footballDataClient.Results[502] = new FootballDataFixtureResult(502, FootballDataFixtureOutcome.PostponedOrAbandoned, "PST", null, null);
         var firstRun = await _service.GradeReadyMatchesAsync();
         Assert.That(firstRun.Voided, Is.EqualTo(1));
 
         var secondRun = await _service.GradeReadyMatchesAsync();
 
         Assert.That(secondRun, Is.EqualTo(new PredictGradingRunResult(Graded: 0, Voided: 0, StillPending: 0, Failed: 0)));
-        Assert.That(_apiFootballClient.RequestedFixtureIds, Is.EqualTo(new[] { 502 }), "a Voided match must never be re-fetched from API-Football on a later run");
+        Assert.That(_footballDataClient.RequestedFixtureIds, Is.EqualTo(new[] { 502 }), "a Voided match must never be re-fetched from football-data.org on a later run");
     }
 
     // ---- Not-yet-ready matches: excluded from the query entirely ------
@@ -198,20 +198,20 @@ public class PredictGradingServiceTests
         var result = await _service.GradeReadyMatchesAsync();
 
         Assert.That(result, Is.EqualTo(new PredictGradingRunResult(Graded: 0, Voided: 0, StillPending: 0, Failed: 0)));
-        Assert.That(_apiFootballClient.RequestedFixtureIds, Is.Empty, "a match not yet due for grading must never reach API-Football at all");
+        Assert.That(_footballDataClient.RequestedFixtureIds, Is.Empty, "a match not yet due for grading must never reach football-data.org at all");
     }
 
-    // ---- One match's ApiFootballClientException doesn't abort the run --
+    // ---- One match's FootballDataClientException doesn't abort the run --
 
     [Test]
-    public async Task REQ1305_GradeReadyMatchesAsync_OneMatchThrowsApiFootballClientException_OtherMatchesStillGrade()
+    public async Task REQ1305_GradeReadyMatchesAsync_OneMatchThrowsFootballDataClientException_OtherMatchesStillGrade()
     {
         var failingMatch = await SeedReadyMatchAsync(fixtureId: 701, kickoffHoursAgo: 3);
-        _apiFootballClient.ExceptionsToThrow[701] = new ApiFootballClientException("simulated transient API-Football failure");
+        _footballDataClient.ExceptionsToThrow[701] = new FootballDataClientException("simulated transient football-data.org failure");
 
         var normalMatch = await SeedReadyMatchAsync(fixtureId: 702, kickoffHoursAgo: 3);
         var normalPrediction = await AddPredictionAsync(normalMatch.Id, homeGoals: 0, awayGoals: 0);
-        _apiFootballClient.Results[702] = new ApiFootballFixtureResult(702, ApiFootballFixtureOutcome.Finished, "FT", 0, 0);
+        _footballDataClient.Results[702] = new FootballDataFixtureResult(702, FootballDataFixtureOutcome.Finished, "FT", 0, 0);
 
         var result = await _service.GradeReadyMatchesAsync();
 

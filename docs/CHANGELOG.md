@@ -37,6 +37,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   story's *Accept*/*Deps* sections name the exact files/line numbers this
   audit found, per this file's existing "Token efficiency" note on handing
   implementing agents specifics directly rather than re-deriving them.
+- 2026-08-31 — `docs/decisions/0099-*.md` (new), `docs/decisions/0094-*.md`
+  (status marked superseded), `MVP-SCOPE.md`, `SETUP.md`, `TODO.md`,
+  `infra/README.md`, `docs/requirements-document.md` (2.29→2.30),
+  `docs/architecture-document.md` (1.28→1.29),
+  `docs/implementation-document.md` (1.14→1.15), `docs/backlog.md` (new
+  S-206 entry) — swapped xG Predict's fixtures/results data source from
+  API-Football to football-data.org (ADR-0099). Root cause: API-Football's
+  free plan restricts season access to a rolling historical window that
+  excludes the current season entirely (confirmed via api-football.com's
+  own support chat), making it structurally unusable for a live prediction
+  game — ADR-0094's "free tier is sufficient" judgment was never verified
+  live (egress blocked from this sandbox) and was wrong. Replaced
+  `DataSync.ApiFootball.ApiFootballClient`/`IApiFootballClient` with
+  `DataSync.FootballData.FootballDataClient`/`IFootballDataClient`
+  end-to-end (client, DI registration, both xG Predict consumers, tests,
+  infra secret/bicep wiring — `API_FOOTBALL_API_KEY`/`apiFootballApiKey`
+  replaced by `FOOTBALL_DATA_API_KEY`/`footballDataApiKey`). Doc updates
+  scoped to xG-Predict-specific mentions only; every API-Football mention
+  describing xG Grid's separate, still-dormant Tier 1 fallback
+  (ADR-0011/ADR-0012/ADR-0008) is untouched and still accurate. Open
+  action item, tracked in `TODO.md`: football-data.org's actual terms of
+  service have not been read from this sandbox (same egress block) — REQ-1301,
+  REQ-1305, ADR-0099.
 - 2026-08-31 — `infra/README.md`, `SETUP.md`, `TODO.md` — fixed a gap found
   from a live `/internal/generate-round` 500 (`API-Football is not
   configured on this environment yet.`): S-190 through S-198 built xG

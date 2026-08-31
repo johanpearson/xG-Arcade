@@ -137,7 +137,11 @@ For anything else, contact us at [contact email].
 Player and club information used in the game (nationalities, club history,
 trophies) comes from public/licensed data sources (Wikidata, API-Football)
 and is not personal data about our users — it's about public figures
-(professional footballers) in their public/professional capacity.
+(professional footballers) in their public/professional capacity. xG
+Predict's match fixtures/results (which teams are playing, when, and the
+final score) come from a separate public/licensed source, football-data.org
+— also not personal data about our users, and not about any individual
+person at all.
 
 ## Age requirement
 

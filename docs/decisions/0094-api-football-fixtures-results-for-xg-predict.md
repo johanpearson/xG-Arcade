@@ -1,6 +1,10 @@
 # ADR-0094: API-Football fixtures/results as xG Predict's data source
 
-- **Status:** Accepted (with one open action item before launch)
+- **Status:** Superseded by ADR-0099 (Decision items 1-2 specifically —
+  API-Football as the chosen provider, and the free-tier-sufficiency
+  judgment, which turned out to be wrong: API-Football's free tier
+  excludes the current season entirely. Kept for historical record; do not
+  build against this ADR's client/config shape — see ADR-0099.)
 - **Date:** 2026-08-30
 - **Related requirements:** REQ-1301, REQ-1305
 - **Related components:** COMP-15 (Games.XGPredict), COMP-07 (DataSync.Clients)

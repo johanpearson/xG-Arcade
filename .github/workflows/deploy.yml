@@ -125,7 +125,7 @@ jobs:
                          supabaseServiceRoleKey="${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}" \
                          internalJobToken="${{ secrets.INTERNAL_JOB_TOKEN }}" \
                          githubIncidentReportToken="${{ secrets.INCIDENT_REPORT_PAT }}" \
-                         apiFootballApiKey="${{ secrets.API_FOOTBALL_API_KEY }}" \
+                         footballDataApiKey="${{ secrets.FOOTBALL_DATA_API_KEY }}" \
                          corsAllowedOrigin="$CORS_ORIGIN" \
                          adminUserIds="${{ secrets.DEV_ADMIN_USER_IDS }}"
 

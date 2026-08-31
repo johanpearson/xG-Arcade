@@ -33,7 +33,7 @@ public static class InternalPredictGradingEndpoints
             catch (Exception ex)
             {
                 // PredictGradingService itself already catches and counts
-                // per-match ApiFootballClientException failures (ADR-0097
+                // per-match FootballDataClientException failures (ADR-0097
                 // Decision §3) — anything reaching here is unexpected (e.g.
                 // a DB failure fetching the ready-to-grade match list
                 // itself), the same "opaque, empty 500 would otherwise be

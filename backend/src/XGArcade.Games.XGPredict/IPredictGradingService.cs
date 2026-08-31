@@ -17,7 +17,7 @@ public interface IPredictGradingService
     // PredictGradingOptions.TypicalMatchDuration) has already passed and
     // is still Pending; a match already Graded/Voided is never revisited
     // (idempotent by construction — ADR-0097 Decision §3). One match's own
-    // failure (e.g. an ApiFootballClientException) never aborts the rest
+    // failure (e.g. a FootballDataClientException) never aborts the rest
     // of the run.
     Task<PredictGradingRunResult> GradeReadyMatchesAsync(CancellationToken cancellationToken = default);
 }

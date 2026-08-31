@@ -27,6 +27,28 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-31 — API-Football's free plan does not include the current season
+
+Discovered when `/internal/generate-round?gameKey=xg-predict` returned 500
+even with a correctly-configured key: `"API-Football returned no current
+round name — check the ApiFootball:LeagueId/Season configuration."` League
+ID and season were both confirmed correct against the account's own
+dashboard. Confirmed via api-football.com's own support chatbot: **the
+free plan restricts season access to a rolling 2-4-season historical
+window that excludes the current season entirely** — no season parameter
+this backend could send would ever reach the current gameweek's fixtures
+on a free-tier key. ADR-0094's original "free tier is sufficient" judgment
+was never actually verified live (egress to api-football.com has been
+blocked from this sandbox the whole time) and turned out to be wrong.
+
+Swapped to football-data.org instead (ADR-0099), whose free tier
+explicitly includes the current Premier League season. If API-Football is
+ever revisited for anything (e.g. xG Grid's own separate, still-dormant
+Tier 1 fallback, ADR-0011 — a different use case, player bio data not
+fixtures) — do not assume the free tier covers "the current anything";
+verify season/date-range access for that specific use before relying on
+it, the same way this note exists so nobody re-learns this the hard way.
+
 ### 2026-08-31 — Azure Container Apps rejects a `secrets` entry with an empty string value
 
 Discovered when `apiFootballApiKey`'s own optional/default-`''` Bicep

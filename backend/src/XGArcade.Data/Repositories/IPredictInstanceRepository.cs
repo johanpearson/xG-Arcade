@@ -87,8 +87,8 @@ public interface IPredictInstanceRepository
 
     // REQ-1305/ADR-0097 §3: persists a postponed/abandoned match's voided
     // outcome — GradingStatus = Voided only. No ActualHomeGoals/
-    // ActualAwayGoals write (API-Football's own values for this outcome
-    // are untrustworthy per ApiFootballFixtureOutcome's own doc comment),
+    // ActualAwayGoals write (football-data.org's own values for this outcome
+    // are untrustworthy per FootballDataFixtureOutcome's own doc comment),
     // and no PredictMatchPrediction row for this match is ever touched —
     // every one keeps FinalPoints == null permanently, indistinguishable
     // from "not yet graded," which is REQ-1305's own deliberate voiding
