@@ -1,7 +1,9 @@
 # ADR-0099: football-data.org replaces API-Football as xG Predict's fixtures/results data source
 
-- **Status:** Accepted (with one open action item before launch — see
-  Consequences)
+- **Status:** Accepted. ToS verified 2026-08-31 (see Decision item 4's
+  status update and Consequences) — no commercial-use restriction found;
+  the required attribution line is still not implemented, tracked in
+  `TODO.md`.
 - **Date:** 2026-08-31
 - **Related requirements:** REQ-1301, REQ-1305
 - **Related components:** COMP-15 (Games.XGPredict), COMP-07 (DataSync.Clients)
@@ -85,6 +87,43 @@ results client, keeping ADR-0094's isolation boundary (a single client in
    ADR could not do that check itself. Attribution is already known to be
    required regardless of the commercial-use answer: "Football data
    provided by the Football-Data.org API" somewhere in the frontend.
+
+   **Status update (2026-08-31, same day):** done — the product owner
+   retrieved and pasted the real terms (`www.football-data.org/about`),
+   saved verbatim at
+   `docs/decisions/correspondence/football-data-org-terms.md`. Findings:
+   - **No commercial-use restriction found.** The terms distinguish tiers
+     only by "number of competitions, data access levels and API call
+     limitations" (§4.1) — nothing ties commercial use to a specific tier,
+     resolving the earlier secondhand-summary ambiguity. Same "found
+     nothing prohibiting a gameplay product built on top of their data"
+     conclusion ADR-0008 reached for API-Football, reapplied here on an
+     actual reading rather than analogy.
+   - **§2.3 (single application):** compliant — one application (xG
+     Arcade), one API key.
+   - **§6.1 (credentials not in source control):** already compliant —
+     the key lives only as the `FOOTBALL_DATA_API_KEY` GitHub secret,
+     never committed (same discipline every other credential in this repo
+     already follows).
+   - **§7 (attribution):** confirmed required, not optional —
+     "Football data provided by the Football-Data.org API," footer/about/
+     any visible location. **Still not implemented** — tracked in
+     `TODO.md`, blocking public launch.
+   - **§9.1 (post-cancellation reference restriction):** "After
+     cancellation of the subscription... the Customer is not permitted to
+     reference the football data... on their own site or service." A real
+     constraint while any historical `PredictMatch`/`ActualHomeGoals`/
+     `ActualAwayGoals` rows exist — unlike ADR-0008's read of
+     API-Football's terms (permanent caching explicitly fine), this
+     provider's terms only cover use *while subscribed*. Not a blocker for
+     current use (the subscription is active and free), but a real risk if
+     the account is ever cancelled: purge or re-source historical
+     `PredictMatch` result data at that point rather than continuing to
+     display/serve it. Flagged here, not silently assumed away.
+   - **§9.2 (crest/logo IP):** separate from the fixtures/results data
+     this ADR covers — irrelevant today since xG Predict displays team
+     names only, no crests. Re-check before ever adding crest imagery for
+     this game.
 5. Caching/polling posture unchanged from ADR-0094 item 5: cache a
    gameweek's fixture list once per round generation, poll live/result
    status only for that round's own 5 fixtures during their live window,
@@ -114,22 +153,27 @@ results client, keeping ADR-0094's isolation boundary (a single client in
   itself, its DI registration, and the two xG Predict consumers), nothing
   in `XGArcade.Games.XGGrid`/`XGArcade.Games.XGPath`.
 - Negative / trade-offs accepted: a second external-data-source ToS check
-  in as many days that this repo's own sandbox cannot actually perform —
+  in as many days that this repo's own sandbox could not perform itself —
   the "confirm via a real fetch" verification loop this repo's process
-  calls for is structurally unavailable here, so this ADR is explicit
+  calls for was structurally unavailable here, so this ADR was explicit
   about what it could and couldn't confirm rather than asserting a false
-  confidence the way ADR-0094 unintentionally did the first time.
+  confidence the way ADR-0094 unintentionally did the first time. Resolved
+  same-day once the product owner retrieved the real terms directly (see
+  Decision item 4's status update) — this ADR did not have to guess.
+- Negative / trade-offs accepted: §9.1's post-cancellation data-reference
+  restriction means historical `PredictMatch` result rows are not
+  permanently ours to keep displaying the way ADR-0008 established for
+  API-Football's player data — a real, if currently dormant, operational
+  constraint tied to keeping the football-data.org subscription active.
 - Negative / trade-offs accepted: `xg-predict` round generation was
   broken in the deployed dev environment from the first real key
   configuration (2026-08-31) until this swap shipped and a new
   `FOOTBALL_DATA_API_KEY` was configured — a real, if short, production
   gap, not merely a development-time correction.
-- Follow-up: obtain a genuine, human-read confirmation of football-data.org's
-  free-tier terms (commercial use, caching/retention, attribution) before
-  public launch, and add the required attribution line to the frontend;
-  both tracked in `TODO.md`. If that reading turns out unfavorable, the
-  same swappable-client-layer escape hatch this ADR itself just used
-  remains available.
+- Follow-up: add the required "Football data provided by the
+  Football-Data.org API" attribution line to the frontend before public
+  launch — the ToS reading itself is done (see Decision item 4's status
+  update), only the implementation is outstanding; tracked in `TODO.md`.
 
 ## For AI agents
 
@@ -139,10 +183,13 @@ facts that must be re-checked until REQ-1305's grading confirms them, not
 fetched once and trusted forever (unchanged from ADR-0094). Do not call
 `IFootballDataClient` from a per-request or per-user code path — every call
 is server-side and shared. Treat `NotYetConfirmed` as a retry-later state
-in REQ-1305's grading logic, never as a permanent failure. Before trusting
-this ADR's ToS summary as sufficient, check `TODO.md` — the real terms have
-not been read from this sandbox, and that gap is tracked there, not
-silently assumed closed. Before adding any further football-data.org
-endpoint beyond competitions/matches (e.g. standings, team crests) for this
-or another game, re-check terms for that specific use rather than assuming
-this ADR's incomplete review already covers it.
+in REQ-1305's grading logic, never as a permanent failure. The real terms
+have now been read (Decision item 4's status update,
+`docs/decisions/correspondence/football-data-org-terms.md`) — do not purge
+or stop serving historical `PredictMatch` result data while the
+subscription is active, but do re-check §9.1 before ever letting the
+account lapse. Before adding any further football-data.org endpoint beyond
+competitions/matches (e.g. standings, team crests) for this or another
+game, re-check terms for that specific use (§9.2 already flags crests/logos
+as separately copyrighted) rather than assuming this ADR's review already
+covers it.

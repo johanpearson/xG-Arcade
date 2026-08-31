@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/decisions/0099-*.md`, `docs/decisions/correspondence/football-data-org-terms.md`
+  (new), `TODO.md`, `SETUP.md` — closed ADR-0099's open ToS-verification
+  action item: the product owner retrieved football-data.org's real terms
+  directly (this sandbox's egress proxy still blocks the domain) and they
+  were reviewed against xG Arcade's actual use. No commercial-use
+  restriction found, resolving the earlier secondhand-summary ambiguity.
+  One real, currently-dormant caveat recorded: §9.1 prohibits referencing
+  historical data after the subscription is cancelled — a constraint on
+  `PredictMatch` result retention if the account ever lapses, not a
+  blocker today. The required frontend attribution line remains
+  unimplemented, tracked in `TODO.md` — REQ-1301, REQ-1305, ADR-0099.
 - 2026-08-31 — `docs/backlog.md` (new Epic 13, S-199 through S-205) — audit
   of the xG Predict stories (S-190–S-198), all now merged, against their
   own "Explicitly out of scope"/follow-up notes turned up seven open gaps,
