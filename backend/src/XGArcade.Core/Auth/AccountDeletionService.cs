@@ -25,14 +25,16 @@ public record AccountDeletionResult
 }
 
 // Order matches implementation-document.md §6.8's documented flow: anonymize
-// Guess rows, remove LeagueMembership rows, delete the local User row, then
-// delete the Supabase Auth identity last. NotificationPreference (also named
-// in that flow and in REQ-710) has no Tier 0 table yet — Resend/notification
+// Guess rows, anonymize/clean up xG Predict rows (REQ-710/S-201 — see below),
+// remove LeagueMembership rows, delete the local User row, then delete the
+// Supabase Auth identity last. NotificationPreference (also named in that
+// flow and in REQ-710) has no Tier 0 table yet — Resend/notification
 // preferences are Tier 1 (MVP-SCOPE.md) — so that step is a no-op here, not
 // silently skipped without explanation.
 public class AccountDeletionService(
     IUserRepository userRepository,
     IGuessRepository guessRepository,
+    IPredictInstanceRepository predictInstanceRepository,
     ILeagueRepository leagueRepository,
     ISupabaseAuthClient authClient) : IAccountDeletionService
 {
@@ -56,6 +58,15 @@ public class AccountDeletionService(
         // players' historical uniqueness scores and leaderboard totals
         // depend on the total guess count staying intact.
         await guessRepository.AnonymizeByUserIdAsync(user.Id, cancellationToken);
+
+        // REQ-710/S-201: xG Predict's (COMP-15) two per-user tables get the
+        // same treatment as Guess above, but split by which is structurally
+        // possible for each — see IPredictInstanceRepository's own doc
+        // comments on both methods for why they differ (PredictPlayerLock's
+        // UserId is non-nullable, half of its composite primary key, so it
+        // is hard-deleted rather than anonymized).
+        await predictInstanceRepository.AnonymizePredictionsByUserIdAsync(user.Id, cancellationToken);
+        await predictInstanceRepository.DeletePlayerLocksByUserIdAsync(user.Id, cancellationToken);
 
         await leagueRepository.RemoveMembershipsByUserIdAsync(user.Id, cancellationToken);
 

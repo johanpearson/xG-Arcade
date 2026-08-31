@@ -364,11 +364,10 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // key. That means REQ-710's usual "anonymize by setting UserId =
         // NULL" path is structurally unavailable here; the only viable
         // anonymization path for this table is a hard delete of the row on
-        // account deletion, which AccountDeletionService does not do yet (a
-        // lock row is a flag, not a scoring row, so nothing depends on it
-        // the way REQ-710 depends on Guess rows surviving — hard-deleting it
-        // is expected to be safe once wired). Tracked as a docs/backlog.md
-        // follow-up, not fixed in this diff.
+        // account deletion (a lock row is a flag, not a scoring row, so
+        // nothing depends on it the way REQ-710 depends on Guess rows
+        // surviving). S-201: AccountDeletionService now does this, via
+        // IPredictInstanceRepository.DeletePlayerLocksByUserIdAsync.
         modelBuilder.Entity<PredictPlayerLock>()
             .HasKey(l => new { l.PredictInstanceId, l.UserId });
         modelBuilder.Entity<PredictPlayerLock>()

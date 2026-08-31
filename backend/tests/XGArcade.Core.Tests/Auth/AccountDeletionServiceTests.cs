@@ -16,6 +16,7 @@ public class AccountDeletionServiceTests
     private XGArcadeDbContext _dbContext = null!;
     private IUserRepository _userRepository = null!;
     private IGuessRepository _guessRepository = null!;
+    private IPredictInstanceRepository _predictInstanceRepository = null!;
     private ILeagueRepository _leagueRepository = null!;
     private FakeSupabaseAuthClient _fakeAuthClient = null!;
     private AccountDeletionService _service = null!;
@@ -29,9 +30,11 @@ public class AccountDeletionServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _userRepository = new UserRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
+        _predictInstanceRepository = new PredictInstanceRepository(_dbContext);
         _leagueRepository = new LeagueRepository(_dbContext);
         _fakeAuthClient = new FakeSupabaseAuthClient();
-        _service = new AccountDeletionService(_userRepository, _guessRepository, _leagueRepository, _fakeAuthClient);
+        _service = new AccountDeletionService(
+            _userRepository, _guessRepository, _predictInstanceRepository, _leagueRepository, _fakeAuthClient);
     }
 
     [TearDown]
@@ -71,6 +74,35 @@ public class AccountDeletionServiceTests
         return guess;
     }
 
+    private async Task<PredictMatchPrediction> SeedPredictPredictionAsync(Guid userId)
+    {
+        var prediction = new PredictMatchPrediction
+        {
+            Id = Guid.NewGuid(),
+            PredictMatchId = Guid.NewGuid(),
+            UserId = userId,
+            HomeGoals = 2,
+            AwayGoals = 1,
+            SubmittedAt = DateTime.UtcNow,
+        };
+        _dbContext.PredictMatchPredictions.Add(prediction);
+        await _dbContext.SaveChangesAsync();
+        return prediction;
+    }
+
+    private async Task<PredictPlayerLock> SeedPredictPlayerLockAsync(Guid userId, Guid? predictInstanceId = null)
+    {
+        var predictPlayerLock = new PredictPlayerLock
+        {
+            PredictInstanceId = predictInstanceId ?? Guid.NewGuid(),
+            UserId = userId,
+            LockedAt = DateTime.UtcNow,
+        };
+        _dbContext.PredictPlayerLocks.Add(predictPlayerLock);
+        await _dbContext.SaveChangesAsync();
+        return predictPlayerLock;
+    }
+
     [Test]
     public async Task REQ710_DeleteAccountAsync_AnonymizesGuessRows_SeversLinkWithoutDeletingRows()
     {
@@ -89,6 +121,55 @@ public class AccountDeletionServiceTests
         Assert.That(remainingGuesses.Select(g => g.Id), Is.EquivalentTo(new[] { guessOne.Id, guessTwo.Id }));
         // No reversible link back to the deleted user remains on any of them.
         Assert.That(remainingGuesses.All(g => g.UserId == null), Is.True);
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccountAsync_AnonymizesPredictMatchPredictionRows_SeversLinkWithoutDeletingRows()
+    {
+        var user = await SeedUserAsync();
+        var otherUser = await SeedUserAsync();
+        var ownPrediction = await SeedPredictPredictionAsync(user.Id);
+        var otherPrediction = await SeedPredictPredictionAsync(otherUser.Id);
+
+        var result = await _service.DeleteAccountAsync(user.Id);
+
+        Assert.That(result.Success, Is.True);
+        // The row itself must survive — other users' PredictInstance point
+        // totals (IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync)
+        // depend on it, same reasoning as Guess (REQ-710).
+        var remainingOwnPrediction = await _dbContext.PredictMatchPredictions
+            .AsNoTracking().SingleAsync(p => p.Id == ownPrediction.Id);
+        Assert.That(remainingOwnPrediction.UserId, Is.Null);
+        // A different user's prediction in the same seed data must be
+        // completely untouched (proves scoping, not an over-broad update).
+        var remainingOtherPrediction = await _dbContext.PredictMatchPredictions
+            .AsNoTracking().SingleAsync(p => p.Id == otherPrediction.Id);
+        Assert.That(remainingOtherPrediction.UserId, Is.EqualTo(otherUser.Id));
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccountAsync_HardDeletesPredictPlayerLockRows_ForDeletedUserOnly()
+    {
+        var user = await SeedUserAsync();
+        var otherUser = await SeedUserAsync();
+        await SeedPredictPlayerLockAsync(user.Id);
+        var otherLock = await SeedPredictPlayerLockAsync(otherUser.Id);
+
+        var result = await _service.DeleteAccountAsync(user.Id);
+
+        Assert.That(result.Success, Is.True);
+        // Unlike Guess/PredictMatchPrediction, PredictPlayerLock.UserId is
+        // non-nullable (half of its composite primary key) — the row is
+        // hard-deleted rather than anonymized (XGArcadeDbContext's own
+        // OnModelCreating comment on PredictPlayerLock).
+        var remaining = await _dbContext.PredictPlayerLocks
+            .AsNoTracking().Where(l => l.UserId == user.Id).ToListAsync();
+        Assert.That(remaining, Is.Empty);
+        // A different user's lock row in the same seed data must survive.
+        var remainingOtherLock = await _dbContext.PredictPlayerLocks
+            .AsNoTracking()
+            .SingleOrDefaultAsync(l => l.PredictInstanceId == otherLock.PredictInstanceId && l.UserId == otherLock.UserId);
+        Assert.That(remainingOtherLock, Is.Not.Null);
     }
 
     [Test]
