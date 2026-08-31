@@ -50,6 +50,10 @@ param internalJobToken string
 @description('Fine-grained GitHub PAT scoped to Issues:write on this one repo only (REQ-903/ADR-0064/COMP-12) — used by Core.IncidentReporting to create GitHub issues from in-app bug reports, same value as the INCIDENT_REPORT_PAT GitHub secret. Optional/defaults to empty: unlike the Supabase secrets above, this Tier 1 pull-forward has no manual secret guaranteed to be provisioned in every environment yet — an empty value means POST /incidents fails closed per-request (GitHubIssueClient\'s own check), never a deploy failure or app crash.')
 param githubIncidentReportToken string = ''
 
+@secure()
+@description('API-Football API key (ADR-0094 item 3) — xG Predict\'s (COMP-15) only credential for fetching Premier League fixtures/results via IApiFootballClient (DataSync.ApiFootball). Same value as the API_FOOTBALL_API_KEY GitHub secret, shared across environments (one API-Football account, same as GHCR_TOKEN/INTERNAL_JOB_TOKEN/INCIDENT_REPORT_PAT above) rather than DEV_/PROD_-prefixed like the Supabase secrets. Optional/defaults to empty, same "additive precondition, fails closed per-call rather than a startup crash or deploy failure" posture as githubIncidentReportToken above — ApiFootballClient.EnsureApiKeyConfigured throws ApiFootballClientException per-call until this is set, never blocking anything else.')
+param apiFootballApiKey string = ''
+
 @description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App\'s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
 param corsAllowedOrigin string = ''
 
@@ -110,6 +114,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           name: 'github-incident-report-token'
           value: githubIncidentReportToken
         }
+        {
+          name: 'api-football-api-key'
+          value: apiFootballApiKey
+        }
       ]
     }
     template: {
@@ -149,6 +157,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'GitHub__IncidentReportToken'
               secretRef: 'github-incident-report-token'
+            }
+            {
+              name: 'ApiFootball__ApiKey'
+              secretRef: 'api-football-api-key'
             }
             {
               name: 'Admin__UserIds'

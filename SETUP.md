@@ -183,12 +183,21 @@ to hosting — no domain needed to deploy or test "prod.")
 5. Set up SPF/DKIM for your sending domain in Resend's dashboard (skip if
    using their sandbox domain for now)
 
-## 4. API-Football (player data)
+## 4. API-Football (player data + xG Predict fixtures)
 
-**Tier 1 — skip this whole section for MVP.** Per the corrected Tier 0
-design in `MVP-SCOPE.md`, Tier 0 uses Wikidata only (no account needed,
-public endpoint) for full historical accuracy on a small hand-curated club
-list. Come back here when adding API-Football as a Tier 1 fallback source.
+**As xG Grid's Tier 1 fallback source, still skip that part for MVP** — per
+the corrected Tier 0 design in `MVP-SCOPE.md`, xG Grid's own grid
+generation uses Wikidata only (no account needed, public endpoint) for full
+historical accuracy on a small hand-curated club list. That fallback
+trigger remains unfired.
+
+**But xG Predict (REQ-1301-1305, ADR-0094) needs this now, not later** — it
+is a separate, additive precondition scoped only to that game (see
+`MVP-SCOPE.md`'s xG Predict note): fixtures/live-score data that Wikidata
+cannot provide. Without a key configured, every `/internal/generate-round`
+call for `xg-predict` fails closed
+(`ApiFootballClientException: "API-Football is not configured on this
+environment yet."`).
 
 1. Sign up for the free tier at api-football.com
 2. Grab the API key
@@ -198,6 +207,13 @@ list. Come back here when adding API-Football as a Tier 1 fallback source.
    terms — see ADR-0008. A draft is ready at
    `docs/decisions/correspondence/api-football-confirmation-email.md` —
    review it, send it, and save their reply alongside it in the same folder.
+   ADR-0094 item 4 additionally requires a second, separate confirmation
+   covering fixture/live-score polling specifically (not just permanent
+   player-data caching) before public launch — same file, same folder.
+4. Set the key as the `API_FOOTBALL_API_KEY` GitHub Actions repository
+   secret (shared across environments, not `DEV_`/`PROD_`-prefixed — see
+   `infra/README.md`). The next push to `main` (or a manual `deploy.yml`
+   run) picks it up automatically; no code change needed.
 
 ## 5. Azure (hosting)
 

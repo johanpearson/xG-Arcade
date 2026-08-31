@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `infra/README.md`, `SETUP.md`, `TODO.md` — fixed a gap found
+  from a live `/internal/generate-round` 500 (`API-Football is not
+  configured on this environment yet.`): S-190 through S-198 built xG
+  Predict's whole API-Football round-generation/grading path, but nothing
+  ever wired `ApiFootball:ApiKey` from a GitHub secret through
+  `deploy.yml`/`main.bicep`/`backend-container-app.bicep` into the deployed
+  Container App's env vars — unlike `INCIDENT_REPORT_PAT`, which follows
+  the identical "optional Tier 1 pull-forward, fails closed per-call"
+  pattern (`ServiceRegistration.AddApiFootballServices`) and *is* plumbed
+  through. Added `apiFootballApiKey` as a `@secure()`, default-empty
+  parameter to both Bicep files (mirroring `githubIncidentReportToken`
+  exactly) and threaded it as the Container App's `ApiFootball__ApiKey` env
+  var; `deploy.yml` now passes `secrets.API_FOOTBALL_API_KEY`. Documented
+  the new shared (not `DEV_`/`PROD_`-prefixed) secret in
+  `infra/README.md`'s table, updated `SETUP.md` §4 (no longer
+  fully-skippable for MVP — xG Predict's ADR-0094 item 3 precondition is
+  separate from and does not pull forward xG Grid's own still-unfired Tier
+  1 API-Football trigger), and added a `TODO.md` follow-up section for
+  actually obtaining the account/key and setting the GitHub secret (not
+  doable from this sandbox). No application/domain code changed — this is
+  purely completing infra wiring for a precondition ADR-0094 already
+  decided; no new ADR — REQ-1301, REQ-1305, ADR-0094.
 - 2026-08-31 — `docs/design-document.md` (SCREEN-03's "Game switcher" note
   updated to name xG Predict as the third tab, same order as
   `GameSelectScreen`'s tiles/`HeaderNav`'s "Games" list; a new note added

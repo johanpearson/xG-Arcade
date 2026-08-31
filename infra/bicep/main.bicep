@@ -50,6 +50,10 @@ param internalJobToken string
 @description('Fine-grained GitHub PAT (Issues:write, REQ-903/ADR-0064). See modules/backend-container-app.bicep for guidance. Optional/defaults to empty.')
 param githubIncidentReportToken string = ''
 
+@secure()
+@description('API-Football API key (ADR-0094 item 3). See modules/backend-container-app.bicep for guidance. Optional/defaults to empty.')
+param apiFootballApiKey string = ''
+
 @description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
 param corsAllowedOrigin string = ''
 
@@ -91,6 +95,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     supabaseServiceRoleKey: supabaseServiceRoleKey
     internalJobToken: internalJobToken
     githubIncidentReportToken: githubIncidentReportToken
+    apiFootballApiKey: apiFootballApiKey
     corsAllowedOrigin: corsAllowedOrigin
     adminUserIds: adminUserIds
     minReplicas: minReplicas
