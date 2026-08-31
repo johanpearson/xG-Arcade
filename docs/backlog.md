@@ -9911,3 +9911,81 @@ account deletion, expected to be safe once wired (a lock row is a flag,
 not a scoring row the way `Guess` is, so nothing else depends on it
 surviving). Trigger: before xG Predict is considered feature-complete for
 a real user base, or sooner if a REQ-710 compliance review is scheduled.
+
+---
+
+**S-198 · xG Predict as a third leaderboard game tab (SCREEN-03 frontend generalization) (REQ-404, REQ-1304, ADR-0095)**
+`ui-implementer` generalizes SCREEN-03's leaderboard screen
+(`frontend/src/leaderboard/`) from a two-game (xG Grid/xG Path) switcher to
+three, closing the gap the 2026-08-30 `LeaderboardService`
+per-`GameKey` sort-direction work (REQ-401/404's status note, ADR-0095)
+left on the frontend side. `LeaderboardScreen.tsx`'s `GameKey` union and
+`GAME_TABS` array widen to include `xg-predict` (importing the existing
+`XG_PREDICT_GAME_KEY` constant from `GameSelectScreen.tsx` rather than
+redefining it); the "Lowest total wins" subtitle now reads per-`GameKey`
+("Highest total wins" for xG Predict, unchanged everywhere else); and the
+`(ⓘ)` scoring-explainer branch, previously a two-way Grid/Path ternary
+that would have incorrectly shown Path's explainer for Predict, gained a
+third branch and a new component, `frontend/src/predict/
+PredictScoringExplainer.tsx`, describing REQ-1304's three independent
+scoring components (outcome/home-goals/away-goals) and explicitly stating
+xG Predict is higher-is-better, unlike its two siblings.
+`LeaderboardRowsList.tsx` and each of the four per-scope components
+(`AllTimeLeaderboard`/`LiveLeaderboard`/`PastRoundsLeaderboard`/
+`WindowedLeaderboard`) needed no change — confirmed by reading each and
+grepping for `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY`, none independently
+hardcode a two-game assumption; they already render whatever `rows`/`rank`
+the API response carries, without re-sorting client-side, which is what
+makes ADR-0095's per-`GameKey` sort direction safe to consume as-is.
+
+*Accept:* xG Predict is selectable as a third leaderboard game tab,
+same order as `GameSelectScreen`'s tiles/`HeaderNav`'s "Games" list;
+selecting it re-fetches whichever scope tab is active scoped to
+`gameKey=xg-predict` and shows "Highest total wins"; the `(ⓘ)` entry point
+shows `PredictScoringExplainer`'s content, not Grid's or Path's, when that
+tab is active; a mocked descending-order API response for `xg-predict`
+renders in that exact order/rank, proving the frontend doesn't assume
+ascending sort. New/updated Vitest coverage in `LeaderboardScreen.test.tsx`
+and `AllTimeLeaderboard.test.tsx`, REQ-404-referencing.
+
+**Deliberately ships ahead of a backend gap, not fully functional end to
+end — do not read this story as closing that gap:** `LeaderboardService`
+still totals every scope from `Guess.FinalPoints` via `IGuessRepository`,
+and xG Predict never writes `Guess` rows (ADR-0096 — predictions live in
+`PredictMatchPrediction`, totaled via the separate
+`GetTotalPointsByInstanceIdAsync` repository method already built by S-195).
+Wiring that method into `LeaderboardService`/`LeaderboardEndpoints` for
+`"xg-predict"` remains the still-open backend follow-up S-193/S-195/S-197
+already flagged (search those entries' own "Explicitly out of scope"
+notes for `GetTotalPointsByInstanceIdAsync`) — this story does not touch
+that. Net effect: the xG Predict leaderboard tab calls the real endpoints
+successfully but renders empty (REQ-404's zero-guess exclusion filters out
+every xG Predict player, since none have `Guess` rows) until that backend
+story lands. Flagged inline via a doc comment on `LeaderboardScreen.tsx`'s
+`GameKey` type, in this backlog entry, and in `docs/CHANGELOG.md` — not
+silently implied to be fully wired.
+
+*Non-blocking follow-up surfaced by this story's own review, not addressed
+here:* `frontend/src/users/UserStatsScreen.tsx` (SCREEN-13) has the same
+two-game (xG Grid/xG Path) hardcoded switcher and its own "Lowest total
+wins" note (`docs/design-document.md` ~line 3043-3107) that this story
+deliberately left untouched — a different screen/story, not part of
+SCREEN-03's generalization. Trigger: whenever SCREEN-13 is next touched,
+or before xG Predict's stats need to appear there.
+
+*Built as (2026-08-31):* `ui-implementer` widened `GameKey`/`GAME_TABS`,
+added the per-`GameKey` subtitle branch and the three-way explainer
+ternary in `LeaderboardScreen.tsx`, and built
+`frontend/src/predict/PredictScoringExplainer.tsx`/`.css` following
+`PathScoringExplainer.tsx`'s exact shell pattern (own focus-management/
+Escape-to-close, not extracted into a shared hook — same "not yet three
+of the same shape" reasoning that file's own comment already gives).
+Added a display-only `PREDICT_POINTS_PER_COMPONENT` constant to
+`frontend/src/lib/scoringRules.ts`, mirroring
+`ScoringRules.PredictPointsPerComponent` the same way `MAX_POINTS_PER_CELL`
+already mirrors its own backend constant, never for enforcement.
+
+Testing: `npm run test` (Vitest) run locally in-sandbox (frontend-only
+change, no backend touched) — 756/756 passed, including 6 new tests; `tsc
+-b` and `npm run lint` both clean. No CI-trigger fallback needed for this
+change.

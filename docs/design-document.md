@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.84"
+version: "0.85"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -1417,22 +1417,39 @@ entry point to the same destination (SCREEN-08).
 **Game switcher (built, ADR-0043/`requirements-document.md` REQ-410,
 `docs/backlog.md` S-087, 2026-08-02 — see that entry's "Built as" for the
 full implementation, including the backend `gameKey` query-param work it
-turned out to require):** once a second game exists, the **All-time**
-scope above can no longer mean one thing —
+turned out to require; extended to a third tab by REQ-404/ADR-0095,
+`docs/backlog.md` S-198, 2026-08-31):** once a second game exists, the
+**All-time** scope above can no longer mean one thing —
 `GetGlobalLeaderboardAsync` is scoped per `GameKey` (ADR-0043), so "the"
-all-time ranking becomes "xG Grid's all-time ranking" and "xG Path's
-all-time ranking," never one blended number. A game switcher — the same
-plain underline-tab pattern used everywhere else on this screen, not a
-new control type — sits above the `[All-time] [Current Round]...` scope
-row, one tab per game (same name/order as SCREEN-09's tiles and
-`HeaderNav`'s "Games" list: xG Grid, then xG Path). Switching games
-re-fetches whichever scope tab is currently selected, scoped to the newly
-selected game — it does not reset the selected scope tab back to
-All-time. This affects **every** scope in this section (Current Round,
-Previous Rounds, and Time Windows already take an explicit `gameKey`
-today per their own REQs — REQ-407/408/405 — only **All-time** is the
-scope this switcher newly makes possible), so the switcher sits above all
-four scope tabs, not duplicated per scope.
+all-time ranking becomes "xG Grid's all-time ranking," "xG Path's
+all-time ranking," and "xG Predict's all-time ranking," never one blended
+number. A game switcher — the same plain underline-tab pattern used
+everywhere else on this screen, not a new control type — sits above the
+`[All-time] [Current Round]...` scope row, one tab per game (same name/
+order as SCREEN-09's tiles and `HeaderNav`'s "Games" list: xG Grid, then
+xG Path, then xG Predict). Switching games re-fetches whichever scope tab
+is currently selected, scoped to the newly selected game — it does not
+reset the selected scope tab back to All-time. This affects **every**
+scope in this section (Current Round, Previous Rounds, and Time Windows
+already take an explicit `gameKey` today per their own REQs —
+REQ-407/408/405 — only **All-time** is the scope this switcher newly
+makes possible), so the switcher sits above all four scope tabs, not
+duplicated per scope.
+
+**xG Predict tab, "Highest total wins" (REQ-404/ADR-0095, S-198,
+2026-08-31):** the one named exception to this screen's own "ADR-0021
+addition" note above — xG Predict uses conventional higher-is-better
+scoring, not this platform's golf-style convention (ADR-0095). Selecting
+the xG Predict game tab replaces the "Lowest total wins" line with
+"Highest total wins," and rank #1 on that tab is the **highest**
+`TotalPoints`, not the lowest — every other game tab (xG Grid, xG Path)
+is unaffected and keeps "Lowest total wins" exactly as ADR-0021/the note
+above already describes. **Known gap, shipped deliberately (S-198):** the
+xG Predict tab is wired end to end on the frontend but currently renders
+empty in production — `LeaderboardService` still totals every scope from
+`Guess.FinalPoints`, and xG Predict never writes `Guess` rows (ADR-0096);
+wiring `GetTotalPointsByInstanceIdAsync` into `LeaderboardService` is a
+tracked backend follow-up (`docs/backlog.md` S-193/S-195/S-197/S-198).
 
 **Scoring explainer entry point (REQ-213, S-068, added 2026-07-21):** the
 `(ⓘ)` shown in the header above, next to the "Global leaderboard" title —
