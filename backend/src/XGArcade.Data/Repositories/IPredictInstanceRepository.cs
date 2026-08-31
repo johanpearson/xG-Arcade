@@ -107,4 +107,31 @@ public interface IPredictInstanceRepository
     // story — see ADR-0097 Decision §2's own explicit scope note.
     Task<IReadOnlyDictionary<Guid, int>> GetTotalPointsByInstanceIdAsync(
         Guid predictInstanceId, CancellationToken cancellationToken = default);
+
+    // REQ-1302/ADR-0098: every one of this user's stored predictions across
+    // this instance's matches, in one query — GET /predict/current's own
+    // "bulk fetch once for the whole instance" discipline (mirrors
+    // XGArcade.Api.Path.PathEndpoints.MapPathEndpoints' own comment for the
+    // same reasoning), rather than one GetPredictionAsync call per match.
+    Task<IReadOnlyList<PredictMatchPrediction>> GetPredictionsForInstanceAndUserAsync(
+        Guid predictInstanceId, Guid userId, CancellationToken cancellationToken = default);
+
+    // REQ-1306/ADR-0098: true once this specific player has confirmed and
+    // locked their predictions for this instance — independent of, and
+    // checked alongside, REQ-1303's round-wide automatic lock. Never
+    // becomes false again once true (no "unlock" concept — see
+    // PredictPlayerLock's own doc comment).
+    Task<bool> IsPlayerLockedAsync(Guid predictInstanceId, Guid userId, CancellationToken cancellationToken = default);
+
+    // REQ-1306/ADR-0098: sets the per-player lock for this instance. Callers
+    // (XGArcade.Api.Predict.PredictEndpoints' POST /predict/confirm) are
+    // responsible for verifying REQ-1306's own precondition (all of this
+    // instance's matches already have a stored prediction for this user)
+    // before calling this — this method itself only persists the flag,
+    // mirroring AddOrUpdatePredictionAsync's own "caller computes
+    // correctness/timing, repository just persists" split. Idempotent:
+    // calling it again for an already-locked (instance, user) pair is a
+    // harmless no-op (load-then-check-then-insert, never a raw insert that
+    // could violate the composite key).
+    Task LockPlayerPredictionsAsync(Guid predictInstanceId, Guid userId, DateTime lockedAt, CancellationToken cancellationToken = default);
 }

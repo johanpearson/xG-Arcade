@@ -408,4 +408,89 @@ public class PredictInstanceRepositoryTests
         await _repository.AddOrUpdatePredictionAsync(predictMatchId, userId, homeGoals, awayGoals, DateTime.UtcNow);
         return (await _repository.GetPredictionAsync(predictMatchId, userId))!;
     }
+
+    // ---- REQ-1302/ADR-0098: GetPredictionsForInstanceAndUserAsync -------
+
+    [Test]
+    public async Task REQ1302_GetPredictionsForInstanceAndUserAsync_ReturnsOnlyThisUsersPredictionsAcrossTheInstance()
+    {
+        var instanceId = Guid.NewGuid();
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+        var matchOne = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 1,
+            HomeTeamName = "A", AwayTeamName = "B", KickoffUtc = DateTime.UtcNow.AddHours(1),
+        };
+        var matchTwo = new PredictMatch
+        {
+            Id = Guid.NewGuid(), PredictInstanceId = instanceId, ExternalFixtureId = 2,
+            HomeTeamName = "C", AwayTeamName = "D", KickoffUtc = DateTime.UtcNow.AddHours(2),
+        };
+        await _repository.AddInstanceAsync(new PredictInstance { Id = instanceId, TemplateId = Guid.NewGuid(), Matches = [matchOne, matchTwo] });
+        await _repository.AddOrUpdatePredictionAsync(matchOne.Id, userA, 2, 1, DateTime.UtcNow);
+        await _repository.AddOrUpdatePredictionAsync(matchTwo.Id, userA, 0, 0, DateTime.UtcNow);
+        await _repository.AddOrUpdatePredictionAsync(matchOne.Id, userB, 1, 1, DateTime.UtcNow);
+
+        var result = await _repository.GetPredictionsForInstanceAndUserAsync(instanceId, userA);
+
+        Assert.That(result, Has.Count.EqualTo(2), "must include every one of userA's predictions across the instance's matches");
+        Assert.That(result.Select(p => p.PredictMatchId), Is.EquivalentTo(new[] { matchOne.Id, matchTwo.Id }));
+        Assert.That(result, Has.None.Matches<PredictMatchPrediction>(p => p.UserId == userB), "must never include another player's prediction");
+    }
+
+    [Test]
+    public async Task REQ1302_GetPredictionsForInstanceAndUserAsync_NoPredictionsYet_ReturnsEmpty()
+    {
+        var result = await _repository.GetPredictionsForInstanceAndUserAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // ---- REQ-1306/ADR-0098: IsPlayerLockedAsync / LockPlayerPredictionsAsync
+
+    [Test]
+    public async Task REQ1306_IsPlayerLockedAsync_NoLockRow_ReturnsFalse()
+    {
+        var result = await _repository.IsPlayerLockedAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public async Task REQ1306_LockPlayerPredictionsAsync_ThenIsPlayerLockedAsync_ReturnsTrue()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var lockedAt = new DateTime(2026, 8, 31, 12, 0, 0, DateTimeKind.Utc);
+
+        await _repository.LockPlayerPredictionsAsync(instanceId, userId, lockedAt);
+
+        Assert.That(await _repository.IsPlayerLockedAsync(instanceId, userId), Is.True);
+    }
+
+    [Test]
+    public async Task REQ1306_LockPlayerPredictionsAsync_IsScopedToOneInstanceAndOneUser()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        await _repository.LockPlayerPredictionsAsync(instanceId, userId, DateTime.UtcNow);
+
+        Assert.That(await _repository.IsPlayerLockedAsync(Guid.NewGuid(), userId), Is.False,
+            "a lock for one instance must never leak to a different instance");
+        Assert.That(await _repository.IsPlayerLockedAsync(instanceId, Guid.NewGuid()), Is.False,
+            "a lock for one player must never leak to a different player on the same instance");
+    }
+
+    [Test]
+    public async Task REQ1306_LockPlayerPredictionsAsync_CalledTwice_IsIdempotent_NeverThrows()
+    {
+        var instanceId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        await _repository.LockPlayerPredictionsAsync(instanceId, userId, new DateTime(2026, 8, 31, 12, 0, 0, DateTimeKind.Utc));
+
+        Assert.DoesNotThrowAsync(
+            () => _repository.LockPlayerPredictionsAsync(instanceId, userId, new DateTime(2026, 8, 31, 13, 0, 0, DateTimeKind.Utc)));
+        Assert.That(await _repository.IsPlayerLockedAsync(instanceId, userId), Is.True);
+    }
 }

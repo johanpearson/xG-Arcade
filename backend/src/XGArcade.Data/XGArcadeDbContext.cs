@@ -67,6 +67,10 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PredictInstance> PredictInstances => Set<PredictInstance>();
     public DbSet<PredictMatch> PredictMatches => Set<PredictMatch>();
     public DbSet<PredictMatchPrediction> PredictMatchPredictions => Set<PredictMatchPrediction>();
+    // REQ-1306/ADR-0098: the per-player, independent "confirm and lock"
+    // flag — its own table, deliberately not a column on
+    // PredictMatchPrediction above (see that ADR for the full reasoning).
+    public DbSet<PredictPlayerLock> PredictPlayerLocks => Set<PredictPlayerLock>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
@@ -347,6 +351,19 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<PredictMatchPrediction>()
             .HasIndex(pmp => new { pmp.PredictMatchId, pmp.UserId })
             .IsUnique();
+
+        // REQ-1306/ADR-0098: composite key, same "pure membership/flag row,
+        // no surrogate id" precedent LeagueMembership already sets above.
+        // Cascade on PredictInstanceId, same as PredictMatch's own FK to
+        // PredictInstance — both are COMP-15-internal tables.
+        modelBuilder.Entity<PredictPlayerLock>()
+            .HasKey(l => new { l.PredictInstanceId, l.UserId });
+        modelBuilder.Entity<PredictPlayerLock>()
+            .HasOne<PredictInstance>()
+            .WithMany()
+            .HasForeignKey(l => l.PredictInstanceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .IsRequired();
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
         // every scheduled generation invocation — the hot path for this table.
