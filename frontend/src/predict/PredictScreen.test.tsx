@@ -249,6 +249,78 @@ describe('PredictScreen', () => {
     expect(screen.queryByText(/confirmed and locked/i)).not.toBeInTheDocument();
   });
 
+  it('REQ-1303: the confirm action is hidden even when all 5 matches are filled once the round has auto-locked', async () => {
+    const filledMatches = baseMatches({
+      m1: { homeGoals: 1, awayGoals: 0 },
+      m2: { homeGoals: 2, awayGoals: 2 },
+      m3: { homeGoals: 0, awayGoals: 0 },
+      m4: { homeGoals: 3, awayGoals: 1 },
+      m5: { homeGoals: 1, awayGoals: 1 },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).endsWith('/predict/current')) {
+          return jsonResponse(roundResponse({ matches: filledMatches, locked: true }));
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(<PredictScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByLabelText('Arsenal predicted goals');
+
+    expect(
+      await screen.findByText(
+        'This round has locked — the first match has kicked off. Predictions can no longer be changed.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm and lock my predictions' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-1303/1306: a confirm request that fails (e.g. the round auto-locked between page load and the click) closes the dialog, shows an error, and does not treat predictions as locked', async () => {
+    const user = userEvent.setup();
+    const filledMatches = baseMatches({
+      m1: { homeGoals: 1, awayGoals: 0 },
+      m2: { homeGoals: 2, awayGoals: 2 },
+      m3: { homeGoals: 0, awayGoals: 0 },
+      m4: { homeGoals: 3, awayGoals: 1 },
+      m5: { homeGoals: 1, awayGoals: 1 },
+    });
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/predict/current')) return jsonResponse(roundResponse({ matches: filledMatches }));
+      if (String(url).endsWith('/predict/confirm') && init?.method === 'POST') {
+        return jsonResponse(
+          { title: 'Round is locked', detail: 'The round locked before your confirmation was received.' },
+          409,
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PredictScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByLabelText('Arsenal predicted goals');
+
+    await user.click(await screen.findByRole('button', { name: 'Confirm and lock my predictions' }));
+    await user.click(screen.getByTestId('predict-confirm-dialog-confirm'));
+
+    // Dialog closes rather than being left stuck open on failure.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // The error is surfaced to the player.
+    expect(
+      await screen.findByText('The round locked before your confirmation was received.'),
+    ).toBeInTheDocument();
+    // Nothing about this failure implies the predictions actually locked —
+    // neither lock notice appears, the confirm action is still offered, and
+    // the inputs remain editable.
+    expect(screen.queryByText(/confirmed and locked/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('predict-round-locked-notice')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm and lock my predictions' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Arsenal predicted goals')).not.toBeDisabled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/predict/confirm'))).toBe(true);
+  });
+
   it('REQ-1306: confirming calls POST /predict/confirm and the screen reflects the fully-locked treatment', async () => {
     const user = userEvent.setup();
     const filledMatches = baseMatches({
