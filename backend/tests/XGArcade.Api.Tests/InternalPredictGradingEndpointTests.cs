@@ -16,17 +16,17 @@ namespace XGArcade.Api.Tests;
 // InternalGuestCleanupEndpointTests uses for /internal/purge-guest-accounts.
 //
 // Deliberately does NOT seed a match that's actually ready for grading:
-// IApiFootballClient is registered against the real api-football.com
+// IFootballDataClient is registered against the real football-data.org
 // HttpClient in this composition root (ServiceRegistration.
-// AddApiFootballServices) — this sandbox/CI has no live API-Football
-// account or network access to it (ADR-0094's own standing caveat), so an
+// AddFootballDataServices) — this sandbox/CI has no live football-data.org
+// account or network access to it (ADR-0099's own standing caveat), so an
 // authorized call here only ever exercises the "nothing ready to grade"
 // path (PredictGradingService's own loop never reaches
 // GetFixtureResultAsync when GetMatchesReadyForGradingAsync returns
 // empty), plus the endpoint's own auth gate. Full grading-logic coverage
 // against a real Finished/NotYetConfirmed/PostponedOrAbandoned outcome is
 // PredictGradingServiceTests' job (XGArcade.Games.XGPredict.Tests), via
-// FakeApiFootballClient.
+// FakeFootballDataClient.
 public class InternalPredictGradingEndpointTests
 {
     private const string ValidJobToken = "test-internal-job-token";

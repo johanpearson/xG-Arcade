@@ -1,7 +1,7 @@
 using XGArcade.Core.Games;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
-using XGArcade.DataSync.ApiFootball;
+using XGArcade.DataSync.FootballData;
 
 namespace XGArcade.Games.XGPredict;
 
@@ -26,7 +26,7 @@ namespace XGArcade.Games.XGPredict;
 // grading) is a separate, later story not implemented here.
 public class XGPredictGameModule(
     IPredictInstanceRepository predictInstanceRepository,
-    IApiFootballClient apiFootballClient,
+    IFootballDataClient footballDataClient,
     TimeProvider? timeProvider = null) : IGameModule
 {
     public const string XGPredictGameKey = "xg-predict";
@@ -48,7 +48,7 @@ public class XGPredictGameModule(
         var template = await predictInstanceRepository.GetTemplateByIdAsync(config.TemplateId, cancellationToken)
             ?? throw new PredictGenerationException($"PredictTemplate '{config.TemplateId}' not found.");
 
-        var fixtures = await apiFootballClient.GetUpcomingGameweekFixturesAsync(cancellationToken);
+        var fixtures = await footballDataClient.GetUpcomingGameweekFixturesAsync(cancellationToken);
 
         // REQ-1301's abort-and-log case — a caller is expected to log this
         // (mirrors GridGenerationException's own doc comment: the throw site
@@ -197,8 +197,8 @@ public class XGPredictGameModule(
     // subset without enumerating every C(n, k) combination. First occurrence
     // wins on a tie (`<`, not `<=`, below), matching REQ-1301's
     // determinism requirement.
-    private static List<ApiFootballFixture> SelectTightestKickoffCluster(
-        IReadOnlyList<ApiFootballFixture> fixtures, int matchCount)
+    private static List<FootballDataFixture> SelectTightestKickoffCluster(
+        IReadOnlyList<FootballDataFixture> fixtures, int matchCount)
     {
         var sorted = fixtures.OrderBy(f => f.KickoffUtc).ToList();
 

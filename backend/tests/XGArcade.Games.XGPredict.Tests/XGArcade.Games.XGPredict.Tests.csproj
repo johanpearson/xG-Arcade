@@ -30,7 +30,7 @@
          DbContext and repository implementation is needed here, not just
          the transitive one XGArcade.Games.XGPredict already carries. -->
     <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
-    <!-- FakeApiFootballClient implements IApiFootballClient directly, same
+    <!-- FakeFootballDataClient implements IFootballDataClient directly, same
          "not just the transitive reference" reasoning as XGArcade.Data
          above. -->
     <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />

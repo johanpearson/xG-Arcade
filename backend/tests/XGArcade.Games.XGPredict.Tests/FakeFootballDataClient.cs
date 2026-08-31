@@ -1,4 +1,4 @@
-using XGArcade.DataSync.ApiFootball;
+using XGArcade.DataSync.FootballData;
 
 namespace XGArcade.Games.XGPredict.Tests;
 
@@ -8,10 +8,10 @@ namespace XGArcade.Games.XGPredict.Tests;
 // exactly which fixtures GenerateInstanceAsync (REQ-1301) sees, and lets
 // PredictGradingServiceTests (REQ-1305/ADR-0097) pin exactly what
 // GetFixtureResultAsync returns (or throws) per fixture id, without any
-// real HTTP/API-Football machinery.
-public class FakeApiFootballClient : IApiFootballClient
+// real HTTP/football-data.org machinery.
+public class FakeFootballDataClient : IFootballDataClient
 {
-    public IReadOnlyList<ApiFootballFixture> Fixtures { get; set; } = [];
+    public IReadOnlyList<FootballDataFixture> Fixtures { get; set; } = [];
 
     // REQ-1305: keyed by ExternalFixtureId. A test wires up exactly the
     // fixtures its scenario needs; any fixture id with no configured
@@ -19,9 +19,9 @@ public class FakeApiFootballClient : IApiFootballClient
     // NotImplementedException — the same "should never be called unless a
     // test wires it" guard XGPredictGameModuleTests already relies on
     // implicitly by never touching this dictionary at all.
-    public Dictionary<int, ApiFootballFixtureResult> Results { get; } = [];
+    public Dictionary<int, FootballDataFixtureResult> Results { get; } = [];
 
-    // REQ-1305: lets a test simulate a per-fixture ApiFootballClientException
+    // REQ-1305: lets a test simulate a per-fixture FootballDataClientException
     // (or any other exception) without needing a second fake type —
     // PredictGradingServiceTests' "one match's failure doesn't abort the
     // rest of the run" case.
@@ -34,10 +34,10 @@ public class FakeApiFootballClient : IApiFootballClient
     // call-verification feature.
     public List<int> RequestedFixtureIds { get; } = [];
 
-    public Task<IReadOnlyList<ApiFootballFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
+    public Task<IReadOnlyList<FootballDataFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(Fixtures);
 
-    public Task<ApiFootballFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default)
+    public Task<FootballDataFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default)
     {
         RequestedFixtureIds.Add(fixtureId);
 
@@ -48,7 +48,7 @@ public class FakeApiFootballClient : IApiFootballClient
             return Task.FromResult(result);
 
         throw new NotImplementedException(
-            $"FakeApiFootballClient has no configured Results/ExceptionsToThrow entry for fixture {fixtureId} — " +
+            $"FakeFootballDataClient has no configured Results/ExceptionsToThrow entry for fixture {fixtureId} — " +
             "set one before calling GetFixtureResultAsync.");
     }
 }

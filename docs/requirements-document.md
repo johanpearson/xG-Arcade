@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.29"
+version: "2.30"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -10158,9 +10158,10 @@ kickoff clustering**
 > rather than an arbitrary spread of fixtures across a whole weekend.
 
 - Given an upcoming Premier League gameweek's full fixture list, fetched
-  from API-Football's fixtures endpoint (see ADR-0094 — this is the first
-  use of live match schedule/result data anywhere in this codebase,
-  distinct from every other game's Wikidata career/bio data)
+  from football-data.org's fixtures endpoint (see ADR-0099, superseding
+  ADR-0094's original API-Football choice — this is the first use of live
+  match schedule/result data anywhere in this codebase, distinct from
+  every other game's Wikidata career/bio data)
 - When a new xG Predict round is generated
 - Then exactly 5 of that gameweek's matches are selected as the round's
   matches, each represented as one cell in the existing generic
@@ -10193,7 +10194,8 @@ matches wired as cells).
 `XGPredictGameModule.GenerateInstanceAsync`
 (`backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs`), selecting
 the tightest-kickoff-clustered subset via a sort + linear sliding window
-over `ApiFootballClient.GetUpcomingGameweekFixturesAsync`'s results, and
+over `FootballDataClient.GetUpcomingGameweekFixturesAsync`'s results
+(ADR-0099, formerly `ApiFootballClient` per ADR-0094), and
 persisting `PredictTemplate`/`PredictInstance`/`PredictMatch` rows via
 `IPredictInstanceRepository` (`XGArcade.Data`). Unit-tested in
 `XGPredictGameModuleTests` (selection determinism/tie-breaking, the
@@ -10482,14 +10484,14 @@ duplicated further here.
 - Given a match in a locked xG Predict round whose scheduled kickoff plus
   its typical duration has already passed
 - When the grading process next runs and checks that match
-- Then it fetches that match's real final score from API-Football's
-  fixtures endpoint (see ADR-0094) and, if that match's fixture status is reported as
+- Then it fetches that match's real final score from football-data.org's
+  fixtures endpoint (see ADR-0099, superseding ADR-0094's original
+  API-Football choice) and, if that match's fixture status is reported as
   confirmed/finished, grades every player's stored prediction for that
   match per REQ-1304 and persists the resulting components
 - Given a match's fixture status is checked but is not yet reported as
-  confirmed/finished — accounting for API-Football's own documented
-  allowance of up to 48 hours for some competitions to fully confirm a
-  result
+  confirmed/finished — accounting for a real-world data source not always
+  confirming a result immediately after full time
 - When the grading process runs for that match
 - Then that match is left ungraded, not scored with any placeholder or
   default value, and is retried on a subsequent run — the grading process
@@ -10507,8 +10509,8 @@ duplicated further here.
 - **Confirmed by the product owner (2026-08-30): a postponed or abandoned
   match is voided, not penalized.** Given a match in a locked round that
   is postponed or abandoned (never played to a confirmed final result) —
-  when the grading process determines this from API-Football's fixture
-  status — then that match's three point components are voided for every
+  when the grading process determines this from football-data.org's
+  fixture status — then that match's three point components are voided for every
   player: none of the three components is computed or contributes
   anything to any player's round total, as if that match were not part of
   the round for scoring purposes — while the round's other 4 matches
@@ -10552,7 +10554,8 @@ every `Pending` `PredictMatch` whose kickoff plus
 `PredictGradingOptions.TypicalMatchDuration` has passed
 (`IPredictInstanceRepository.GetMatchesReadyForGradingAsync`, no
 `Round`/`IRoundRepository` dependency — ADR-0097's kickoff-implies-lock
-proof), calls `IApiFootballClient.GetFixtureResultAsync` for each, and
+proof), calls `IFootballDataClient.GetFixtureResultAsync` for each
+(ADR-0099, formerly `IApiFootballClient` per ADR-0094), and
 grades every stored prediction via `XGPredictScoringStrategy.ScorePrediction`
 (REQ-1304) before persisting the match's `GradingStatus`/
 `ActualHomeGoals`/`ActualAwayGoals` and each prediction's `FinalPoints`
@@ -10575,7 +10578,7 @@ idempotent-second-run cases) and `PredictInstanceRepositoryTests`
 (the new repository methods); the endpoint itself is covered by
 `InternalPredictGradingEndpointTests` (authorization/happy-path shape;
 the endpoint's graded/voided-count response itself is not yet exercised
-against a fake `IApiFootballClient` end to end — a coverage nicety, not a
+against a fake `IFootballDataClient` end to end — a coverage nicety, not a
 gap in the grading logic itself, which the service-level tests above
 already cover thoroughly). **Not yet reachable end-to-end in production:**
 `ILeaderboardService`/`LeaderboardEndpoints` do not call

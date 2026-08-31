@@ -51,8 +51,8 @@ param internalJobToken string
 param githubIncidentReportToken string = ''
 
 @secure()
-@description('API-Football API key (ADR-0094 item 3). See modules/backend-container-app.bicep for guidance. Optional/defaults to empty.')
-param apiFootballApiKey string = ''
+@description('football-data.org API token (ADR-0099). See modules/backend-container-app.bicep for guidance. Optional/defaults to empty.')
+param footballDataApiKey string = ''
 
 @description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
 param corsAllowedOrigin string = ''
@@ -95,7 +95,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     supabaseServiceRoleKey: supabaseServiceRoleKey
     internalJobToken: internalJobToken
     githubIncidentReportToken: githubIncidentReportToken
-    apiFootballApiKey: apiFootballApiKey
+    footballDataApiKey: footballDataApiKey
     corsAllowedOrigin: corsAllowedOrigin
     adminUserIds: adminUserIds
     minReplicas: minReplicas

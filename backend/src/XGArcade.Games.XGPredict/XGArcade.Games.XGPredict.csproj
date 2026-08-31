@@ -12,7 +12,7 @@
          directly. Same precedent as Games.XGPath's own reference to
          XGArcade.Data. -->
     <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
-    <!-- ADR-0094: IApiFootballClient (GenerateInstanceAsync's fixture-list
+    <!-- ADR-0099: IFootballDataClient (GenerateInstanceAsync's fixture-list
          fetch, REQ-1301). -->
     <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>

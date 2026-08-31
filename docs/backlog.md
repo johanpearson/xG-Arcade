@@ -10148,3 +10148,86 @@ permanent shape for `IScoringStrategy` until a third game actually needs a
 third method shape — closing the standing item rather than leaving it open
 indefinitely.
 *Deps:* none.
+
+**S-206 · Swap xG Predict's data source from API-Football to football-data.org (REQ-1301, REQ-1305, ADR-0099)**
+Production incident, not a planned story: the first real deploy with a
+configured API-Football key (2026-08-31) hit
+`/internal/generate-round?gameKey=xg-predict` returning 500,
+`"API-Football returned no current round name — check the
+ApiFootball:LeagueId/Season configuration."` League ID and season were
+confirmed correct against the account's own dashboard; the actual cause,
+confirmed via api-football.com's own support chatbot, is that **API-Football's
+free plan does not include the current season at all** — only a rolling
+2-4-season historical window. ADR-0094's free-tier-sufficiency judgment was
+never verified live (egress to api-football.com has been blocked from this
+sandbox since before ADR-0094 shipped) and turned out to be wrong. See
+ADR-0099 for the full reasoning and alternatives considered (paid
+API-Football plan, pausing xG Predict, Sportmonks — ruled out, no Premier
+League on its free tier — and football-data.org, chosen).
+
+Replaced `DataSync.ApiFootball.ApiFootballClient`/`IApiFootballClient`
+entirely with `DataSync.FootballData.FootballDataClient`/
+`IFootballDataClient` (same two-method shape, same narrow/point-in-time
+posture) — `XGPredictGameModule.GenerateInstanceAsync` and
+`PredictGradingService.GradeReadyMatchesAsync` now depend on the new
+client; `ServiceRegistration.AddFootballDataServices` replaces
+`AddApiFootballServices`. Config simplifies as a direct consequence:
+football-data.org's `GET /v4/competitions/{code}` response carries
+`currentSeason.currentMatchday` directly, so `FootballDataOptions` needs
+only a competition code (`"PL"`), never ADR-0094's separately-computed
+season year. Infra: `apiFootballApiKey`/`API_FOOTBALL_API_KEY` replaced by
+`footballDataApiKey`/`FOOTBALL_DATA_API_KEY` throughout
+`deploy.yml`/`main.bicep`/`backend-container-app.bicep` — the same
+conditional non-empty-secret pattern (Azure Container Apps rejects an
+empty-string `secrets` entry, a bug found and fixed the same day this key
+was first wired) carries over unchanged.
+
+*Accept:* `dotnet test` passes with the new `FootballDataClientTests`
+(replacing `ApiFootballClientTests`) covering the happy path, missing-
+matchday/missing-currentSeason config errors, non-success HTTP status,
+malformed JSON, network failure, missing required fixture fields, the
+API-token header/URL, an unconfigured-token no-request guard, and
+`GetFixtureResultAsync`'s FINISHED/AWARDED→Finished,
+POSTPONED/CANCELLED/SUSPENDED→PostponedOrAbandoned,
+SCHEDULED/IN_PLAY/PAUSED→NotYetConfirmed status mapping plus a 404→throws
+case (football-data.org's real "unknown fixture" shape, unlike
+API-Football's 200-with-empty-array). `XGPredictGameModuleTests`/
+`PredictGradingServiceTests`/`RoundEndpointTests` pass unmodified in
+behavior, using `FakeFootballDataClient` in place of the deleted
+`FakeApiFootballClient`.
+
+*Not addressed by this story, tracked in `TODO.md`:* football-data.org's
+actual terms of service have not been read from this sandbox (egress
+blocked, same as api-football.com) — only secondhand summaries via web
+search, which were inconsistent about free-tier commercial-use terms. A
+human with real network access must confirm before public launch. The
+required "Football data provided by the Football-Data.org API" frontend
+attribution is also not yet added.
+
+*Built as (2026-08-31):* new `backend/src/XGArcade.DataSync/FootballData/`
+(7 files, replacing the deleted `ApiFootball/` folder of the same shape);
+`XGPredictGameModule.cs`/`PredictGradingService.cs`/`ServiceRegistration.cs`/
+`appsettings.json` updated; `FakeFootballDataClient.cs` (Games.XGPredict.Tests,
+replacing `FakeApiFootballClient.cs`) and the duplicated inline fake in
+`RoundEndpointTests.cs` renamed/updated in place; `FootballDataClientTests.cs`
+(DataSync.Tests, replacing `ApiFootballClientTests.cs`) rewritten against
+football-data.org's v4 endpoint shapes. `infra/bicep/main.bicep`/
+`backend-container-app.bicep`/`.github/workflows/deploy.yml`/
+`infra/README.md` updated. New ADR-0099; ADR-0094 marked superseded (its
+Decision items 1-2 specifically). `MVP-SCOPE.md`, `SETUP.md` (§4 reverted to
+its original xG-Grid-Tier-1-only scope; new §4a for football-data.org),
+`TODO.md`, `docs/requirements-document.md`, `docs/architecture-document.md`,
+`docs/implementation-document.md` updated for the xG-Predict-specific
+mentions only — every API-Football mention describing xG Grid's separate,
+still-dormant Tier 1 fallback (ADR-0011/ADR-0012/ADR-0008) is untouched and
+still accurate.
+
+*Deps:* S-190 through S-198 (everything this replaces the data-source
+layer under).
+
+Built without a local `dotnet`/`az`/`bicep` SDK in this sandbox (this
+repo's own standing constraint) — hand-traced against the deleted
+`ApiFootballClientTests.cs`'s own coverage shape, not locally run. CI
+verification via `ci.yml`'s `workflow_dispatch` is required before this is
+considered done, same recurring constraint as every other recent backend
+story in this log.

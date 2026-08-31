@@ -51,8 +51,8 @@ param internalJobToken string
 param githubIncidentReportToken string = ''
 
 @secure()
-@description('API-Football API key (ADR-0094 item 3) — xG Predict\'s (COMP-15) only credential for fetching Premier League fixtures/results via IApiFootballClient (DataSync.ApiFootball). Same value as the API_FOOTBALL_API_KEY GitHub secret, shared across environments (one API-Football account, same as GHCR_TOKEN/INTERNAL_JOB_TOKEN/INCIDENT_REPORT_PAT above) rather than DEV_/PROD_-prefixed like the Supabase secrets. Optional/defaults to empty, same "additive precondition, fails closed per-call rather than a startup crash or deploy failure" posture as githubIncidentReportToken above — ApiFootballClient.EnsureApiKeyConfigured throws ApiFootballClientException per-call until this is set, never blocking anything else.')
-param apiFootballApiKey string = ''
+@description('football-data.org API token (ADR-0099, replacing ADR-0094\'s API-Football key — see that ADR for why) — xG Predict\'s (COMP-15) only credential for fetching Premier League fixtures/results via IFootballDataClient (DataSync.FootballData). Same value as the FOOTBALL_DATA_API_KEY GitHub secret, shared across environments (one football-data.org account, same as GHCR_TOKEN/INTERNAL_JOB_TOKEN/INCIDENT_REPORT_PAT above) rather than DEV_/PROD_-prefixed like the Supabase secrets. Optional/defaults to empty, same "additive precondition, fails closed per-call rather than a startup crash or deploy failure" posture as githubIncidentReportToken above — FootballDataClient.EnsureApiKeyConfigured throws FootballDataClientException per-call until this is set, never blocking anything else.')
+param footballDataApiKey string = ''
 
 @description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App\'s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
 param corsAllowedOrigin string = ''
@@ -99,7 +99,7 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
       // never fire only because INCIDENT_REPORT_PAT already had a real value
       // set before its first deploy. Both optional secrets are therefore
       // only included here when non-empty; concat's own env entries below
-      // (GitHub__IncidentReportToken/ApiFootball__ApiKey) mirror this with
+      // (GitHub__IncidentReportToken/FootballData__ApiKey) mirror this with
       // the matching secretRef-or-empty-value split.
       secrets: concat(
         [
@@ -130,10 +130,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             value: githubIncidentReportToken
           }
         ] : [],
-        !empty(apiFootballApiKey) ? [
+        !empty(footballDataApiKey) ? [
           {
-            name: 'api-football-api-key'
-            value: apiFootballApiKey
+            name: 'football-data-api-key'
+            value: footballDataApiKey
           }
         ] : []
       )
@@ -176,15 +176,15 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
               // Bicep drops a property assigned `null` from the compiled
               // template, so exactly one of secretRef/value ends up set —
               // never both, which Container Apps also rejects. Same
-              // conditional shape below for ApiFootball__ApiKey.
+              // conditional shape below for FootballData__ApiKey.
               name: 'GitHub__IncidentReportToken'
               secretRef: !empty(githubIncidentReportToken) ? 'github-incident-report-token' : null
               value: empty(githubIncidentReportToken) ? '' : null
             }
             {
-              name: 'ApiFootball__ApiKey'
-              secretRef: !empty(apiFootballApiKey) ? 'api-football-api-key' : null
-              value: empty(apiFootballApiKey) ? '' : null
+              name: 'FootballData__ApiKey'
+              secretRef: !empty(footballDataApiKey) ? 'football-data-api-key' : null
+              value: empty(footballDataApiKey) ? '' : null
             }
             {
               name: 'Admin__UserIds'

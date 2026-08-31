@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.14"
+version: "1.15"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -342,7 +342,8 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    game. As of 2026-08-30 (ADR-0096):
                                    GenerateInstanceAsync (REQ-1301, tightest-
                                    kickoff-clustering selection over
-                                   DataSync's API-Football fixtures client),
+                                   DataSync's football-data.org fixtures
+                                   client, ADR-0099),
                                    ScoreSubmissionAsync (REQ-1302/1303,
                                    two-integer prediction store/replace plus
                                    the whole-round lock at the first match's
@@ -422,7 +423,7 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    and PredictGradingOptions
                                    (TypicalMatchDuration): fetches each ready
                                    match's result via DataSync's
-                                   IApiFootballClient.GetFixtureResultAsync,
+                                   IFootballDataClient.GetFixtureResultAsync,
                                    grades every stored prediction via
                                    XGPredictScoringStrategy.ScorePrediction
                                    (the concrete class, registered directly
@@ -458,7 +459,7 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    above and two new XGArcade.Api.Predict
                                    reads, below), no migration needed.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
-    /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
+    /XGArcade.DataSync         -> Wikidata/football-data.org clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
                                    (Supabase Auth's own emails are configured
                                    via its dashboard/SMTP settings, not this project)
@@ -501,7 +502,7 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    not-yet-kicked-off match once the round
                                    lock has passed) — against a
                                    ManualTimeProvider fake and a
-                                   FakeApiFootballClient, InMemory-backed
+                                   FakeFootballDataClient, InMemory-backed
                                    repositories, same pattern as
                                    GridGameModule.Tests/XGPathGameModuleTests.
                                    Extended 2026-08-30 (REQ-1305, ADR-0097)
@@ -1297,7 +1298,7 @@ public class PredictMatch
 {
     public Guid Id { get; set; }              // the "cell" GetCellIdsAsync returns
     public Guid PredictInstanceId { get; set; }
-    public int ExternalFixtureId { get; set; } // API-Football's own fixture id (ADR-0094) — REQ-1305's grading lookup key
+    public int ExternalFixtureId { get; set; } // football-data.org's own fixture id (ADR-0099, was API-Football's per ADR-0094) — REQ-1305's grading lookup key
     public string HomeTeamName { get; set; }
     public string AwayTeamName { get; set; }
     // Always normalized to UTC. REQ-1303's round-lock instant is

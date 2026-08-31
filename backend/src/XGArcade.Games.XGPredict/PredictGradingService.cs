@@ -1,13 +1,13 @@
 using Microsoft.Extensions.Logging;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Repositories;
-using XGArcade.DataSync.ApiFootball;
+using XGArcade.DataSync.FootballData;
 
 namespace XGArcade.Games.XGPredict;
 
 // REQ-1305/ADR-0097: see IPredictGradingService's own doc comment for the
 // full boundary reasoning (why this lives here, not Core.Scoring).
-// Depends on IPredictInstanceRepository, IApiFootballClient,
+// Depends on IPredictInstanceRepository, IFootballDataClient,
 // XGPredictScoringStrategy (the CONCRETE class, per ADR-0097 Decision
 // §2/its Alternatives table — not IScoringStrategy/
 // IScoringStrategyResolver), and TimeProvider — no Round/
@@ -15,7 +15,7 @@ namespace XGArcade.Games.XGPredict;
 // simplification; see GetMatchesReadyForGradingAsync's own doc comment).
 public class PredictGradingService(
     IPredictInstanceRepository predictInstanceRepository,
-    IApiFootballClient apiFootballClient,
+    IFootballDataClient footballDataClient,
     XGPredictScoringStrategy scoringStrategy,
     PredictGradingOptions gradingOptions,
     TimeProvider timeProvider,
@@ -37,12 +37,12 @@ public class PredictGradingService(
         {
             try
             {
-                var fixtureResult = await apiFootballClient.GetFixtureResultAsync(match.ExternalFixtureId, cancellationToken);
+                var fixtureResult = await footballDataClient.GetFixtureResultAsync(match.ExternalFixtureId, cancellationToken);
 
                 switch (fixtureResult.Outcome)
                 {
-                    case ApiFootballFixtureOutcome.Finished:
-                        // ApiFootballFixtureResult's own doc comment
+                    case FootballDataFixtureOutcome.Finished:
+                        // FootballDataFixtureResult's own doc comment
                         // guarantees HomeGoals/AwayGoals are non-null once
                         // Outcome == Finished — trusted here, no
                         // null-check dance (per this story's own
@@ -62,7 +62,7 @@ public class PredictGradingService(
                         graded++;
                         break;
 
-                    case ApiFootballFixtureOutcome.PostponedOrAbandoned:
+                    case FootballDataFixtureOutcome.PostponedOrAbandoned:
                         await predictInstanceRepository.VoidMatchAsync(match.Id, cancellationToken);
                         voided++;
                         break;
@@ -77,7 +77,7 @@ public class PredictGradingService(
                         break;
                 }
             }
-            catch (ApiFootballClientException ex)
+            catch (FootballDataClientException ex)
             {
                 // ADR-0097 Decision §3's last bullet: one match's failure
                 // must not abort grading for the round's other matches, or

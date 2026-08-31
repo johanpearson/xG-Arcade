@@ -258,18 +258,25 @@ real data exist.
 ADR-0095) with its own precondition, additive to this list, not a change to
 anything above.** xG Predict needs a real fixtures/live-score data source
 (Premier League match schedules and final scores) that Wikidata cannot
-provide — an API-Football account and API key, confirmed sufficient on the
-free tier (100 requests/day). **This does not pull xG Grid's own,
-still-unfired Tier 1 API-Football trigger forward** — xG Grid's grid
-generation remains Wikidata-only exactly as Tier 0 specifies above; xG
-Predict's need for API-Football is a separate, new precondition scoped only
-to that game, not evidence that xG Grid needs more clubs or a fallback
-source yet. See ADR-0094 for the full data-source decision and its ToS
-scoping note, and `docs/backlog.md` S-190 for what's actually built so far
-(requirements + two ADRs + a structural module scaffold — no gameplay logic
-yet; the round/match entity shape still needs its own ADR before
-`GenerateInstanceAsync` can be implemented, per ADR-0045's own precedent for
-xG Path).
+provide. **This does not pull xG Grid's own, still-unfired Tier 1
+API-Football trigger forward** — xG Grid's grid generation remains
+Wikidata-only exactly as Tier 0 specifies above; xG Predict's need for a
+live fixtures/results source is a separate, new precondition scoped only to
+that game, not evidence that xG Grid needs more clubs or a fallback source
+yet.
+
+**Status note (2026-08-31, ADR-0099):** ADR-0094's original choice —
+API-Football, "confirmed sufficient on the free tier (100 requests/day)" —
+turned out to be wrong: that free tier restricts season access to a rolling
+historical window that excludes the current season entirely (confirmed via
+api-football.com's own support chat, never actually verified live before
+ADR-0094 shipped, since egress to api-football.com was already blocked from
+this sandbox even then). Swapped for football-data.org instead (ADR-0099),
+whose free tier explicitly includes the current Premier League season at a
+10-requests/minute rate limit. See ADR-0099 for the full swap reasoning,
+including its own still-open ToS-verification action item, and
+`docs/backlog.md` S-190 through S-198 (plus the football-data.org swap
+itself) for what's actually built.
 
 ## Tier 1 — add only when real testing shows a specific need
 

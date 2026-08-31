@@ -3,7 +3,7 @@ using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
-using XGArcade.DataSync.ApiFootball;
+using XGArcade.DataSync.FootballData;
 
 namespace XGArcade.Games.XGPredict.Tests;
 
@@ -12,7 +12,7 @@ namespace XGArcade.Games.XGPredict.Tests;
 // trivial GetCellIdsAsync derivative. Follows this repo's no-mocking-
 // framework pattern (docs/coding-guidelines.md "don't over-mock") — a real,
 // InMemory-backed PredictInstanceRepository plus a hand-rolled
-// FakeApiFootballClient, same "compose the real thing, fake only external
+// FakeFootballDataClient, same "compose the real thing, fake only external
 // I/O" shape XGPathGameModuleTests/GridGameModuleTests already use.
 //
 // REQ-1304/1305 (scoring/grading) are explicitly out of scope for this
@@ -29,7 +29,7 @@ public class XGPredictGameModuleTests
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IPredictInstanceRepository _repository = null!;
-    private FakeApiFootballClient _apiFootballClient = null!;
+    private FakeFootballDataClient _footballDataClient = null!;
     private ManualTimeProvider _timeProvider = null!;
     private XGPredictGameModule _module = null!;
 
@@ -43,9 +43,9 @@ public class XGPredictGameModuleTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _repository = new PredictInstanceRepository(_dbContext);
-        _apiFootballClient = new FakeApiFootballClient();
+        _footballDataClient = new FakeFootballDataClient();
         _timeProvider = new ManualTimeProvider(Now);
-        _module = new XGPredictGameModule(_repository, _apiFootballClient, _timeProvider);
+        _module = new XGPredictGameModule(_repository, _footballDataClient, _timeProvider);
     }
 
     [TearDown]
@@ -71,7 +71,7 @@ public class XGPredictGameModuleTests
         // (would widen the span enormously if included) — the tight block
         // must win.
         var baseTime = new DateTime(2026, 9, 5, 15, 0, 0, DateTimeKind.Utc);
-        _apiFootballClient.Fixtures =
+        _footballDataClient.Fixtures =
         [
             Fixture(1, baseTime),
             Fixture(2, baseTime.AddMinutes(5)),
@@ -98,7 +98,7 @@ public class XGPredictGameModuleTests
         var template = await AddTemplateAsync(matchCount: 2);
         var baseTime = new DateTime(2026, 9, 5, 15, 0, 0, DateTimeKind.Utc);
         // Two windows with an equal 10-minute span: (1,2) and (3,4).
-        _apiFootballClient.Fixtures =
+        _footballDataClient.Fixtures =
         [
             Fixture(1, baseTime),
             Fixture(2, baseTime.AddMinutes(10)),
@@ -119,7 +119,7 @@ public class XGPredictGameModuleTests
     {
         var template = await AddTemplateAsync(matchCount: 5);
         var baseTime = new DateTime(2026, 9, 5, 15, 0, 0, DateTimeKind.Utc);
-        _apiFootballClient.Fixtures =
+        _footballDataClient.Fixtures =
         [
             Fixture(1, baseTime),
             Fixture(2, baseTime.AddMinutes(5)),
@@ -138,7 +138,7 @@ public class XGPredictGameModuleTests
     {
         var template = await AddTemplateAsync(matchCount: 3);
         var baseTime = new DateTime(2026, 9, 5, 15, 0, 0, DateTimeKind.Utc);
-        var fixtures = new List<ApiFootballFixture>
+        var fixtures = new List<FootballDataFixture>
         {
             Fixture(1, baseTime.AddHours(3)),
             Fixture(2, baseTime),
@@ -147,12 +147,12 @@ public class XGPredictGameModuleTests
             Fixture(5, baseTime.AddHours(5)),
         };
 
-        _apiFootballClient.Fixtures = fixtures;
+        _footballDataClient.Fixtures = fixtures;
         var firstResult = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
         var firstInstance = await _repository.GetInstanceByIdAsync(firstResult.Id);
         var firstSelection = firstInstance!.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
 
-        _apiFootballClient.Fixtures = fixtures; // same list again
+        _footballDataClient.Fixtures = fixtures; // same list again
         var secondResult = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
         var secondInstance = await _repository.GetInstanceByIdAsync(secondResult.Id);
         var secondSelection = secondInstance!.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
@@ -319,12 +319,12 @@ public class XGPredictGameModuleTests
         return template;
     }
 
-    private static ApiFootballFixture Fixture(int fixtureId, DateTime kickoffUtc) =>
+    private static FootballDataFixture Fixture(int fixtureId, DateTime kickoffUtc) =>
         new(fixtureId, HomeTeamId: fixtureId * 100, HomeTeamName: $"Home {fixtureId}",
             AwayTeamId: fixtureId * 100 + 1, AwayTeamName: $"Away {fixtureId}", KickoffUtc: kickoffUtc);
 
     // Seeds a PredictInstance directly via the repository (bypassing
-    // GenerateInstanceAsync/FakeApiFootballClient) — REQ-1302/1303's own
+    // GenerateInstanceAsync/FakeFootballDataClient) — REQ-1302/1303's own
     // tests care about scoring/locking behavior against an already-generated
     // instance, not selection, same "seed the entity directly" precedent
     // XGPathGameModuleTests uses for its own REQ-1204/1205 scoring tests.
