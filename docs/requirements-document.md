@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.30"
+version: "2.32"
 status: draft
 last_updated: 2026-08-31
 owner: Johan
@@ -3558,14 +3558,27 @@ a past/near-past `endTime`, and the accessible-name assertion)
   `"xg-path"` — and no raw GUID appears as visible text anywhere in this
   section
 
-  Note: as of this writing, `RoundControlSection.tsx` is hardcoded to
-  `"xg-grid"` and no equivalent admin round-control UI element exists for
+  Note: as of this writing, no admin round-control UI element exists for
   `"xg-path"` (`XGPathCycleSection.tsx` shows cycle/pool metrics, not a
   round GUID or number, so there is nothing to fix there today). The
   `"Path Round #{sequenceNumber}"` phrasing above is the forward-looking
   convention to apply whenever a `"xg-path"` round-control UI element is
   added, not an unimplemented gap in this story — this half of the
   criterion is currently vacuously satisfied.
+
+- **Status note (2026-08-31, REQ-304/REQ-505):** `RoundControlSection.tsx`
+  is no longer hardcoded to `"xg-grid"` — it now takes `gameKey` and
+  `roundLabel` as props, exactly the generalization the note above
+  anticipated. `AdminScreen.tsx` renders one instance per game that has
+  round-control (each with its own independent active-round fetch/refetch
+  pair), and now includes a `"Predict"` nav group so an xG Predict round
+  can be ended or rescheduled the same way a Grid round always could —
+  needed once xG Predict rounds existed to get stuck (ADR-0099's
+  matchday-lookahead fix addressed the cause; this addresses not having a
+  way to clear one that was already stuck). Label text follows the same
+  convention: `"Predict Round #{sequenceNumber}"` for `"xg-predict"`. The
+  `"xg-path"` half of the criterion above remains vacuously satisfied —
+  unchanged by this note.
 
 **Test level:** Unit (`SequenceNumber` assignment — `MAX + 1` scoped to
 `GameKey`, read immediately before the creation insert), API/Integration
@@ -10200,6 +10213,15 @@ persisting `PredictTemplate`/`PredictInstance`/`PredictMatch` rows via
 `IPredictInstanceRepository` (`XGArcade.Data`). Unit-tested in
 `XGPredictGameModuleTests` (selection determinism/tie-breaking, the
 abort-on-too-few-fixtures case).
+
+**Status note (2026-08-31, ADR-0099):** "upcoming" was under-specified in
+practice — the first real round generation returned an already-finished
+gameweek (football-data.org's `currentMatchday` can lag behind for a
+while after a gameweek concludes), locked before any player could see it.
+`FootballDataClient.GetUpcomingGameweekFixturesAsync` now guarantees
+"upcoming" itself: a matchday with even one already-kicked-off fixture is
+rejected in favor of the next one, within a bounded lookahead. See
+ADR-0099's Decision item 3 status update for the full incident and fix.
 
 **Status (2026-08-30, round-scheduling wiring story):** Now reachable end
 to end via `POST /internal/generate-round?gameKey=xg-predict` —

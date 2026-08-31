@@ -43,6 +43,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -58,6 +60,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={noActiveRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -78,6 +82,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -106,6 +112,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -127,6 +135,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={onRefresh}
@@ -150,6 +160,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={onAuthError}
         onRefresh={vi.fn()}
@@ -172,6 +184,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -189,6 +203,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -207,6 +223,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={onRefresh}
@@ -239,6 +257,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={vi.fn()}
         onRefresh={vi.fn()}
@@ -262,6 +282,8 @@ describe('RoundControlSection', () => {
     render(
       <RoundControlSection
         accessToken="token"
+        gameKey="xg-grid"
+        roundLabel="Grid Round"
         activeRound={activeRound}
         onAuthError={onAuthError}
         onRefresh={vi.fn()}

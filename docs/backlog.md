@@ -10231,3 +10231,17 @@ repo's own standing constraint) — hand-traced against the deleted
 verification via `ci.yml`'s `workflow_dispatch` is required before this is
 considered done, same recurring constraint as every other recent backend
 story in this log.
+
+**Follow-up fix, same day (2026-08-31):** the first real round generated
+against a working key was itself wrong — `currentSeason.currentMatchday`
+returned the just-finished weekend's gameweek, locked (REQ-1303) before
+any player could see it, since football-data.org can keep `currentMatchday`
+pointing at a just-concluded gameweek for a while before advancing.
+`FootballDataClient.GetUpcomingGameweekFixturesAsync` now takes a
+`TimeProvider` and advances through a bounded lookahead
+(`MaxMatchdayLookahead = 4`) until every fixture in a candidate matchday
+has a still-future kickoff, rejecting a matchday with even one
+already-started fixture. Five new `FootballDataClientTests` cases; see
+ADR-0099's Decision item 3 status update and REQ-1301's own status note
+for the full incident. No ToS/infra impact — pure client-side correctness
+fix within the same file set S-206 already touched.

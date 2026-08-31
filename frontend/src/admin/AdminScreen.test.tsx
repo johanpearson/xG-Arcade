@@ -41,8 +41,16 @@ function jsonResponse(body: unknown, status = 200) {
 // unhandled rejection, so no test fails), but it silently left
 // AvatarModerationSection stuck in a loadError state on every test that
 // renders the default "Users" tab, which nothing here was asserting against.
+// /admin/rounds/xg-predict/active (REQ-304/505's 2026-08-31 generalization)
+// gets the same treatment as /admin/avatar-submissions above — AdminScreen
+// now fires this fetch unconditionally on every mount alongside the
+// pre-existing xg-grid one, so every test below that doesn't care about the
+// Predict round-control section specifically gets a default "not found"
+// (i.e. "no active Predict round") response instead of needing its own
+// explicit route.
 const defaultRoutes: Record<string, () => Promise<Response>> = {
   '/admin/avatar-submissions': () => jsonResponse([]),
+  '/admin/rounds/xg-predict/active': bareNotFound,
 };
 
 // `routes` maps a URL substring to a handler — handlers can be stateful
@@ -214,6 +222,7 @@ describe('AdminScreen', () => {
       const path = String(url);
       if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-predict/active')) return bareNotFound();
       if (path.includes('/admin/rounds/xg-grid/close')) return jsonResponse(activeRound.round);
       if (path.includes('/admin/rounds/xg-grid/active')) {
         activeRoundCallCount += 1;
@@ -234,6 +243,108 @@ describe('AdminScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Yes, end round now' }));
 
     expect(await screen.findByText('No active round right now.')).toBeInTheDocument();
+  });
+
+  // ---- REQ-304/505 (2026-08-31): xG Predict's own round-control section --
+
+  it('REQ-304/505: the Predict round-control section is entirely absent when its active-round probe 404s', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/rounds/xg-predict/active': bareNotFound,
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await user.click(await screen.findByRole('tab', { name: 'Predict' }));
+
+    expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
+  });
+
+  it('REQ-304/505: the Predict round-control section renders under its own "Predict" tab, independent of the Grid one', async () => {
+    const predictActiveRound = {
+      hasActiveRound: true,
+      round: {
+        roundId: 'predict-round-1',
+        sequenceNumber: 3,
+        gameKey: 'xg-predict',
+        startTime: '2026-08-28T00:00:00Z',
+        endTime: '2026-08-30T00:00:00Z',
+      },
+    };
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      // No active Grid round at all — proves the Predict section's presence
+      // doesn't depend on the Grid probe having succeeded.
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/rounds/xg-predict/active': () => jsonResponse(predictActiveRound),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await user.click(await screen.findByRole('tab', { name: 'Predict' }));
+
+    expect(await screen.findByText('Round control — xg-predict')).toBeInTheDocument();
+    expect(screen.getByText('Predict Round #3 · ends 2026-08-30T00:00:00Z')).toBeInTheDocument();
+    expect(screen.queryByText(/predict-round-1/)).not.toBeInTheDocument();
+    // The Grid tab's own round control must stay absent (its own probe
+    // 404'd) — the two sections are entirely independent.
+    await user.click(screen.getByRole('tab', { name: 'Grid' }));
+    expect(screen.queryByText('Round control — xg-grid')).not.toBeInTheDocument();
+  });
+
+  it('REQ-304/505: "End round now" on the Predict tab calls the xg-predict close endpoint, not xg-grid\'s', async () => {
+    const predictActiveRound = {
+      hasActiveRound: true,
+      round: {
+        roundId: 'predict-round-1',
+        sequenceNumber: 3,
+        gameKey: 'xg-predict',
+        startTime: '2026-08-28T00:00:00Z',
+        endTime: '2026-08-30T00:00:00Z',
+      },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/rounds/xg-predict/close')) return jsonResponse(predictActiveRound.round);
+      if (path.includes('/admin/rounds/xg-predict/active')) return jsonResponse(predictActiveRound);
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await user.click(await screen.findByRole('tab', { name: 'Predict' }));
+    await screen.findByText('Predict Round #3 · ends 2026-08-30T00:00:00Z');
+
+    await user.click(screen.getByRole('button', { name: 'End round now' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, end round now' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/rounds/xg-predict/close'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/admin/rounds/xg-grid/close'), expect.anything());
+  });
+
+  it('REQ-304/505: a 403 from the Predict active-round probe shows access-denied for the whole page, same as the Grid probe', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/rounds/xg-predict/active': () =>
+        jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
   });
 
   it('REQ-504: a 403 from the unverified-data fetch shows only an access-denied message for the whole page', async () => {
@@ -874,6 +985,7 @@ describe('AdminScreen', () => {
       const path = String(url);
       if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-predict/active')) return bareNotFound();
       if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
       if (path.includes('/admin/announcement-banner')) {
         if (init?.method === 'PUT') return jsonResponse(loadedInactiveBanner);
@@ -913,6 +1025,7 @@ describe('AdminScreen', () => {
       const path = String(url);
       if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-predict/active')) return bareNotFound();
       if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
       if (path.includes('/admin/announcement-banner/activate')) {
         return jsonResponse({ ...loadedInactiveBanner, isActive: true });
@@ -944,7 +1057,7 @@ describe('AdminScreen', () => {
 
   // ---- REQ-516: grouped nav ----------------------------------------------
 
-  it('REQ-516: renders a grouped nav tablist with all 5 groups (and no separate top-level tab for avatar moderation), defaulting to "Users" selected and visible', async () => {
+  it('REQ-516: renders a grouped nav tablist with all 6 groups (and no separate top-level tab for avatar moderation), defaulting to "Users" selected and visible', async () => {
     stubFetch({
       '/admin/player-data/unverified': () => jsonResponse([]),
       '/admin/rounds/xg-grid/active': bareNotFound,
@@ -955,17 +1068,17 @@ describe('AdminScreen', () => {
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByRole('tablist', { name: 'Admin section' })).toBeInTheDocument();
-    for (const label of ['Users', 'Grid', 'Path', 'Announcements', 'Issues']) {
+    for (const label of ['Users', 'Grid', 'Path', 'Predict', 'Announcements', 'Issues']) {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole('tab', { name: 'Users' })).toHaveAttribute('aria-selected', 'true');
-    for (const label of ['Grid', 'Path', 'Announcements', 'Issues']) {
+    for (const label of ['Grid', 'Path', 'Predict', 'Announcements', 'Issues']) {
       expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'false');
     }
     // REQ-517/S-183: avatar moderation is grouped under "Users" (asserted via
     // its content's visibility below), not a standalone nav entry of its
-    // own — the 5 tabs enumerated above are the complete set.
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
+    // own — the 6 tabs enumerated above are the complete set.
+    expect(screen.getAllByRole('tab')).toHaveLength(6);
 
     // "Users" group content (AccountMetricsSection, AvatarModerationSection)
     // is visible by default...
@@ -1066,6 +1179,7 @@ describe('AdminScreen', () => {
       const path = String(url);
       if (path.includes('/admin/avatar-submissions')) return jsonResponse([]);
       if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-predict/active')) return bareNotFound();
       if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
       if (path.includes('/admin/announcement-banner/deactivate')) {
         return jsonResponse({ ...loadedActiveBanner, isActive: false });

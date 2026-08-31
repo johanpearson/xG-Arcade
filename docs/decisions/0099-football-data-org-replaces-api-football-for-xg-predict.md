@@ -73,6 +73,36 @@ results client, keeping ADR-0094's isolation boundary (a single client in
    separately-configured/computed season year the way `ApiFootballOptions`
    needed (ADR-0094's own by-start-year season computation, and its
    "needs a human to sanity-check each pre-season" caveat, are both gone).
+
+   **Status update (2026-08-31, first real round generation after this ADR
+   shipped):** `currentSeason.currentMatchday` turned out not to mean
+   "upcoming" the way this item assumed. A Monday round generation
+   returned the immediately-preceding weekend's already-finished
+   matchday — football-data.org can keep `currentMatchday` pointing at the
+   just-concluded gameweek for a while after its last kickoff, before
+   advancing. The round it produced was locked (REQ-1303) before any
+   player could ever see it, since its matches were already over. This is
+   the exact same "current round" ambiguity ADR-0094's own design carried
+   for API-Football (`fixtures/rounds?current=true`, described by their
+   docs as "the round currently in progress," not necessarily "the next
+   one with no kickoffs yet") — never actually exercised against real data
+   until now, since API-Football's free-tier block (see Context) meant
+   this client never got that far. Fixed with a bounded look-ahead:
+   `FootballDataClient.GetUpcomingGameweekFixturesAsync` now advances past
+   `currentMatchday` to `+1`, `+2`, ... (capped at
+   `MaxMatchdayLookahead = 4`) until it finds a matchday whose fixtures
+   are *all* still in the future, rejecting a matchday with even one
+   already-kicked-off fixture rather than silently accepting a
+   partially-stale one. Needed injecting `TimeProvider` into
+   `FootballDataClient` (mirrors `XGPredictGameModule`'s/
+   `PredictGradingService`'s own existing pattern) — already registered as
+   `TimeProvider.System` in `ServiceRegistration.cs`, no new DI
+   registration required. Covered by five new
+   `FootballDataClientTests` cases (already-started matchday advances,
+   empty matchday advances, one-started-fixture-among-many still
+   disqualifies the whole matchday, bounded lookahead exhausted throws,
+   existing happy-path/header tests unaffected via a fixed early
+   `DefaultNow`).
 4. **Action item, required before public launch (not before development —
    same framing ADR-0094/ADR-0008 both used):** this sandbox's egress
    proxy blocks football-data.org/docs.football-data.org entirely (same as
@@ -170,6 +200,13 @@ results client, keeping ADR-0094's isolation boundary (a single client in
   configuration (2026-08-31) until this swap shipped and a new
   `FOOTBALL_DATA_API_KEY` was configured — a real, if short, production
   gap, not merely a development-time correction.
+- Negative / trade-offs accepted: the first round actually generated with
+  a working key was itself wrong (see Decision item 3's status update) —
+  a genuinely upstream-data-shaped bug (stale `currentMatchday`), not
+  caught by any test until real football-data.org data exposed it, since
+  it required a real "just-concluded gameweek" boundary condition no fake
+  handler had modeled. Fixed same-day; a stale/locked-on-arrival round is
+  a real, if narrow, class of bug this ADR's client now guards against.
 - Follow-up: add the required "Football data provided by the
   Football-Data.org API" attribution line to the frontend before public
   launch — the ToS reading itself is done (see Decision item 4's status
@@ -180,7 +217,11 @@ results client, keeping ADR-0094's isolation boundary (a single client in
 Do not reuse `WikidataClient`'s "fetch once, cache permanently" assumption
 for fixture/result data — a fixture's status and score are point-in-time
 facts that must be re-checked until REQ-1305's grading confirms them, not
-fetched once and trusted forever (unchanged from ADR-0094). Do not call
+fetched once and trusted forever (unchanged from ADR-0094). Do not treat
+football-data.org's `currentMatchday` as synonymous with "upcoming" —
+`FootballDataClient.GetUpcomingGameweekFixturesAsync`'s bounded lookahead
+(Decision item 3's status update) is the one place that distinction is
+handled; do not re-derive or bypass it from a caller. Do not call
 `IFootballDataClient` from a per-request or per-user code path — every call
 is server-side and shared. Treat `NotYetConfirmed` as a retry-later state
 in REQ-1305's grading logic, never as a permanent failure. The real terms
