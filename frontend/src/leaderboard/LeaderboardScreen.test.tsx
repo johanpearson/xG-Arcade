@@ -338,6 +338,33 @@ describe('LeaderboardScreen', () => {
       expect(dialog.textContent).not.toMatch(/uniqueness|unique/i);
     });
 
+    it('REQ-213/REQ-404/ADR-0095 (S-198): switching to the xG Predict tab + (ⓘ) opens PredictScoringExplainer, not the Grid or Path one', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Predict' }));
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Predict' })).toHaveAttribute('aria-selected', 'true'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+
+      const dialog = screen.getByRole('dialog', { name: 'How scoring works' });
+      expect(dialog.textContent).toMatch(/higher is better/i);
+      expect(dialog.textContent).toMatch(/outcome/i);
+      expect(dialog.textContent).toMatch(/home goals/i);
+      expect(dialog.textContent).toMatch(/away goals/i);
+      expect(dialog.textContent).not.toMatch(/attempts per puzzle/i);
+      expect(dialog.textContent).not.toMatch(/2 attempts per cell/i);
+      expect(dialog.textContent).not.toMatch(/uniqueness|unique/i);
+      expect(dialog.textContent).not.toMatch(/median/i);
+    });
+
     it('REQ-213: switching games while the explainer is open closes it (does not silently swap its content under the player)', async () => {
       vi.stubGlobal(
         'fetch',
@@ -465,6 +492,86 @@ describe('LeaderboardScreen', () => {
 
       await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
       expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'false');
+    });
+
+    // REQ-404/ADR-0095 (S-198): xG Predict as a third game tab — mirrors the
+    // xG Path tab-switch test above. Known, expected gap (not asserted
+    // against here, since it isn't this test's concern): the xG Predict
+    // leaderboard renders empty in production today pending
+    // GetTotalPointsByInstanceIdAsync's backend wiring (docs/backlog.md
+    // S-198) — this test only proves the tab exists, is selectable, and
+    // re-fetches scoped to gameKey=xg-predict, which is true regardless of
+    // that backend gap.
+    it('REQ404/ADR-0095: selecting "xG Predict" while on the default All-time scope re-fetches the all-time endpoint with gameKey=xg-predict', async () => {
+      const fetchMock = routedFetch([
+        [
+          /gameKey=xg-predict/,
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-9', 'Robin', 55)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        [/gameKey=xg-grid/, () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false })],
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Predict' }));
+
+      await waitFor(() => expect(screen.getByText('Robin')).toBeInTheDocument());
+      const xgPredictCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes('gameKey=xg-predict'));
+      expect(xgPredictCalls.length).toBeGreaterThan(0);
+      expect(String(xgPredictCalls[0][0])).toContain('/leagues/global/leaderboard');
+    });
+  });
+
+  // REQ-404/ADR-0095 (S-198): the "Lowest total wins" subtitle is
+  // ADR-0021's golf-style framing — xG Predict is a named exception
+  // (conventional higher-is-better scoring), so its own tab must show the
+  // opposite wording rather than leaving ADR-0021's text up for a game it
+  // doesn't describe.
+  describe('REQ-404/ADR-0095: per-GameKey "wins" subtitle', () => {
+    it('the xG Grid tab (default) still shows "Lowest total wins"', async () => {
+      const fetchMock = routedFetch([defaultAllTimeRoute]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      expect(screen.getByText('Lowest total wins')).toBeInTheDocument();
+      expect(screen.queryByText('Highest total wins')).not.toBeInTheDocument();
+    });
+
+    it('the xG Path tab also shows "Lowest total wins" (unaffected by ADR-0095)', async () => {
+      const fetchMock = routedFetch([defaultAllTimeRoute]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.getByText('Lowest total wins')).toBeInTheDocument();
+    });
+
+    it('selecting the xG Predict tab shows "Highest total wins", not "Lowest total wins"', async () => {
+      const fetchMock = routedFetch([defaultAllTimeRoute]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Predict' }));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Predict' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.getByText('Highest total wins')).toBeInTheDocument();
+      expect(screen.queryByText('Lowest total wins')).not.toBeInTheDocument();
     });
   });
 

@@ -13,6 +13,34 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/design-document.md` (SCREEN-03's "Game switcher" note
+  updated to name xG Predict as the third tab, same order as
+  `GameSelectScreen`'s tiles/`HeaderNav`'s "Games" list; a new note added
+  alongside the existing "Lowest total wins"/ADR-0021 note stating xG
+  Predict's tab shows "Highest total wins" instead, per ADR-0095's named
+  exception — ADR-0021's own text left unedited; version 0.84 → 0.85),
+  `docs/backlog.md` (new S-198 entry, plus a non-blocking follow-up note
+  that `UserStatsScreen.tsx`/SCREEN-13 has the same two-game hardcoding,
+  not addressed by this story) — implements REQ-404/REQ-1304's frontend
+  side: `frontend/src/leaderboard/LeaderboardScreen.tsx`'s `GameKey`
+  union/`GAME_TABS` widen to a third game (`xg-predict`), the "Lowest
+  total wins" subtitle now reads per-`GameKey` ("Highest total wins" for
+  xG Predict), and the `(ⓘ)` scoring-explainer gains a third branch and a
+  new component, `frontend/src/predict/PredictScoringExplainer.tsx`,
+  describing REQ-1304's three independent scoring components
+  (outcome/home-goals/away-goals) and xG Predict's higher-is-better
+  direction (ADR-0095). Deliberately ships ahead of a still-open backend
+  gap, flagged rather than silently implied complete: `LeaderboardService`
+  still totals every scope from `Guess.FinalPoints`, and xG Predict never
+  writes `Guess` rows (ADR-0096) — wiring `GetTotalPointsByInstanceIdAsync`
+  into `LeaderboardService`/`LeaderboardEndpoints` remains the tracked
+  backend follow-up (S-193/S-195/S-197/S-198), so this tab calls
+  successfully but renders empty until that lands. `npm run test`
+  (Vitest) run locally: 756/756 passed, including 6 new
+  REQ-404-referencing tests; `tsc -b`/`npm run lint` both clean — no
+  backend touched, so no CI-trigger fallback needed. REQ/ADR refs:
+  REQ-404, REQ-1304, ADR-0095.
+
 - 2026-08-31 — `docs/requirements-document.md` (§4.14 intro note and
   REQ-1302/1303's own status notes updated — prediction submission and the
   round-wide lock are now reachable through a real HTTP endpoint, no
