@@ -40,13 +40,58 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `ILeaderboardService`/`LeaderboardEndpoints` wiring of the new
   `GetTotalPointsByInstanceIdAsync` for `"xg-predict"` round totals;
   `RoundSchedulingOptions`/round-generation wiring for `"xg-predict"`
-  remains unaffected and unchanged. Two small, non-blocking quality-gate
-  notes recorded in the new S-195 backlog entry rather than fixed here:
-  `XGPredictScoringStrategy`'s double DI registration, and
+  remains unaffected and unchanged (closed independently the same day —
+  see the round-scheduling wiring entry below). Two small, non-blocking
+  quality-gate notes recorded in the new S-195 backlog entry rather than
+  fixed here: `XGPredictScoringStrategy`'s double DI registration, and
   `InternalPredictGradingEndpointTests.cs` not exercising a non-zero
   graded/voided count end-to-end. `architecture-reviewer`/
   `quality-architect` both PASSed with no blocking findings. REQ/ADR refs:
   REQ-1305, ADR-0097.
+
+- 2026-08-30 — `docs/decisions/0051-per-gamekey-round-scheduling.md` (amendment,
+  written directly by the orchestrating session, re-deriving its own
+  "if a third game is added" Follow-up note — the three-armed `gameKey`
+  switch stays preferable to the deferred `IGameModule
+  .GetOrCreateDefaultTemplateIdAsync` alternative, unchanged from the
+  two-armed answer), `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`
+  (amendment, same author, re-deriving its own "if a third game is added"
+  Follow-up note — a third fully independent workflow file stays the right
+  shape, not a loop/matrix/shared-cron extension), `docs/requirements-document.md`
+  (REQ-1301's status note and the §4.14 intro note updated — round
+  *generation* for `"xg-predict"` is now reachable in production;
+  REQ-1302/1303 prediction *submission* is explicitly noted as still not
+  wired to any HTTP endpoint, unaffected by this story; version 2.27 →
+  2.28), `docs/architecture-document.md` (COMP-03's and COMP-15's rows,
+  §6.1's grid-generation-flow prose, and §6.11's xG Predict data-flow
+  sketch's generation leg all updated to describe three registered
+  `RoundSchedulingOptions` instances, a third `gameKey`-switch arm, and a
+  third independent round-generation workflow file; version 1.26 → 1.27),
+  `docs/implementation-document.md` (COMP-15's project-structure note and
+  the `XGArcade.Data.Tests`/`XGArcade.Api.Tests` test-inventory notes
+  updated to match), `docs/backlog.md` (new S-196 entry, plus a small
+  follow-up item recording the open question ADR-0072's amendment flags:
+  whether `RoundScheduling:XGPredict:RoundDurationHours`'s 48h default
+  should eventually be tuned toward a weekly Premier-League-gameweek
+  cadence) — closes the gap S-192/S-193/S-194 explicitly deferred:
+  `RoundSchedulingOptions` is now registered for `"xg-predict"`
+  (`RoundScheduling:XGPredict:RoundDurationHours`, default 48h, alongside
+  the existing `IScoringStrategy` registration from S-193), a new
+  `PredictGenerationOptions`/`PredictTemplateResolver` pair mirrors
+  `GridGenerationOptions`/`PathGenerationOptions`'s and
+  `GridTemplateResolver`/`PathTemplateResolver`'s precedent exactly,
+  `InternalRoundEndpoints`'s `gameKey` switch gained a third arm, and
+  `LeaderboardEndpoints.ValidateGameKey`'s allow-list now includes
+  `"xg-predict"`. A new `.github/workflows/generate-predict-round.yml` is
+  a third fully independent per-`GameKey` round-generation workflow
+  (daily cron, reusing the existing `.github/actions/trigger-round-generation`
+  composite action) — not a loop extension of any shared file, since
+  `generate-round.yml` no longer exists (split into per-`GameKey` files by
+  S-136/ADR-0072 before this story started). `architecture-reviewer` PASSed
+  clean; `quality-architect` flagged two new test methods missing their
+  `REQ1301_` naming prefix (fixed same session) plus the doc gaps this
+  entry closes — no production-code findings from either reviewer. REQ/ADR
+  refs: REQ-1301, ADR-0051, ADR-0072.
 
 - 2026-08-30 — `docs/decisions/0095-xg-predict-scoring-direction-exception.md`
   (Status line + Follow-up amendment, written directly by the orchestrating

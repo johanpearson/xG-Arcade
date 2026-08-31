@@ -13,8 +13,10 @@ using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.DataSync.ApiFootball;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
+using XGArcade.Games.XGPredict;
 
 namespace XGArcade.Api.Tests;
 
@@ -640,6 +642,145 @@ public class RoundEndpointTests
         var instance = await dbContext.PathInstances.Include(pi => pi.Puzzles).SingleAsync();
         Assert.That(instance.Puzzles, Has.Count.EqualTo(3), "REQ-1202: exactly PuzzleCount puzzles, each targeting a distinct eligible player");
         Assert.That(instance.Puzzles.Select(p => p.TargetPlayerId).Distinct().Count(), Is.EqualTo(3));
+    }
+
+    // ---- This story (wiring "xg-predict" into round scheduling): ----------
+    // generate-round is genuinely GameKey-parameterized for "xg-predict"
+    // too, end-to-end through the real endpoint -----------------------------
+
+    [Test]
+    public async Task REQ1301_GenerateRound_Post_WithGameKeyXgPredict_GeneratesAnXgPredictRound_UsingItsOwnConfiguredRoundDuration()
+    {
+        // Mirrors REQ1202_GenerateRound_Post_WithGameKeyXgPath_... above: a
+        // dedicated layered factory adds xg-predict's own
+        // RoundSchedulingOptions (30h, deliberately distinct from SetUp's
+        // xg-grid 72h), a FakeApiFootballClient standing in for the real
+        // HTTP client (XGPredictGameModule.GenerateInstanceAsync's fixture
+        // source, REQ-1301) so no real api-football.com egress happens, and
+        // PredictGenerationOptions.MatchCount=5 with exactly 5 fake
+        // fixtures. This is the API-level proof that gameKey=xg-predict is
+        // no longer rejected by InternalRoundEndpoints' up-front
+        // gameKey-allowlist check and resolves a real PredictTemplate.Id via
+        // PredictTemplateResolver — not just the unit-level proof in
+        // PredictTemplateResolverTests, but the real endpoint, real DI
+        // graph, and a real XGPredictGameModule.GenerateInstanceAsync run.
+        var fakeApiFootballClient = new FakeApiFootballClient
+        {
+            Fixtures = Enumerable.Range(0, 5)
+                .Select(i => new ApiFootballFixture(
+                    FixtureId: 100 + i,
+                    HomeTeamId: 1000 + i,
+                    HomeTeamName: $"Home{i}",
+                    AwayTeamId: 2000 + i,
+                    AwayTeamName: $"Away{i}",
+                    KickoffUtc: DateTime.UtcNow.AddDays(7).AddMinutes(i)))
+                .ToList(),
+        };
+        var xgPredictFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IApiFootballClient>();
+                services.AddSingleton<IApiFootballClient>(fakeApiFootballClient);
+
+                services.RemoveAll<PredictGenerationOptions>();
+                services.AddSingleton(new PredictGenerationOptions { MatchCount = 5 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPredictGameModule.XGPredictGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        var client = xgPredictFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-predict", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.GameKey, Is.EqualTo(XGPredictGameModule.XGPredictGameKey));
+        Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(30)),
+            "must use xg-predict's own configured RoundDuration (30h), never xg-grid's (72h, per this class's SetUp)");
+
+        using var scope = xgPredictFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(1));
+        var template = await dbContext.PredictTemplates.SingleAsync();
+        Assert.That(template.MatchCount, Is.EqualTo(5), "PredictTemplateResolver's find-or-create path must use PredictGenerationOptions.MatchCount");
+        var instance = await dbContext.PredictInstances.Include(pi => pi.Matches).SingleAsync();
+        Assert.That(instance.Matches, Has.Count.EqualTo(5));
+    }
+
+    [Test]
+    public async Task REQ1301_GenerateRound_Post_WithGameKeyXgPredict_TooFewUpcomingFixtures_ReturnsProblemDetails()
+    {
+        // REQ-1301's abort-and-log case surfacing through this endpoint's
+        // catch filter, now extended to include PredictGenerationException
+        // alongside GridGenerationException/PathGenerationException — mirrors
+        // REQ1208_GenerateRound_Post_WithGameKeyXgPath_InsufficientTotalEligiblePool_...'s
+        // "Round generation failed" 500 assertion below, for xg-predict's own
+        // abort path instead.
+        var fakeApiFootballClient = new FakeApiFootballClient
+        {
+            Fixtures =
+            [
+                new ApiFootballFixture(101, 1001, "Home0", 2001, "Away0", DateTime.UtcNow.AddDays(7)),
+            ], // fewer than MatchCount(5)
+        };
+        var xgPredictFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IApiFootballClient>();
+                services.AddSingleton<IApiFootballClient>(fakeApiFootballClient);
+
+                services.RemoveAll<PredictGenerationOptions>();
+                services.AddSingleton(new PredictGenerationOptions { MatchCount = 5 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPredictGameModule.XGPredictGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        var client = xgPredictFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-predict", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Round generation failed"));
+        Assert.That(problem.Detail, Does.Contain("Not enough upcoming fixtures"));
+
+        using var scope = xgPredictFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an aborted generation must never create a round");
+    }
+
+    // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
+    // "don't over-mock"), mirroring XGArcade.Games.XGPredict.Tests'
+    // FakeApiFootballClient's exact shape — duplicated here rather than
+    // shared across test assemblies because no InternalsVisibleTo wiring
+    // exists between them (same "a different assembly, no InternalsVisibleTo
+    // wired" precedent already noted on this file's sibling
+    // AdminEndpointTests.FakeWikidataClient/
+    // AdminSuggestionEndpointTests.FakeWikidataClient). GetFixtureResultAsync
+    // (REQ-1305) is not exercised by anything this story wires up — not
+    // implemented, throws if ever called.
+    private sealed class FakeApiFootballClient : IApiFootballClient
+    {
+        public IReadOnlyList<ApiFootballFixture> Fixtures { get; set; } = [];
+
+        public Task<IReadOnlyList<ApiFootballFixture>> GetUpcomingGameweekFixturesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(Fixtures);
+
+        public Task<ApiFootballFixtureResult> GetFixtureResultAsync(int fixtureId, CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException("REQ-1305 grading is out of scope for this story — GetFixtureResultAsync should never be called here.");
     }
 
     // ---- REQ-1208/ADR-0058: xG Path target cycle tracking, end-to-end -----

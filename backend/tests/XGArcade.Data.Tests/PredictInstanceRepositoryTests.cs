@@ -65,6 +65,52 @@ public class PredictInstanceRepositoryTests
         Assert.That(result, Is.Null);
     }
 
+    // ---- GetTemplateByMatchCountAsync / AddTemplateAsync ---------------
+    // This story: coverage for the new find-or-create-by-config-value
+    // methods PredictTemplateResolver relies on, mirroring
+    // PathInstanceRepository.GetTemplateByPuzzleCountAsync/AddTemplateAsync's
+    // own shape (no dedicated PathInstanceRepositoryTests file exists to
+    // mirror a test from directly — those methods are currently exercised
+    // only indirectly, through RoundEndpointTests' API-level xg-path
+    // coverage).
+
+    [Test]
+    public async Task GetTemplateByMatchCountAsync_ReturnsPersistedTemplate_WithMatchingMatchCount()
+    {
+        var template = new PredictTemplate { Id = Guid.NewGuid(), MatchCount = 5 };
+        _dbContext.PredictTemplates.Add(template);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetTemplateByMatchCountAsync(5);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Id, Is.EqualTo(template.Id));
+    }
+
+    [Test]
+    public async Task GetTemplateByMatchCountAsync_NoTemplateWithThatMatchCount_ReturnsNull()
+    {
+        _dbContext.PredictTemplates.Add(new PredictTemplate { Id = Guid.NewGuid(), MatchCount = 5 });
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetTemplateByMatchCountAsync(7);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task AddTemplateAsync_PersistsTemplate_RetrievableByIdAfterward()
+    {
+        var template = new PredictTemplate { Id = Guid.NewGuid(), MatchCount = 5 };
+
+        var result = await _repository.AddTemplateAsync(template);
+
+        Assert.That(result, Is.SameAs(template));
+        var persisted = await _repository.GetTemplateByIdAsync(template.Id);
+        Assert.That(persisted, Is.Not.Null);
+        Assert.That(persisted!.MatchCount, Is.EqualTo(5));
+    }
+
     // ---- AddInstanceAsync / GetInstanceByIdAsync -----------------------
 
     [Test]

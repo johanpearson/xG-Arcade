@@ -5,6 +5,7 @@ using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
+using XGArcade.Games.XGPredict;
 
 namespace XGArcade.Api.Leagues;
 
@@ -289,7 +290,7 @@ public static class LeaderboardEndpoints
     // for the whole Api layer, not two that could silently drift apart.
     internal static IResult? ValidateGameKey(string? gameKey)
     {
-        if (gameKey is not (null or GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey))
+        if (gameKey is not (null or GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey or XGPredictGameModule.XGPredictGameKey))
         {
             return Results.Problem(
                 title: "Invalid gameKey",

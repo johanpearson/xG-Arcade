@@ -8,6 +8,16 @@ public class PredictInstanceRepository(XGArcadeDbContext dbContext) : IPredictIn
     public async Task<PredictTemplate?> GetTemplateByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await dbContext.PredictTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
+    public async Task<PredictTemplate?> GetTemplateByMatchCountAsync(int matchCount, CancellationToken cancellationToken = default) =>
+        await dbContext.PredictTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.MatchCount == matchCount, cancellationToken);
+
+    public async Task<PredictTemplate> AddTemplateAsync(PredictTemplate template, CancellationToken cancellationToken = default)
+    {
+        dbContext.PredictTemplates.Add(template);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return template;
+    }
+
     public async Task<PredictInstance> AddInstanceAsync(PredictInstance instance, CancellationToken cancellationToken = default)
     {
         dbContext.PredictInstances.Add(instance);

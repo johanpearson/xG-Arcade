@@ -149,6 +149,35 @@ Four related changes, made together as one coherent design:
   `IGameModule.GetOrCreateDefaultTemplateIdAsync` alternative noted above —
   don't assume the two-arm answer still holds without re-deriving it.
 
+**Amendment (2026-08-30, xG Predict wiring):** the third game arrived
+(`"xg-predict"`, REQ-1301, ADR-0096) and this follow-up's re-derivation was
+done rather than assumed. The three-armed switch stays preferable, unchanged
+from the two-armed answer:
+
+- The new arm is mechanically identical in shape to the existing two —
+  `PredictTemplateResolver.GetOrCreateByMatchCountAsync` resolving
+  `PredictGenerationOptions.MatchCount` to a `PredictTemplate.Id`, same
+  one-line find-or-create-by-config-value pattern `GridTemplateResolver`/
+  `PathTemplateResolver` already establish. Nothing about adding it grew the
+  switch's shape or its surrounding handler.
+- The switch is still confined to this one composition-root location,
+  producing nothing but the opaque `TemplateId` — it has not spread into
+  `Core.*`, and three near-identical one-line arms is not the "unwieldy"
+  this ADR's Consequences section named as the actual trigger to revisit.
+- The `IGameModule.GetOrCreateDefaultTemplateIdAsync` alternative would
+  still require a real interface change touching `GridGameModule` and
+  `XGPathGameModule` too (not just `XGPredictGameModule`), for a benefit
+  (zero `GameKey` branching in the API layer) that remains marginal at
+  three near-identical arms. `MVP-SCOPE.md`'s "don't pull forward more than
+  needed" principle still argues against taking on that larger, riskier
+  change now, with no new evidence since the original two-arm decision that
+  it's actually needed.
+
+No new ADR: this reconfirms an existing decision after the re-derivation its
+own Follow-up note required, rather than changing it. Revisit again if a
+fourth game or a genuinely different template-resolution shape ever makes
+the switch actually unwieldy, not preemptively.
+
 ## For AI agents
 
 If code you are about to write would contradict this decision, stop and

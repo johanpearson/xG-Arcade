@@ -144,6 +144,48 @@ sandbox has no path to trigger a real GitHub Actions dispatch.
   ADR-0051's shared-cron reasoning) is the one to re-derive against — see
   "For AI agents" below.
 
+**Amendment (2026-08-30, xG Predict wiring):** the third game arrived
+(`"xg-predict"`, REQ-1301, ADR-0096) and this follow-up's re-derivation was
+done rather than assumed. This ADR's reasoning (fully independent,
+per-`GameKey` workflow files, not ADR-0051's superseded shared-cron design)
+still holds and is the one applied:
+
+- `generate-predict-round.yml` was added as a third, fully independent file
+  — its own `on.schedule` cron (`0 6 * * *`, same cadence as the other two;
+  nothing about REQ-1301 requires a different one — a daily check for "is
+  it time to generate the next round" is independent of how often
+  Premier League gameweeks actually occur, the same way it already is for
+  xG Grid/xG Path) and its own `workflow_dispatch.round_duration_hours`
+  input, calling `.github/actions/trigger-round-generation` (S-176's
+  composite action) with a hardcoded `game-key: xg-predict` — exactly
+  `generate-grid-round.yml`'s/`generate-path-round.yml`'s shape, not a
+  fourth alternative.
+- ADR-0027's `RoundDuration >= cron's max gap` invariant is re-checked
+  independently for this workflow, not assumed from the other two: daily
+  cron, constant 24h max gap; xG Predict's configured `RoundDuration`
+  (`RoundScheduling:XGPredict:RoundDurationHours`, defaulted to `48` in
+  `appsettings.json`, matching xG Grid/xG Path's own defaults) is
+  comfortably `>= 24h`. Safe, by the same derivation this ADR already
+  performed for the other two `GameKey`s.
+- Reusing the composite action (rather than duplicating its retry-loop body
+  a third time) is consistent with this ADR's own S-176 consequence entry:
+  the composite action has no `on:`/trigger surface of its own, so a third
+  caller cannot recouple any of the three workflows' crons or dispatch
+  inputs — the same "shares only the retry-loop body" property that made it
+  safe for the second caller applies unchanged to a third.
+- One open item flagged, not resolved, by this wiring: REQ-1301 draws its 5
+  matches from "an upcoming Premier League gameweek," which occurs roughly
+  weekly in the real world, not daily — a daily generation cron is still
+  *safe* (idempotent, no-op on days no new round is due, per this ADR's own
+  existing reasoning) but whether
+  `RoundScheduling:XGPredict:RoundDurationHours`'s default should eventually
+  be tuned away from 48h to better match a weekly gameweek cadence is a
+  product question this wiring story does not decide — tracked as a
+  `docs/backlog.md` follow-up, not silently assumed either way.
+
+No new ADR: this reconfirms an existing decision after the re-derivation its
+own Follow-up note required, rather than changing it.
+
 ## For AI agents
 
 If code you are about to write would contradict this decision, stop and

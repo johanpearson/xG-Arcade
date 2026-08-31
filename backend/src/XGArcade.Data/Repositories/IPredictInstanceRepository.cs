@@ -10,6 +10,15 @@ public interface IPredictInstanceRepository
 {
     Task<PredictTemplate?> GetTemplateByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
+    // Mirrors IPathInstanceRepository.GetTemplateByPuzzleCountAsync/
+    // AddTemplateAsync's exact find-or-create-by-config-value pattern —
+    // PredictTemplateResolver (XGArcade.Api.Predict) is the caller, same
+    // role PathTemplateResolver/GridTemplateResolver play for their own
+    // template types. See ADR-0051's 2026-08-30 amendment (xG Predict
+    // wiring) for the re-derivation confirming this pattern still holds.
+    Task<PredictTemplate?> GetTemplateByMatchCountAsync(int matchCount, CancellationToken cancellationToken = default);
+    Task<PredictTemplate> AddTemplateAsync(PredictTemplate template, CancellationToken cancellationToken = default);
+
     // Persists instance + matches together, mirroring
     // IPathInstanceRepository.AddInstanceAsync's exact shape.
     Task<PredictInstance> AddInstanceAsync(PredictInstance instance, CancellationToken cancellationToken = default);
