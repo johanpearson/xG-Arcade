@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-31 — `docs/backlog.md` (new Epic 13, S-199 through S-205) — audit
+  of the xG Predict stories (S-190–S-198), all now merged, against their
+  own "Explicitly out of scope"/follow-up notes turned up seven open gaps,
+  none silently fixed or dropped: (1) S-199, `LeaderboardService` never
+  wired to `PredictMatchPrediction` totals for `"xg-predict"` across every
+  ranking scope, not just the all-time tab S-198 flagged — needs a new ADR
+  for the per-`GameKey` score-source shape; (2) S-200, `GuessEndpoints` has
+  no `GameKey` allow-list, safe today only because
+  `GetMaxAttemptsForCellAsync` still throws for `"xg-predict"`
+  (ADR-0098's Consequences section); (3) S-201, REQ-710 account-deletion
+  never wired for `PredictPlayerLock`/`PredictMatchPrediction`; (4) S-202,
+  `UserStatsScreen`/SCREEN-13 still hardcoded to two games, the frontend
+  gap S-198 explicitly left untouched; (5) S-203, no Playwright E2E spec
+  for xG Predict; (6) S-204, `"xg-predict"`'s `RoundDuration` still 48h
+  (copied from the other games) rather than tuned to a weekly gameweek
+  cadence; (7) S-205, the `IScoringStrategy`/`ScorePrediction` shape
+  question S-193's `architecture-reviewer` left standing, resolved here as
+  a documentation decision (an ADR note) rather than a speculative
+  refactor. Confirmed the eighth candidate gap from that audit — the
+  median-ranking sort-direction scope in `GetRankedMembersAsync` — was
+  already closed by S-194, so it is not repeated as a story. Each new
+  story's *Accept*/*Deps* sections name the exact files/line numbers this
+  audit found, per this file's existing "Token efficiency" note on handing
+  implementing agents specifics directly rather than re-deriving them.
 - 2026-08-31 — `infra/README.md`, `SETUP.md`, `TODO.md` — fixed a gap found
   from a live `/internal/generate-round` 500 (`API-Football is not
   configured on this environment yet.`): S-190 through S-198 built xG
