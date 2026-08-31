@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.12"
+version: "1.13"
 status: draft
 last_updated: 2026-08-30
 owner: Johan
@@ -359,14 +359,28 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    Core.Games.GameEntityNotFoundException)/
                                    PredictInvalidSubmissionException/
                                    PredictRoundLockedException are this
-                                   module's exception types. Not wired into
-                                   InternalRoundEndpoints' gameKey switch,
-                                   GuessSubmissionService, or any
-                                   RoundSchedulingOptions registration for
-                                   "xg-predict" yet (deliberately deferred,
-                                   ADR-0096, mirrors ADR-0051's precedent) —
-                                   see requirements-document.md §4.14's
-                                   REQ-1301/1302/1303 status notes.
+                                   module's exception types. Round
+                                   generation is now wired into
+                                   InternalRoundEndpoints' gameKey switch
+                                   (2026-08-30, round-scheduling wiring
+                                   story) via the new PredictTemplateResolver
+                                   (XGArcade.Api.Predict, find-or-create by
+                                   PredictGenerationOptions.MatchCount,
+                                   default 5), and RoundSchedulingOptions is
+                                   now registered for "xg-predict"
+                                   (RoundScheduling:XGPredict:RoundDurationHours,
+                                   default 48h) alongside IScoringStrategy
+                                   (below) — scheduled in production by
+                                   .github/workflows/generate-predict-round.yml
+                                   (daily cron, a third independent workflow
+                                   file per ADR-0072's 2026-08-30 amendment)
+                                   — see requirements-document.md §4.14's
+                                   REQ-1301 status note. Still NOT wired:
+                                   GuessSubmissionService — REQ-1302
+                                   prediction submission has no real HTTP
+                                   endpoint yet — see
+                                   requirements-document.md §4.14's
+                                   REQ-1302/1303 status notes.
                                    IScoringStrategy IS now registered for
                                    "xg-predict" (2026-08-30, ADR-0095):
                                    XGPredictScoringStrategy, LowerIsBetter =
@@ -423,13 +437,29 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    GridGameModule.Tests/XGPathGameModuleTests.
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config).
                                    Added PredictInstanceRepositoryTests
-                                   2026-08-30 (ADR-0096).
+                                   2026-08-30 (ADR-0096); extended same day
+                                   (round-scheduling wiring story) for
+                                   IPredictInstanceRepository's new
+                                   GetTemplateByMatchCountAsync/
+                                   AddTemplateAsync methods.
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
                                    S-082 extended WikidataClientTests/
                                    WikidataLookupServiceTests for REQ-1207's
                                    P413/P569 sourcing
     /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB).
-                                   S-082 added PathEndpointTests (GET /path/current, REQ-1203)
+                                   S-082 added PathEndpointTests (GET /path/current, REQ-1203).
+                                   Round-scheduling wiring story (2026-08-30)
+                                   added REQ1301_-prefixed xg-predict
+                                   coverage to RoundEndpointTests.cs (round
+                                   generation via
+                                   /internal/generate-round?gameKey=xg-predict,
+                                   end to end), PredictTemplateResolverTests
+                                   (find-or-create by MatchCount), and
+                                   xg-predict coverage to
+                                   LeaderboardEndpointTests (ValidateGameKey
+                                   allow-list); also added
+                                   RoundSchedulingOptionsResolverTests
+                                   covering all three registered GameKeys.
 
 /frontend
   /src                          -> feature folders, not the layer folders this

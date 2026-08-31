@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.27"
+version: "2.28"
 status: draft
 last_updated: 2026-08-30
 owner: Johan
@@ -10114,15 +10114,20 @@ section's original framing still applies to those two: every REQ below is
 written to the same standard as §4.1/§4.12's requirements for xG
 Grid/xG Path, but REQ-1305/1306 (and, per its status note, the
 not-yet-built remainder of REQ-1304) describe intended behavior for a game
-surface that has not been built, not a claim about current behavior. Note
-also that even REQ-1301/1302/1303's
-implementation is not yet reachable in production: nothing wires
-`XGPredictGameModule` into `InternalRoundEndpoints`'s `gameKey` switch,
-`GuessSubmissionService`, or any `RoundSchedulingOptions`/`IScoringStrategy`
-registration for `"xg-predict"` (deliberately deferred, ADR-0096, mirrors
-ADR-0051's precedent) — the acceptance criteria below are satisfied at the
-`IGameModule` implementation/unit-test level, not end-to-end through a real
-HTTP endpoint yet.
+surface that has not been built, not a claim about current behavior.
+**Status (2026-08-30, round-scheduling wiring story):** REQ-1301's round
+*generation* is now reachable in production — `InternalRoundEndpoints`'s
+`gameKey` switch routes `"xg-predict"`, and both `RoundSchedulingOptions`
+(this story) and `IScoringStrategy` (S-193/REQ-1304/ADR-0095) are
+registered for `"xg-predict"` alongside xG Grid/xG Path's own. See
+REQ-1301's own status note below for what changed. This does **not**
+extend to REQ-1302/1303's prediction *submission*: nothing wires
+`XGPredictGameModule.ScoreSubmissionAsync` into `GuessSubmissionService` or
+any real HTTP endpoint yet — only round generation via
+`/internal/generate-round?gameKey=xg-predict` is reachable end to end; a
+player still cannot submit a prediction through any production code path.
+See REQ-1302/1303's own status notes below, which are unchanged by this
+story.
 
 **Note on §4.13's cross-game requirements:** REQ-1210 (round-completion
 animation with a leaderboard link) is written for a game whose cells
@@ -10185,9 +10190,27 @@ over `ApiFootballClient.GetUpcomingGameweekFixturesAsync`'s results, and
 persisting `PredictTemplate`/`PredictInstance`/`PredictMatch` rows via
 `IPredictInstanceRepository` (`XGArcade.Data`). Unit-tested in
 `XGPredictGameModuleTests` (selection determinism/tie-breaking, the
-abort-on-too-few-fixtures case). Not yet reachable end to end: no
-API/Integration-level caller exists yet (`InternalRoundEndpoints` does not
-route `"xg-predict"`) — see this section's intro note above.
+abort-on-too-few-fixtures case).
+
+**Status (2026-08-30, round-scheduling wiring story):** Now reachable end
+to end via `POST /internal/generate-round?gameKey=xg-predict` —
+`InternalRoundEndpoints`'s `gameKey` switch routes `"xg-predict"` to the
+new `PredictTemplateResolver.GetOrCreateByMatchCountAsync`
+(`backend/src/XGArcade.Api/Predict/PredictTemplateResolver.cs`,
+find-or-create by `PredictGenerationOptions.MatchCount`, default 5,
+mirroring `GridTemplateResolver`/`PathTemplateResolver`), and
+`RoundSchedulingOptions` for `"xg-predict"` is now registered in
+`ServiceRegistration.cs` (`RoundScheduling:XGPredict:RoundDurationHours`,
+default 48h) alongside `IScoringStrategy` (already registered, S-193). New
+API-level tests in `RoundEndpointTests.cs`
+(`backend/tests/XGArcade.Api.Tests`) exercise this path end to end,
+satisfying REQ-1301's own API/Integration test level above. Production
+scheduling is via `.github/workflows/generate-predict-round.yml` (daily
+cron, ADR-0072's 2026-08-30 amendment) — an independent third file
+alongside `generate-grid-round.yml`/`generate-path-round.yml`, not a loop
+extension of a shared file. This covers round *generation* only — REQ-1302
+prediction submission still has no HTTP endpoint; see this section's intro
+note above.
 
 **REQ-1302 – Score prediction submission**
 > As a player, I want to predict the final score of each match in an xG

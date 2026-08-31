@@ -9603,3 +9603,98 @@ CI verification run (`ci.yml` `workflow_dispatch`) is needed before this is
 considered fully done — the orchestrating session triggers CI next, same
 recurring constraint as S-191/S-192/S-193 and every other recent backend
 story in this file.
+
+**S-195 · Wire `"xg-predict"` into per-`GameKey` round scheduling (REQ-1301, ADR-0051, ADR-0072)**
+Direct continuation of S-190/S-192/S-193, closing the last gap those
+stories explicitly deferred: `RoundSchedulingOptions` registration for
+`"xg-predict"` and wiring it into `InternalRoundEndpoints`'s `gameKey`
+switch (S-193 already closed the sibling `IScoringStrategy` gap). Run
+through `/orchestrate` end to end (intake → scope check → ADR
+re-derivation → delegation → quality gate → doc sync → CI verification),
+mirroring ADR-0051/ADR-0072's existing `"xg-grid"`/`"xg-path"` pattern
+exactly rather than inventing a new design.
+
+*Accept:* a new `PredictGenerationOptions` (`Games.XGPredict`, `MatchCount`
+default 5) and `PredictTemplateResolver`
+(`XGArcade.Api.Predict.GetOrCreateByMatchCountAsync`) mirror
+`GridGenerationOptions`/`PathGenerationOptions` and
+`GridTemplateResolver`/`PathTemplateResolver` exactly; `IPredictInstanceRepository`/
+`PredictInstanceRepository` gained `GetTemplateByMatchCountAsync`/
+`AddTemplateAsync` against the existing `PredictTemplates` table (no new
+migration needed); `InternalRoundEndpoints`'s `gameKey` switch has a third
+arm for `"xg-predict"`, its up-front validation widened to allow it, and
+its exception filter widened to catch `PredictGenerationException`;
+`LeaderboardEndpoints.ValidateGameKey`'s allow-list includes
+`"xg-predict"`; `ServiceRegistration.cs` registers `PredictGenerationOptions`
+and a third `RoundSchedulingOptions` instance (`RoundScheduling:XGPredict:RoundDurationHours`,
+default 48h, new `appsettings.json` key); a new
+`.github/workflows/generate-predict-round.yml` is a third fully
+independent per-`GameKey` round-generation workflow (daily cron, own
+`workflow_dispatch.round_duration_hours` input, reusing the existing
+`.github/actions/trigger-round-generation` composite action) —
+`generate-grid-round.yml`/`generate-path-round.yml` untouched, and no
+shared/matrix workflow reintroduced (ADR-0072's explicit prohibition).
+
+*Deps:* S-190 (COMP-15 module scaffold), S-192 (`XGPredictGameModule.GenerateInstanceAsync`,
+the caller this story finally makes reachable), S-193 (`IScoringStrategy`
+registration for `"xg-predict"`, the sibling gap this story's own
+`RoundSchedulingOptions` registration completes).
+
+*Explicitly out of scope, unaffected by this story:* REQ-1302/1303
+prediction *submission* — `GuessSubmissionService` is still not wired to
+`XGPredictGameModule.ScoreSubmissionAsync`, and no real HTTP submission
+endpoint exists yet; REQ-1304's scoring formula (already built, S-193);
+REQ-1305 (asynchronous grading job/trigger); REQ-1306 (confirm-and-lock
+action); frontend work. Only round *generation* scheduling is wired by
+this story.
+
+*Built as (2026-08-30):* the orchestrating session re-derived both ADRs'
+own "if a third game is added" Follow-up notes directly (not delegated —
+see the dated amendments in `docs/decisions/0051-per-gamekey-round-scheduling.md`
+and `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`),
+concluding the existing three-armed-switch/independent-workflow-file
+pattern still holds unchanged; no new ADR was needed. `backend-implementer`
+then built the six mechanical pieces described above, plus test coverage:
+`RoundSchedulingOptionsResolverTests` (extended to all three `GameKey`s),
+new `PredictTemplateResolverTests`, new `PredictInstanceRepositoryTests`
+coverage for the two new repository methods, new `REQ1301_`-prefixed
+`RoundEndpointTests` API-level coverage (round generation via
+`gameKey=xg-predict`, end to end, including the too-few-fixtures abort
+path), and a new `LeaderboardEndpointTests` allow-list case.
+
+Quality gate (`architecture-reviewer` + `quality-architect`, run in
+parallel): `architecture-reviewer` PASSed clean — no boundary violations
+against `docs/architecture-document.md`, ADR-0003, ADR-0006, ADR-0051, or
+ADR-0072. `quality-architect` found no production-code issues but flagged
+two new test methods missing the `REQ1301_` naming prefix this repo's
+`docs/coding-guidelines.md` requires (the same file already establishes
+the correct convention one game over, for `"xg-path"`) — fixed in a
+same-session follow-up commit — plus three doc gaps (a stale REQ-1301
+status note, a missing CHANGELOG entry, and an ADR-amendment claim about a
+backlog follow-up that didn't exist yet), all closed by this same doc-sync
+pass, including adding the small follow-up item below so ADR-0072's
+amendment's claim is accurate.
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-verified by the
+implementer (brace/paren balance, cross-referenced signatures) and by both
+quality-gate reviewers reading the actual diff; a CI verification run
+(`ci.yml` `workflow_dispatch`) is needed before this is considered fully
+done — the orchestrating session triggers CI next, same recurring
+constraint as S-191/S-192/S-193/S-194 and every other recent backend story
+in this file.
+
+**Follow-up (flagged 2026-08-30, S-195, ADR-0072's amendment): tune `"xg-predict"`'s
+`RoundDuration` default toward its real gameweek cadence.** REQ-1301 draws
+its 5 matches from "an upcoming Premier League gameweek," which occurs
+roughly weekly in the real world — `RoundScheduling:XGPredict:RoundDurationHours`
+currently defaults to 48h, the same value as `"xg-grid"`/`"xg-path"`,
+chosen only for consistency with the existing pattern, not because 48h is
+actually the right cadence for a weekly-occurring gameweek. The daily
+generation cron (`generate-predict-round.yml`) is *safe* either way
+(idempotent, no-op on days no new round is due), so this is a product-tuning
+question, not a correctness bug — not decided or silently assumed either
+way by S-195, tracked here as an explicit open item. Trigger: once real
+xG Predict rounds are actually generating in production (needs S-195 plus
+a live API-Football key, MVP-SCOPE.md's xG-Predict-specific precondition)
+and the 48h default is observed to produce awkwardly-timed or overlapping
+rounds against real Premier League gameweek scheduling.
