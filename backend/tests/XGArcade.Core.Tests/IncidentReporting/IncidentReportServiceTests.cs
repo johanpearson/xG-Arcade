@@ -1,5 +1,5 @@
 using XGArcade.Core.IncidentReporting;
-using XGArcade.Core.Tests.Rounds;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Core.Tests.IncidentReporting;
 

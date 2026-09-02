@@ -5,6 +5,7 @@ using XGArcade.Core.Tests.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Core.Tests.Scoring;
 

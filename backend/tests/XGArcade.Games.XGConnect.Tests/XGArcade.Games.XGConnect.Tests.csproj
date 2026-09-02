@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.11" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit.Analyzers" Version="4.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="NUnit.Framework" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XGArcade.Games.XGConnect\XGArcade.Games.XGConnect.csproj" />
+    <!-- Tests exercise XGConnectGameModule against the real, InMemory-backed
+         ConnectMatchRepository (this codebase's no-mocking-framework
+         pattern — see XGPredictGameModuleTests/XGPathGameModuleTests), so a
+         direct reference to XGArcade.Data's DbContext and repository
+         implementation is needed here, not just the transitive one
+         XGArcade.Games.XGConnect already carries. -->
+    <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- REQ-1404/S-211: PlayerCareerOverlapServiceTests exercises
+         PlayerCareerOverlapService against real, InMemory-backed
+         PlayerCareerStintRepository/PlayerRepository plus a hand-rolled
+         FakePlayerCareerStintRefreshService implementing
+         IPlayerCareerStintRefreshService directly — same "not just the
+         transitive reference" reasoning as XGArcade.Games.XGPath.Tests' own
+         identical addition (ADR-0054 precedent). -->
+    <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
+    <!-- ConnectTargetPickServiceTests uses the shared FixedTimeProvider
+         fake (promoted to XGArcade.TestSupport once this would have been
+         its third verbatim copy — see that class's own doc comment). -->
+    <ProjectReference Include="..\XGArcade.TestSupport\XGArcade.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

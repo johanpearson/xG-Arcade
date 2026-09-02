@@ -131,7 +131,7 @@ public class XGPathGameModule(
         // throws — a Wikidata failure here must not fail round generation,
         // same REQ-103 reasoning xG Grid's own generation-time lookups
         // follow.
-        await careerStintRefreshService.RefreshCareerStintsAsync(targetPlayerIds, cancellationToken);
+        await careerStintRefreshService.RefreshCareerStintsAsync(targetPlayerIds, cancellationToken: cancellationToken);
 
         var instanceId = Guid.NewGuid();
         var instance = new PathInstance

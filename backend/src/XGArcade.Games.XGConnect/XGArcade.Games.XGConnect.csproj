@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
+         ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo) live in
+         XGArcade.Core. -->
+    <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- ADR-0103: COMP-17's own persistence
+         (IConnectMatchRepository/ConnectMatch/ConnectTargetPick/
+         ConnectChainStep) — boundary rule 1: Games.XGConnect reaches its own
+         data only through this interface, never a DbContext directly. Same
+         precedent as Games.XGPath's/Games.XGPredict's own reference to
+         XGArcade.Data. -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- S-211/REQ-1404: IPlayerCareerOverlapService delegates its career-stint
+         refresh to the shared IPlayerCareerStintRefreshService
+         (XGArcade.DataSync, ADR-0054) — same precedent as Games.XGPath's
+         existing reference to this project. -->
+    <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

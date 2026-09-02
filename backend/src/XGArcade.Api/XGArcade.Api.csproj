@@ -12,6 +12,7 @@
     <ProjectReference Include="..\XGArcade.Games.XGGrid\XGArcade.Games.XGGrid.csproj" />
     <ProjectReference Include="..\XGArcade.Games.XGPath\XGArcade.Games.XGPath.csproj" />
     <ProjectReference Include="..\XGArcade.Games.XGPredict\XGArcade.Games.XGPredict.csproj" />
+    <ProjectReference Include="..\XGArcade.Games.XGConnect\XGArcade.Games.XGConnect.csproj" />
     <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
     <!-- REQ-722/ADR-0087 (S-180): the concrete Supabase Storage
          implementation of IAvatarStorage (XGArcade.Core.Storage) — see

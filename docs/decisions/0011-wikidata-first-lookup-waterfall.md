@@ -112,3 +112,28 @@ of the full 27s tail. `WikidataClient`'s timeout is a constructor parameter
 (not a hardcoded const), specifically so this number can be revisited again
 without a code-structure change if real usage data suggests otherwise.
 Nothing else about the waterfall's design changed.
+
+## Addendum, 2026-09-02: no `IApiFootballClient` remains anywhere in the codebase — this ADR's "fallback" leg is now purely historical
+
+Confirmed by direct search (`grep -rn "IApiFootballClient\|ApiFootballClient"`
+across `backend/`): zero hits outside comments referencing the now-superseded
+ADR-0094/ADR-0099 history. ADR-0099 replaced API-Football with a
+fixtures/results-only `FootballDataClient` (`XGArcade.DataSync.FootballData`,
+COMP-15/xG Predict) without ever coming back to update this ADR's own
+"Decision"/"Consequences" sections to say so — a documentation-accuracy gap,
+not a re-litigation of ADR-0099 itself. `FootballDataClient` is unrelated to
+this ADR's subject matter (it serves match schedules/results, never
+player/career data), so it was never a candidate fallback for the
+player-lookup waterfall this ADR governs in the first place.
+
+In practice, as of this addendum, every live player/career lookup this
+codebase performs — REQ-103's grid-generation fallback, REQ-211's
+guess-time verification, and now REQ-1404's target-pick direct-connection
+check (`Games.XGConnect.PlayerCareerOverlapService`, S-211) — is
+**Wikidata-only**, with no second source: a Wikidata timeout/error fails
+closed (REQ-211's "incorrect"/`LiveLookupUnavailableException`), it does
+not fall through to any API-Football-shaped step 2. If API-Football's
+100/day cap, or a comparable fallback source, is ever reintroduced for
+player/career data specifically, that is a new decision (its own ADR) —
+this addendum only records the current, factual state so a future agent
+doesn't spend time hunting for a fallback client that no longer exists.

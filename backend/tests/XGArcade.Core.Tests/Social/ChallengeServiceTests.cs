@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Core.Social;
-using XGArcade.Core.Tests.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Core.Tests.Social;
 
@@ -13,7 +13,7 @@ namespace XGArcade.Core.Tests.Social;
 // IChallengeRepository/IFriendRepository/IUserRepository are exercised
 // through the real Challenge/Friend/UserRepository against an
 // InMemory-backed XGArcadeDbContext; only TimeProvider is faked
-// (FixedTimeProvider, XGArcade.Core.Tests.Rounds).
+// (FixedTimeProvider, XGArcade.TestSupport).
 //
 // ChallengeService.AcceptChallengeAsync deliberately does NOT create a
 // ConnectMatch row (ADR-0103 — that's XGArcade.Api's orchestration job, not

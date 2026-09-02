@@ -14,7 +14,8 @@ public class FakePlayerCareerStintRefreshService : IPlayerCareerStintRefreshServ
 {
     public List<IReadOnlyList<Guid>> Calls { get; } = [];
 
-    public Task RefreshCareerStintsAsync(IReadOnlyList<Guid> playerIds, CancellationToken cancellationToken = default)
+    public Task RefreshCareerStintsAsync(
+        IReadOnlyList<Guid> playerIds, bool throwOnFailure = false, CancellationToken cancellationToken = default)
     {
         Calls.Add(playerIds);
         return Task.CompletedTask;

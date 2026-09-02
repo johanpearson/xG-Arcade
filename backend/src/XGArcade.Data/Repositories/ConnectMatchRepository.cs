@@ -66,10 +66,69 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
         return chainStep;
     }
 
+    // REQ-1404/S-211: load-then-save (coding-guidelines.md — never
+    // ExecuteUpdateAsync), tracked (not AsNoTracking) since every row this
+    // matchId resolves to is mutated in place. See IConnectMatchRepository's
+    // own doc comment for why this is whole-match-scoped rather than
+    // per-pick-id.
+    public async Task LockTargetPicksForMatchAsync(Guid matchId, CancellationToken cancellationToken = default)
+    {
+        var picks = await dbContext.ConnectTargetPicks
+            .Where(p => p.ConnectMatchId == matchId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var pick in picks)
+            pick.IsLocked = true;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(
         Guid matchId, Guid? userId, CancellationToken cancellationToken = default) =>
         await dbContext.ConnectChainSteps
             .AsNoTracking()
             .Where(s => s.ConnectMatchId == matchId && s.UserId == userId)
             .ToListAsync(cancellationToken);
+
+    // REQ-710/ADR-0101: load-then-save (coding-guidelines.md — never
+    // ExecuteUpdateAsync, the InMemory test provider can't translate it),
+    // tracked (not AsNoTracking) since every row here is mutated in place.
+    // Three separate queries/loops rather than one combined LINQ query
+    // across entity types, mirroring
+    // PredictInstanceRepository.AnonymizePredictionsByUserIdAsync's own
+    // one-entity-type-at-a-time shape.
+    public async Task AnonymizeUserDataAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var matches = await dbContext.ConnectMatches
+            .Where(m => m.PlayerAUserId == userId || m.PlayerBUserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var match in matches)
+        {
+            if (match.PlayerAUserId == userId)
+                match.PlayerAUserId = null;
+            if (match.PlayerBUserId == userId)
+                match.PlayerBUserId = null;
+        }
+
+        var targetPicks = await dbContext.ConnectTargetPicks
+            .Where(p => p.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var pick in targetPicks)
+        {
+            pick.UserId = null;
+        }
+
+        var chainSteps = await dbContext.ConnectChainSteps
+            .Where(s => s.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var step in chainSteps)
+        {
+            step.UserId = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

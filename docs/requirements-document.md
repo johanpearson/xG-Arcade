@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.45"
+version: "2.46"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -11068,10 +11068,39 @@ already-directly-connected pair**
 > puzzle — the shortest played-together chain between the two target
 > picks — is fixed for both of us to race to solve.
 
-**Status: Proposed — data model exists (S-208: `ConnectMatch`/
-`ConnectTargetPick` entities + `IConnectMatchRepository` in
-`XGArcade.Data`); target-pick selection/rejection logic not implemented
-yet.**
+**Status: Built, 2026-09-02 (S-211).** `IConnectTargetPickService`/
+`ConnectTargetPickService` (`XGArcade.Games.XGConnect`) implements every
+branch below on top of S-208's `ConnectMatch`/`ConnectTargetPick` entities
+and `IConnectMatchRepository`: independent, mutually-invisible selection
+per player (`otherExistingPick is null` short-circuits before any overlap
+check runs), free resubmission via `AddOrUpdateTargetPickAsync` for as
+long as the caller's own pick is not yet `IsLocked`, and — once the
+second (completing) selection arrives — a check-before-persist ordering
+that runs the trivial-pair check first and only writes/locks anything if
+it comes back false, so a rejected completing pick never touches either
+player's row. The direct-connection check itself is delegated to a new
+shared, player-ID-generic service, `IPlayerCareerOverlapService`/
+`PlayerCareerOverlapService` (also `XGArcade.Games.XGConnect`), which
+trusts cached `PlayerCareerStint` rows once at least one exists per player
+and otherwise triggers a live Wikidata refresh via the shared
+`IPlayerCareerStintRefreshService` (`XGArcade.DataSync`, ADR-0054),
+following ADR-0010/0011's fetch-once-cache-forever discipline; a technical
+Wikidata failure surfaces as `LiveLookupUnavailableException` (never
+silently treated as connected or not connected) and maps to the new
+`SubmitTargetPickOutcome.LiveLookupUnavailable` outcome. This service is
+deliberately built generic on two bare player IDs, not
+`ConnectTargetPick`-shaped, so S-213's chain-step validation (REQ-1406)
+can reuse it unchanged. `ConnectTargetPick.IsLocked` is this story's own
+self-contained "puzzle fixed" signal — `ConnectMatch.Status`/`StartedAt`/
+`DeadlineUtc` remain untouched, reserved for S-212/REQ-1405. Exposed as
+`POST /matches/{matchId}/target-pick`
+(`XGArcade.Api.Connect.ConnectMatchEndpoints`), `.RequireAuthorization()`'d,
+mapping each outcome to its own status code (404 not-found, 403
+not-a-participant, 409 already-locked, 409 trivially-connected, 503
+live-lookup-unavailable). Full `REQ1404_...`-named test coverage in
+`ConnectTargetPickServiceTests.cs`/`PlayerCareerOverlapServiceTests.cs`/
+`ConnectMatchEndpointTests.cs`. **Test level below is unchanged from the
+plan and now fully satisfied.**
 
 - Given a match has just been created (via REQ-1402's accepted challenge or
   REQ-1403's random pairing)

@@ -136,6 +136,25 @@ public class PlayerCareerStintRefreshServiceTests
             "a failed refresh must leave whatever data already existed untouched, not wipe it");
     }
 
+    // REQ-1404 (S-211 architecture-review follow-up, 2026-09-02): the
+    // throwOnFailure=true opt-in this test proves exists specifically so
+    // PlayerCareerOverlapService (Games.XGConnect) can distinguish a
+    // genuine Wikidata technical failure from "this player really has no
+    // career data" — see throwOnFailure's own doc comment on
+    // IPlayerCareerStintRefreshService. Deliberately the mirror image of
+    // RefreshCareerStintsAsync_WikidataQueryFails_DoesNotThrow_ExistingStintsUntouched
+    // above, which proves the DEFAULT (false) still swallows.
+    [Test]
+    public async Task REQ1404_RefreshCareerStintsAsync_ThrowOnFailureTrue_WikidataQueryFails_PropagatesWikidataQueryException()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        _wikidataClient.FailNextCareerStintBatches(1);
+
+        Assert.ThrowsAsync<WikidataQueryException>(
+            async () => await BuildService().RefreshCareerStintsAsync([player.Id], throwOnFailure: true),
+            "throwOnFailure: true must let a Wikidata technical failure propagate instead of being logged and swallowed");
+    }
+
     [Test]
     public async Task RefreshCareerStintsAsync_PlayerWithNoWikidataCareerData_PersistsNothing_IsNotTreatedAsAFailure()
     {
