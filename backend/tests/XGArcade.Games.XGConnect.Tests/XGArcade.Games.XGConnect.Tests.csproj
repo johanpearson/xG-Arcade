@@ -30,6 +30,14 @@
          implementation is needed here, not just the transitive one
          XGArcade.Games.XGConnect already carries. -->
     <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- REQ-1404/S-211: PlayerCareerOverlapServiceTests exercises
+         PlayerCareerOverlapService against real, InMemory-backed
+         PlayerCareerStintRepository/PlayerRepository plus a hand-rolled
+         FakeWikidataClient implementing IWikidataClient directly — same
+         "not just the transitive reference" reasoning as
+         XGArcade.Games.XGPath.Tests' own identical addition
+         (FakePlayerCareerStintRefreshService/ADR-0054 precedent). -->
+    <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
 </Project>
