@@ -76,18 +76,30 @@ elsewhere in the codebase — not a reason to invent a third component.
 
 **(b) `ConnectMatch` is a new first-class concept, not a `Round`.**
 
-An xG Connect match is created directly by `Core.Social` when a challenge
-is accepted or a matchmaking pairing forms (REQ-1402/1403) — never via
-`RoundGenerationService`/`IRoundSchedulingOptionsResolver` (COMP-03), and
-never assigned a `GameKey`+`GameInstanceId` pair under `Round`. `Games.
-XGConnect` persists it as its own entity (`ConnectMatch`, scaffolded in
-S-208), scoped to exactly the two participating `UserId`s, carrying its
-own win/draw/forfeit outcome (REQ-1409) natively rather than coerced into
-`Core.Scoring`'s `FinalPoints`/`IScoringStrategy` shape, which assumes a
-directly-comparable points total across every participant of a shared
-round. `RoundCloseService`/`LeaderboardService`/`GuessSubmissionService`
-are untouched by this decision — they continue to reason only about
-`Round`, which xG Connect never creates.
+An xG Connect match is created on demand, triggered the instant `Core.
+Social` resolves a challenge acceptance or a matchmaking pairing
+(REQ-1402/1403) — never via `RoundGenerationService`/
+`IRoundSchedulingOptionsResolver` (COMP-03) on a schedule, and never
+assigned a `GameKey`+`GameInstanceId` pair under `Round`. The write itself
+belongs to `Games.XGConnect`: it owns and persists `ConnectMatch` as its
+own entity (scaffolded in S-208), scoped to exactly the two participating
+`UserId`s, carrying its own win/draw/forfeit outcome (REQ-1409) natively
+rather than coerced into `Core.Scoring`'s `FinalPoints`/`IScoringStrategy`
+shape, which assumes a directly-comparable points total across every
+participant of a shared round. `Core.Social` never writes a `ConnectMatch`
+row itself and never depends on `Games.XGConnect` internals to do so — see
+"For AI agents" below. The exact
+mechanism by which a resolved challenge/pairing reaches COMP-17's write
+path (an `XGArcade.Api` orchestration step calling both components in turn,
+or a narrow interface `Core.Social` calls through, mirroring how
+`Core.Rounds` already calls into every game module only via `IGameModule`,
+never a concrete project reference) is an implementation detail left to
+S-208/S-210, not decided here — the one constraint this ADR fixes is the
+direction: `Core.Social` orchestrates but does not own or write
+`ConnectMatch`, and `Games.XGConnect` never becomes a compile-time
+dependency of `Core.Social`. `RoundCloseService`/`LeaderboardService`/
+`GuessSubmissionService` are untouched by this decision — they continue to
+reason only about `Round`, which xG Connect never creates.
 
 This is a narrower reading of `IGameModule` than every other game module
 uses: `Games.XGConnect` does **not** implement the round-generation slice
