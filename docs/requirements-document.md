@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.39"
+version: "2.40"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10849,6 +10849,407 @@ registration).
 
 ---
 
+### 4.15 xG Connect: friends, challenges, and gameplay
+
+**xG Connect** is a proposed fourth game hosted on the xG Arcade (see
+`CLAUDE.md` and `architecture-document.md` for the platform/game boundary
+this section must not cross). It is a 1-vs-1 asynchronous game: two players
+each independently pick one real football player as their "target pick"
+(e.g. Eden Hazard and Gareth Bale); once both picks are locked in, both
+players race — independently and asynchronously — to build the shortest
+chain of real "played together" (same club, overlapping time period)
+connections linking those same two target players, not connecting their
+own pick to the other's. This section is design-only — **no xG Connect
+code exists yet.** Every REQ below is written to the same standard as
+§4.12/§4.14's xG Path/xG Predict requirements, but describes intended
+behavior for a game that has not been built, not a claim about current
+behavior.
+
+**Component boundary note (indicative, not decided here):** friends/
+challenges (REQ-1401-1403) and the match/puzzle/scoring/chat logic
+(REQ-1404-1410) may end up owned by two different components — an
+arcade-level social component (friends are conceptually available to any
+game, not xG-Connect-specific) and a new game module behind `IGameModule`
+(ADR-0003) for the match/puzzle logic itself. `architecture-document.md`'s
+next two unused component IDs, **COMP-16** and **COMP-17**, are free for
+whichever split that document settles on — this section does not assign
+either number to a specific responsibility, since that is an architecture
+decision, not a requirements one. **This also surfaces a structural
+question this section does not resolve:** every existing game (xG Grid, xG
+Path, xG Predict) plugs into a shared, scheduled `Round` created for every
+participant at once (`Core.Rounds`, ADR-0003); an xG Connect match is
+instead a pairwise, on-demand contest between exactly two specific players,
+created when a challenge is accepted or a random pairing forms, not on a
+schedule. Whether/how that fits the existing `Round`/`League`/leaderboard
+model, or needs a new first-class concept of its own, is flagged back to
+`architecture-document.md`/an ADR to resolve deliberately — not decided or
+assumed by any REQ below.
+
+**REQ-1401 – Friends list: send, accept, and decline friend requests**
+> As a player, I want to build a friends list by sending, accepting, or
+> declining friend requests, so I have a trusted pool of opponents I can
+> challenge directly in xG Connect (REQ-1402).
+
+**Status: Proposed — no code exists yet.**
+
+- Given two existing xG Arcade accounts, User A and User B, who are not
+  already friends and have no pending friend request between them
+- When User A sends User B a friend request
+- Then a pending friend request is created, visible to User B, and no
+  second, duplicate pending request may exist from User A to User B while
+  the first is still pending
+- Given User B has a pending friend request from User A
+- When User B accepts it
+- Then User A and User B become friends — a symmetric relationship; either
+  may challenge the other (REQ-1402) — the pending request is resolved, and
+  it no longer appears in either player's pending list
+- Given User B has a pending friend request from User A
+- When User B declines it instead
+- Then the request is resolved as declined, User A and User B do not
+  become friends, and User A may send User B a new friend request again
+  later — declining is not a permanent block
+- Given User A and User B are already friends, or already have a pending
+  request between them in either direction
+- When either attempts to send a new friend request to the other
+- Then the request is rejected — at most one pending request may exist
+  between any two users at a time, and an existing friendship makes a new
+  request redundant
+- Given a user attempts to send a friend request to themselves
+- When the request is submitted
+- Then it is rejected
+
+**Test level:** Unit/API — send/accept/decline each independently
+verifiable against persisted friendship/request state; duplicate-pending
+rejection in both directions; already-friends rejection; self-request
+rejection; a declined request does not block a later resend.
+
+**REQ-1402 – Direct challenge to a friend**
+> As a player, I want to challenge a specific friend to a game of xG
+> Connect, and have them accept or decline, so we can agree to play a
+> match on our own initiative rather than waiting for random matchmaking.
+
+**Status: Proposed — no code exists yet.**
+
+- Given User A and User B are friends (REQ-1401)
+- When User A sends User B a direct xG Connect challenge
+- Then a pending challenge is created, visible to User B, and no second,
+  duplicate pending challenge may exist from User A to User B while the
+  first is still pending
+- Given User B has a pending challenge from User A
+- When User B accepts it
+- Then the challenge resolves into a newly created active match between
+  User A and User B, and target-pick selection begins (REQ-1404)
+- Given User B has a pending challenge from User A
+- When User B declines it instead
+- Then the challenge is resolved as declined, no match is created, and
+  User A may send User B a new challenge again later
+- Given User A and User B are not friends
+- When User A attempts to send User B a direct challenge
+- Then the challenge is rejected — a direct challenge can only be sent to
+  an existing friend; an unrelated player must instead be reached via
+  random matchmaking (REQ-1403)
+
+**Test level:** Unit/API — challenge send/accept/decline; duplicate-pending
+rejection; non-friend rejection; the accepted-challenge-creates-a-match
+transition.
+
+**REQ-1403 – Random matchmaking with a 12-hour pairing window**
+> As a player, I want to opt into random matchmaking and be automatically
+> paired with another player who also opts in, so I can play xG Connect
+> without already knowing an opponent.
+
+**Status: Proposed — no code exists yet.**
+
+- Given User A opts into random matchmaking and no other unpaired opt-in
+  exists at that moment
+- When no second player opts in within the next 12 hours
+- Then User A's opt-in expires at the 12-hour mark, they are removed from
+  the matchmaking pool, and no match is created — they must opt in again
+  to be considered
+- Given User A opts into random matchmaking
+- When User B also opts into random matchmaking while User A's opt-in is
+  still within its 12-hour window
+- Then User A and User B are paired into a newly created active match
+  directly — opting in is itself the consent, so there is no separate
+  accept/decline step, unlike REQ-1402's direct-challenge flow — and both
+  are removed from the matchmaking pool, and target-pick selection begins
+  (REQ-1404)
+- Given three or more players have opted into random matchmaking with
+  overlapping windows
+- When a pairing is formed
+- Then no player is paired into more than one simultaneous match from this
+  pairing event, and every player not yet paired remains waiting in the
+  pool rather than being silently dropped
+
+**Test level:** Unit/API — pairing within the window; expiry with no
+pairing after 12 hours; no player double-booked into two matches from one
+pairing event.
+
+**REQ-1404 – Target-pick selection, including rejecting an
+already-directly-connected pair**
+> As a player in a newly created match, I want to independently select my
+> own target-pick player, so that once both players have picked, the
+> puzzle — the shortest played-together chain between the two target
+> picks — is fixed for both of us to race to solve.
+
+**Status: Proposed — no code exists yet.**
+
+- Given a match has just been created (via REQ-1402's accepted challenge or
+  REQ-1403's random pairing)
+- When either player selects a target-pick player
+- Then that selection is recorded for that player only — it is not visible
+  to, and does not constrain, the other player's own independent selection
+- Given a player has already selected a target pick for this match, and
+  the match has not yet officially started (the other player has not yet
+  also selected)
+- When that player selects a different target pick instead
+- Then their previous selection is replaced — freely resubmittable before
+  the match starts, mirroring REQ-1302/REQ-1306's existing
+  "freely-editable-before-lock" pattern; once the match has officially
+  started (REQ-1405), neither player's target pick can be changed for the
+  remainder of that match
+- Given both players have each selected a target-pick player
+- When the second of the two selections is submitted
+- Then the system checks whether the two target picks already share a
+  club with an overlapping time period — a direct, zero-connection puzzle
+- Given the two target picks are already directly connected this way
+- When that check runs
+- Then the second (completing) selection is rejected with a reason
+  indicating the pair is trivially already connected, that player is
+  prompted to pick a different target instead, the first player's own
+  selection is unaffected, and the match does not officially start until a
+  non-trivially-connected pair is in place
+- Given the two target picks are not already directly connected
+- When that check runs
+- Then both selections are accepted, the puzzle is fixed as "shortest
+  played-together chain linking these two specific target players," and
+  the match proceeds to REQ-1405
+
+**Test level:** Unit/API — independent, mutually invisible selections;
+free resubmission before both have picked; the direct-connection rejection
+check, including that the first player's pick survives a second player's
+rejected pick; the puzzle-fixing transition once a valid, non-trivial pair
+is in place.
+
+**REQ-1405 – Match start and 6-hour forfeit timer**
+> As a player, I want the match to officially start only once both target
+> picks are locked in, with a clear 6-hour deadline to finish, so both
+> players have a fair, equal-length window to race the same puzzle.
+
+**Status: Proposed — no code exists yet.**
+
+- Given both players have each selected a non-trivially-connected target
+  pick (REQ-1404)
+- When the second (later) selection is accepted
+- Then the match officially starts at that instant, a single shared
+  6-hour deadline is set for both players from that instant, and both
+  players may begin submitting chain connectors (REQ-1406)
+- Given a player has not reached a terminal state — a completed valid
+  chain (REQ-1408) or a bust (REQ-1407) — by the 6-hour deadline
+- When the deadline passes
+- Then that player automatically forfeits the match for timing out,
+  independent of the other player's own progress or terminal state
+- Given one player has already reached a terminal state before the
+  deadline and the other player has not
+- When the still-active player continues submitting connectors
+- Then they may keep playing normally up to their own 6-hour deadline,
+  unaffected by the other player's already-reached terminal state — the
+  match is not resolved (REQ-1409) until both players have reached a
+  terminal state or timed out
+- Given both players reach a terminal state before the 6-hour deadline
+- When the second of the two players reaches their terminal state
+- Then the match is fully resolved at that point (REQ-1409), without
+  waiting for the unused remainder of the 6-hour window
+
+**Test level:** Unit/API — the shared clock starts only once both picks
+are locked in; independent per-player timeout enforcement; match
+resolution waits for both terminal states but resolves immediately once
+both are reached, rather than always waiting out the full 6 hours.
+
+**REQ-1406 – Incremental connection submission and live validation**
+> As a player, I want to build my connection chain one step at a time,
+> with each step checked immediately against real career data, so I
+> always know right away whether my chain is still valid, rather than
+> finding out only at the end.
+
+**Status: Proposed — no code exists yet.**
+
+- Given an active match (REQ-1405) and a player building their chain,
+  starting from one of the two fixed target-pick players
+- When the player submits a candidate player name plus the specific club
+  they claim as the shared, overlapping-time-period club between that
+  candidate and the immediately preceding player in the chain (the
+  relevant target pick, for the first step)
+- Then the system checks, against real, verifiable career data, whether
+  the candidate genuinely played for the claimed club during a period
+  that overlaps with the preceding chain player's own time at that same
+  club
+- Given that check succeeds
+- When the step is accepted
+- Then the candidate is appended to the player's chain as its next link,
+  and the player may submit the next step, or close the chain (see below)
+- Given the submitted candidate closes the chain — i.e. the candidate
+  itself has a valid, overlapping-time shared-club connection to the
+  OTHER target player, not the one the chain started from
+- When that closing step is validated successfully
+- Then the player's chain is complete, no further steps may be submitted
+  by that player for this match, and REQ-1408 (scoring) applies to them
+- Given a player is searching for a candidate name while building a step
+- When they type a partial name
+- Then suggested candidates are drawn from the platform's existing broad
+  player-name search, which is not restricted to the curated club/country
+  reference tables (REQ-109) — a real player from any club or league can
+  be searched for and, if their career data supports it, submitted as a
+  step — and, mirroring this platform's existing autocomplete/correctness
+  separation (REQ-207), a name appearing in that search is never itself
+  confirmation that the step will validate successfully
+- And each step is validated live, at submission time — never deferred to
+  a later batch check, and never pre-computed as part of match setup
+- **Note — deliberately distinct from REQ-113:** REQ-113's "club
+  membership means ever played for, at any career point" governs xG
+  Grid's/xG Path's own club-cell correctness and does not apply here;
+  xG Connect's "teammate" relation is intentionally stricter — it requires
+  an *overlapping time period* at the shared club, not merely that both
+  players were on the books at some point. This REQ introduces that
+  stricter relation as its own rule, rather than reusing or changing
+  REQ-113.
+
+**Test level:** Unit/API — a valid overlapping-time step is accepted and
+appended; a claim where the candidate played for the club but in a
+non-overlapping period is rejected; a claim naming a club the candidate
+never played for is rejected; a closing step is correctly detected against
+the OTHER target player, never the one the chain started from; candidate
+search returns players outside the curated reference tables.
+
+**REQ-1407 – Two-strikes-per-step penalty and bust rule**
+> As a player, I want one retry at any step I get wrong, with a small
+> score penalty rather than an instant loss, but to be knocked out of the
+> match if I fail that same step twice in a row, so mistakes are
+> forgiving once but not indefinitely.
+
+**Status: Proposed — no code exists yet.**
+
+- Given a player submits a step (REQ-1406) that fails validation
+- When that failure is the first failure at this position in the chain
+- Then the player's running penalty total for this match increases by 1,
+  and the player is allowed exactly one retry at that same position (the
+  same preceding chain player, a fresh candidate/club submission)
+- Given a player's retry at the same position also fails validation
+- When that second, consecutive failure at the same position occurs
+- Then the player immediately busts — their participation in this match
+  ends in a forfeit, they have no valid score for this match (REQ-1408),
+  and no further steps may be submitted by that player
+- Given a player fails a step, retries, and the retry succeeds
+- When the retry is accepted
+- Then the chain proceeds normally with the retried candidate as that
+  step's link, the +1 penalty already incurred from the first failure
+  remains counted toward that player's eventual final score, and the
+  two-strikes count for that position resets — it is not carried forward
+  to any other position
+- Given a player has already failed and successfully retried at one
+  position
+- When they later fail a step at a different position in the chain
+- Then that later position gets its own independent first failure (+1
+  penalty, one retry allowed) — failures at different positions are never
+  combined into a single, shared two-strikes count
+
+**Test level:** Unit — first failure adds +1 penalty and allows a retry;
+second consecutive failure at the same position busts the player; a
+successful retry keeps the earlier penalty but resets that position's own
+strike count; failures at different positions are tracked independently.
+
+**REQ-1408 – Scoring: connection count plus accumulated penalties**
+> As a player who completes a valid chain, I want my score to reflect both
+> how short my chain was and how many mistakes I made getting there, so a
+> clean, short solution always beats a longer or messier one.
+
+**Status: Proposed — no code exists yet.**
+
+- Given a player completes a valid, end-to-end chain (REQ-1406) connecting
+  both target picks
+- When their final score is calculated
+- Then it equals the number of connector players used in the final chain
+  plus the total +1 penalties accumulated from failed first-attempt steps
+  during that match (REQ-1407) — a successful retry itself adds nothing
+  beyond the penalty already counted for the failure it followed
+- Given a player's final chain uses exactly one connector who directly
+  links both target picks, with no failed steps along the way
+- When their score is calculated
+- Then their score is 1 — the lowest possible score for a completed chain
+- Given a player busts (REQ-1407) or times out (REQ-1405) without
+  completing a valid chain
+- When match resolution runs (REQ-1409)
+- Then that player has no valid score for this match — only a completed
+  chain produces a comparable score
+
+**Test level:** Unit — score equals connector count plus penalty count for
+a completed chain; the 1-connector, zero-penalty minimum case; a
+busted/timed-out player has no valid score.
+
+**REQ-1409 – Match resolution: win, draw, and forfeit outcomes**
+> As a player, I want the match's winner to be decided fairly once both of
+> us have finished, timed out, or been knocked out, so the outcome always
+> reflects a clear, documented rule rather than being ambiguous.
+
+**Status: Proposed — no code exists yet.**
+
+- Given both players complete a valid chain (REQ-1408) before the 6-hour
+  deadline
+- When both final scores are known
+- Then the player with the strictly lower score wins the match, and the
+  other player loses
+- Given both players complete a valid chain with the exact same final
+  score
+- When both final scores are known
+- Then the match is a draw
+- Given one player completes a valid chain and the other player forfeits
+  (via a bust, REQ-1407, or a timeout, REQ-1405)
+- When both players have reached a terminal state
+- Then the completing player wins the match regardless of their own
+  score's absolute value — there is no minimum score threshold required to
+  win by forfeit
+- Given both players forfeit — both bust, both time out, or one busts
+  while the other times out
+- When both players have reached a terminal state
+- Then the match is a draw
+- Given a player forfeits this match
+- When match resolution runs
+- Then that player receives no consequence beyond having no valid score
+  for this match and, where applicable, losing or drawing the match
+  itself — there is no additional penalty carried into any future match
+
+**Test level:** Unit — lower-score win; equal-score draw;
+one-completes-one-forfeits win; both-forfeit draw; no additional penalty
+beyond the match outcome itself.
+
+**REQ-1410 – In-match text chat**
+> As a player in an active match, I want to chat with my opponent, so we
+> can talk trash, celebrate, or just chat while playing asynchronously.
+
+**Status: Proposed — no code exists yet.**
+
+- Given an active xG Connect match between two players (REQ-1405)
+- When either player sends a chat message
+- Then the message is visible to both participants in that match's chat,
+  scoped to that match only — a message sent in one match is never
+  visible in any other match, including a different match between the
+  same two players
+- Given a match has reached a terminal state for both players (REQ-1409)
+- When either player views the match afterward
+- Then the chat history for that match remains visible/readable — an
+  ended match's chat is not deleted or hidden as a side effect of the
+  match ending
+- Given a user who is not one of the two players in a match
+- When they attempt to view or send a message in that match's chat
+- Then the request is rejected — match chat is visible only to that
+  match's two participants
+
+**Test level:** API — a message sent by a participant is visible to the
+other participant in the same match only; a non-participant cannot read or
+send messages; chat remains readable after the match ends.
+
+---
+
 ## 5. Decisions made as sensible technical defaults
 
 The following were open questions in earlier drafts. They're implementation
@@ -11115,3 +11516,39 @@ instead — REQ-1306 (new), an explicit, player-initiated "confirm and lock
 my predictions" action with a destructive-action-style confirmation
 prompt, giving the player a clear sense of finishing without any
 celebration implying a result that isn't known yet.
+
+**New (2026-09-02), unresolved, from §4.15's xG Connect design draft:**
+REQ-1404/1405 fix the match-start instant as "the moment the later of the
+two target-pick selections is accepted," and REQ-1405's 6-hour forfeit
+clock only begins at that instant — but nothing in the settled design
+bounds how long a match may sit with a challenge accepted (or a random
+pairing formed) while one or both players simply never make their
+target-pick selection at all. Unlike REQ-1405's own timer, which the
+product owner explicitly set at 6 hours, no equivalent number — or any
+decision that one is even needed — was given for this earlier,
+pre-selection stage. This is a genuine product decision, not a technical
+default this document can safely fill in: it trades off two real
+failure modes (an abandoned match lingering indefinitely and cluttering a
+player's match list vs. an arbitrary timeout choice that could
+prematurely cancel a match one player fully intends to still pick a
+target for). No REQ above assumes either answer. Recorded here pending a
+product decision on whether pre-selection has its own expiry and, if so,
+its length and what happens to the match/challenge/pairing when it lapses.
+
+**New (2026-09-02), unresolved, from §4.15's xG Connect design draft:**
+every existing game's `Round`/`League`/leaderboard machinery (REQ-401-411)
+assumes a shared `Round` generated for every participant at once and
+scored by a single `IScoringStrategy` (`Core.Scoring`); xG Connect's match
+is instead a pairwise, on-demand contest between exactly two specific
+players with its own win/draw/forfeit outcome (REQ-1409), not a
+`FinalPoints`-per-cell total in the existing shape. Whether xG Connect
+match results should feed into the Global League / any custom league's
+leaderboard at all, and if so how a win/draw/loss (rather than a points
+total) should be represented there, was not addressed in the product
+owner's design conversation and is not decided by any REQ in §4.15. This
+is a genuine product decision — not resolvable as a technical default,
+since it changes what a "leaderboard" means for this specific game — and
+is flagged here rather than assumed. Distinct from, but related to, the
+architecture-level "does xG Connect even fit the `Round` model" question
+§4.15's own opening note already flags back to `architecture-document.md`;
+this entry is the product-facing half of that same gap.
