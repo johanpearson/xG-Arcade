@@ -210,6 +210,20 @@ public static class ServiceRegistration
         // RoundSchedulingOptions; see that type's own doc comment). Default
         // MatchCount (5, REQ-1301) is fine as-is, no override needed here.
         builder.Services.AddSingleton(new PredictGenerationOptions());
+        // Core.Social (COMP-16)/ADR-0103, S-208: REQ-1401-1403's friends/
+        // challenge/matchmaking persistence. Arcade-level, registered
+        // alongside Core.Users/Core.Leagues repositories, not behind
+        // IGameModule — see ADR-0103 for the component-split reasoning.
+        // No IGameModule registration for xG Connect yet (this story is
+        // schema + CRUD only, no game logic).
+        builder.Services.AddScoped<IFriendRepository, FriendRepository>();
+        builder.Services.AddScoped<IChallengeRepository, ChallengeRepository>();
+        builder.Services.AddScoped<IMatchmakingOptInRepository, MatchmakingOptInRepository>();
+        // Games.XGConnect (COMP-17)/ADR-0103, S-208: REQ-1404-1407/1410's
+        // match/target-pick/chain-step/chat persistence.
+        builder.Services.AddScoped<IConnectMatchRepository, ConnectMatchRepository>();
+        builder.Services.AddScoped<IConnectChatMessageRepository, ConnectChatMessageRepository>();
+
         builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
         // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
         // Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here

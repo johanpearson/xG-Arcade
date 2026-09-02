@@ -94,6 +94,25 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // PlayerSuggestion already sets for a different concern.
     public DbSet<AvatarSubmission> AvatarSubmissions => Set<AvatarSubmission>();
 
+    // Core.Social (COMP-16)/ADR-0103 — REQ-1401-1403's friends/challenge/
+    // matchmaking rows. Arcade-level, alongside Core.Users/Core.Leagues
+    // above, not behind IGameModule — see ADR-0103 for the full component-
+    // split reasoning. S-208 (this story) scaffolds schema + repository
+    // CRUD only; no accept/decline/duplicate-request business logic yet.
+    public DbSet<FriendRequest> FriendRequests => Set<FriendRequest>();
+    public DbSet<Friendship> Friendships => Set<Friendship>();
+    public DbSet<Challenge> Challenges => Set<Challenge>();
+    public DbSet<MatchmakingOptIn> MatchmakingOptIns => Set<MatchmakingOptIn>();
+
+    // Games.XGConnect (COMP-17)/ADR-0103 — REQ-1404-1407/1410's match/
+    // target-pick/chain-step/chat rows. ConnectMatch is a new first-class
+    // concept, never a Round/GameKey/GameInstanceId (ADR-0103 §b) — Core.
+    // Rounds/Core.Scoring/Core.Leagues are untouched by this story.
+    public DbSet<ConnectMatch> ConnectMatches => Set<ConnectMatch>();
+    public DbSet<ConnectTargetPick> ConnectTargetPicks => Set<ConnectTargetPick>();
+    public DbSet<ConnectChainStep> ConnectChainSteps => Set<ConnectChainStep>();
+    public DbSet<ConnectChatMessage> ConnectChatMessages => Set<ConnectChatMessage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Dedup identity for players fetched across multiple intersection
@@ -495,5 +514,161 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // player.
         modelBuilder.Entity<AvatarSubmission>()
             .HasIndex(a => new { a.SubmittingUserId, a.Status });
+
+        // Core.Social (COMP-16)/ADR-0103/REQ-1401: RequesterUserId/
+        // RecipientUserId both get a real FK to User, cascade — a pure
+        // relationship/flag row, same precedent as LeagueMembership.UserId
+        // above, not Guess.UserId's anonymize-in-place shape (see
+        // FriendRequest's own doc comment).
+        modelBuilder.Entity<FriendRequest>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(fr => fr.RequesterUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<FriendRequest>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(fr => fr.RecipientUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // S-209's two lookup directions: "requests I sent to this
+        // recipient" and "requests pending for me."
+        modelBuilder.Entity<FriendRequest>()
+            .HasIndex(fr => new { fr.RequesterUserId, fr.RecipientUserId });
+        modelBuilder.Entity<FriendRequest>()
+            .HasIndex(fr => fr.RecipientUserId);
+
+        // REQ-1401: UserAId/UserBId both get a real FK to User, cascade —
+        // same reasoning as FriendRequest above. Postgres allows two
+        // separate cascade FKs to the same table on one row (unlike SQL
+        // Server's multi-cascade-path restriction).
+        modelBuilder.Entity<Friendship>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(f => f.UserAId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Friendship>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(f => f.UserBId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1401: at most one Friendship row per pair — relies on
+        // IFriendRepository.AddFriendshipAsync's order-normalization
+        // (lower Guid value as UserAId) to actually prevent a duplicate
+        // pair in the opposite order; see Friendship's own doc comment.
+        modelBuilder.Entity<Friendship>()
+            .HasIndex(f => new { f.UserAId, f.UserBId })
+            .IsUnique();
+
+        // Core.Social (COMP-16)/ADR-0103/REQ-1402: same "pure relationship/
+        // flag row" FK reasoning as FriendRequest above.
+        modelBuilder.Entity<Challenge>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(c => c.ChallengerUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Challenge>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(c => c.ChallengedUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // S-210's two lookup directions, mirrors FriendRequest's own index
+        // shape above.
+        modelBuilder.Entity<Challenge>()
+            .HasIndex(c => new { c.ChallengerUserId, c.ChallengedUserId });
+        modelBuilder.Entity<Challenge>()
+            .HasIndex(c => c.ChallengedUserId);
+
+        // Note: Challenge.ResultingMatchId is deliberately NOT configured
+        // with HasForeignKey/navigation here — see that property's own doc
+        // comment (mirrors Round.GameInstanceId's ADR-0003 FK omission,
+        // required by ADR-0103's "never a direct project reference" rule
+        // for Core.Social -> Games.XGConnect).
+
+        // Core.Social (COMP-16)/ADR-0103/REQ-1403: same "pure flag row" FK
+        // reasoning as FriendRequest/Challenge above.
+        modelBuilder.Entity<MatchmakingOptIn>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(m => m.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // The future sweep job's hot path: every Waiting row whose
+        // ExpiresAt has passed.
+        modelBuilder.Entity<MatchmakingOptIn>()
+            .HasIndex(m => new { m.Status, m.ExpiresAt });
+
+        // Note: MatchmakingOptIn.ResultingMatchId is deliberately NOT
+        // configured with HasForeignKey/navigation here — same reasoning as
+        // Challenge.ResultingMatchId above.
+
+        // Games.XGConnect (COMP-17)/ADR-0103/REQ-1404/1405: ConnectMatch's
+        // own referencing entities. No FK from Core.Social into
+        // ConnectMatch (see Challenge/MatchmakingOptIn.ResultingMatchId
+        // above) — these three FKs are all COMP-17-internal, no boundary
+        // concern (ADR-0103's boundary is specifically about Core.Social
+        // never holding a direct reference into Games.XGConnect internals).
+        //
+        // PlayerAUserId/PlayerBUserId deliberately have NO FK to User —
+        // see ConnectMatch's own doc comment for the anonymize-in-place
+        // (REQ-710/ADR-0101 purge) reasoning shared by every UserId-shaped
+        // column on this and the three entities below.
+        modelBuilder.Entity<ConnectTargetPick>()
+            .HasOne<ConnectMatch>()
+            .WithMany()
+            .HasForeignKey(ctp => ctp.ConnectMatchId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // TargetPlayerId crosses into Player's table (COMP-06) — a
+        // meaningful FK, mirrors PathPuzzle.TargetPlayerId's own precedent
+        // (different boundary than ADR-0003's Core/game FK omission).
+        modelBuilder.Entity<ConnectTargetPick>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(ctp => ctp.TargetPlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1404/1405: at most one ConnectTargetPick row per (match,
+        // user) — a resubmission overwrites this row, never inserts a
+        // second one, same precedent as PredictMatchPrediction's own
+        // (PredictMatchId, UserId) unique index above.
+        modelBuilder.Entity<ConnectTargetPick>()
+            .HasIndex(ctp => new { ctp.ConnectMatchId, ctp.UserId })
+            .IsUnique();
+
+        modelBuilder.Entity<ConnectChainStep>()
+            .HasOne<ConnectMatch>()
+            .WithMany()
+            .HasForeignKey(ccs => ccs.ConnectMatchId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // CandidatePlayerId crosses into Player's table (COMP-06) — same
+        // meaningful-FK reasoning as ConnectTargetPick.TargetPlayerId
+        // above.
+        modelBuilder.Entity<ConnectChainStep>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(ccs => ccs.CandidatePlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // A future chain-reconstruction read's natural shape — deliberately
+        // NOT unique (see ConnectChainStep's own doc comment: a failed
+        // first attempt and a successful retry at the same position are
+        // both legitimate, distinct rows).
+        modelBuilder.Entity<ConnectChainStep>()
+            .HasIndex(ccs => new { ccs.ConnectMatchId, ccs.UserId, ccs.Position, ccs.AttemptNumber });
+
+        modelBuilder.Entity<ConnectChatMessage>()
+            .HasOne<ConnectMatch>()
+            .WithMany()
+            .HasForeignKey(ccm => ccm.ConnectMatchId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1410: the only read shape this table needs — chronological
+        // per-match read.
+        modelBuilder.Entity<ConnectChatMessage>()
+            .HasIndex(ccm => new { ccm.ConnectMatchId, ccm.SentAt });
     }
 }
