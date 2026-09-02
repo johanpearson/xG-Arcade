@@ -45,7 +45,7 @@ public class XGPredictGameModuleTests
         _repository = new PredictInstanceRepository(_dbContext);
         _footballDataClient = new FakeFootballDataClient();
         _timeProvider = new ManualTimeProvider(Now);
-        _module = new XGPredictGameModule(_repository, _footballDataClient, _timeProvider);
+        _module = new XGPredictGameModule(_repository, _footballDataClient, new PredictGradingOptions(), _timeProvider);
     }
 
     [TearDown]
@@ -84,7 +84,10 @@ public class XGPredictGameModuleTests
 
         var result = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
-        var instance = await _repository.GetInstanceByIdAsync(result.Id);
+        // ADR-0102: a first-ever round (no LatestGameInstanceId configured
+        // above) must never return null.
+        Assert.That(result, Is.Not.Null);
+        var instance = await _repository.GetInstanceByIdAsync(result!.Id);
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Matches, Has.Count.EqualTo(5));
         var selectedFixtureIds = instance.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
@@ -108,7 +111,8 @@ public class XGPredictGameModuleTests
 
         var result = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
 
-        var instance = await _repository.GetInstanceByIdAsync(result.Id);
+        Assert.That(result, Is.Not.Null, "a first-ever round must never return null (ADR-0102)");
+        var instance = await _repository.GetInstanceByIdAsync(result!.Id);
         var selectedFixtureIds = instance!.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
         Assert.That(selectedFixtureIds, Is.EqualTo(new[] { 1, 2 }),
             "on a span tie, the first-occurring window (earliest kickoffs) must win");
@@ -149,12 +153,19 @@ public class XGPredictGameModuleTests
 
         _footballDataClient.Fixtures = fixtures;
         var firstResult = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
-        var firstInstance = await _repository.GetInstanceByIdAsync(firstResult.Id);
+        Assert.That(firstResult, Is.Not.Null, "a first-ever round must never return null (ADR-0102)");
+        var firstInstance = await _repository.GetInstanceByIdAsync(firstResult!.Id);
         var firstSelection = firstInstance!.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
 
+        // Neither call configures RoundConfig.LatestGameInstanceId, so
+        // ADR-0102's dedup check never runs here — each call is treated as
+        // independent "first-ever round" generation, unaffected by the
+        // other. (REQ1301_GenerateInstanceAsync_LatestInstanceHasIdenticalFixtureSet_ReturnsNull
+        // below is where the dedup path itself is covered.)
         _footballDataClient.Fixtures = fixtures; // same list again
         var secondResult = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
-        var secondInstance = await _repository.GetInstanceByIdAsync(secondResult.Id);
+        Assert.That(secondResult, Is.Not.Null);
+        var secondInstance = await _repository.GetInstanceByIdAsync(secondResult!.Id);
         var secondSelection = secondInstance!.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
 
         Assert.That(secondSelection, Is.EqualTo(firstSelection));
@@ -165,6 +176,84 @@ public class XGPredictGameModuleTests
     {
         Assert.ThrowsAsync<PredictGenerationException>(
             () => _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() }));
+    }
+
+    // ---- ADR-0102: matchday-tracked generation (S-204) -----------------
+    //
+    // RoundGenerationService chains rounds by elapsed time, agnostic to
+    // real fixture timing — these tests prove GenerateInstanceAsync's own
+    // fixture-ID-set dedup against config.LatestGameInstanceId is what
+    // actually keeps a midweek matchday from being silently skipped or
+    // duplicated (see ADR-0102's worked examples for the full reasoning;
+    // that dedup decision is made independently of Round.StartTime/EndTime,
+    // which is why these tests exercise XGPredictGameModule directly rather
+    // than going through RoundGenerationService).
+
+    [Test]
+    public async Task REQ1301_GenerateInstanceAsync_MidweekMatchdayFollowsWeekendMatchday_NeitherSkippedNorDuplicated()
+    {
+        var template = await AddTemplateAsync(matchCount: 5);
+        // Gameweek 1: Saturday block. Gameweek 2: the following Tuesday —
+        // a real, routine midweek spacing (cup replays/European weeks),
+        // deliberately NOT 7 days after gameweek 1.
+        var saturday = new DateTime(2026, 9, 5, 15, 0, 0, DateTimeKind.Utc);
+        var tuesday = new DateTime(2026, 9, 8, 19, 0, 0, DateTimeKind.Utc);
+        var gameweekOneFixtures = Enumerable.Range(1, 5).Select(i => Fixture(i, saturday.AddMinutes(i * 5))).ToList();
+        var gameweekTwoFixtures = Enumerable.Range(11, 5).Select(i => Fixture(i, tuesday.AddMinutes((i - 10) * 5))).ToList();
+
+        // Call 1: no LatestGameInstanceId (first-ever round) — must pick up
+        // gameweek 1 and never return null.
+        _footballDataClient.Fixtures = gameweekOneFixtures;
+        var firstResult = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        Assert.That(firstResult, Is.Not.Null, "a first-ever round must never return null (ADR-0102)");
+
+        // Call 2: LatestGameInstanceId now points at gameweek 1's instance,
+        // but the fake client has already moved on to gameweek 2's fixtures
+        // (still fully future, same as GetUpcomingGameweekFixturesAsync's
+        // real contract) — this must produce a genuinely NEW instance, not
+        // null, proving the midweek round is not silently dropped.
+        _timeProvider.Advance(TimeSpan.FromDays(2));
+        _footballDataClient.Fixtures = gameweekTwoFixtures;
+        var secondResult = await _module.GenerateInstanceAsync(
+            new RoundConfig { TemplateId = template.Id, LatestGameInstanceId = firstResult!.Id });
+        Assert.That(secondResult, Is.Not.Null, "a genuinely new (midweek) matchday must not be dropped");
+        Assert.That(secondResult!.Id, Is.Not.EqualTo(firstResult.Id));
+        var secondInstance = await _repository.GetInstanceByIdAsync(secondResult.Id);
+        var secondFixtureIds = secondInstance!.Matches.Select(m => m.ExternalFixtureId).OrderBy(id => id).ToList();
+        Assert.That(secondFixtureIds, Is.EqualTo(new[] { 11, 12, 13, 14, 15 }));
+
+        // Call 3: LatestGameInstanceId now points at gameweek 2's instance,
+        // fixtures unchanged ("next upcoming matchday" hasn't changed) —
+        // must return null, proving no duplicate is created for the same
+        // matchday on a repeat call.
+        _timeProvider.Advance(TimeSpan.FromHours(6));
+        var thirdResult = await _module.GenerateInstanceAsync(
+            new RoundConfig { TemplateId = template.Id, LatestGameInstanceId = secondResult.Id });
+        Assert.That(thirdResult, Is.Null, "the same matchday must not be duplicated on a repeat call");
+    }
+
+    [Test]
+    public async Task REQ1301_GenerateInstanceAsync_LatestInstanceHasIdenticalFixtureSet_ReturnsNull_RegardlessOfElapsedTime()
+    {
+        var template = await AddTemplateAsync(matchCount: 5);
+        var baseTime = new DateTime(2026, 9, 5, 15, 0, 0, DateTimeKind.Utc);
+        var fixtures = Enumerable.Range(1, 5).Select(i => Fixture(i, baseTime.AddMinutes(i * 5))).ToList();
+
+        _footballDataClient.Fixtures = fixtures;
+        var firstResult = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        Assert.That(firstResult, Is.Not.Null);
+
+        // A large amount of simulated time passes (well beyond any
+        // plausible RoundDuration), but the fake client's "next upcoming
+        // matchday" is still the exact same fixture set — this must still
+        // return null. Proves the ordinary weekly cadence doesn't
+        // over-generate regardless of how RoundDuration and real fixture
+        // timing happen to line up.
+        _timeProvider.Advance(TimeSpan.FromDays(30));
+        var result = await _module.GenerateInstanceAsync(
+            new RoundConfig { TemplateId = template.Id, LatestGameInstanceId = firstResult!.Id });
+
+        Assert.That(result, Is.Null);
     }
 
     // ---- REQ-1302: prediction submission ------------------------------

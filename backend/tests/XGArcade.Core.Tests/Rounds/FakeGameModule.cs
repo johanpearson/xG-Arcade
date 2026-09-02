@@ -14,10 +14,17 @@ internal class FakeGameModule(string gameKey) : IGameModule
 
     public int GenerateInstanceAsyncCallCount { get; private set; }
 
-    public Func<RoundConfig, GameInstance> GenerateInstanceResult { get; set; } =
+    // ADR-0102: nullable return, matching IGameModule.GenerateInstanceAsync's
+    // own signature. Defaults to a non-null instance — the vast majority of
+    // existing tests using this fake predate ADR-0102 and never exercise the
+    // null ("no new round due") branch; a test proving that branch sets this
+    // to a delegate returning null explicitly (see
+    // RoundGenerationServiceTests' GenerateNextRoundIfNeeded_GameModuleReturnsNull_*
+    // cases).
+    public Func<RoundConfig, GameInstance?> GenerateInstanceResult { get; set; } =
         _ => new GameInstance { Id = Guid.NewGuid() };
 
-    public Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
+    public Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
         GenerateInstanceAsyncCallCount++;
         return Task.FromResult(GenerateInstanceResult(config));

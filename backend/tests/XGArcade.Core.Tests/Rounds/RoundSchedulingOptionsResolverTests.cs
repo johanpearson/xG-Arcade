@@ -48,6 +48,15 @@ public class RoundSchedulingOptionsResolverTests
     // matching still discriminates correctly once a third registration
     // exists, same shape as REQ1202_Resolve_ResolvesEachGameKeysOwnRoundDuration_IndependentlyOfTheOther
     // above.
+    //
+    // ADR-0102 (S-204): "xg-predict"'s RoundDuration is now a dead fallback
+    // for actual round-generation timing — XGPredictGameModule always
+    // supplies its own SuggestedStartTime/SuggestedEndTime, which
+    // RoundGenerationService prefers over chain-math unconditionally. This
+    // test is unaffected and still asserts something real: the resolver
+    // itself must still resolve "xg-predict" correctly (registration
+    // completeness/type-safety), regardless of whether RoundGenerationService
+    // ends up reading the resolved value for that GameKey.
     [Test]
     public void REQ1301_Resolve_ResolvesEachOfThreeGameKeysOwnRoundDuration_IndependentlyOfTheOthers()
     {

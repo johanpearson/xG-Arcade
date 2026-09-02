@@ -652,12 +652,13 @@ public class RoundEndpointTests
     // too, end-to-end through the real endpoint -----------------------------
 
     [Test]
-    public async Task REQ1301_GenerateRound_Post_WithGameKeyXgPredict_GeneratesAnXgPredictRound_UsingItsOwnConfiguredRoundDuration()
+    public async Task REQ1301_GenerateRound_Post_WithGameKeyXgPredict_GeneratesAnXgPredictRound_UsingRealFixtureTiming()
     {
         // Mirrors REQ1202_GenerateRound_Post_WithGameKeyXgPath_... above: a
         // dedicated layered factory adds xg-predict's own
         // RoundSchedulingOptions (30h, deliberately distinct from SetUp's
-        // xg-grid 72h), a FakeFootballDataClient standing in for the real
+        // xg-grid 72h — see below for why this value is now a DEAD FALLBACK
+        // per ADR-0102), a FakeFootballDataClient standing in for the real
         // HTTP client (XGPredictGameModule.GenerateInstanceAsync's fixture
         // source, REQ-1301) so no real football-data.org egress happens, and
         // PredictGenerationOptions.MatchCount=5 with exactly 5 fake
@@ -667,6 +668,18 @@ public class RoundEndpointTests
         // PredictTemplateResolver — not just the unit-level proof in
         // PredictTemplateResolverTests, but the real endpoint, real DI
         // graph, and a real XGPredictGameModule.GenerateInstanceAsync run.
+        //
+        // ADR-0102 (S-204): the 30h RoundSchedulingOptions registered below
+        // is now inert for xg-predict's actual round timing — the module
+        // always supplies SuggestedStartTime/SuggestedEndTime (real fixture
+        // kickoff timing), which RoundGenerationService prefers over
+        // chain-math (startTime + RoundDuration) unconditionally. It's kept
+        // registered anyway since RoundSchedulingOptionsResolver.Resolve is
+        // called unconditionally for every GameKey. This test now asserts
+        // StartTime/EndTime land near "now"/the last fixture's own kickoff
+        // instead.
+        var beforeGeneration = DateTime.UtcNow;
+        var latestKickoff = DateTime.UtcNow.AddDays(7).AddMinutes(4);
         var fakeFootballDataClient = new FakeFootballDataClient
         {
             Fixtures = Enumerable.Range(0, 5)
@@ -700,13 +713,18 @@ public class RoundEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
 
         var response = await client.PostAsync("/internal/generate-round?gameKey=xg-predict", content: null);
+        var afterGeneration = DateTime.UtcNow;
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.GameKey, Is.EqualTo(XGPredictGameModule.XGPredictGameKey));
-        Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(30)),
-            "must use xg-predict's own configured RoundDuration (30h), never xg-grid's (72h, per this class's SetUp)");
+        Assert.That(body.StartTime, Is.InRange(beforeGeneration, afterGeneration),
+            "ADR-0102: StartTime = 'now' at generation time, never chain-math off a predecessor round");
+        Assert.That(body.EndTime, Is.EqualTo(latestKickoff + new PredictGradingOptions().TypicalMatchDuration).Within(TimeSpan.FromSeconds(1)),
+            "ADR-0102: EndTime anchors to the last selected match's own kickoff plus TypicalMatchDuration, never the configured RoundDuration (30h)");
+        Assert.That(body.EndTime - body.StartTime, Is.Not.EqualTo(TimeSpan.FromHours(30)),
+            "the dead-fallback RoundDuration (30h) must never be what actually produced this round's timing");
 
         using var scope = xgPredictFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
