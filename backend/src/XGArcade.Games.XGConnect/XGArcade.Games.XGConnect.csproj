@@ -12,6 +12,11 @@
          precedent as Games.XGPath's/Games.XGPredict's own reference to
          XGArcade.Data. -->
     <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- S-211/REQ-1404: IPlayerCareerOverlapService's own direct Wikidata
+         career-stint fetch (IWikidataClient.QueryPlayerCareerStintsByQidsAsync)
+         — same precedent as Games.XGPath's existing reference to this
+         project (ADR-0054). -->
+    <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

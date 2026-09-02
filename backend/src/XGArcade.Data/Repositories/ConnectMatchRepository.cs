@@ -66,6 +66,23 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
         return chainStep;
     }
 
+    // REQ-1404/S-211: load-then-save (coding-guidelines.md — never
+    // ExecuteUpdateAsync), tracked (not AsNoTracking) since every row this
+    // matchId resolves to is mutated in place. See IConnectMatchRepository's
+    // own doc comment for why this is whole-match-scoped rather than
+    // per-pick-id.
+    public async Task LockTargetPicksForMatchAsync(Guid matchId, CancellationToken cancellationToken = default)
+    {
+        var picks = await dbContext.ConnectTargetPicks
+            .Where(p => p.ConnectMatchId == matchId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var pick in picks)
+            pick.IsLocked = true;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(
         Guid matchId, Guid? userId, CancellationToken cancellationToken = default) =>
         await dbContext.ConnectChainSteps

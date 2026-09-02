@@ -32,6 +32,23 @@ public interface IConnectMatchRepository
 
     Task<IReadOnlyList<ConnectTargetPick>> GetTargetPicksForMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
 
+    // REQ-1404/S-211: flips IsLocked to true on EVERY ConnectTargetPick row
+    // for this match (both participants' picks) in one call — the "fixed,
+    // puzzle decided" transition that fires once the second (completing)
+    // selection is confirmed as NOT trivially already connected (see
+    // ConnectTargetPickService.SubmitTargetPickAsync). Deliberately whole-
+    // match-scoped rather than per-pick-id: by the time this is ever called,
+    // exactly two ConnectTargetPick rows exist for this match (the caller's
+    // just-stored pick and the other participant's already-existing one),
+    // and both must lock together — there is no valid state where only one
+    // of the two should end up locked. Load-then-SaveChangesAsync
+    // (coding-guidelines.md), never ExecuteUpdateAsync. Does NOT touch
+    // ConnectMatch.Status/StartedAt/DeadlineUtc — that's S-212's own
+    // separate match-start/timer transition, which detects "both target
+    // picks locked" via GetTargetPicksForMatchAsync rather than being
+    // triggered from here.
+    Task LockTargetPicksForMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
+
     Task<ConnectChainStep> AddChainStepAsync(ConnectChainStep chainStep, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(

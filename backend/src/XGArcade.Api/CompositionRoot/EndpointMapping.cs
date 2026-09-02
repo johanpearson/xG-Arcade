@@ -3,6 +3,7 @@ using XGArcade.Api.Admin;
 using XGArcade.Api.Announcements;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Avatars;
+using XGArcade.Api.Connect;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Incidents;
@@ -144,5 +145,13 @@ public static class EndpointMapping
         // (MapInternalMatchmakingSweepEndpoints above), never from this
         // player-triggered endpoint.
         app.MapMatchmakingEndpoints();
+        // REQ-1404/S-211/ADR-0103: Games.XGConnect (COMP-17)'s own
+        // target-pick selection surface — its own file/registration, same
+        // per-feature split as MapFriendEndpoints/MapChallengeEndpoints
+        // above. Unlike those two, this lives in Games.XGConnect's own
+        // service (IConnectTargetPickService), not Core.Social, since
+        // target-pick selection is entirely COMP-17-internal state
+        // (ConnectTargetPick), never orchestrated against Core.Social.
+        app.MapConnectMatchEndpoints();
     }
 }

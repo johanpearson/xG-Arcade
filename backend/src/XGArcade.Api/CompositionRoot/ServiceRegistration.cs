@@ -251,6 +251,19 @@ public static class ServiceRegistration
         // Connect never uses Core.Rounds/Core.Scoring's Guess-based
         // submission path (see XGConnectGameModule's own doc comment).
         builder.Services.AddScoped<IGameModule, XGConnectGameModule>();
+        // REQ-1404/S-211: the shared career-overlap check
+        // (IPlayerCareerOverlapService) is registered independently of
+        // IConnectTargetPickService below — no facade, same "independently
+        // registered" convention IPlayerCareerStintRefreshService/
+        // IPathEligibilityService already establish for Games.XGPath's own
+        // services. S-213's chain-step validation will inject this same
+        // registration, not a second copy.
+        builder.Services.AddScoped<IPlayerCareerOverlapService, PlayerCareerOverlapService>();
+        // REQ-1404/S-211: target-pick selection business logic, layered on
+        // top of IConnectMatchRepository above and
+        // IPlayerCareerOverlapService immediately above — see
+        // ConnectTargetPickService's own doc comment.
+        builder.Services.AddScoped<IConnectTargetPickService, ConnectTargetPickService>();
         // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
         // (Core.Social) together with IConnectMatchRepository above
         // (Games.XGConnect) for the periodic pairing sweep — lives in
