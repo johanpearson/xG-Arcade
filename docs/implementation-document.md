@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.18"
+version: "1.19"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -480,6 +480,77 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    three call sites (ScoreSubmissionAsync
                                    above and two new XGArcade.Api.Predict
                                    reads, below), no migration needed.
+    /XGArcade.Games.XGConnect  -> XGConnectGameModule (COMP-17), the fourth
+                                   game. Scaffolded 2026-09-02 (S-211):
+                                   GameKey = "xg-connect",
+                                   IGameModuleResolver.Resolve("xg-connect")
+                                   returns a real module. Only
+                                   PurgeUserDataAsync (REQ-710) is a real
+                                   implementation, via a new
+                                   IConnectMatchRepository.
+                                   AnonymizeUserDataAsync (XGArcade.Data)
+                                   that anonymizes ConnectMatch.PlayerAUserId/
+                                   PlayerBUserId, ConnectTargetPick.UserId,
+                                   and ConnectChainStep.UserId (not
+                                   ConnectChatMessage.SenderUserId — REQ-1410
+                                   chat isn't built yet). Every round-
+                                   generation-shaped IGameModule method
+                                   (GenerateInstanceAsync,
+                                   ScoreSubmissionAsync, GetCellIdsAsync,
+                                   GetMaxAttemptsForCellAsync,
+                                   GetCellCategoryTypesAsync) throws
+                                   NotSupportedException;
+                                   ResolveWrongGuessPlayerAsync returns null
+                                   unconditionally — same "permanently
+                                   inapplicable" precedent as
+                                   XGPathGameModule/XGPredictGameModule.
+                                   REQ-1404 (target-pick selection) is
+                                   implemented as an independent service,
+                                   IConnectTargetPickService/
+                                   ConnectTargetPickService, not built into
+                                   XGConnectGameModule itself: independent,
+                                   mutually-invisible per-player selection;
+                                   free resubmission via
+                                   IConnectMatchRepository.
+                                   AddOrUpdateTargetPickAsync while the
+                                   caller's ConnectTargetPick.IsLocked is
+                                   false; check-before-persist trivial-pair
+                                   rejection (the direct-connection overlap
+                                   check runs before either row is written or
+                                   locked). The overlap check itself is a
+                                   second new service, IPlayerCareerOverlapService/
+                                   PlayerCareerOverlapService, deliberately
+                                   generic on two bare player IDs (not
+                                   ConnectTargetPick-shaped) so S-213's
+                                   chain-step validation (REQ-1406) can reuse
+                                   it unchanged — trusts cached
+                                   PlayerCareerStint rows once at least one
+                                   exists per player, otherwise refreshes via
+                                   the shared IPlayerCareerStintRefreshService
+                                   (XGArcade.DataSync, ADR-0054), which gained
+                                   a throwOnFailure parameter in this same
+                                   story so this class could delegate rather
+                                   than fork its fetch/persist/club-
+                                   canonicalization logic. A Wikidata
+                                   technical failure surfaces as
+                                   LiveLookupUnavailableException
+                                   (XGArcade.Core.Games), mapped by the new
+                                   POST /matches/{matchId}/target-pick
+                                   endpoint (XGArcade.Api.Connect.
+                                   ConnectMatchEndpoints) to a 503. See
+                                   requirements-document.md §4.15's REQ-1404
+                                   status note and architecture-document.md's
+                                   COMP-17 row for the fuller reasoning.
+                                   NOTE: the COMP-16/17 data model built by
+                                   S-208-S-210 (FriendRequest/Friendship/
+                                   Challenge/MatchmakingOptIn/ConnectMatch/
+                                   ConnectTargetPick/ConnectChainStep/
+                                   ConnectChatMessage, §5) predates this
+                                   entry and was never separately added to
+                                   this document's own project-structure/
+                                   data-model sections — flagged here as a
+                                   pre-existing gap, not something this
+                                   entry attempts to fully backfill.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/football-data.org clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -586,6 +657,40 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    twice rejected, and confirming one
                                    player never affects another's ability to
                                    submit).
+    /XGArcade.Games.XGConnect.Tests -> NUnit unit tests, added 2026-09-02
+                                   (S-211). ConnectTargetPickServiceTests
+                                   (REQ1404_-named: independent/mutually-
+                                   invisible selection, free resubmission
+                                   before lock, trivial-pair rejection
+                                   including that the first player's pick
+                                   survives a rejected second pick,
+                                   LiveLookupUnavailable mapping) and
+                                   PlayerCareerOverlapServiceTests, against
+                                   InMemory-backed repositories and a hand-
+                                   rolled FakePlayerCareerStintRefreshService
+                                   (no mocking framework, per
+                                   coding-guidelines.md) — same pattern as
+                                   GridGameModule.Tests/XGPathGameModuleTests.
+                                   Also has FakePlayerCareerOverlapService,
+                                   XGConnectGameModuleTests (PurgeUserDataAsync
+                                   anonymization, NotSupportedException on
+                                   every round-generation-shaped method).
+    /XGArcade.TestSupport      -> new shared plain class library, added
+                                   2026-09-02 (S-211 quality-review fix):
+                                   FixedTimeProvider, promoted here once a
+                                   third verbatim copy (XGArcade.Core.Tests,
+                                   XGArcade.Api.Tests, then
+                                   XGArcade.Games.XGConnect.Tests) was about
+                                   to land — the same rule-of-three trigger,
+                                   and the same shared home
+                                   FakeHttpMessageHandler already used.
+                                   Referenced by test .csproj files only, not
+                                   an NUnit test project itself.
+                                   XGArcade.Api.Tests also gained
+                                   ConnectMatchEndpointTests.cs same story
+                                   (REQ1404_-named coverage of
+                                   POST /matches/{matchId}/target-pick end to
+                                   end, including every status-code mapping).
 
 /frontend
   /src                          -> feature folders, not the layer folders this

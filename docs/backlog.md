@@ -10486,6 +10486,29 @@ helper/service, since S-213 needs the identical check per chain step.
 free pre-lock resubmission.
 *Deps:* S-210.
 
+*Built as (2026-09-02):* `XGArcade.Games.XGConnect` scaffolded (COMP-17,
+`XGConnectGameModule`, `GameKey = "xg-connect"`; only `PurgeUserDataAsync`
+meaningfully implemented, every round-generation-shaped method throws
+`NotSupportedException` per the `XGPredictGameModule` precedent), then
+`IConnectTargetPickService`/`ConnectTargetPickService` implements REQ-1404
+exactly per plan, plus a new shared `IPlayerCareerOverlapService`/
+`PlayerCareerOverlapService` (deliberately player-ID-generic, not
+`ConnectTargetPick`-shaped, so S-213 can reuse it unchanged) for the
+direct-connection check, via `POST /matches/{matchId}/target-pick`
+(`XGArcade.Api.Connect.ConnectMatchEndpoints`). Full `REQ1404_...`-named
+coverage in `ConnectTargetPickServiceTests.cs`/
+`PlayerCareerOverlapServiceTests.cs`/`ConnectMatchEndpointTests.cs`. Two
+same-branch follow-up fixes: an architecture-review pass had
+`PlayerCareerOverlapService` delegate to the shared
+`IPlayerCareerStintRefreshService` (`XGArcade.DataSync`, ADR-0054, which
+gained a `throwOnFailure` opt-in for this) instead of forking its
+fetch/persist logic; a quality-review pass extracted a third verbatim
+`FixedTimeProvider` copy into a new shared `XGArcade.TestSupport` project
+(rule-of-three cleanup, unrelated to REQ-1404 itself). No new ADR — the
+`PlayerCareerOverlapService` placement was reviewed and judged a
+straightforward application of `Games.XGPath`'s existing
+`DataSync`-dependency precedent, not a new structural decision.
+
 **S-212 · Match start, 6-hour timer, resolution scaffolding (REQ-1405)**
 Match officially starts once both picks are locked; independent per-player
 6-hour deadline; forfeit-on-timeout sweep job; resolution waits for both

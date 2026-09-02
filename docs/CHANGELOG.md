@@ -13,6 +13,43 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/requirements-document.md` (2.45→2.46, REQ-1404 Status
+  updated from Proposed to Built), `docs/architecture-document.md`
+  (1.38→1.39, COMP-17 row's "target-pick selection not yet implemented"
+  language corrected), `docs/implementation-document.md` (1.18→1.19,
+  `/XGArcade.Games.XGConnect` project-structure entry added, plus
+  `/XGArcade.Games.XGConnect.Tests` and the new `/XGArcade.TestSupport`
+  project under `/tests` — also flags that the COMP-16/17 data model built
+  by S-208-S-210 was never separately added to this doc, a pre-existing
+  gap this pass did not attempt to fully backfill), `docs/backlog.md`
+  (S-211 entry annotated as Built),
+  `docs/decisions/0011-wikidata-first-lookup-waterfall.md` (addendum) —
+  S-211 (REQ-1404): `XGArcade.Games.XGConnect` scaffolded (COMP-17,
+  `XGConnectGameModule`) and `IConnectTargetPickService`/
+  `ConnectTargetPickService` implements independent, mutually-invisible
+  target-pick selection, free resubmission before lock, and check-before-
+  persist trivial-pair rejection, on top of a new shared, player-ID-generic
+  `IPlayerCareerOverlapService`/`PlayerCareerOverlapService` (built for
+  reuse by S-213's chain-step validation). `POST
+  /matches/{matchId}/target-pick`
+  (`XGArcade.Api.Connect.ConnectMatchEndpoints`) exposes it. Same branch:
+  an architecture-review pass had `PlayerCareerOverlapService` delegate to
+  the shared `IPlayerCareerStintRefreshService` (`XGArcade.DataSync`,
+  ADR-0054, gained a `throwOnFailure` opt-in) instead of forking its
+  fetch/persist logic, and a quality-review pass extracted a third
+  verbatim `FixedTimeProvider` copy into a new shared `XGArcade.TestSupport`
+  project (rule-of-three cleanup). No new ADR — `PlayerCareerOverlapService`'s
+  placement was explicitly reviewed and judged a straightforward
+  application of `Games.XGPath`'s existing precedent for a game-module
+  service depending directly on `XGArcade.DataSync`, not a new structural
+  decision. Also fixed, same pass: ADR-0011 had never been updated after
+  ADR-0099 replaced API-Football with a fixtures-only `FootballDataClient`
+  (unrelated to player/career data) — confirmed `IApiFootballClient` no
+  longer exists anywhere in the codebase and added an addendum recording
+  that every live player/career lookup today, including this story's, is
+  Wikidata-only with no second source. CI verified green via a triggered
+  `ci.yml` `workflow_dispatch` run (#769) — backend, frontend unit, and E2E
+  all passed.
 - 2026-09-02 — `docs/requirements-document.md` (2.44→2.45, REQ-1402/1403
   Status lines updated from Proposed to Built), `docs/architecture-document.md`
   (1.36→1.37, COMP-16/COMP-17 rows updated), `docs/backlog.md` (S-210 entry
