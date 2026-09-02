@@ -44,6 +44,18 @@ public class RoundGenerationService(
         // round this job has never had a chance to close until now.
         // CloseRoundAsync is idempotent (its own doc comment), so a repeat
         // call here on an already-closed predecessor is harmless.
+        //
+        // ADR-0102 (S-204) exception: for "xg-predict" specifically, "latest"
+        // is always created with StartTime = SuggestedStartTime = its own
+        // generation-time "now" — NOT `predecessor.EndTime` — so the
+        // "predecessor's EndTime equals latest's StartTime" equality above no
+        // longer holds for that one GameKey. This does not make the check
+        // below unsafe: `previous.EndTime <= now` is still evaluated
+        // explicitly (never assumed from the broken equality), so a
+        // predecessor whose own matches haven't finished yet is correctly
+        // left open rather than closed early — it just means xg-predict's
+        // predecessor may take one additional cron cycle to close relative
+        // to xg-grid/xg-path's guaranteed-immediate case described above.
         if (latest is not null && latest.StartTime <= now)
         {
             var previous = await roundRepository.GetPreviousByGameKeyAsync(options.GameKey, latest.StartTime, cancellationToken);

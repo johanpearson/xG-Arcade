@@ -19,7 +19,7 @@ internal class FakeGameModule(string gameKey) : IGameModule
     // existing tests using this fake predate ADR-0102 and never exercise the
     // null ("no new round due") branch; a test proving that branch sets this
     // to a delegate returning null explicitly (see
-    // RoundGenerationServiceTests' GenerateNextRoundIfNeeded_GameModuleReturnsNull_*
+    // RoundGenerationServiceTests' ADR0102_GenerateNextRoundIfNeeded_GameModuleReturnsNull_*
     // cases).
     public Func<RoundConfig, GameInstance?> GenerateInstanceResult { get; set; } =
         _ => new GameInstance { Id = Guid.NewGuid() };

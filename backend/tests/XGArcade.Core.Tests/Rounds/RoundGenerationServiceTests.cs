@@ -97,7 +97,7 @@ public class RoundGenerationServiceTests
     // not just for xg-predict, since the override logic itself lives in
     // RoundGenerationService.
     [Test]
-    public async Task GenerateNextRoundIfNeeded_GameModuleSuppliesSuggestedTimes_UsesThemInsteadOfChainMath()
+    public async Task ADR0102_GenerateNextRoundIfNeeded_GameModuleSuppliesSuggestedTimes_UsesThemInsteadOfChainMath()
     {
         var suggestedStart = new DateTime(2026, 9, 12, 15, 0, 0, DateTimeKind.Utc);
         var suggestedEnd = new DateTime(2026, 9, 14, 17, 15, 0, DateTimeKind.Utc);
@@ -344,7 +344,7 @@ public class RoundGenerationServiceTests
     // fixture-set-dedup behavior that actually returns null in production.
 
     [Test]
-    public async Task GenerateNextRoundIfNeeded_GameModuleReturnsNull_ReturnsLatestRoundUnchanged_NoNewRoundPersisted()
+    public async Task ADR0102_GenerateNextRoundIfNeeded_GameModuleReturnsNull_ReturnsLatestRoundUnchanged_NoNewRoundPersisted()
     {
         var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
         // "latest" is already active with nothing scheduled after it, so
@@ -365,7 +365,7 @@ public class RoundGenerationServiceTests
     }
 
     [Test]
-    public void GenerateNextRoundIfNeeded_GameModuleReturnsNullWithNoExistingRound_ThrowsInvalidOperationException()
+    public void ADR0102_GenerateNextRoundIfNeeded_GameModuleReturnsNullWithNoExistingRound_ThrowsInvalidOperationException()
     {
         // A module returning null for a GameKey's first-ever round (no
         // `latest` to fall back to) violates its own contract (ADR-0102) —
