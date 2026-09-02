@@ -3062,7 +3062,7 @@ given.
 │ (o) Alex's stats                │
 │ Lowest total wins               │
 ├───────────────────────────────┤
-│ [xG Grid] [xG Path] [xG Predict]│
+│[xG Grid] [xG Path] [xG Predict]│
 ├───────────────────────────────┤
 │ Rounds played            12    │
 │ Best round            120 pts  │
