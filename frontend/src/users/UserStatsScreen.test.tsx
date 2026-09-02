@@ -151,6 +151,86 @@ describe('UserStatsScreen', () => {
     expect(fetchMock.mock.calls.some(([url]: [string]) => String(url).includes('gameKey=xg-path'))).toBe(true);
   });
 
+  it('REQ-411/REQ-1304: switching to the xG Predict tab re-fetches, scoped to gameKey=xg-predict', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('gameKey=xg-predict')) {
+        return jsonResponse({ hasRoundsPlayed: true, roundsPlayed: 6, bestFinalPoints: 70, averageFinalPoints: 65, rank: 3 });
+      }
+      return jsonResponse({ hasRoundsPlayed: false, roundsPlayed: 0, bestFinalPoints: null, averageFinalPoints: null, rank: null });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    renderUserStatsScreen();
+
+    await screen.findByText('No rounds played yet for this game.');
+    expect(fetchMock.mock.calls.some(([url]: [string]) => String(url).includes('gameKey=xg-grid'))).toBe(true);
+
+    await user.click(screen.getByRole('tab', { name: 'xG Predict' }));
+
+    await waitFor(() => expect(screen.getByText('70 pts')).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(([url]: [string]) => String(url).includes('gameKey=xg-predict'))).toBe(true);
+  });
+
+  // REQ-411/REQ-1304 (S-202), mirroring LeaderboardScreen.test.tsx's own
+  // "REQ-404/ADR-0095: per-GameKey 'wins' subtitle" coverage (S-198): xG
+  // Predict is a named exception to ADR-0021's golf-style "lowest total
+  // wins" framing.
+  describe('REQ-411/REQ-1304: per-GameKey "wins" subtitle', () => {
+    it('the xG Grid tab (default) shows "Lowest total wins"', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ hasRoundsPlayed: false, roundsPlayed: 0, bestFinalPoints: null, averageFinalPoints: null, rank: null }),
+        ),
+      );
+
+      renderUserStatsScreen();
+
+      await screen.findByText('No rounds played yet for this game.');
+      expect(screen.getByText('Lowest total wins')).toBeInTheDocument();
+      expect(screen.queryByText('Highest total wins')).not.toBeInTheDocument();
+    });
+
+    it('the xG Path tab also shows "Lowest total wins" (unaffected)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ hasRoundsPlayed: false, roundsPlayed: 0, bestFinalPoints: null, averageFinalPoints: null, rank: null }),
+        ),
+      );
+      const user = userEvent.setup();
+
+      renderUserStatsScreen();
+      await screen.findByText('No rounds played yet for this game.');
+
+      await user.click(screen.getByRole('tab', { name: 'xG Path' }));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.getByText('Lowest total wins')).toBeInTheDocument();
+    });
+
+    it('selecting the xG Predict tab shows "Highest total wins", not "Lowest total wins"', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ hasRoundsPlayed: false, roundsPlayed: 0, bestFinalPoints: null, averageFinalPoints: null, rank: null }),
+        ),
+      );
+      const user = userEvent.setup();
+
+      renderUserStatsScreen();
+      await screen.findByText('No rounds played yet for this game.');
+
+      await user.click(screen.getByRole('tab', { name: 'xG Predict' }));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Predict' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.getByText('Highest total wins')).toBeInTheDocument();
+      expect(screen.queryByText('Lowest total wins')).not.toBeInTheDocument();
+    });
+  });
+
   it('REQ-411: a 401 with no/dead session calls onAuthError, the same handling every other authenticated screen uses', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse({ title: 'Unauthorized' }, 401)));
 
@@ -198,13 +278,13 @@ describe('UserStatsScreen', () => {
 
     await waitFor(() => expect(screen.getByText('40 pts')).toBeInTheDocument());
 
-    // Only the back button and the two (view-scoping, not action) game tabs
-    // are present — no edit/delete/report or any other own-only affordance
-    // rendered when the viewed player isn't the caller themselves.
+    // Only the back button and the three (view-scoping, not action) game
+    // tabs are present — no edit/delete/report or any other own-only
+    // affordance rendered when the viewed player isn't the caller themselves.
     const buttons = screen.getAllByRole('button').map((button) => button.textContent);
     expect(buttons).toEqual(['Back']);
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabs).toEqual(['xG Grid', 'xG Path']);
+    expect(tabs).toEqual(['xG Grid', 'xG Path', 'xG Predict']);
   });
 
   it('REQ722_UserStatsScreen_RendersPlayerAvatar_InHeader', async () => {

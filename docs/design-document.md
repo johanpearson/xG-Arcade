@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.85"
+version: "0.86"
 status: draft
-last_updated: 2026-08-31
+last_updated: 2026-09-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -3062,7 +3062,7 @@ given.
 │ (o) Alex's stats                │
 │ Lowest total wins               │
 ├───────────────────────────────┤
-│ [xG Grid] [xG Path]            │
+│ [xG Grid] [xG Path] [xG Predict]│
 ├───────────────────────────────┤
 │ Rounds played            12    │
 │ Best round            120 pts  │
@@ -3112,16 +3112,30 @@ never blocking the rest of this screen's stats from rendering.
   navigation seed — see ADR-0083's "no router library" pattern, reused here
   exactly as `leaderboardInitial`/`LeaderboardRoundTarget` already
   established for SCREEN-03's own round-completion-banner deep link).
-- **"Lowest total wins" note.** Same ADR-0021 correction SCREEN-03 already
-  leads with, same token/placement (`text-muted`, directly under the
-  heading) — the figures below are the same `FinalPoints`/median metric
-  that note already governs, so the same golf-scoring reminder applies here
-  too, shown unconditionally (not just in the populated state).
-- **Game switcher.** Same plain underline-tab pattern as SCREEN-03's own
-  game switcher (xG Grid, then xG Path — same order, same tokens,
-  `accent-green` underline on the active tab), not a new control type.
-  Switching games re-fetches this screen's stats scoped to the newly
-  selected game.
+- **"Lowest total wins" note, per-`GameKey` (REQ-411/REQ-1304, S-202,
+  2026-09-02 — same exception SCREEN-03's own game switcher note below
+  established for the leaderboard by REQ-404/ADR-0095/S-198).** Same
+  ADR-0021 correction SCREEN-03 already leads with, same token/placement
+  (`text-muted`, directly under the heading) — the figures below are the
+  same `FinalPoints`/median metric that note already governs, so the same
+  golf-scoring reminder applies here too, shown unconditionally (not just
+  in the populated state). **xG Predict is the one named exception**:
+  conventional higher-is-better scoring, not this platform's golf-style
+  convention, so selecting the xG Predict game tab replaces the line with
+  "Highest total wins" instead — every other game tab (xG Grid, xG Path)
+  keeps "Lowest total wins." Unlike SCREEN-03's own xG Predict tab (S-198),
+  there is **no known "renders empty" gap** here: `GET
+  /users/{userId}/stats` already allowlists `xg-predict` and its backing
+  `GetUserStatsAsync` was wired to `IRoundScoreSourceResolver` by S-199/
+  ADR-0100 before this story shipped, so this screen's xG Predict tab shows
+  real figures from day one.
+- **Game switcher, three tabs (REQ-411/REQ-1304, S-202, 2026-09-02 —
+  widened from two).** Same plain underline-tab pattern as SCREEN-03's own
+  game switcher (xG Grid, then xG Path, then xG Predict — same order as
+  SCREEN-09's tiles/`HeaderNav`'s "Games" list/SCREEN-03's own switcher,
+  same tokens, `accent-green` underline on the active tab), not a new
+  control type. Switching games re-fetches this screen's stats scoped to
+  the newly selected game.
 - **Populated state.** Rounds played (REQ-409's existing qualifying-round
   definition — a closed round with at least one guess), best single round's
   `FinalPoints`, average `FinalPoints` (shown to one decimal place, trimmed
