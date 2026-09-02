@@ -31,7 +31,7 @@ public static class FriendEndpoints
             IFriendService friendService,
             CancellationToken cancellationToken) =>
         {
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -71,7 +71,7 @@ public static class FriendEndpoints
             IFriendService friendService,
             CancellationToken cancellationToken) =>
         {
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -91,7 +91,7 @@ public static class FriendEndpoints
             IFriendService friendService,
             CancellationToken cancellationToken) =>
         {
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -110,7 +110,7 @@ public static class FriendEndpoints
             IFriendService friendService,
             CancellationToken cancellationToken) =>
         {
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -129,7 +129,7 @@ public static class FriendEndpoints
             IFriendService friendService,
             CancellationToken cancellationToken) =>
         {
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -156,20 +156,6 @@ public static class FriendEndpoints
             statusCode: StatusCodes.Status409Conflict),
         _ => throw new InvalidOperationException($"Unhandled ResolveFriendRequestOutcome '{result.Outcome}'."),
     };
-
-    // Same resolver shape as LeagueEndpoints.ResolveRequestingUserAsync —
-    // kept as its own copy in this file rather than shared, matching how
-    // every other *Endpoints.cs file in this codebase already resolves the
-    // caller inline/locally rather than through a shared helper.
-    private static async Task<User?> ResolveRequestingUserAsync(
-        ClaimsPrincipal principal, IUserRepository userRepository, CancellationToken cancellationToken)
-    {
-        var authProviderUserId = principal.GetAuthProviderUserId();
-        if (authProviderUserId is null)
-            return null;
-
-        return await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
-    }
 
     private static FriendRequestResponse ToResponse(FriendRequest friendRequest) =>
         new(

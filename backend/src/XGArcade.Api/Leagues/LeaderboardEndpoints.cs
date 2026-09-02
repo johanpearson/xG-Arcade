@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Leagues;
-using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
@@ -82,7 +81,7 @@ public static class LeaderboardEndpoints
             // Authenticated, not "own data only" — a leaderboard is
             // inherently every member's rank/score, unlike REQ-303's
             // own-guesses-only rule.
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -120,7 +119,7 @@ public static class LeaderboardEndpoints
             if (validationError is not null)
                 return validationError;
 
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -162,7 +161,7 @@ public static class LeaderboardEndpoints
             if (validationError is not null)
                 return validationError;
 
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -193,7 +192,7 @@ public static class LeaderboardEndpoints
             if (validationError is not null)
                 return validationError;
 
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -241,7 +240,7 @@ public static class LeaderboardEndpoints
             if (validationError is not null)
                 return validationError;
 
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -299,24 +298,6 @@ public static class LeaderboardEndpoints
         }
 
         return null;
-    }
-
-    // Shared by every route above: resolve the authenticated caller's
-    // XGArcade.Data.Entities.User row from the auth-provider claim, or null
-    // if either step fails — callers translate a null into
-    // Results.Unauthorized() themselves (kept out of this helper so it stays
-    // a plain resolver, not a response-shaping one, matching ValidatePaging's
-    // split of "figure out if something's wrong" from "shape the response").
-    // Not private, for the same reason as ValidateGameKey above: REQ-411/
-    // S-178's UserEndpoints.cs reuses this exact auth-resolution pattern.
-    internal static async Task<User?> ResolveRequestingUserAsync(
-        ClaimsPrincipal principal, IUserRepository userRepository, CancellationToken cancellationToken)
-    {
-        var authProviderUserId = principal.GetAuthProviderUserId();
-        if (authProviderUserId is null)
-            return null;
-
-        return await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
     }
 
     private static LeaderboardResponse ToResponse(LeaderboardPage page)

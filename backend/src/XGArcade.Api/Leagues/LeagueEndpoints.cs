@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Leagues;
-using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Api.Leagues;
@@ -46,7 +45,7 @@ public static class LeagueEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -81,7 +80,7 @@ public static class LeagueEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -106,7 +105,7 @@ public static class LeagueEndpoints
             ILeagueService leagueService,
             CancellationToken cancellationToken) =>
         {
-            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 
@@ -114,20 +113,6 @@ public static class LeagueEndpoints
 
             return Results.Ok(leagues.Select(ToResponse).ToList());
         }).RequireAuthorization();
-    }
-
-    // Same resolver shape as LeaderboardEndpoints.ResolveRequestingUserAsync
-    // — kept as its own copy in this file rather than shared, matching how
-    // every other *Endpoints.cs file in this codebase already resolves the
-    // caller inline/locally rather than through a shared helper.
-    private static async Task<User?> ResolveRequestingUserAsync(
-        ClaimsPrincipal principal, IUserRepository userRepository, CancellationToken cancellationToken)
-    {
-        var authProviderUserId = principal.GetAuthProviderUserId();
-        if (authProviderUserId is null)
-            return null;
-
-        return await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
     }
 
     private static LeagueResponse ToResponse(League league) =>
