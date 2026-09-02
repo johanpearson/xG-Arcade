@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.42"
+version: "2.43"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10859,9 +10859,15 @@ each independently pick one real football player as their "target pick"
 players race — independently and asynchronously — to build the shortest
 chain of real "played together" (same club, overlapping time period)
 connections linking those same two target players, not connecting their
-own pick to the other's. This section is design-only — **no xG Connect
-code exists yet.** Every REQ below is written to the same standard as
-§4.12/§4.14's xG Path/xG Predict requirements, but describes intended
+own pick to the other's. This section is still design-only in terms of
+behavior — **S-208 (2026-09-02) added EF Core data-model scaffolding
+(entities, repositories, a migration) for REQ-1401-1403/1404-1407/1410 in
+`XGArcade.Data`, but no request/accept/decline, matchmaking, match, or
+chain logic, and no `IGameModule` implementation, exist yet** — see each
+REQ's own Status line below for what S-208 covers. Every REQ below is
+written to the same standard as §4.12/§4.14's xG Path/xG Predict
+requirements, but (aside from the persisted shape S-208 built) describes
+intended
 behavior for a game that has not been built, not a claim about current
 behavior.
 
@@ -10899,7 +10905,9 @@ component.
 > declining friend requests, so I have a trusted pool of opponents I can
 > challenge directly in xG Connect (REQ-1402).
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `FriendRequest`/`Friendship`
+entities + `IFriendRepository` in `XGArcade.Data`); send/accept/decline
+service logic not implemented yet.**
 
 - Given two existing xG Arcade accounts, User A and User B, who are not
   already friends and have no pending friend request between them
@@ -10937,7 +10945,9 @@ rejection; a declined request does not block a later resend.
 > Connect, and have them accept or decline, so we can agree to play a
 > match on our own initiative rather than waiting for random matchmaking.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `Challenge` entity +
+`IChallengeRepository` in `XGArcade.Data`); send/accept/decline service
+logic not implemented yet.**
 
 - Given User A and User B are friends (REQ-1401)
 - When User A sends User B a direct xG Connect challenge
@@ -10967,7 +10977,9 @@ transition.
 > paired with another player who also opts in, so I can play xG Connect
 > without already knowing an opponent.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `MatchmakingOptIn` entity +
+`IMatchmakingOptInRepository` in `XGArcade.Data`); the pairing/sweep logic
+is not implemented yet.**
 
 - Given User A opts into random matchmaking and no other unpaired opt-in
   exists at that moment
@@ -11001,7 +11013,10 @@ already-directly-connected pair**
 > puzzle — the shortest played-together chain between the two target
 > picks — is fixed for both of us to race to solve.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `ConnectMatch`/
+`ConnectTargetPick` entities + `IConnectMatchRepository` in
+`XGArcade.Data`); target-pick selection/rejection logic not implemented
+yet.**
 
 - Given a match has just been created (via REQ-1402's accepted challenge or
   REQ-1403's random pairing)
@@ -11045,7 +11060,9 @@ is in place.
 > picks are locked in, with a clear 6-hour deadline to finish, so both
 > players have a fair, equal-length window to race the same puzzle.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `ConnectMatch.Status`/
+`StartedAt`/`DeadlineUtc` columns in `XGArcade.Data`); the start-trigger
+and forfeit-timeout sweep logic are not implemented yet.**
 
 - Given both players have each selected a non-trivially-connected target
   pick (REQ-1404)
@@ -11081,7 +11098,10 @@ both are reached, rather than always waiting out the full 6 hours.
 > always know right away whether my chain is still valid, rather than
 > finding out only at the end.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `ConnectChainStep` entity
+in `XGArcade.Data`, storing position/attempt-number/candidate/validity
+per submitted step); the live overlap-validation logic itself is not
+implemented yet.**
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
@@ -11136,7 +11156,9 @@ search returns players outside the curated reference tables.
 > match if I fail that same step twice in a row, so mistakes are
 > forgiving once but not indefinitely.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `ConnectChainStep`'s
+`Position`/`AttemptNumber` columns support two attempts per position);
+the strike-counting and bust logic are not implemented yet.**
 
 - Given a player submits a step (REQ-1406) that fails validation
 - When that failure is the first failure at this position in the chain
@@ -11172,7 +11194,10 @@ strike count; failures at different positions are tracked independently.
 > how short my chain was and how many mistakes I made getting there, so a
 > clean, short solution always beats a longer or messier one.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — the `ConnectChainStep` rows S-208 scaffolds hold the
+raw data a future scoring calculation would read (chain length, attempts
+per position), but no scoring formula or persisted score field exists
+yet.**
 
 - Given a player completes a valid, end-to-end chain (REQ-1406) connecting
   both target picks
@@ -11200,7 +11225,9 @@ busted/timed-out player has no valid score.
 > us have finished, timed out, or been knocked out, so the outcome always
 > reflects a clear, documented rule rather than being ambiguous.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `ConnectMatch.Outcome`/
+`ResolvedAt` columns in `XGArcade.Data`, defaulting to `Pending`/unset);
+the resolution logic that sets them is not implemented yet.**
 
 - Given both players complete a valid chain (REQ-1408) before the 6-hour
   deadline
@@ -11235,7 +11262,10 @@ beyond the match outcome itself.
 > As a player in an active match, I want to chat with my opponent, so we
 > can talk trash, celebrate, or just chat while playing asynchronously.
 
-**Status: Proposed — no code exists yet.**
+**Status: Proposed — data model exists (S-208: `ConnectChatMessage`
+entity + `IConnectChatMessageRepository` in `XGArcade.Data`); send/read
+endpoints and participant-only access enforcement are not implemented
+yet.**
 
 - Given an active xG Connect match between two players (REQ-1405)
 - When either player sends a chat message

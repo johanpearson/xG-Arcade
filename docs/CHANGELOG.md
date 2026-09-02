@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/architecture-document.md` (1.34→1.35, COMP-16/COMP-17
+  rows updated), `docs/requirements-document.md` (2.42→2.43, REQ-1401-1410
+  Status lines + §4.15 intro updated) — doc-sync for S-208 (commit
+  `b05416f`): EF Core data-model scaffolding for xG Connect per ADR-0103 —
+  8 new entities (`FriendRequest`/`Friendship`/`Challenge`/
+  `MatchmakingOptIn` in `Core.Social`/COMP-16; `ConnectMatch`/
+  `ConnectTargetPick`/`ConnectChainStep`/`ConnectChatMessage` in
+  `Games.XGConnect`/COMP-17), 5 new repositories, a hand-authored
+  migration, and repository-level CRUD tests, all in `XGArcade.Data` —
+  schema/CRUD only, no accept/decline, matchmaking, match, or chain
+  business logic (that's S-209 through S-215). Corrected COMP-16/COMP-17's
+  stale "no code exists yet" clause and each of REQ-1401-1410's Status
+  line to say what S-208 actually persists versus what behavior is still
+  unbuilt; REQ-1411 (cross-cutting notification indicator) is unchanged
+  since S-208 added no code specific to it. No ADR needed — every design
+  choice in the diff (opaque no-FK cross-component ids, nullable-no-FK
+  `UserId` columns for future REQ-710 anonymization) directly applies
+  ADR-0003/ADR-0101/ADR-0103, not a new structural decision.
 - 2026-09-02 — `docs/decisions/0103-xg-connect-social-component-split-and-connectmatch.md`
   (new), `docs/architecture-document.md` (1.33→1.34, COMP-16/COMP-17 rows
   updated from "proposed"/"not yet assigned" to decided, new ADR-0103 row
