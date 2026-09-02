@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/decisions/0103-xg-connect-social-component-split-and-connectmatch.md`
+  (new), `docs/architecture-document.md` (1.33→1.34, COMP-16/COMP-17 rows
+  updated from "proposed"/"not yet assigned" to decided, new ADR-0103 row
+  in §10), `docs/requirements-document.md` (2.41→2.42, §4.15's
+  component-boundary note updated to point at the resolution) — S-207:
+  resolved xG Connect's two open structural questions. (a) Friends/
+  challenges stay a separate arcade-level component, `Core.Social`
+  (COMP-16), not folded into the game module, `Games.XGConnect` (COMP-17)
+  — mirrors the existing `Core.Users`/`Core.Leagues` arcade-level
+  precedent. (b) xG Connect's pairwise, on-demand match does not fit the
+  existing `Round`/`League` model (COMP-02/COMP-03, ADR-0003) — it
+  introduces `ConnectMatch` as a new first-class concept owned by COMP-17,
+  never a `Round`, never scored via `Core.Scoring`'s `FinalPoints` shape.
+  Whether `ConnectMatch` results ever feed a leaderboard remains a
+  separate, still-open product decision, explicitly out of this ADR's
+  scope. No application code — S-208 (data model) is now unblocked.
 - 2026-09-02 — `MVP-SCOPE.md` (xG Connect moved from the Tier 2 list into
   a new Tier 0 additive-game note, mirroring xG Predict's own),
   `docs/backlog.md` (Epic 27's gate note updated: S-207 is clear to

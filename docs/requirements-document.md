@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.41"
+version: "2.42"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10865,30 +10865,34 @@ code exists yet.** Every REQ below is written to the same standard as
 behavior for a game that has not been built, not a claim about current
 behavior.
 
-**Component boundary note (indicative, not decided here):** friends/
-challenges (REQ-1401-1403) and the match/puzzle/scoring/chat logic
-(REQ-1404-1410) may end up owned by two different components — an
-arcade-level social component (friends are conceptually available to any
-game, not xG-Connect-specific) and a new game module behind `IGameModule`
-(ADR-0003) for the match/puzzle logic itself. `architecture-document.md`'s
-next two unused component IDs, **COMP-16** and **COMP-17**, are free for
-whichever split that document settles on — this section does not assign
-either number to a specific responsibility, since that is an architecture
-decision, not a requirements one. **This also surfaces a structural
-question this section does not resolve:** every existing game (xG Grid, xG
-Path, xG Predict) plugs into a shared, scheduled `Round` created for every
-participant at once (`Core.Rounds`, ADR-0003); an xG Connect match is
-instead a pairwise, on-demand contest between exactly two specific players,
-created when a challenge is accepted or a random pairing forms, not on a
-schedule. Whether/how that fits the existing `Round`/`League`/leaderboard
-model, or needs a new first-class concept of its own, is flagged back to
-`architecture-document.md`/an ADR to resolve deliberately — not decided or
-assumed by any REQ below. **REQ-1411 (the notification indicator) is
-genuinely cross-cutting** — it aggregates pending items from both the
-friends/challenges side and the match side — so it does not cleanly belong
-to either COMP-16 or COMP-17 either; whichever component (or a third one)
-ends up owning it is likewise left to the architecture decision above, not
-assumed here.
+**Component boundary note — resolved by ADR-0103 (2026-09-02, S-207):**
+friends/challenges (REQ-1401-1403) and the match/puzzle/scoring/chat logic
+(REQ-1404-1410) are owned by two different components — **COMP-16**
+(`Core.Social`, arcade-level, alongside `Core.Users`/`Core.Leagues`, since
+friends are conceptually available to any game, not xG-Connect-specific)
+and **COMP-17** (`Games.XGConnect`, a game module behind `IGameModule`,
+ADR-0003) for the match/puzzle logic itself. See
+`architecture-document.md`'s COMP-16/COMP-17 rows for the current
+responsibility split. **The structural question this section originally
+flagged — whether xG Connect's pairwise, on-demand match fits the existing
+`Round`/`League` model or needs a new first-class concept — is also
+resolved:** it does not fit; every existing game (xG Grid, xG Path, xG
+Predict) plugs into a shared, scheduled `Round` created for every
+participant at once (`Core.Rounds`, ADR-0003), while an xG Connect match is
+a pairwise, on-demand contest between exactly two specific players, created
+when a challenge is accepted or a random pairing forms, with its own
+win/draw/forfeit outcome rather than a `FinalPoints` total. ADR-0103
+therefore introduces `ConnectMatch` as a new first-class concept owned by
+COMP-17, never a `Round`. **Still explicitly open, not decided by ADR-0103
+or any REQ below:** whether `ConnectMatch` results ever feed the Global
+League or a custom league's leaderboard, and if so how a win/draw/loss is
+represented there — see the "unresolved" note near the end of this
+document's requirements-gap log. **REQ-1411 (the notification indicator)
+remains genuinely cross-cutting** — it aggregates pending items from both
+the friends/challenges side and the match side — and is owned by neither
+COMP-16 nor COMP-17 individually; ADR-0103 resolves it as a small
+aggregating read over both components' normal read paths, not a third
+component.
 
 **REQ-1401 – Friends list: send, accept, and decline friend requests**
 > As a player, I want to build a friends list by sending, accepting, or
