@@ -11,12 +11,17 @@ namespace XGArcade.Games.XGConnect;
 // pattern this reuses rather than inventing a new data path.
 //
 // Placed in Games.XGConnect (COMP-17), not Core — it depends directly on
-// XGArcade.DataSync's IWikidataClient and XGArcade.Data's
-// IPlayerCareerStintRepository, the same way Games.XGPath's own services
-// (e.g. PlayerFamiliarityService) depend on DataSync/Data directly without a
-// Core-level wrapper. There is no cross-player overlap check anywhere else
-// in this codebase to reuse (confirmed by this session's own research) —
-// this is new.
+// XGArcade.DataSync's IPlayerCareerStintRefreshService and XGArcade.Data's
+// IPlayerCareerStintRepository, the same way a game-module-owned business-
+// rule service is allowed to depend on a shared DataSync service: e.g.
+// Games.XGPath's own PathEligibilityService injects IPlayerFamiliarityService,
+// and XGPathGameModule itself injects this same IPlayerCareerStintRefreshService,
+// both as already-built DataSync services rather than reimplementing
+// DataSync logic themselves (PlayerFamiliarityService/
+// PlayerCareerStintRefreshService themselves live in XGArcade.DataSync/
+// Wikidata, not in Games.XGPath). There is no cross-player overlap check
+// anywhere else in this codebase to reuse (confirmed by this session's own
+// research) — this is new.
 public interface IPlayerCareerOverlapService
 {
     // Never returns false for "we don't know" — throws

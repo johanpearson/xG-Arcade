@@ -36,7 +36,8 @@ public class PlayerCareerStintRefreshService(
     ICategoryValueRepository categoryValueRepository,
     ILogger<PlayerCareerStintRefreshService> logger) : IPlayerCareerStintRefreshService
 {
-    public async Task RefreshCareerStintsAsync(IReadOnlyList<Guid> playerIds, CancellationToken cancellationToken = default)
+    public async Task RefreshCareerStintsAsync(
+        IReadOnlyList<Guid> playerIds, bool throwOnFailure = false, CancellationToken cancellationToken = default)
     {
         if (playerIds.Count == 0)
             return;
@@ -62,11 +63,19 @@ public class PlayerCareerStintRefreshService(
         }
         catch (WikidataQueryException ex)
         {
-            // Never propagates — see IPlayerCareerStintRefreshService's own
-            // doc comment. The affected players simply keep whatever
-            // PlayerCareerStint rows they already had (xG Grid byproduct
-            // data, possibly incomplete) for this round; the next round that
-            // happens to pick them as a target tries again.
+            // throwOnFailure (REQ-1404, S-211 follow-up): a caller that
+            // needs to distinguish "Wikidata technical failure" from "this
+            // player genuinely has no career data" (PlayerCareerOverlapService)
+            // opts into propagation here — see IPlayerCareerStintRefreshService's
+            // own doc comment. The default (false) preserves the original
+            // "never propagates" contract below unchanged: the affected
+            // players simply keep whatever PlayerCareerStint rows they
+            // already had (xG Grid byproduct data, possibly incomplete) for
+            // this round; the next round that happens to pick them as a
+            // target tries again.
+            if (throwOnFailure)
+                throw;
+
             logger.LogWarning(ex,
                 "xg-path career-stint refresh: batch of {PlayerCount} player(s) failed; " +
                 "these players keep whatever career data they already had for this round.",

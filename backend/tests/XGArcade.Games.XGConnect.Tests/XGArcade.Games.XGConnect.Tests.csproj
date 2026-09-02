@@ -33,10 +33,10 @@
     <!-- REQ-1404/S-211: PlayerCareerOverlapServiceTests exercises
          PlayerCareerOverlapService against real, InMemory-backed
          PlayerCareerStintRepository/PlayerRepository plus a hand-rolled
-         FakeWikidataClient implementing IWikidataClient directly — same
-         "not just the transitive reference" reasoning as
-         XGArcade.Games.XGPath.Tests' own identical addition
-         (FakePlayerCareerStintRefreshService/ADR-0054 precedent). -->
+         FakePlayerCareerStintRefreshService implementing
+         IPlayerCareerStintRefreshService directly — same "not just the
+         transitive reference" reasoning as XGArcade.Games.XGPath.Tests' own
+         identical addition (ADR-0054 precedent). -->
     <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
