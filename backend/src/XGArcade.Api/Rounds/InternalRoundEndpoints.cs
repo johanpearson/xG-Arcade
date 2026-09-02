@@ -299,18 +299,10 @@ public static class InternalRoundEndpoints
             // entirely, so it computes the same MAX(SequenceNumber)+1 scoped
             // to this GameKey itself — the (GameKey, SequenceNumber) unique
             // index still applies to every Round row regardless of which
-            // path created it.
-            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(GridGameModule.XGGridGameKey, cancellationToken) ?? 0) + 1;
-            var round = await roundRepository.AddAsync(new Round
-            {
-                Id = Guid.NewGuid(),
-                GameKey = GridGameModule.XGGridGameKey,
-                GameInstanceId = instance.Id,
-                SequenceNumber = sequenceNumber,
-                StartTime = now.AddMinutes(-1),
-                EndTime = now.AddHours(1),
-                AllowGuessChange = true,
-            }, cancellationToken);
+            // path created it. See CreateSequencedRoundAsync's own doc
+            // comment (bottom of this file) for the shared implementation.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, GridGameModule.XGGridGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
 
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
@@ -384,18 +376,10 @@ public static class InternalRoundEndpoints
                 ],
             }, cancellationToken);
 
-            // REQ-304: see seed-guessable-round's identical note above.
-            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(XGPathGameModule.XGPathGameKey, cancellationToken) ?? 0) + 1;
-            var round = await roundRepository.AddAsync(new Round
-            {
-                Id = Guid.NewGuid(),
-                GameKey = XGPathGameModule.XGPathGameKey,
-                GameInstanceId = instance.Id,
-                SequenceNumber = sequenceNumber,
-                StartTime = now.AddMinutes(-1),
-                EndTime = now.AddHours(1),
-                AllowGuessChange = true,
-            }, cancellationToken);
+            // REQ-304: see CreateSequencedRoundAsync's own doc comment
+            // (bottom of this file) for the shared implementation.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, XGPathGameModule.XGPathGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
 
             return Results.Ok(new SeedGuessablePathRoundResponse(round.Id, puzzleId, correctPlayerName));
         });
@@ -461,22 +445,14 @@ public static class InternalRoundEndpoints
                 Matches = matches,
             }, cancellationToken);
 
-            // REQ-304: see seed-guessable-round's identical note above.
-            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(XGPredictGameModule.XGPredictGameKey, cancellationToken) ?? 0) + 1;
-            var round = await roundRepository.AddAsync(new Round
-            {
-                Id = Guid.NewGuid(),
-                GameKey = XGPredictGameModule.XGPredictGameKey,
-                GameInstanceId = instance.Id,
-                SequenceNumber = sequenceNumber,
-                StartTime = now.AddMinutes(-1),
-                // Generous enough that the round stays Active for the whole
-                // E2E run regardless of firstKickoffMinutesFromNow's value —
-                // REQ-1303's lock is driven entirely by PredictInstance.
-                // LockInstant, independent of Round.EndTime/Closed.
-                EndTime = now.AddHours(4),
-                AllowGuessChange = true,
-            }, cancellationToken);
+            // REQ-304: see CreateSequencedRoundAsync's own doc comment
+            // (bottom of this file) for the shared implementation.
+            // EndTime is generous enough that the round stays Active for the
+            // whole E2E run regardless of firstKickoffMinutesFromNow's
+            // value — REQ-1303's lock is driven entirely by PredictInstance.
+            // LockInstant, independent of Round.EndTime/Closed.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, XGPredictGameModule.XGPredictGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(4), cancellationToken);
 
             var responseMatches = instance.Matches
                 .OrderBy(m => m.KickoffUtc)
@@ -514,8 +490,20 @@ public static class InternalRoundEndpoints
                     .ScorePrediction(prediction.HomeGoals, prediction.AwayGoals, request.HomeGoals, request.AwayGoals)
                     .FinalPoints);
 
-            await predictInstanceRepository.GradeMatchAsync(
-                matchId, request.HomeGoals, request.AwayGoals, finalPointsByPredictionId, cancellationToken);
+            try
+            {
+                await predictInstanceRepository.GradeMatchAsync(
+                    matchId, request.HomeGoals, request.AwayGoals, finalPointsByPredictionId, cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // GradeMatchAsync's own "PredictMatch not found" guard
+                // (PredictInstanceRepository.cs) — same "load, NotFound() if
+                // the caller-supplied id doesn't resolve" convention
+                // force-close-round already establishes above for exactly
+                // this shape.
+                return Results.NotFound();
+            }
 
             return Results.Ok(new GradePredictMatchTestDataResponse(matchId, request.HomeGoals, request.AwayGoals));
         });
@@ -536,6 +524,35 @@ public static class InternalRoundEndpoints
         return await playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = $"{namePrefix} {nameTag}", WikidataQid = $"Qtest-{Guid.NewGuid()}" },
             cancellationToken);
+    }
+
+    // S-203 (quality-gate fix): shared by all three seed-guessable-*
+    // endpoints above — extracted on this diff's third occurrence per
+    // docs/coding-guidelines.md's rule-of-three, same reasoning
+    // CreateUniqueTestPlayerAsync above was already extracted for. REQ-304:
+    // this test-data endpoint bypasses RoundGenerationService entirely, so
+    // it computes the same MAX(SequenceNumber)+1 scoped to gameKey itself —
+    // the (GameKey, SequenceNumber) unique index still applies to every
+    // Round row regardless of which path created it.
+    private static async Task<Round> CreateSequencedRoundAsync(
+        IRoundRepository roundRepository,
+        string gameKey,
+        Guid gameInstanceId,
+        DateTime startTime,
+        DateTime endTime,
+        CancellationToken cancellationToken)
+    {
+        var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(gameKey, cancellationToken) ?? 0) + 1;
+        return await roundRepository.AddAsync(new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = gameKey,
+            GameInstanceId = gameInstanceId,
+            SequenceNumber = sequenceNumber,
+            StartTime = startTime,
+            EndTime = endTime,
+            AllowGuessChange = true,
+        }, cancellationToken);
     }
 }
 
