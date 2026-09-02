@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Core.Social;
-using XGArcade.Core.Tests.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Core.Tests.Social;
 
@@ -13,8 +13,8 @@ namespace XGArcade.Core.Tests.Social;
 // IFriendRepository/IUserRepository are exercised through the real
 // FriendRepository/UserRepository against an InMemory-backed
 // XGArcadeDbContext; only TimeProvider is faked (FixedTimeProvider,
-// XGArcade.Core.Tests.Rounds), matching IncidentReportServiceTests's own
-// reuse of that same fixture.
+// XGArcade.TestSupport), matching IncidentReportServiceTests's own reuse of
+// that same fixture.
 public class FriendServiceTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);

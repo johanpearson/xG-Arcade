@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Games.XGConnect.Tests;
 

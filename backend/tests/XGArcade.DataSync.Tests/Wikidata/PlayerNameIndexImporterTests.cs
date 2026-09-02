@@ -4,6 +4,7 @@ using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
+using XGArcade.TestSupport;
 
 namespace XGArcade.DataSync.Tests.Wikidata;
 
@@ -46,14 +47,6 @@ public class PlayerNameIndexImporterTests
         FakeWikidataClient client, IPlayerNameIndexRepository repository) =>
         new(client, repository, NullLogger<PlayerNameIndexImporter>.Instance,
             timeProvider: new FixedTimeProvider(FixedNow), retryBackoff: TimeSpan.Zero);
-
-    // Minimal hand-rolled TimeProvider fake, same pattern as
-    // XGArcade.Core.Tests.Rounds.FixedTimeProvider (that one is internal to
-    // its own test project, so this is a sibling, not a duplicate to unify).
-    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => now;
-    }
 
     [Test]
     public async Task ImportAsync_QueriesEveryBirthYearFromPoolFloorThroughCurrentYear_ExactlyOnceEach()

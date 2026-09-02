@@ -3,6 +3,7 @@ using XGArcade.Api.Social;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Api.Tests;
 
@@ -14,8 +15,7 @@ namespace XGArcade.Api.Tests;
 // IConnectMatchRepository, which Core.Social must never depend on). Same
 // no-mocking-framework, real-InMemory-backed-repository pattern as
 // ChallengeServiceTests/FriendServiceTests — only TimeProvider is faked
-// (this project's own FixedTimeProvider, mirroring
-// XGArcade.Core.Tests.Rounds.FixedTimeProvider's shape).
+// (FixedTimeProvider, XGArcade.TestSupport).
 public class MatchmakingSweepServiceTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);

@@ -145,7 +145,7 @@ public class PlayerCareerStintRefreshServiceTests
     // RefreshCareerStintsAsync_WikidataQueryFails_DoesNotThrow_ExistingStintsUntouched
     // above, which proves the DEFAULT (false) still swallows.
     [Test]
-    public async Task RefreshCareerStintsAsync_ThrowOnFailureTrue_WikidataQueryFails_PropagatesWikidataQueryException()
+    public async Task REQ1404_RefreshCareerStintsAsync_ThrowOnFailureTrue_WikidataQueryFails_PropagatesWikidataQueryException()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.FailNextCareerStintBatches(1);
