@@ -3,13 +3,15 @@ import { ApiError, describeError } from '../lib/apiClient';
 import { fetchUserStats } from '../lib/userStats';
 import { PlayerAvatar } from '../components/PlayerAvatar';
 import type { UserStatsResponse } from '../lib/types';
-// REQ-410/ADR-0043 (S-087): the same client-side `GameKey` constants
-// GameSelectScreen/HeaderNav/LeaderboardScreen already use — no new/
-// duplicate string literal per this repo's own established convention (see
-// GameSelectScreen.tsx's own comment on why these stay plain constants
-// rather than API-sourced). `GameKey` itself is re-exported from
-// LeaderboardScreen.tsx (its own home) rather than redefined here.
-import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from '../games/GameSelectScreen';
+// REQ-410/ADR-0043 (S-087), widened to a third game by REQ-411/REQ-1304
+// (S-202, mirroring LeaderboardScreen.tsx's own S-198 extension): the same
+// client-side `GameKey` constants GameSelectScreen/HeaderNav/
+// LeaderboardScreen already use — no new/duplicate string literal per this
+// repo's own established convention (see GameSelectScreen.tsx's own comment
+// on why these stay plain constants rather than API-sourced). `GameKey`
+// itself is re-exported from LeaderboardScreen.tsx (its own home) rather
+// than redefined here.
+import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
 import type { GameKey } from '../leaderboard/LeaderboardScreen';
 import './UserStatsScreen.css';
 
@@ -40,7 +42,33 @@ export interface UserStatsScreenProps {
 const GAME_TABS: Array<{ value: GameKey; label: string }> = [
   { value: XG_GRID_GAME_KEY, label: 'xG Grid' },
   { value: XG_PATH_GAME_KEY, label: 'xG Path' },
+  // REQ-411/REQ-1304 (S-202): third tab, same order as GameSelectScreen's
+  // tiles/HeaderNav's "Games" list/LeaderboardScreen.tsx's own GAME_TABS —
+  // unlike LeaderboardScreen.tsx's own xG Predict tab (S-198), this one has
+  // no known "renders empty" gap: `GET /users/{userId}/stats` already
+  // allowlists xg-predict and its backing `GetUserStatsAsync` was wired to
+  // `IRoundScoreSourceResolver` by S-199/ADR-0100, so xG Predict user stats
+  // render real figures from day one.
+  { value: XG_PREDICT_GAME_KEY, label: 'xG Predict' },
 ];
+
+// REQ-411/REQ-1304 (S-202), mirroring LeaderboardScreen.tsx's own
+// subtitleForGameKey (REQ-404/ADR-0095, S-198): an exhaustive switch, not an
+// if/else or ternary chain, so a fourth `GameKey` added later is a compile
+// error here too.
+function subtitleForGameKey(gameKey: GameKey): string {
+  switch (gameKey) {
+    case XG_GRID_GAME_KEY:
+    case XG_PATH_GAME_KEY:
+      return 'Lowest total wins';
+    case XG_PREDICT_GAME_KEY:
+      return 'Highest total wins';
+    default: {
+      const _exhaustive: never = gameKey;
+      return _exhaustive;
+    }
+  }
+}
 
 type StatsState =
   | { phase: 'loading' }
@@ -136,8 +164,13 @@ export function UserStatsScreen({ accessToken, userId, displayName, onAuthError,
           "higher number = better" assumption belongs here too. Shown
           unconditionally (not gated on the ready/hasRoundsPlayed state)
           since it describes how to read points on this screen in general,
-          same as SCREEN-03's own placement directly under its title. */}
-      <p className="user-stats-screen__subtitle">Lowest total wins</p>
+          same as SCREEN-03's own placement directly under its title.
+          REQ-411/REQ-1304 (S-202): xG Predict is a named exception, same as
+          LeaderboardScreen.tsx's own subtitleForGameKey (REQ-404/ADR-0095,
+          S-198) — conventional higher-is-better scoring, not golf-style —
+          so this line must read the opposite way whenever that tab is
+          selected. */}
+      <p className="user-stats-screen__subtitle">{subtitleForGameKey(gameKey)}</p>
 
       <div className="user-stats-screen__game-tabs" role="tablist" aria-label="Game">
         {GAME_TABS.map(({ value, label }) => (

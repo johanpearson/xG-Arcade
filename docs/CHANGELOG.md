@@ -13,6 +13,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/design-document.md` (0.85→0.86) — S-202 (Epic 13):
+  closed the frontend gap S-198 explicitly left open —
+  `frontend/src/users/UserStatsScreen.tsx` (SCREEN-13) widened from a
+  two-game (xG Grid/xG Path) switcher to three, mirroring
+  `LeaderboardScreen.tsx`'s own S-198 pattern exactly: imported the
+  existing `XG_PREDICT_GAME_KEY` constant from `GameSelectScreen.tsx` (no
+  new/duplicate string literal), added a third `GAME_TABS` entry, and
+  added an exhaustive-switch `subtitleForGameKey` helper ("Lowest total
+  wins" for xG Grid/xG Path, "Highest total wins" for xG Predict, the same
+  ADR-0095 exception `LeaderboardScreen.tsx` already applies — a fourth
+  `GameKey` added later is a compile error here too). Unlike S-198's own
+  leaderboard tab, this one ships with no "renders empty" gap: `GET
+  /users/{userId}/stats` already allowlisted `xg-predict` and its backing
+  `GetUserStatsAsync` was wired to `IRoundScoreSourceResolver` by
+  S-199/ADR-0100 before this story started, so xG Predict stats render
+  real figures from day one — no backend change was needed or made.
+  SCREEN-13's mock/subtitle-note/game-switcher-note updated to match
+  (three-tab ASCII mock, per-`GameKey` subtitle note, explicit "no known
+  renders-empty gap" callout); also fixed a cosmetic overflow in the
+  mock's tab row (it exceeded the box's right border by one character
+  once widened to three tabs — restored to the same row width as every
+  other content row in that box; the separate, pre-existing 1-character
+  overflow on the header rows two lines above it is unrelated and left
+  open). `docs/requirements-document.md`, `docs/architecture-document.md`,
+  and `docs/implementation-document.md` checked against their own
+  `update_when` triggers and confirmed unchanged — no new business rule
+  (REQ-411/REQ-1304 already describe this at the acceptance-criteria
+  level), no component/boundary/data-flow change, no new library or
+  data-model change; same precedent S-198 itself established (no REQ
+  status-note edit, no ADR — narrow, same-shaped UI extension of an
+  already-decided pattern; `architecture-reviewer` and `quality-architect`
+  both returned PASS with no findings on this diff).
+  `frontend/src/users/UserStatsScreen.test.tsx` updated/extended to cover
+  the third tab. Testing: `npm run test` (Vitest) run locally: 768/768
+  passed; `tsc -b`/`npm run lint` both clean — no backend touched, so no
+  CI-trigger fallback needed. REQ/ADR refs: REQ-411, REQ-1304.
 - 2026-09-02 — `docs/backlog.md` — corrected S-204: the product owner
   flagged that Premier League gameweeks aren't always 7 days apart
   (midweek rounds are routine), so the story's original proposal
