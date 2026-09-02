@@ -278,6 +278,20 @@ including its own still-open ToS-verification action item, and
 `docs/backlog.md` S-190 through S-198 (plus the football-data.org swap
 itself) for what's actually built.
 
+**A fourth game, xG Connect, was promoted from Tier 2 to Tier 0 on
+2026-09-02 (REQ-1401-1411, `docs/requirements-document.md` §4.15;
+`docs/backlog.md` Epic 27, S-207 through S-218), additive to this list,
+not a change to anything above.** Unlike xG Predict, this needs no new
+external account or data source — it reuses the existing Wikidata
+live-lookup pattern (ADR-0010/0011) already in place for guess-time
+verification, so there is no new precondition to add to the checklist
+above. Its real precondition is internal, not external: `docs/backlog.md`
+S-207 (an ADR resolving whether Friends/Challenges is a separate
+component from the game module, and whether a pairwise on-demand match
+fits the existing `Round`/`League` model or needs a new concept) must
+land before any other xG Connect story starts — see Epic 27's own gate
+note.
+
 ## Tier 1 — add only when real testing shows a specific need
 
 Each of these was designed to solve a specific, real problem — but "this
@@ -581,19 +595,6 @@ is written as something you can actually observe, not a vague feeling:
 
 - Club crests (`ClubCrest`, ADR-0008) — Phase 2, as already documented
 - Round-result notification emails (REQ-706) — Phase 2, as already documented
-- **xG Connect (new, 2026-09-02)** — a proposed fourth game: 1v1 asynchronous
-  friend challenges/random matchmaking, racing to build the shortest
-  "played together" chain linking two independently-picked target players
-  (REQ-1401-1410, `docs/requirements-document.md` §4.15; `architecture-document.md`
-  COMP-16/COMP-17, both proposed/unassigned). Design-only — no Tier 0/1
-  precondition work has started, no account/data-source setup beyond what
-  Tier 0 already has is currently known to be needed (it reuses the
-  existing live Wikidata career-lookup pattern rather than a new provider).
-  The open question of whether this fits the existing `Round`/`League`
-  model or needs new Core primitives (friends/challenges) is unresolved —
-  see §4.15's own component-boundary note. Do not start building this
-  before Tier 0/1 are actually done and this doc is updated to promote it,
-  per this file's own standing rule.
 
 ## What this means for the other docs
 
