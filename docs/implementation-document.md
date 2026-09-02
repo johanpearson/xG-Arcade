@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.16"
+version: "1.17"
 status: draft
-last_updated: 2026-08-31
+last_updated: 2026-09-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -631,11 +631,11 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      — confirmed inapplicable to this game
                                      (product owner, see
                                      requirements-document.md §4.14).
-                                     No Playwright E2E spec yet
-                                     (frontend/tests/e2e/ has no
-                                     play-predict.spec.ts) — out of scope for
-                                     this story, tracked as a
-                                     docs/backlog.md follow-up.
+                                     Playwright E2E coverage added S-203
+                                     (2026-09-02): frontend/tests/e2e/
+                                     play-predict.spec.ts, mirroring
+                                     play-grid.spec.ts/play-path.spec.ts's
+                                     structure.
     /components                   -> CategoryLabel, CategoryGlyph (S-086) —
                                      the one shared component used by both
                                      /grid and /path; relocated here from

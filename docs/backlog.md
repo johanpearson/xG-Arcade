@@ -10169,6 +10169,38 @@ out and file it as this spec's own follow-up rather than blocking on it.
 *Deps:* S-197 (already merged), S-199 (for the full leaderboard
 assertion — see above).
 
+*Built as (2026-09-02):* `frontend/tests/e2e/play-predict.spec.ts` added,
+mirroring `play-grid.spec.ts`/`play-path.spec.ts`'s structure exactly
+(serial mode, `clearAnyExistingActivePredictRound`/`seedPredictRound`
+helpers, real-signup-through-the-UI flow). Since S-199 was already merged
+by the time this story ran, the leaderboard assertion was included rather
+than scoped out — one continuous test file covers REQ-1301 (5-match
+slate), REQ-1302 (submission), REQ-1303 (round-wide lock notice via a new
+`firstKickoffMinutesFromNow` seeding knob), REQ-1306 (per-player
+confirm-and-lock, including cancel), and REQ-1304/1305/410 (a graded
+prediction's score reaching the xG Predict leaderboard tab). Required two
+new non-Production-only `/internal/test-data/*` endpoints in
+`InternalRoundEndpoints.cs` — `seed-guessable-predict-round` and
+`grade-predict-match/{matchId}` (bypasses `IFootballDataClient`/
+`PredictGradingService`, calling `IPredictInstanceRepository.GradeMatchAsync`
+directly, the same "no deterministic way to make a real external fixture
+finish with a specific score" reasoning the seed endpoints already use to
+bypass real generation logic) — plus a `CreateSequencedRoundAsync` helper
+extracted from all three `seed-guessable-*` endpoints on this diff's third
+occurrence (rule-of-three). `architecture-reviewer` found no boundary/ADR
+gap (same-shaped extension of the already-ADR-0006-covered test-data
+pattern to a third game). `quality-architect` found and fixed two issues
+(missing not-found handling on `grade-predict-match`; the rule-of-three
+duplication now extracted) and flagged a missing API test gap, filled by
+7 new `RoundEndpointTests` cases (happy path, the lock-instant knob in
+both directions, not-found, and the ADR-0006 Production-gate for both
+endpoints). Closes the E2E gap REQ-1302/REQ-1303's own status notes in
+`docs/requirements-document.md` had flagged. Built without a local
+`dotnet` SDK in this sandbox — hand-traced, not locally run; CI
+verification via `ci.yml`'s `workflow_dispatch` is required before this is
+considered done, same recurring constraint as other recent backend
+stories in this log.
+
 **S-204 · Tune `"xg-predict"`'s `RoundDuration` default toward its real gameweek cadence**
 Flagged as an open product-tuning question by S-196's ADR-0072 amendment,
 not a bug: `RoundScheduling:XGPredict:RoundDurationHours`

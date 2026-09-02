@@ -4,6 +4,7 @@ using XGArcade.Api.Path;
 using XGArcade.Api.Predict;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
+using XGArcade.Core.Scoring;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
@@ -298,18 +299,10 @@ public static class InternalRoundEndpoints
             // entirely, so it computes the same MAX(SequenceNumber)+1 scoped
             // to this GameKey itself — the (GameKey, SequenceNumber) unique
             // index still applies to every Round row regardless of which
-            // path created it.
-            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(GridGameModule.XGGridGameKey, cancellationToken) ?? 0) + 1;
-            var round = await roundRepository.AddAsync(new Round
-            {
-                Id = Guid.NewGuid(),
-                GameKey = GridGameModule.XGGridGameKey,
-                GameInstanceId = instance.Id,
-                SequenceNumber = sequenceNumber,
-                StartTime = now.AddMinutes(-1),
-                EndTime = now.AddHours(1),
-                AllowGuessChange = true,
-            }, cancellationToken);
+            // path created it. See CreateSequencedRoundAsync's own doc
+            // comment (bottom of this file) for the shared implementation.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, GridGameModule.XGGridGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
 
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
@@ -383,20 +376,136 @@ public static class InternalRoundEndpoints
                 ],
             }, cancellationToken);
 
-            // REQ-304: see seed-guessable-round's identical note above.
-            var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(XGPathGameModule.XGPathGameKey, cancellationToken) ?? 0) + 1;
-            var round = await roundRepository.AddAsync(new Round
-            {
-                Id = Guid.NewGuid(),
-                GameKey = XGPathGameModule.XGPathGameKey,
-                GameInstanceId = instance.Id,
-                SequenceNumber = sequenceNumber,
-                StartTime = now.AddMinutes(-1),
-                EndTime = now.AddHours(1),
-                AllowGuessChange = true,
-            }, cancellationToken);
+            // REQ-304: see CreateSequencedRoundAsync's own doc comment
+            // (bottom of this file) for the shared implementation.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, XGPathGameModule.XGPathGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
 
             return Results.Ok(new SeedGuessablePathRoundResponse(round.Id, puzzleId, correctPlayerName));
+        });
+
+        // S-203/REQ-1301: the xg-predict counterpart to seed-guessable-round/
+        // seed-guessable-path-round above — same "bypass the module's own
+        // generation-time logic, write instance content directly via the
+        // owning repository" reasoning (this bypasses
+        // XGPredictGameModule.GenerateInstanceAsync entirely, so REQ-1301's
+        // real-fixture/tightest-kickoff-cluster selection never runs here).
+        //
+        // Unlike the two seed endpoints above, this one exposes a single
+        // caller-controlled knob: firstKickoffMinutesFromNow. REQ-1303's
+        // round-wide lock (PredictInstance.LockInstant = the earliest of the
+        // 5 matches' own KickoffUtc) is exactly what an E2E spec needs to
+        // control directly to exercise both sides of that lock — a positive
+        // value (the default, 60 minutes) seeds a round that is still open
+        // (for viewing the slate, submitting predictions, and REQ-1306's
+        // confirm-and-lock flow); a zero-or-negative value seeds one that is
+        // already locked (for REQ-1303's round-wide-lock notice and rejected
+        // submissions).
+        app.MapPost("/internal/test-data/seed-guessable-predict-round", async (
+            IPredictInstanceRepository predictInstanceRepository,
+            IRoundRepository roundRepository,
+            TimeProvider timeProvider,
+            double? firstKickoffMinutesFromNow,
+            CancellationToken cancellationToken) =>
+        {
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var firstKickoff = now.AddMinutes(firstKickoffMinutesFromNow ?? 60);
+
+            // Same unique-tag-per-call convention as the two seed endpoints
+            // above (REQ-209 fallout) — keeps repeated/concurrent test runs
+            // hermetic against a shared CI Postgres instance. ExternalFixtureId
+            // has no DB uniqueness constraint (see this entity's own
+            // migration), but a negative, tick-derived base keeps these test
+            // fixtures obviously distinct from any real football-data.org id
+            // (always positive) regardless.
+            var tag = Guid.NewGuid().ToString("N")[..8];
+            var externalFixtureIdBase = -(int)(DateTime.UtcNow.Ticks % 1_000_000);
+
+            var instanceId = Guid.NewGuid();
+            var matches = Enumerable.Range(0, 5)
+                .Select(i => new PredictMatch
+                {
+                    Id = Guid.NewGuid(),
+                    PredictInstanceId = instanceId,
+                    ExternalFixtureId = externalFixtureIdBase - i,
+                    HomeTeamName = $"Predict Test Home {tag} {i}",
+                    AwayTeamName = $"Predict Test Away {tag} {i}",
+                    // Only the first match's kickoff controls REQ-1303's lock
+                    // instant (LockInstant = Min(KickoffUtc)) — the other 4
+                    // are spaced a few minutes later; order is otherwise
+                    // unused (the response below re-sorts by kickoff anyway).
+                    KickoffUtc = firstKickoff.AddMinutes(i * 5),
+                })
+                .ToList();
+
+            var instance = await predictInstanceRepository.AddInstanceAsync(new PredictInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                Matches = matches,
+            }, cancellationToken);
+
+            // REQ-304: see CreateSequencedRoundAsync's own doc comment
+            // (bottom of this file) for the shared implementation.
+            // EndTime is generous enough that the round stays Active for the
+            // whole E2E run regardless of firstKickoffMinutesFromNow's
+            // value — REQ-1303's lock is driven entirely by PredictInstance.
+            // LockInstant, independent of Round.EndTime/Closed.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, XGPredictGameModule.XGPredictGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(4), cancellationToken);
+
+            var responseMatches = instance.Matches
+                .OrderBy(m => m.KickoffUtc)
+                .Select(m => new SeedGuessablePredictMatchResponse(m.Id, m.HomeTeamName, m.AwayTeamName))
+                .ToList();
+
+            return Results.Ok(new SeedGuessablePredictRoundResponse(round.Id, responseMatches));
+        });
+
+        // S-203/REQ-1305: grades one match directly via
+        // IPredictInstanceRepository's own normal write path
+        // (GetPredictionsForMatchAsync + GradeMatchAsync), bypassing
+        // IFootballDataClient/PredictGradingService entirely — an E2E spec
+        // has no deterministic way to make a real football-data.org fixture
+        // finish with a specific score, the same reason the seed endpoint
+        // above bypasses XGPredictGameModule's own real generation logic.
+        // Mirrors PredictGradingService.GradeReadyMatchesAsync's own
+        // Finished-outcome branch exactly (backend/src/XGArcade.Games.
+        // XGPredict/PredictGradingService.cs), just with the actual score
+        // supplied by the caller instead of fetched from the external
+        // client. Uses the concrete XGPredictScoringStrategy type, not
+        // IScoringStrategy/IScoringStrategyResolver — same ADR-0097
+        // Decision §2 registration the real grading service depends on.
+        app.MapPost("/internal/test-data/grade-predict-match/{matchId:guid}", async (
+            Guid matchId,
+            GradePredictMatchTestDataRequest request,
+            IPredictInstanceRepository predictInstanceRepository,
+            XGPredictScoringStrategy scoringStrategy,
+            CancellationToken cancellationToken) =>
+        {
+            var predictions = await predictInstanceRepository.GetPredictionsForMatchAsync(matchId, cancellationToken);
+            var finalPointsByPredictionId = predictions.ToDictionary(
+                prediction => prediction.Id,
+                prediction => scoringStrategy
+                    .ScorePrediction(prediction.HomeGoals, prediction.AwayGoals, request.HomeGoals, request.AwayGoals)
+                    .FinalPoints);
+
+            try
+            {
+                await predictInstanceRepository.GradeMatchAsync(
+                    matchId, request.HomeGoals, request.AwayGoals, finalPointsByPredictionId, cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // GradeMatchAsync's own "PredictMatch not found" guard
+                // (PredictInstanceRepository.cs) — same "load, NotFound() if
+                // the caller-supplied id doesn't resolve" convention
+                // force-close-round already establishes above for exactly
+                // this shape.
+                return Results.NotFound();
+            }
+
+            return Results.Ok(new GradePredictMatchTestDataResponse(matchId, request.HomeGoals, request.AwayGoals));
         });
     }
 
@@ -416,6 +525,35 @@ public static class InternalRoundEndpoints
             new Player { Id = Guid.NewGuid(), FullName = $"{namePrefix} {nameTag}", WikidataQid = $"Qtest-{Guid.NewGuid()}" },
             cancellationToken);
     }
+
+    // S-203 (quality-gate fix): shared by all three seed-guessable-*
+    // endpoints above — extracted on this diff's third occurrence per
+    // docs/coding-guidelines.md's rule-of-three, same reasoning
+    // CreateUniqueTestPlayerAsync above was already extracted for. REQ-304:
+    // this test-data endpoint bypasses RoundGenerationService entirely, so
+    // it computes the same MAX(SequenceNumber)+1 scoped to gameKey itself —
+    // the (GameKey, SequenceNumber) unique index still applies to every
+    // Round row regardless of which path created it.
+    private static async Task<Round> CreateSequencedRoundAsync(
+        IRoundRepository roundRepository,
+        string gameKey,
+        Guid gameInstanceId,
+        DateTime startTime,
+        DateTime endTime,
+        CancellationToken cancellationToken)
+    {
+        var sequenceNumber = (await roundRepository.GetMaxSequenceNumberByGameKeyAsync(gameKey, cancellationToken) ?? 0) + 1;
+        return await roundRepository.AddAsync(new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = gameKey,
+            GameInstanceId = gameInstanceId,
+            SequenceNumber = sequenceNumber,
+            StartTime = startTime,
+            EndTime = endTime,
+            AllowGuessChange = true,
+        }, cancellationToken);
+    }
 }
 
 // REQ-304: SequenceNumber is a display-only label alongside RoundId.
@@ -431,6 +569,22 @@ public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string Corre
 // GuessEndpoints) — same PathPuzzle.Id-is-the-cell-id contract
 // IGameModule.GetCellIdsAsync already documents for xg-path.
 public record SeedGuessablePathRoundResponse(Guid RoundId, Guid PuzzleId, string CorrectPlayerName);
+
+// S-203: seed-guessable-predict-round's response — Matches is ordered by
+// KickoffUtc (never internal insertion order) so a caller can reliably
+// address "the first match" without depending on how this endpoint
+// happened to build the list.
+public record SeedGuessablePredictRoundResponse(Guid RoundId, IReadOnlyList<SeedGuessablePredictMatchResponse> Matches);
+
+public record SeedGuessablePredictMatchResponse(Guid MatchId, string HomeTeamName, string AwayTeamName);
+
+// S-203: grade-predict-match's request/response — mirrors
+// PredictEndpoints.SubmitPredictionRequest's shape (two non-negative goal
+// counts), just for the match's real final score rather than a player's
+// predicted one.
+public record GradePredictMatchTestDataRequest(int HomeGoals, int AwayGoals);
+
+public record GradePredictMatchTestDataResponse(Guid MatchId, int HomeGoals, int AwayGoals);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.
