@@ -29,6 +29,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   should actually track real matchday changes, rather than a config
   default. No code changed by this correction — S-204 was not yet
   implemented.
+- 2026-09-02 — `docs/decisions/0095-xg-predict-scoring-direction-exception.md`,
+  `docs/requirements-document.md` (2.37→2.38) — S-205 (Epic 13): closed the
+  standing item S-193's `architecture-reviewer` left open —
+  `XGPredictScoringStrategy.ScorePrediction` is now confirmed, via a new
+  amendment to ADR-0095, as `"xg-predict"`'s deliberate and permanent
+  second entry point (`ScoreCorrectGuess` permanently throws
+  `NotSupportedException` for this `GameKey`), until a real third game
+  forces `IScoringStrategy`'s shape to be revisited. Points to ADR-0097
+  (built the same day as ADR-0095's own amendments, for REQ-1305's grading
+  job), which had already made and reasoned through this exact call —
+  `PredictGradingService` depends on the concrete `XGPredictScoringStrategy`
+  class directly rather than `IScoringStrategy` being widened — without
+  ever closing the loop back on ADR-0095's own open question. No code
+  changed; `IScoringStrategy` was not touched, per the story's explicit
+  "do not refactor speculatively" instruction.
 - 2026-09-02 — `docs/backlog.md`, `docs/requirements-document.md`
   (2.36→2.37), `docs/implementation-document.md` (1.16→1.17) — S-203
   (Epic 13, REQ-1301/1302/1303/1304/1305/1306/410): doc-sync for

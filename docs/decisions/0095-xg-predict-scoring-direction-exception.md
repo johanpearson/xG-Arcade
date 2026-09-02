@@ -173,6 +173,48 @@ firm, non-negotiable rule.
 > ranking scopes now resolve sort direction per `GameKey` — REQ-1304's
 > acceptance text is accurate as written, with no remaining gap.
 
+> **Standing item closed (2026-09-02, S-205):** the first amendment above
+> left open whether `ScorePrediction` is `XGPredictScoringStrategy`'s
+> permanent second/parallel entry point for `GameKey = "xg-predict"`, or
+> whether `IScoringStrategy` itself should be reshaped, deferring the call
+> to "when REQ-1305's grading job is built." That job now exists —
+> ADR-0097 (2026-08-30, same day as this ADR's own amendments, built for
+> REQ-1305/S-197) already made and recorded the substantive decision while
+> wiring `PredictGradingService`: `ScorePrediction` stays a concrete public
+> method on the concrete `XGPredictScoringStrategy` class, injected into
+> `PredictGradingService` directly (registered as itself in DI, alongside
+> its existing `IScoringStrategy` registration) rather than through
+> `IScoringStrategyResolver`; `IScoringStrategy` was deliberately **not**
+> widened with a `ScorePrediction`-shaped member. ADR-0097's own
+> alternatives table gives the reasoning: every other `IScoringStrategy`
+> implementation (`UniquenessScoringStrategy`, `ClueEfficiencyScoringStrategy`)
+> would need a meaningless implementation of a member that only ever
+> applies to one `GameKey`, for the benefit of a single caller — the same
+> "don't widen a shared interface for one caller" reasoning ADR-0096 already
+> used for `ScoreResult`. This amendment exists only to close the standing
+> item explicitly, since ADR-0097 recorded the decision without pointing
+> back to resolve the open question this ADR itself had raised.
+>
+> **Confirmed, permanent, until a third real caller forces otherwise:**
+> `ScoreCorrectGuess` continuing to throw `NotSupportedException` for
+> `GameKey = "xg-predict"`, with `ScorePrediction` as this `GameKey`'s
+> separate, concrete, non-`IScoringStrategy` entry point, is this
+> interface's deliberate permanent shape — not a temporary gap awaiting a
+> future revisit. `IScoringStrategy` has exactly two real implementations
+> today (three counting xG Predict's dual-natured one), and no fourth game
+> exists to force a different shape. Do not treat `ScoreCorrectGuess`'s
+> `NotSupportedException` branch as unfinished work, and do not reshape
+> `IScoringStrategy` speculatively on its account. Revisit only if a real
+> third game needs a fundamentally different `IScoringStrategy` input
+> shape — the same bar ADR-0040's own follow-up note and ADR-0097's
+> alternatives table already set — at which point that story is the right
+> place to decide whether to generalize the interface or add another
+> concrete-class carve-out. A fourth game should not add a third such
+> `NotSupportedException` escape hatch without that revisit happening
+> first — this is the same limit ADR-0095's first amendment already named,
+> restated here as the closing word on the standing item rather than an
+> open one.
+
 ## For AI agents
 
 Do not assume ADR-0021's lower-is-better rule applies to
@@ -184,3 +226,9 @@ that game having its own equivalent ADR — this is a single, named
 `LeaderboardService`'s three `OrderBy` call sites are migrated to resolve
 direction per `GameKey`, do not hardcode `OrderBy`/`OrderByDescending` for
 any new leaderboard read path — resolve it from the strategy the same way.
+Do not treat `XGPredictScoringStrategy.ScoreCorrectGuess`'s
+`NotSupportedException` as unfinished work or a reason to reshape
+`IScoringStrategy` — its permanence, and `ScorePrediction`'s status as the
+confirmed, permanent second entry point for this `GameKey`, are settled;
+see the "Standing item closed" amendment above before proposing either an
+interface change or a fix to that method.
