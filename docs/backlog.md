@@ -10398,3 +10398,132 @@ already-started fixture. Five new `FootballDataClientTests` cases; see
 ADR-0099's Decision item 3 status update and REQ-1301's own status note
 for the full incident. No ToS/infra impact — pure client-side correctness
 fix within the same file set S-206 already touched.
+
+## Epic 27 — xG Connect (Tier 2, design-only — do not start before promoted)
+
+**Gate — read before picking up any story below:** `MVP-SCOPE.md` lists xG
+Connect under Tier 2 (2026-09-02 entry). Per this file's own standing rule
+("Do not pull Tier 1 items forward") and `CLAUDE.md`'s "Build order
+follows `MVP-SCOPE.md`, not the full design docs," **do not start S-207
+below until a human has promoted xG Connect out of Tier 2 in
+`MVP-SCOPE.md`.** These stories exist so the sequence is ready the moment
+that happens, not as a signal it's next. Full requirements:
+`docs/requirements-document.md` §4.15 (REQ-1401-1411). Architecture:
+`docs/architecture-document.md` COMP-16/COMP-17 (both currently "proposed,
+not yet assigned").
+
+**S-207 · ADR: xG Connect structural decisions**
+Resolve the two open questions §4.15's component-boundary note flags:
+(a) does Friends/Challenges become its own Core component (COMP-16)
+separate from the game module (COMP-17), or one component; (b) does xG
+Connect's pairwise, on-demand match fit the existing `Round`/`League`
+model (COMP-02/COMP-03, ADR-0003) or need a new first-class concept. Use
+`/new-adr`. Update `architecture-document.md`'s COMP-16/17 rows to reflect
+the decision (drop "proposed"/"not yet assigned" once real). No
+application code — this story is pure design and unblocks every story
+below.
+*Accept:* ADR merged; architecture-document.md matches it.
+*Deps:* none (blocked only by the Tier 2 promotion gate above).
+
+**S-208 · Data model & migrations**
+Per S-207's decision, scaffold EF Core entities + migrations for:
+`Friendship`/`FriendRequest` (REQ-1401), `Challenge` (REQ-1402),
+`MatchmakingOptIn` (REQ-1403), `ConnectMatch` + target picks
+(REQ-1404/1405), `ConnectChainStep` (REQ-1406/1407), `ConnectChatMessage`
+(REQ-1410). Repositories only, no business logic yet, per
+`coding-guidelines.md`.
+*Accept:* migration applies cleanly; repository unit tests for basic CRUD.
+*Deps:* S-207.
+
+**S-209 · Friends list (REQ-1401)**
+Send/accept/decline friend request endpoints + service logic.
+*Accept:* `REQ1401_...`-named tests covering every Given/When/Then in
+REQ-1401 (duplicate-pending rejection both directions, already-friends
+rejection, self-request rejection, decline-then-resend).
+*Deps:* S-208.
+
+**S-210 · Direct challenge + random matchmaking (REQ-1402/1403)**
+Challenge send/accept/decline (requires an existing friendship); random
+matchmaking opt-in pool + 12-hour pairing sweep job (mirrors the existing
+scheduled-sweep pattern, e.g. `sweep-recent-transfers.yml`). Both paths
+resolve into a new `ConnectMatch`.
+*Accept:* `REQ1402_...`/`REQ1403_...`-named tests, including 12h expiry
+with no pairing and no player double-booked into two matches from one
+pairing event.
+*Deps:* S-209.
+
+**S-211 · Target-pick selection + trivial-pair rejection (REQ-1404)**
+Independent, mutually-invisible target-pick endpoint; free resubmission
+before the match officially starts; the direct-already-connected
+rejection check once both picks are in. This is the first place the live
+per-player career-overlap check gets built for xG Connect — reuse the
+existing guess-time live-lookup pattern (ADR-0010/0011) against Wikidata
+rather than inventing a new data path, and extract it as a shared
+helper/service, since S-213 needs the identical check per chain step.
+*Accept:* `REQ1404_...`-named tests, including the trivial-pair rejection
+(and that the first player's pick survives a rejected second pick) and
+free pre-lock resubmission.
+*Deps:* S-210.
+
+**S-212 · Match start, 6-hour timer, resolution scaffolding (REQ-1405)**
+Match officially starts once both picks are locked; independent per-player
+6-hour deadline; forfeit-on-timeout sweep job; resolution waits for both
+players' terminal state but doesn't wait out an unused remainder of the
+window once both are reached.
+*Accept:* `REQ1405_...`-named tests per its Given/When/Then.
+*Deps:* S-211.
+
+**S-213 · Incremental chain submission + live per-step validation (REQ-1406)**
+Chain-step submission endpoint reusing S-211's career-overlap helper;
+candidate search wired to the existing broad `PlayerNameIndex` (COMP-10),
+never the curated club/country reference tables (mirrors REQ-207's
+autocomplete/correctness separation, ADR-0007); chain-closing detection
+against the OTHER target pick, not the one the chain started from.
+*Accept:* `REQ1406_...`-named tests: valid overlapping-time step accepted,
+non-overlapping-period rejection, never-played-for-that-club rejection,
+closing-step detection, candidate search returns players outside the
+curated reference tables.
+*Deps:* S-212.
+
+**S-214 · Penalty/bust rule, scoring, match resolution (REQ-1407/1408/1409)**
+Two-strikes-per-step tracking (independent per chain position), scoring
+formula (connections + accumulated penalties, min 1), win/draw/forfeit
+resolution once both players reach a terminal state.
+*Accept:* `REQ1407_...`/`REQ1408_...`/`REQ1409_...`-named tests per their
+Given/When/Then.
+*Deps:* S-213.
+
+**S-215 · In-match chat (REQ-1410)**
+Send/read chat scoped to one match; participant-only access; chat
+persists and stays readable after the match ends.
+*Accept:* `REQ1410_...`-named tests.
+*Deps:* S-212 (does not need S-213/S-214's chain-scoring logic).
+
+**S-216 · Notification indicator, backend (REQ-1411)**
+Aggregate endpoint for the current user: pending friend requests +
+pending challenges + matches awaiting their own next move (no target pick
+submitted yet, or an in-progress, non-terminal chain). Excludes an
+unpaired matchmaking opt-in (nothing actionable yet).
+*Accept:* `REQ1411_...`-named tests: combined presence across all three
+categories, zero once every contributing item resolves, unpaired opt-in
+excluded.
+*Deps:* S-209, S-210, S-212 (needs all three pending-item sources to exist).
+
+**S-217 · Frontend: friends/challenges/matchmaking screens**
+New `design-document.md` SCREEN entries (via the `frontend-design`
+skill/`ui-implementer`) for the friends list, send/accept/decline UI,
+challenge flow, matchmaking opt-in, and the header-nav notification badge
+from S-216 (exact visual treatment — count vs. presence dot — is a design
+decision here, deliberately left open by REQ-1411 itself).
+*Accept:* Vitest coverage; manual browser check per `CLAUDE.md`'s
+UI-testing rule.
+*Deps:* S-216.
+
+**S-218 · Frontend: match/gameplay screen**
+Target-pick selection UI, chain-builder UI (candidate search, club claim,
+live validation feedback, penalty/bust states), match resolution screen,
+in-match chat UI.
+*Accept:* Vitest + Playwright E2E covering a full match happy path
+(challenge → both picks → chain to completion → resolution); manual
+browser check.
+*Deps:* S-214, S-215, S-217.
