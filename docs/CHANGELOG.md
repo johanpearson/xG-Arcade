@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/backlog.md` (new Epic 27, S-207 through S-218) —
+  sequenced xG Connect into session/PR-sized stories (ADR first, then
+  data model, friends, challenges/matchmaking, target-pick selection,
+  match timer, chain submission/validation, scoring/resolution, chat,
+  notification indicator, then two frontend stories), each naming its
+  exact REQ IDs and dependencies so a session prompt doesn't need to
+  re-derive scope. Explicitly gated: do not start until a human promotes
+  xG Connect out of `MVP-SCOPE.md`'s Tier 2.
 - 2026-09-02 — `docs/requirements-document.md` (2.40→2.41, §4.15 +
   REQ-1411) — added a cross-cutting notification-indicator requirement to
   the xG Connect proposal: a persistent, visible indicator (badge-style,
