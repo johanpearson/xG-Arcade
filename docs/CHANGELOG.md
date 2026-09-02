@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/backlog.md` — corrected S-204: the product owner
+  flagged that Premier League gameweeks aren't always 7 days apart
+  (midweek rounds are routine), so the story's original proposal
+  (default `RoundScheduling:XGPredict:RoundDurationHours` to 168h) was
+  wrong, not just imprecise. Traced the actual cause through
+  `RoundGenerationService` (rounds chain at a fixed period, by
+  construction) and `XGPredictGameModule.GenerateInstanceAsync` (no
+  tracking of which matchday a prior round already used) — no constant
+  `RoundDuration` value is safe in either direction: too long silently
+  skips a midweek matchday once its fixtures kick off before generation
+  catches up; too short duplicates a round for the same real matches
+  before the upcoming matchday actually changes. Rewrote S-204 as a fix
+  requiring a new ADR (ADR-0102) to decide how `"xg-predict"` generation
+  should actually track real matchday changes, rather than a config
+  default. No code changed by this correction — S-204 was not yet
+  implemented.
 - 2026-09-02 — `docs/decisions/0095-xg-predict-scoring-direction-exception.md`,
   `docs/requirements-document.md` (2.37→2.38) — S-205 (Epic 13): closed the
   standing item S-193's `architecture-reviewer` left open —
