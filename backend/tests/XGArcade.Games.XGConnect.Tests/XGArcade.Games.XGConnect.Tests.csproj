@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.11" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit.Analyzers" Version="4.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="NUnit.Framework" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XGArcade.Games.XGConnect\XGArcade.Games.XGConnect.csproj" />
+    <!-- Tests exercise XGConnectGameModule against the real, InMemory-backed
+         ConnectMatchRepository (this codebase's no-mocking-framework
+         pattern — see XGPredictGameModuleTests/XGPathGameModuleTests), so a
+         direct reference to XGArcade.Data's DbContext and repository
+         implementation is needed here, not just the transitive one
+         XGArcade.Games.XGConnect already carries. -->
+    <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
+  </ItemGroup>
+
+</Project>

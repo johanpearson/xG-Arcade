@@ -72,4 +72,46 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
             .AsNoTracking()
             .Where(s => s.ConnectMatchId == matchId && s.UserId == userId)
             .ToListAsync(cancellationToken);
+
+    // REQ-710/ADR-0101: load-then-save (coding-guidelines.md — never
+    // ExecuteUpdateAsync, the InMemory test provider can't translate it),
+    // tracked (not AsNoTracking) since every row here is mutated in place.
+    // Three separate queries/loops rather than one combined LINQ query
+    // across entity types, mirroring
+    // PredictInstanceRepository.AnonymizePredictionsByUserIdAsync's own
+    // one-entity-type-at-a-time shape.
+    public async Task AnonymizeUserDataAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var matches = await dbContext.ConnectMatches
+            .Where(m => m.PlayerAUserId == userId || m.PlayerBUserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var match in matches)
+        {
+            if (match.PlayerAUserId == userId)
+                match.PlayerAUserId = null;
+            if (match.PlayerBUserId == userId)
+                match.PlayerBUserId = null;
+        }
+
+        var targetPicks = await dbContext.ConnectTargetPicks
+            .Where(p => p.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var pick in targetPicks)
+        {
+            pick.UserId = null;
+        }
+
+        var chainSteps = await dbContext.ConnectChainSteps
+            .Where(s => s.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var step in chainSteps)
+        {
+            step.UserId = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

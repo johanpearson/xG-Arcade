@@ -15,6 +15,7 @@ using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.FootballData;
 using XGArcade.DataSync.Wikidata;
+using XGArcade.Games.XGConnect;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
@@ -239,6 +240,17 @@ public static class ServiceRegistration
         // match/target-pick/chain-step/chat persistence.
         builder.Services.AddScoped<IConnectMatchRepository, ConnectMatchRepository>();
         builder.Services.AddScoped<IConnectChatMessageRepository, ConnectChatMessageRepository>();
+        // S-211 scaffold: IGameModuleResolver.Resolve("xg-connect") now
+        // returns a real module — GenerateInstanceAsync/ScoreSubmissionAsync/
+        // GetCellIdsAsync/GetMaxAttemptsForCellAsync/GetCellCategoryTypesAsync
+        // all throw NotSupportedException (ADR-0103: these are permanently
+        // inapplicable to xG Connect's non-Round shape, not TODOs), only
+        // PurgeUserDataAsync is a real implementation. Deliberately NOT
+        // added to RoundSchedulingOptions/IScoringStrategy/
+        // GuessSubmissionAllowedGameKeys registrations above/below — xG
+        // Connect never uses Core.Rounds/Core.Scoring's Guess-based
+        // submission path (see XGConnectGameModule's own doc comment).
+        builder.Services.AddScoped<IGameModule, XGConnectGameModule>();
         // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
         // (Core.Social) together with IConnectMatchRepository above
         // (Games.XGConnect) for the periodic pairing sweep — lives in

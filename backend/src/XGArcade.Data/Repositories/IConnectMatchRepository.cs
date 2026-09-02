@@ -36,4 +36,23 @@ public interface IConnectMatchRepository
 
     Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(
         Guid matchId, Guid? userId, CancellationToken cancellationToken = default);
+
+    // REQ-710/ADR-0101: anonymizes every UserId-shaped column this user
+    // appears in, across all three of this component's per-user tables —
+    // ConnectMatch.PlayerAUserId/PlayerBUserId, ConnectTargetPick.UserId,
+    // ConnectChainStep.UserId. Mirrors
+    // IPredictInstanceRepository.AnonymizePredictionsByUserIdAsync's
+    // anonymize-in-place shape (every one of these columns is nullable with
+    // no FK to User, per each entity's own doc comment) rather than a hard
+    // delete — other participants' match history/chain data depends on
+    // these rows surviving. Called only from XGConnectGameModule.
+    // PurgeUserDataAsync (this is the one place outside Games.XGConnect's
+    // own boundary Core.Auth's AccountDeletionService reaches, via
+    // IGameModule, never this repository directly — ADR-0003/ADR-0101).
+    // Deliberately does NOT touch ConnectChatMessage.SenderUserId — that
+    // table is owned by the separate IConnectChatMessageRepository and REQ-
+    // 1410's chat feature is not yet built (S-208 scaffolding only); a
+    // future story wiring up chat needs to fold that anonymization in too,
+    // tracked as a gap here rather than guessed at now.
+    Task AnonymizeUserDataAsync(Guid userId, CancellationToken cancellationToken = default);
 }
