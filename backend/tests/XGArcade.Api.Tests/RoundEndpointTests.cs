@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using XGArcade.Api.Auth;
+using XGArcade.Api.Predict;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
