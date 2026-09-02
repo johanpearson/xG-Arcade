@@ -10437,6 +10437,18 @@ REQ-1401 (duplicate-pending rejection both directions, already-friends
 rejection, self-request rejection, decline-then-resend).
 *Deps:* S-208.
 
+*Built as (2026-09-02):* `IFriendService`/`FriendService`
+(`XGArcade.Core.Social`) plus `XGArcade.Api.Social.FriendEndpoints`
+(`POST /friends/requests`, `.../{id}/accept`, `.../{id}/decline`,
+`GET /friends/requests/pending`, `GET /friends`), matching the plan exactly.
+Full `REQ1401_...`-named coverage in `FriendServiceTests.cs`/
+`FriendEndpointTests.cs`. A same-diff quality-gate finding also extracted a
+shared `RequestingUserResolver` helper (`XGArcade.Api.Auth`), deduplicating
+four near-identical copies across `LeaderboardEndpoints.cs`/
+`LeagueEndpoints.cs`/`FriendEndpoints.cs`/`AvatarEndpoints.cs`
+(ADR-0084 rule-of-three) — mechanical cleanup, not part of REQ-1401 itself,
+no ADR needed. REQ-1402/1403 (challenges, matchmaking) not started — S-210.
+
 **S-210 · Direct challenge + random matchmaking (REQ-1402/1403)**
 Challenge send/accept/decline (requires an existing friendship); random
 matchmaking opt-in pool + 12-hour pairing sweep job (mirrors the existing
