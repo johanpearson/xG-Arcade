@@ -57,7 +57,10 @@ public class XGPathGameModule(
 
     public string GameKey => XGPathGameKey;
 
-    public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
+    // ADR-0102: never returns null — xg-path has no real-world-content
+    // concept to check against config.LatestGameInstanceId, so it always
+    // generates a fresh instance, same as before that interface change.
+    public async Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
         var template = await pathInstanceRepository.GetTemplateByIdAsync(config.TemplateId, cancellationToken)
             ?? throw new PathGenerationException($"PathTemplate '{config.TemplateId}' not found.");

@@ -43,6 +43,17 @@ namespace XGArcade.Core.Rounds;
 // below 24h, or either workflow's cron cadence changes away from daily,
 // ADR-0027's "RoundDuration >= cron's max gap" invariant must be re-derived
 // independently for that GameKey's own workflow.
+// ADR-0102 (S-204): the "a new round is actually generated roughly every
+// RoundDuration (chain-driven via EndTime, not cron-driven)" claim in this
+// class's own doc comment above is no longer true for every GameKey — it
+// still holds for xg-grid/xg-path, but "xg-predict"'s RoundDuration is a
+// dead fallback for round-generation timing purposes: XGPredictGameModule
+// always supplies GameInstance.SuggestedStartTime/SuggestedEndTime (real
+// fixture kickoff timing), which RoundGenerationService prefers
+// unconditionally over chain-math whenever a module supplies them. This
+// options type's own shape/registration is otherwise unaffected — every
+// GameKey still needs a RoundSchedulingOptions entry (see
+// RoundSchedulingOptionsResolver.Resolve, called unconditionally).
 public class RoundSchedulingOptions
 {
     public required string GameKey { get; set; }

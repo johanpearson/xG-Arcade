@@ -7,4 +7,16 @@ namespace XGArcade.Core.Games;
 public class RoundConfig
 {
     public required Guid TemplateId { get; set; }
+
+    // ADR-0102: populated by RoundGenerationService itself (from the
+    // existing GameKey's `latest` Round's GameInstanceId), immediately
+    // before calling IGameModule.GenerateInstanceAsync — never set by a
+    // caller of GenerateNextRoundIfNeededAsync. Null on a GameKey's
+    // first-ever round (no `latest` exists yet). Still opaque to Core in
+    // the sense that Core never inspects what the id points to — it only
+    // threads a previously-generated GameInstance's own Id back to the
+    // module that produced it, so that module can decide (its own opaque
+    // logic) whether a new instance is actually due. xg-grid/xg-path never
+    // read this field.
+    public Guid? LatestGameInstanceId { get; set; }
 }
