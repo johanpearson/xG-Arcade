@@ -105,7 +105,7 @@ public static class AvatarEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            var user = await ResolveCurrentUserAsync(principal, userRepository, cancellationToken);
+            var user = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (user is null)
                 return Results.Unauthorized();
 
@@ -204,7 +204,7 @@ public static class AvatarEndpoints
             IAvatarSubmissionRepository avatarSubmissionRepository,
             CancellationToken cancellationToken) =>
         {
-            var user = await ResolveCurrentUserAsync(principal, userRepository, cancellationToken);
+            var user = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (user is null)
                 return Results.Unauthorized();
 
@@ -245,7 +245,7 @@ public static class AvatarEndpoints
             IAvatarStorage avatarStorage,
             CancellationToken cancellationToken) =>
         {
-            var user = await ResolveCurrentUserAsync(principal, userRepository, cancellationToken);
+            var user = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (user is null)
                 return Results.Unauthorized();
 
@@ -289,7 +289,7 @@ public static class AvatarEndpoints
         // owner-only endpoint's own doc comment already anticipated this
         // exact follow-up ("any future 'visible to other players' endpoint
         // needs their own separate authorization path — not this one —
-        // when those stories are built"). ResolveCurrentUserAsync is still
+        // when those stories are built"). RequestingUserResolver is still
         // called here, but only to confirm the CALLER is logged in (401 if
         // not) — the caller is never compared against {userId}, unlike
         // GET /users/me/avatar/{submissionId}/image's SubmittingUserId ==
@@ -315,7 +315,7 @@ public static class AvatarEndpoints
             IAvatarStorage avatarStorage,
             CancellationToken cancellationToken) =>
         {
-            var caller = await ResolveCurrentUserAsync(principal, userRepository, cancellationToken);
+            var caller = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (caller is null)
                 return Results.Unauthorized();
 
@@ -344,23 +344,6 @@ public static class AvatarEndpoints
                 new MemoryStream(image.Content), image.ContentType,
                 entityTag: new EntityTagHeaderValue($"\"{submission.Id}\""));
         }).RequireAuthorization();
-    }
-
-    // Shared by all three handlers above — resolves the caller from
-    // ClaimsPrincipal via IUserRepository.GetByAuthProviderUserIdAsync,
-    // same lookup SuggestionEndpoints.cs/IncidentEndpoints.cs each do
-    // inline once. A null return means "missing subject claim or no
-    // matching user" — both cases the caller handles identically
-    // (Results.Unauthorized()), so this collapses them into one signal
-    // rather than distinguishing the two failure modes.
-    private static async Task<User?> ResolveCurrentUserAsync(
-        ClaimsPrincipal principal, IUserRepository userRepository, CancellationToken cancellationToken)
-    {
-        var authProviderUserId = principal.GetAuthProviderUserId();
-        if (authProviderUserId is null)
-            return null;
-
-        return await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
     }
 
     private static AvatarSubmissionSummary? ToSummary(AvatarSubmission? submission) =>

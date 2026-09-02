@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/requirements-document.md` (2.43→2.44, REQ-1401's
+  Status line updated), `docs/architecture-document.md` (1.35→1.36,
+  COMP-16 row updated, COMP-14's stale `ResolveCurrentUserAsync` mention
+  corrected), `docs/backlog.md` (S-209 entry annotated with a "Built as"
+  note, matching this doc's established convention for recently completed
+  stories) — doc-sync for S-209 (REQ-1401): `IFriendService`/`FriendService`
+  (`XGArcade.Core.Social`) implements send/accept/decline friend-request
+  logic on top of S-208's data model — self-request, recipient-not-found,
+  already-friends, and both-directions duplicate-pending rejection; accept
+  creates the symmetric `Friendship` row in the same call, decline does
+  not and does not block a resend. `XGArcade.Api.Social.FriendEndpoints`
+  exposes it (`POST /friends/requests`, `.../{id}/accept`,
+  `.../{id}/decline`, `GET /friends/requests/pending`, `GET /friends`).
+  Full `REQ1401_...`-named coverage added
+  (`FriendServiceTests.cs`/`FriendEndpointTests.cs`). Same diff also
+  extracted a shared `RequestingUserResolver` helper (`XGArcade.Api.Auth`)
+  deduplicating four near-identical caller-resolution copies across
+  `LeaderboardEndpoints.cs`/`LeagueEndpoints.cs`/`FriendEndpoints.cs`/
+  `AvatarEndpoints.cs` (ADR-0084's rule-of-three budget, a quality-gate
+  finding) — mechanical deduplication, not a new structural decision, so
+  no new ADR. Went through architecture-reviewer (pass — `Core.Social`'s
+  direct `IUserRepository` dependency confirmed as the same Core-to-Core
+  precedent `LeaderboardService` already establishes, ADR-0003 unaffected)
+  and quality-architect (the `RequestingUserResolver` finding above, now
+  fixed). REQ-1402/1403 (challenges, matchmaking) remain unbuilt — S-210.
 - 2026-09-02 — `docs/architecture-document.md` (1.34→1.35, COMP-16/COMP-17
   rows updated), `docs/requirements-document.md` (2.42→2.43, REQ-1401-1410
   Status lines + §4.15 intro updated) — doc-sync for S-208 (commit

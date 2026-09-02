@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.43"
+version: "2.44"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10859,17 +10859,18 @@ each independently pick one real football player as their "target pick"
 players race — independently and asynchronously — to build the shortest
 chain of real "played together" (same club, overlapping time period)
 connections linking those same two target players, not connecting their
-own pick to the other's. This section is still design-only in terms of
-behavior — **S-208 (2026-09-02) added EF Core data-model scaffolding
+own pick to the other's. This section is mostly still design-only in terms
+of behavior — **S-208 (2026-09-02) added EF Core data-model scaffolding
 (entities, repositories, a migration) for REQ-1401-1403/1404-1407/1410 in
-`XGArcade.Data`, but no request/accept/decline, matchmaking, match, or
-chain logic, and no `IGameModule` implementation, exist yet** — see each
-REQ's own Status line below for what S-208 covers. Every REQ below is
-written to the same standard as §4.12/§4.14's xG Path/xG Predict
-requirements, but (aside from the persisted shape S-208 built) describes
-intended
-behavior for a game that has not been built, not a claim about current
-behavior.
+`XGArcade.Data`; S-209 (2026-09-02) then built REQ-1401's send/accept/decline
+service logic and API endpoints on top of that model — but challenges,
+matchmaking, match, and chain logic, and any `IGameModule` implementation,
+remain unbuilt** — see each REQ's own Status line below for exactly what's
+built versus still design-only. Every REQ below is written to the same
+standard as §4.12/§4.14's xG Path/xG Predict requirements, but (aside from
+REQ-1401's now-real behavior and the persisted shape S-208 built for the
+rest) describes intended behavior for a game that has not been built, not
+a claim about current behavior.
 
 **Component boundary note — resolved by ADR-0103 (2026-09-02, S-207):**
 friends/challenges (REQ-1401-1403) and the match/puzzle/scoring/chat logic
@@ -10905,9 +10906,21 @@ component.
 > declining friend requests, so I have a trusted pool of opponents I can
 > challenge directly in xG Connect (REQ-1402).
 
-**Status: Proposed — data model exists (S-208: `FriendRequest`/`Friendship`
-entities + `IFriendRepository` in `XGArcade.Data`); send/accept/decline
-service logic not implemented yet.**
+**Status: Built, 2026-09-02 (S-209).** `IFriendService`/`FriendService`
+(`XGArcade.Core.Social`) implements every branch below on top of S-208's
+`FriendRequest`/`Friendship` entities and `IFriendRepository`:
+`SendFriendRequestAsync` (self-request, recipient-not-found, already-friends,
+and duplicate-pending rejection checked in both directions), and a shared
+`AcceptFriendRequestAsync`/`DeclineFriendRequestAsync` implementation that
+only the request's recipient may resolve — accept creates the symmetric
+`Friendship` row in the same call via `IFriendRepository.AddFriendshipAsync`,
+decline does not and leaves the requester free to resend later.
+`XGArcade.Api.Social.FriendEndpoints` exposes this as `POST
+/friends/requests`, `POST /friends/requests/{id}/accept`, `POST
+/friends/requests/{id}/decline`, `GET /friends/requests/pending`, and `GET
+/friends`, all `.RequireAuthorization()`'d. Full `REQ1401_...`-named test
+coverage in `FriendServiceTests.cs`/`FriendEndpointTests.cs`. REQ-1402/1403
+(challenges, matchmaking) remain unbuilt — S-210.
 
 - Given two existing xG Arcade accounts, User A and User B, who are not
   already friends and have no pending friend request between them

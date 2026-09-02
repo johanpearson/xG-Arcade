@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using XGArcade.Api.Auth;
 using XGArcade.Api.Leagues;
 using XGArcade.Core.Leagues;
 using XGArcade.Data.Repositories;
@@ -39,9 +40,9 @@ public static class UserEndpoints
 
             // REQ-411: this view isn't reachable by a fully logged-out
             // visitor (unlike REQ-511's banner) — no session/unresolvable
-            // claim is a 401, same ResolveRequestingUserAsync pattern every
-            // LeaderboardEndpoints route already uses.
-            var requestingUser = await LeaderboardEndpoints.ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            // claim is a 401, same RequestingUserResolver every other
+            // *Endpoints.cs file uses.
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
             if (requestingUser is null)
                 return Results.Unauthorized();
 

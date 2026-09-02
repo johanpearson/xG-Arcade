@@ -11,6 +11,7 @@ using XGArcade.Api.Path;
 using XGArcade.Api.Players;
 using XGArcade.Api.Predict;
 using XGArcade.Api.Rounds;
+using XGArcade.Api.Social;
 using XGArcade.Api.Suggestions;
 using XGArcade.Api.Users;
 
@@ -120,5 +121,10 @@ public static class EndpointMapping
         // registration, same "submission file vs. admin file" split as
         // MapSuggestionEndpoints/MapAdminSuggestionEndpoints above.
         app.MapAdminAvatarEndpoints();
+        // REQ-1401/S-209/ADR-0103: Core.Social (COMP-16)'s friend request
+        // send/accept/decline surface — its own file/registration, no
+        // dependency on any Games.XGConnect (COMP-17) code (that's
+        // S-210+'s match/challenge logic).
+        app.MapFriendEndpoints();
     }
 }
