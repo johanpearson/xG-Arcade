@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.17"
+version: "1.18"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -173,7 +173,12 @@ implements. New games implement the same interface without touching core.
 public interface IGameModule
 {
     string GameKey { get; }
-    Task<GameInstance> GenerateInstanceAsync(RoundConfig config);
+    // ADR-0102 (S-204): nullable return — null means "no new round due for
+    // this GameKey right now" (xg-predict only; xg-grid/xg-path never
+    // return null). RoundConfig gained a nullable LatestGameInstanceId and
+    // GameInstance gained nullable SuggestedStartTime/SuggestedEndTime, both
+    // omitted from this illustrative sketch for brevity — see that ADR.
+    Task<GameInstance?> GenerateInstanceAsync(RoundConfig config);
     Task<ScoreResult> ScoreSubmissionAsync(Guid instanceId, Guid userId, object submission);
     // ADR-0021 (S-028): every cell id for a generated instance, regardless
     // of whether anyone ever guessed it — round-close uses this to find
@@ -376,7 +381,24 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    (daily cron, a third independent workflow
                                    file per ADR-0072's 2026-08-30 amendment)
                                    — see requirements-document.md §4.14's
-                                   REQ-1301 status note. As of 2026-08-31
+                                   REQ-1301 status note. As of 2026-09-02
+                                   (ADR-0102, S-204): GenerateInstanceAsync
+                                   now dedups against config.
+                                   LatestGameInstanceId via fixture-ID-set
+                                   equality, returning null ("no new round
+                                   due") when unchanged, and supplies
+                                   SuggestedStartTime=now/SuggestedEndTime=
+                                   <last kickoff> + PredictGradingOptions.
+                                   TypicalMatchDuration — RoundGenerationService
+                                   now prefers these over its own chain-math
+                                   StartTime/EndTime formula whenever a
+                                   module supplies them, fixing a real bug
+                                   where a fixed RoundDurationHours could
+                                   either duplicate or silently skip a
+                                   midweek gameweek (RoundScheduling:
+                                   XGPredict:RoundDurationHours remains
+                                   registered but is now a dead fallback for
+                                   this GameKey's round timing). As of 2026-08-31
                                    (ADR-0098, S-197), REQ-1302/1303
                                    prediction submission and REQ-1306's
                                    confirm-and-lock action both have real

@@ -186,6 +186,38 @@ still holds and is the one applied:
 No new ADR: this reconfirms an existing decision after the re-derivation its
 own Follow-up note required, rather than changing it.
 
+**Amendment (2026-09-02, ADR-0102/S-204):** the open item flagged in the
+previous amendment above ("whether `RoundScheduling:XGPredict:
+RoundDurationHours`'s default should eventually be tuned away from 48h to
+better match a weekly gameweek cadence") turned out to be the wrong
+question — the real bug was that `RoundGenerationService`'s chain-math
+timing has no relationship to real fixture kickoff timing at all, for any
+constant `RoundDuration` value (see ADR-0102's worked example: 48h and
+168h both fail, differently, for real irregular Premier League spacing).
+ADR-0102 fixes this at the `RoundGenerationService`/`IGameModule` contract
+layer, not by tuning `RoundDurationHours`.
+
+Consequence for **this** ADR's own reasoning, specifically: `"xg-predict"`'s
+`RoundDurationHours`/cron-gap invariant (the "xG Predict's configured
+`RoundDuration` ... is comfortably `>= 24h`. Safe." derivation above) is
+now **moot for round *timing* purposes** — `XGPredictGameModule` always
+supplies its own `SuggestedStartTime`/`SuggestedEndTime`
+(ADR-0102), which `RoundGenerationService` prefers unconditionally over
+chain math, so `RoundDurationHours`'s value is never actually read for
+this `GameKey` anymore.
+
+This is a **known, accepted no-op, not a bug to fix here**:
+`generate-predict-round.yml` itself, its daily cron cadence, and its
+`workflow_dispatch.round_duration_hours` input are all **UNCHANGED** and
+still safe to keep exactly as they are — removing the input would be a
+needless workflow-file change for zero benefit (the input is simply now
+ignored for this one `GameKey`'s round timing rather than removed). The
+ADR-0027 cron-gap invariant this ADR derives per-workflow is unaffected in
+its own right (it's about how often the cron *fires*, not what timing the
+generated round ends up with) — only the *consequence* of `RoundDuration`
+once generation actually runs has changed, and only for `"xg-predict"`.
+See ADR-0102 for the full reasoning.
+
 ## For AI agents
 
 If code you are about to write would contradict this decision, stop and

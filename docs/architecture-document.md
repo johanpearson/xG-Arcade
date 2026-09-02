@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.31"
+version: "1.32"
 status: draft
-last_updated: 2026-08-31
+last_updated: 2026-09-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -221,7 +221,11 @@ never be read in the same request."
 ### 5.2 Cross-component method inventory (`IGameModule`, resolvers)
 
 - `IGameModule` (COMP-03/04 call into COMP-05/COMP-11/COMP-15 via
-  `IGameModuleResolver`, keyed by `Round.GameKey`, ADR-0003): `GenerateInstanceAsync`,
+  `IGameModuleResolver`, keyed by `Round.GameKey`, ADR-0003): `GenerateInstanceAsync`
+  (ADR-0102: returns `Task<GameInstance?>` — `null` means "no new round due
+  for this `GameKey` right now," read via the new `RoundConfig.
+  LatestGameInstanceId`/`GameInstance.SuggestedStartTime`/`SuggestedEndTime`
+  extension points; xg-grid/xg-path never use these, xg-predict does),
   `ScoreSubmissionAsync`, `GetCellIdsAsync`, `GetMaxAttemptsForCellAsync`
   (ADR-0041), `GetCellCategoryTypesAsync` (REQ-215), `ResolveWrongGuessPlayerAsync`
   (REQ-216/ADR-0057).
@@ -1170,7 +1174,15 @@ Round Scheduler Job (COMP-03): .github/workflows/generate-predict-round.yml
     → RoundGenerationService resolves xg-predict's own RoundSchedulingOptions
       (RoundScheduling:XGPredict:RoundDurationHours, default 48h) via
       IRoundSchedulingOptionsResolver (ADR-0051) — now a third registered
-      instance, alongside xg-grid/xg-path
+      instance, alongside xg-grid/xg-path. ADR-0102 (S-204): this
+      RoundDuration value is a DEAD FALLBACK for xg-predict specifically —
+      still resolved (the resolver call is unconditional per GameKey) but
+      never actually read, since the module below always supplies its own
+      SuggestedStartTime/SuggestedEndTime once it returns a non-null
+      instance
+    → RoundGenerationService populates RoundConfig.LatestGameInstanceId
+      from the GameKey's existing latest Round.GameInstanceId, if any
+      (ADR-0102, new)
   → Games.XGPredict (COMP-15): XGPredictGameModule.GenerateInstanceAsync
     → DataSync.Clients (COMP-07, ADR-0099, superseding ADR-0094's original
       API-Football choice): fetch the gameweek's full fixture list from
@@ -1183,17 +1195,34 @@ Round Scheduler Job (COMP-03): .github/workflows/generate-predict-round.yml
       existing GridGenerationException/PathGenerationException filter,
       returned as a problem-details response and logged) if fewer than
       MatchCount fixtures exist
+    → Games.XGPredict (ADR-0102, new): if RoundConfig.LatestGameInstanceId
+      was supplied, compare the selected fixture-ID set against that
+      instance's own fixture-ID set — if identical, return null ("no new
+      round due"; RoundGenerationService treats this exactly like its
+      existing "one round ahead already satisfied" no-op, returning the
+      existing latest Round unchanged and persisting nothing new). This is
+      what actually prevents both a duplicated matchday (generation firing
+      again before the real next matchday changes) and a silently-skipped
+      one (chain-math StartTime/EndTime landing after the matches' own
+      kickoffs) — see ADR-0102 for the full root-cause trace
     → Games.XGPredict: persist the selected matches as a PredictInstance's
       PredictMatch rows via IPredictInstanceRepository — entity shape
       decided by ADR-0096 (PredictTemplate/PredictInstance/PredictMatch/
       PredictMatchPrediction, XGArcade.Data)
+    → Games.XGPredict (ADR-0102, new): return GameInstance with
+      SuggestedStartTime=now and SuggestedEndTime=<last selected match's
+      kickoff> + PredictGradingOptions.TypicalMatchDuration — real-fixture-
+      timing hints RoundGenerationService prefers over chain math whenever
+      supplied
   → Core.Rounds (COMP-03): create Round with GameKey="xg-predict",
-    GameInstanceId=<the returned ID> — Core never sees the match/prediction
-    shape, same opaque-reference discipline ADR-0003 already establishes
-    for xG Grid/xG Path. This leg is now reachable in production; the new
-    API-level tests in RoundEndpointTests.cs exercise it end to end. Only
-    round *generation* is wired by this story — see the submission leg
-    below, still not HTTP-reachable
+    GameInstanceId=<the returned ID>, StartTime/EndTime taken from the
+    module's SuggestedStartTime/SuggestedEndTime (ADR-0102) rather than
+    chain math — Core never sees the match/prediction shape itself, same
+    opaque-reference discipline ADR-0003 already establishes for xG
+    Grid/xG Path. This leg is now reachable in production; the API-level
+    tests in RoundEndpointTests.cs exercise it end to end. Only round
+    *generation* is wired by this story — see the submission leg below,
+    still not HTTP-reachable
 
 [Prediction submission and confirm-lock — REQ-1302/1303/1306, built
   2026-08-30 (ADR-0096) at the IGameModule level, HTTP-reachable

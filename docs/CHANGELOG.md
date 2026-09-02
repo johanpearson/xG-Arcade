@@ -13,6 +13,57 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/decisions/0102-xg-predict-matchday-tracked-round-generation.md`
+  (new), `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`
+  (amendment), `docs/requirements-document.md` (2.38→2.39, REQ-1301 status
+  note), `docs/architecture-document.md` (1.31→1.32),
+  `docs/implementation-document.md` (1.17→1.18) — S-204: fixed the real
+  bug the 2026-09-02 backlog correction flagged — `RoundGenerationService`
+  chains rounds by elapsed time (`StartTime = latest.EndTime`,
+  `EndTime = StartTime + RoundDuration`), which has no relationship to real
+  Premier League fixture timing, so no constant `RoundDurationHours` value
+  was safe: too short duplicated a matchday, too long could schedule a
+  midweek round to start *after* its own matches had already kicked off
+  (silently never played — REQ-1303's lock is immediate from a round's own
+  start). Extended the existing `IGameModule` contract rather than
+  replacing `RoundGenerationService`'s shared lifecycle machinery (ADR-0102
+  weighs this against a dedup-only fix and a fully separate xg-predict
+  generation path, both explicitly considered and rejected): `RoundConfig`
+  gained `LatestGameInstanceId`, `IGameModule.GenerateInstanceAsync` now
+  returns `Task<GameInstance?>` (`null` = "no new round due," treated like
+  the existing one-round-ahead no-op), and `GameInstance` gained
+  `SuggestedStartTime`/`SuggestedEndTime`, which `RoundGenerationService`
+  now prefers over chain math whenever a module supplies them.
+  `XGPredictGameModule.GenerateInstanceAsync`
+  (`backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs`) now
+  dedups via fixture-ID-set equality against the latest existing instance
+  and anchors `SuggestedEndTime` to the last selected match's kickoff plus
+  the existing `PredictGradingOptions.TypicalMatchDuration` constant.
+  `xg-grid`/`xg-path` (`GridGameModule.cs`/`XGPathGameModule.cs`) are
+  unaffected — both new contract members are nullable and both modules
+  never return `null`/never set the suggested times.
+  `RoundScheduling:XGPredict:RoundDurationHours` remains registered
+  (`ServiceRegistration.cs`, comment updated) but is now a documented dead
+  fallback for this one `GameKey`'s round timing — `RoundSchedulingOptions.cs`'s
+  own class doc comment and `RoundSchedulingOptionsResolverTests.cs`'s
+  `REQ1301_...` case comment updated to match; neither the resolver's
+  behavior nor that test's assertions changed.
+  `generate-predict-round.yml` and `RoundSchedulingOptionsResolver` itself
+  are unchanged, per ADR-0072's new amendment. Test coverage: two new
+  `XGPredictGameModuleTests` cases (a real midweek-gameweek scenario
+  proving neither skip nor duplicate, and a steady-weekly-cadence case
+  proving no over-generation regardless of elapsed time), plus three new
+  `RoundGenerationServiceTests`/`RoundGenerationService` cases proving the
+  null-return no-op contract and the `SuggestedStartTime`/`SuggestedEndTime`
+  override generically (not xg-predict-specific). Updated
+  `RoundEndpointTests.cs`'s existing xg-predict end-to-end generation test,
+  which previously asserted the now-dead 30h `RoundDuration` fallback, to
+  assert real-fixture-timing behavior instead. Sandbox has no local
+  `dotnet` SDK (verified via `which dotnet`) — changes hand-traced against
+  the existing test patterns, not run locally; a CI verification run via
+  `ci.yml`'s `workflow_dispatch` is still needed before this is treated as
+  passing. REQ/ADR refs: REQ-301, REQ-1301, ADR-0102, ADR-0072, ADR-0027,
+  ADR-0096, ADR-0097, ADR-0099.
 - 2026-09-02 — `docs/design-document.md` (0.85→0.86) — S-202 (Epic 13):
   closed the frontend gap S-198 explicitly left open —
   `frontend/src/users/UserStatsScreen.tsx` (SCREEN-13) widened from a
