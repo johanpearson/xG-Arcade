@@ -10155,6 +10155,26 @@ Requires S-199 to be merged first — otherwise this ships the same
 not repeat.
 *Deps:* S-199.
 
+*Built as (2026-09-02):* `frontend/src/users/UserStatsScreen.tsx`'s
+`GAME_TABS` widened to three entries (imports `XG_PREDICT_GAME_KEY` from
+`GameSelectScreen.tsx`, same as `LeaderboardScreen.tsx`'s S-198 pattern);
+the hardcoded "Lowest total wins" subtitle replaced with an exhaustive-
+switch `subtitleForGameKey` helper (xG Grid/xG Path → "Lowest total wins",
+xG Predict → "Highest total wins"), mirroring `LeaderboardScreen.tsx`'s own
+helper of the same name. Unlike S-198's LeaderboardScreen tab, this one
+ships with no "renders empty" gap — `GET /users/{userId}/stats` was
+already fully wired for `"xg-predict"` by S-199/ADR-0100, confirmed by
+both `architecture-reviewer` and `quality-architect` review passes (both
+PASS, no findings) before this story was considered done. New/updated
+Vitest coverage in `UserStatsScreen.test.tsx` (tab-list assertion, a
+re-fetch-scoped-to-xg-predict test, three subtitle-branch tests). No REQ/
+architecture-doc changes and no new ADR needed — same same-shaped-
+extension precedent S-198 already established. `docs/design-document.md`'s
+SCREEN-13 mock/copy updated to match (plus an incidental alignment fix to
+the widened tab row). Verified locally: 768/768 Vitest passing, `tsc -b`
+clean, lint clean (only pre-existing unrelated warnings) — no backend
+touched, so no CI-trigger fallback needed.
+
 **S-203 · Playwright E2E coverage for xG Predict (`play-predict.spec.ts`)**
 No E2E spec exists for xG Predict, unlike `frontend/tests/e2e/play-grid.spec.ts`/
 `play-path.spec.ts` — flagged as out of scope by S-197.
