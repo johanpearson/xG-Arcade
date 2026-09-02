@@ -8,9 +8,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using XGArcade.Api.Auth;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
+using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.DataSync.FootballData;
@@ -1073,6 +1075,177 @@ public class RoundEndpointTests
         var client = productionFactory.CreateClient();
 
         var response = await client.PostAsync("/internal/test-data/seed-guessable-path-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // ---- S-203/REQ-1301/REQ-1303: seed-guessable-predict-round is a --------
+    // non-Production-only test control -------------------------------------
+
+    [Test]
+    public async Task REQ1301_SeedGuessablePredictRound_Post_CreatesAnActiveXgPredictRoundWithFiveMatches()
+    {
+        var response = await _factory.CreateClient().PostAsync("/internal/test-data/seed-guessable-predict-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SeedGuessablePredictRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Matches, Has.Count.EqualTo(5));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = await dbContext.Rounds.SingleAsync(r => r.Id == body.RoundId);
+        Assert.That(round.GetStatus(DateTime.UtcNow), Is.EqualTo(RoundStatus.Active));
+        Assert.That(round.GameKey, Is.EqualTo(XGPredictGameModule.XGPredictGameKey));
+
+        var instance = await dbContext.PredictInstances.Include(pi => pi.Matches).SingleAsync(pi => pi.Id == round.GameInstanceId);
+        Assert.That(instance.Matches.Select(m => m.Id), Is.EquivalentTo(body.Matches.Select(m => m.MatchId)));
+    }
+
+    [Test]
+    public async Task REQ1303_SeedGuessablePredictRound_Post_WithNegativeFirstKickoffMinutesFromNow_CreatesAnAlreadyLockedInstance()
+    {
+        var response = await _factory.CreateClient().PostAsync(
+            "/internal/test-data/seed-guessable-predict-round?firstKickoffMinutesFromNow=-5", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SeedGuessablePredictRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = await dbContext.Rounds.SingleAsync(r => r.Id == body!.RoundId);
+        var instance = await dbContext.PredictInstances.Include(pi => pi.Matches).SingleAsync(pi => pi.Id == round.GameInstanceId);
+        Assert.That(instance.LockInstant, Is.LessThanOrEqualTo(DateTime.UtcNow),
+            "a negative firstKickoffMinutesFromNow must seed an instance whose earliest kickoff (REQ-1303's lock instant) has already passed");
+    }
+
+    [Test]
+    public async Task REQ1303_SeedGuessablePredictRound_Post_WithDefaultFirstKickoffMinutesFromNow_CreatesAnInstanceNotYetLocked()
+    {
+        var response = await _factory.CreateClient().PostAsync("/internal/test-data/seed-guessable-predict-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SeedGuessablePredictRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = await dbContext.Rounds.SingleAsync(r => r.Id == body!.RoundId);
+        var instance = await dbContext.PredictInstances.Include(pi => pi.Matches).SingleAsync(pi => pi.Id == round.GameInstanceId);
+        Assert.That(instance.LockInstant, Is.GreaterThan(DateTime.UtcNow),
+            "omitting firstKickoffMinutesFromNow must default to 60 minutes out, still open");
+    }
+
+    [Test]
+    public async Task SeedGuessablePredictRound_Post_IsNeverRegistered_WhenEnvironmentIsProduction()
+    {
+        using var _ = TemporaryEnvironmentVariables(
+            ("ASPNETCORE_ENVIRONMENT", "Production"),
+            ("ConnectionStrings__Database", "Host=localhost;Database=unused-in-tests;Username=postgres;Password=postgres"),
+            ("Supabase__Url", "http://localhost:54321"),
+            ("Supabase__AnonKey", "test-placeholder-anon-key"),
+            ("Supabase__ServiceRoleKey", "test-placeholder-service-role-key"));
+
+        var productionFactory = _factory.WithWebHostBuilder(builder => { });
+        var client = productionFactory.CreateClient();
+
+        var response = await client.PostAsync("/internal/test-data/seed-guessable-predict-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // ---- S-203/REQ-1305: grade-predict-match is a non-Production-only ------
+    // test control -----------------------------------------------------------
+
+    [Test]
+    public async Task REQ1305_GradePredictMatch_Post_GradesTheMatchAndScoresStoredPredictions()
+    {
+        // Auth:Mode=local-e2e (mirroring PredictEndpointTests.SetUp) is only
+        // needed for this test, which must submit a real prediction through
+        // the authenticated POST /predict/matches/{matchId}/predictions
+        // endpoint before grading it — every other test in this class only
+        // ever calls bearer-token-gated /internal/* endpoints.
+        var predictFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Auth:Mode", "local-e2e");
+        });
+        var internalClient = predictFactory.CreateClient();
+
+        var seedResponse = await internalClient.PostAsync("/internal/test-data/seed-guessable-predict-round", content: null);
+        var seeded = await seedResponse.Content.ReadFromJsonAsync<SeedGuessablePredictRoundResponse>();
+        var matchId = seeded!.Matches[0].MatchId;
+
+        // Same "seed a User row, mint a local-e2e bearer token for it" shape
+        // as PredictEndpointTests.SeedUserAsync/CreateAuthenticatedClient.
+        var authProviderUserId = Guid.NewGuid();
+        using (var scope = predictFactory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = $"{authProviderUserId}@example.com",
+                DisplayName = "Test Predict Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+        var predictClient = predictFactory.CreateClient();
+        predictClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+        await predictClient.PostAsJsonAsync($"/predict/matches/{matchId}/predictions", new SubmitPredictionRequest(2, 1));
+
+        // Grading the match with the exact same score the player predicted
+        // matches all 3 of REQ-1304's components (outcome, home goals, away
+        // goals) — ScoringRules.PredictPointsPerComponent(10) * 3 = 30.
+        var gradeResponse = await internalClient.PostAsJsonAsync(
+            $"/internal/test-data/grade-predict-match/{matchId}", new GradePredictMatchTestDataRequest(2, 1));
+
+        Assert.That(gradeResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var gradeBody = await gradeResponse.Content.ReadFromJsonAsync<GradePredictMatchTestDataResponse>();
+        Assert.That(gradeBody, Is.Not.Null);
+        Assert.That(gradeBody!.MatchId, Is.EqualTo(matchId));
+        Assert.That(gradeBody.HomeGoals, Is.EqualTo(2));
+        Assert.That(gradeBody.AwayGoals, Is.EqualTo(1));
+
+        using var assertScope = predictFactory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var match = await assertDbContext.PredictMatches.SingleAsync(m => m.Id == matchId);
+        Assert.That(match.GradingStatus, Is.EqualTo(PredictMatchGradingStatus.Graded));
+        Assert.That(match.ActualHomeGoals, Is.EqualTo(2));
+        Assert.That(match.ActualAwayGoals, Is.EqualTo(1));
+
+        var prediction = await assertDbContext.PredictMatchPredictions.SingleAsync(p => p.PredictMatchId == matchId);
+        Assert.That(prediction.FinalPoints, Is.EqualTo(ScoringRules.PredictPointsPerComponent * 3),
+            "a prediction matching the graded score exactly earns all 3 REQ-1304 components");
+    }
+
+    [Test]
+    public async Task GradePredictMatch_Post_ReturnsNotFound_WhenMatchIdDoesNotExist()
+    {
+        var response = await _factory.CreateClient().PostAsJsonAsync(
+            $"/internal/test-data/grade-predict-match/{Guid.NewGuid()}", new GradePredictMatchTestDataRequest(1, 1));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    [Test]
+    public async Task GradePredictMatch_Post_IsNeverRegistered_WhenEnvironmentIsProduction()
+    {
+        using var _ = TemporaryEnvironmentVariables(
+            ("ASPNETCORE_ENVIRONMENT", "Production"),
+            ("ConnectionStrings__Database", "Host=localhost;Database=unused-in-tests;Username=postgres;Password=postgres"),
+            ("Supabase__Url", "http://localhost:54321"),
+            ("Supabase__AnonKey", "test-placeholder-anon-key"),
+            ("Supabase__ServiceRoleKey", "test-placeholder-service-role-key"));
+
+        var productionFactory = _factory.WithWebHostBuilder(builder => { });
+        var client = productionFactory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"/internal/test-data/grade-predict-match/{Guid.NewGuid()}", new GradePredictMatchTestDataRequest(1, 1));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
