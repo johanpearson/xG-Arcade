@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.40"
+version: "2.41"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10883,7 +10883,12 @@ created when a challenge is accepted or a random pairing forms, not on a
 schedule. Whether/how that fits the existing `Round`/`League`/leaderboard
 model, or needs a new first-class concept of its own, is flagged back to
 `architecture-document.md`/an ADR to resolve deliberately — not decided or
-assumed by any REQ below.
+assumed by any REQ below. **REQ-1411 (the notification indicator) is
+genuinely cross-cutting** — it aggregates pending items from both the
+friends/challenges side and the match side — so it does not cleanly belong
+to either COMP-16 or COMP-17 either; whichever component (or a third one)
+ends up owning it is likewise left to the architecture decision above, not
+assumed here.
 
 **REQ-1401 – Friends list: send, accept, and decline friend requests**
 > As a player, I want to build a friends list by sending, accepting, or
@@ -11247,6 +11252,61 @@ beyond the match outcome itself.
 **Test level:** API — a message sent by a participant is visible to the
 other participant in the same match only; a non-participant cannot read or
 send messages; chat remains readable after the match ends.
+
+**REQ-1411 – Visible notification indicator for pending invites,
+challenges, and awaiting-action matches**
+> As a player, I want a visible, persistent indicator I can see anywhere in
+> the app, so I always know I have a pending friend request, a pending
+> challenge, or an xG Connect match still waiting on my next move, without
+> having to go check each screen manually.
+
+**Status: Proposed — no code exists yet.**
+
+- Given a player has at least one item in any of these three states: a
+  friend request sent to them and not yet accepted/declined (REQ-1401), a
+  direct challenge sent to them and not yet accepted/declined (REQ-1402),
+  or an active xG Connect match (REQ-1405) where they have not yet reached
+  a terminal state — no target pick submitted yet (REQ-1404), or a chain
+  in progress, neither complete (REQ-1408) nor busted (REQ-1407) nor timed
+  out
+- When that player is anywhere in the app
+- Then a single, persistent notification indicator is visible to them
+  (e.g. a badge in primary navigation), showing that at least one such item
+  exists — this REQ does not mandate a literal numeric count vs. a plain
+  presence dot, that's a design-document.md decision, not specified here
+- Given a player has zero items across all three states
+- When that player is anywhere in the app
+- Then no notification indicator is shown
+- Given a player resolves one contributing item — accepts/declines a
+  friend request or challenge, submits their target pick, or reaches a
+  terminal state in a match (complete, bust, or timeout)
+- When that resolution happens
+- Then the indicator reflects the updated remaining count/presence on the
+  player's next view (does not require a live push update — REQ-1408's own
+  6-hour-window async nature means a page-load/poll-driven refresh is
+  sufficient; this REQ does not require new real-time infrastructure)
+- Given a player has, for example, two pending friend requests and one
+  match awaiting their move
+- When the indicator is shown
+- Then it reflects the combined presence of items across all three
+  categories, not only one category — a player must not be able to miss a
+  pending challenge because only friend requests are surfaced, or vice
+  versa
+- Given a random-matchmaking opt-in (REQ-1403) that has not yet been paired
+- When that player is anywhere in the app
+- Then this REQ's indicator does not count that unpaired opt-in as a
+  pending item — there is nothing actionable for the player to do until a
+  pairing forms; REQ-1403 itself remains the source of truth for opt-in
+  status
+
+**Test level:** API — a per-player aggregate query/endpoint returns the
+combined pending-item presence/count across friend requests, challenges,
+and awaiting-action matches; the query reflects zero once every
+contributing item is resolved; an unpaired matchmaking opt-in alone does
+not count. Frontend (Vitest/Playwright, once a screen exists): the
+indicator renders when the count is non-zero and is absent at zero,
+without asserting a specific visual treatment this REQ deliberately leaves
+to `design-document.md`.
 
 ---
 

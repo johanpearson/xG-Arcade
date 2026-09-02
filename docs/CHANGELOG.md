@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/requirements-document.md` (2.40→2.41, §4.15 +
+  REQ-1411) — added a cross-cutting notification-indicator requirement to
+  the xG Connect proposal: a persistent, visible indicator (badge-style,
+  exact visual left to `design-document.md`) surfacing pending friend
+  requests, pending challenges, and matches still awaiting the player's
+  next move, so async invites/challenges/turns can't go unnoticed. Flagged
+  as belonging to neither COMP-16 nor COMP-17 cleanly — ownership left to
+  the same pending architecture decision as the rest of §4.15.
 - 2026-09-02 — `docs/requirements-document.md` (2.39→2.40, new §4.15,
   REQ-1401-1410), `docs/architecture-document.md` (1.32→1.33, new
   COMP-16/COMP-17 rows, both proposed), `MVP-SCOPE.md` (new Tier 2 entry)
