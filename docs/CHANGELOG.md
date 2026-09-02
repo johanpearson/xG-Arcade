@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `MVP-SCOPE.md` (xG Connect moved from the Tier 2 list into
+  a new Tier 0 additive-game note, mirroring xG Predict's own),
+  `docs/backlog.md` (Epic 27's gate note updated: S-207 is clear to
+  start) — product owner confirmed xG Connect should move forward now.
+  No new Tier 0 precondition needed (reuses the existing Wikidata
+  live-lookup pattern); S-207's ADR remains the real precondition before
+  any other xG Connect story starts.
 - 2026-09-02 — `docs/backlog.md` (new Epic 27, S-207 through S-218) —
   sequenced xG Connect into session/PR-sized stories (ADR first, then
   data model, friends, challenges/matchmaking, target-pick selection,

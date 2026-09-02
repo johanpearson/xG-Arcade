@@ -10399,18 +10399,13 @@ ADR-0099's Decision item 3 status update and REQ-1301's own status note
 for the full incident. No ToS/infra impact — pure client-side correctness
 fix within the same file set S-206 already touched.
 
-## Epic 27 — xG Connect (Tier 2, design-only — do not start before promoted)
+## Epic 27 — xG Connect
 
-**Gate — read before picking up any story below:** `MVP-SCOPE.md` lists xG
-Connect under Tier 2 (2026-09-02 entry). Per this file's own standing rule
-("Do not pull Tier 1 items forward") and `CLAUDE.md`'s "Build order
-follows `MVP-SCOPE.md`, not the full design docs," **do not start S-207
-below until a human has promoted xG Connect out of Tier 2 in
-`MVP-SCOPE.md`.** These stories exist so the sequence is ready the moment
-that happens, not as a signal it's next. Full requirements:
-`docs/requirements-document.md` §4.15 (REQ-1401-1411). Architecture:
-`docs/architecture-document.md` COMP-16/COMP-17 (both currently "proposed,
-not yet assigned").
+**Status (2026-09-02): promoted from Tier 2 to Tier 0** — see
+`MVP-SCOPE.md`'s Tier 0 section. **S-207 is clear to start.** Full
+requirements: `docs/requirements-document.md` §4.15 (REQ-1401-1411).
+Architecture: `docs/architecture-document.md` COMP-16/COMP-17 (both
+currently "proposed, not yet assigned" — S-207 is what resolves that).
 
 **S-207 · ADR: xG Connect structural decisions**
 Resolve the two open questions §4.15's component-boundary note flags:
