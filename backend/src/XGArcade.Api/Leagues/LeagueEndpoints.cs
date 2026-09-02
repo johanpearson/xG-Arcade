@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Leagues;
+using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Api.Leagues;
