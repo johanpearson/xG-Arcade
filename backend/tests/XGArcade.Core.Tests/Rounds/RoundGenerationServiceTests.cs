@@ -92,6 +92,33 @@ public class RoundGenerationServiceTests
         Assert.That(round.GameInstanceId, Is.EqualTo(instanceId));
     }
 
+    // ADR-0102: a module-supplied SuggestedStartTime/SuggestedEndTime wins
+    // over chain-math entirely — proven generically here (FakeGameModule),
+    // not just for xg-predict, since the override logic itself lives in
+    // RoundGenerationService.
+    [Test]
+    public async Task ADR0102_GenerateNextRoundIfNeeded_GameModuleSuppliesSuggestedTimes_UsesThemInsteadOfChainMath()
+    {
+        var suggestedStart = new DateTime(2026, 9, 12, 15, 0, 0, DateTimeKind.Utc);
+        var suggestedEnd = new DateTime(2026, 9, 14, 17, 15, 0, DateTimeKind.Utc);
+        _gameModule.GenerateInstanceResult = _ => new GameInstance
+        {
+            Id = Guid.NewGuid(),
+            SuggestedStartTime = suggestedStart,
+            SuggestedEndTime = suggestedEnd,
+        };
+        // now/RoundDuration are deliberately far from suggestedStart/End —
+        // if chain-math formulas were used instead, this assertion would
+        // fail loudly rather than pass by coincidence.
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var service = BuildService(now, TimeSpan.FromDays(3));
+
+        var round = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(round.StartTime, Is.EqualTo(suggestedStart));
+        Assert.That(round.EndTime, Is.EqualTo(suggestedEnd));
+    }
+
     [Test]
     public async Task REQ301_GenerateNextRoundIfNeeded_ActiveRoundExists_CreatesNextRoundStartingAtItsEndTime()
     {
@@ -309,6 +336,47 @@ public class RoundGenerationServiceTests
 
         Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await service.GenerateNextRoundIfNeededAsync("some-other-game", new RoundConfig { TemplateId = Guid.NewGuid() }));
+    }
+
+    // ---- ADR-0102: IGameModule.GenerateInstanceAsync returning null -------
+    // (S-204) proves this generic contract at the Core layer, not just
+    // xg-predict-specific — see XGPredictGameModuleTests for the real
+    // fixture-set-dedup behavior that actually returns null in production.
+
+    [Test]
+    public async Task ADR0102_GenerateNextRoundIfNeeded_GameModuleReturnsNull_ReturnsLatestRoundUnchanged_NoNewRoundPersisted()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        // "latest" is already active with nothing scheduled after it, so
+        // generation would normally attempt a real successor here.
+        var activeRound = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-1), endTime: now.UtcDateTime.AddDays(2));
+        _gameModule.GenerateInstanceResult = config =>
+        {
+            Assert.That(config.LatestGameInstanceId, Is.EqualTo(activeRound.GameInstanceId),
+                "RoundGenerationService must populate LatestGameInstanceId from the existing latest Round before calling the module");
+            return null;
+        };
+        var service = BuildService(now, TimeSpan.FromDays(3));
+
+        var result = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(result.Id, Is.EqualTo(activeRound.Id), "null means 'no new round due' — the existing latest Round must be returned unchanged");
+        Assert.That(await _dbContext.Rounds.CountAsync(), Is.EqualTo(1), "no new Round may be persisted when the module returns null");
+    }
+
+    [Test]
+    public void ADR0102_GenerateNextRoundIfNeeded_GameModuleReturnsNullWithNoExistingRound_ThrowsInvalidOperationException()
+    {
+        // A module returning null for a GameKey's first-ever round (no
+        // `latest` to fall back to) violates its own contract (ADR-0102) —
+        // this must fail loudly rather than silently produce a
+        // NullReferenceException or a confusing missing round.
+        _gameModule.GenerateInstanceResult = _ => null;
+        var service = BuildService(DateTimeOffset.UtcNow, TimeSpan.FromDays(3));
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() }));
+        Assert.That(ex!.Message, Does.Contain(GameKey));
     }
 
     // ---- REQ-304: per-GameKey SequenceNumber assignment ---------------------

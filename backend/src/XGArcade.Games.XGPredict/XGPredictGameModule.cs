@@ -27,6 +27,7 @@ namespace XGArcade.Games.XGPredict;
 public class XGPredictGameModule(
     IPredictInstanceRepository predictInstanceRepository,
     IFootballDataClient footballDataClient,
+    PredictGradingOptions predictGradingOptions,
     TimeProvider? timeProvider = null) : IGameModule
 {
     public const string XGPredictGameKey = "xg-predict";
@@ -35,15 +36,24 @@ public class XGPredictGameModule(
     // clock precedent as XGPathGameModule's own _timeProvider field (falls
     // back to the real clock in production, already registered as
     // TimeProvider.System in Program.cs's DI container) so tests can pin
-    // "now" deterministically.
+    // "now" deterministically. ADR-0102 also uses this for
+    // GenerateInstanceAsync's SuggestedStartTime.
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public string GameKey => XGPredictGameKey;
 
-    // REQ-1301: select exactly template.MatchCount matches from the
+    // REQ-1301/ADR-0102: select exactly template.MatchCount matches from the
     // upcoming gameweek's fixture list, minimizing the kickoff-time span
-    // across the selected matches.
-    public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
+    // across the selected matches. Returns null (no new round due) when
+    // config.LatestGameInstanceId points at an instance whose fixture set
+    // is IDENTICAL to what's selected now — RoundGenerationService's chain-
+    // math EndTime has no relationship to real fixture timing, so without
+    // this check a matchday could be silently skipped (RoundDuration too
+    // long: generation fires after the matchday's own kickoff has already
+    // passed) or duplicated (RoundDuration too short: generation fires
+    // again before the real "next upcoming matchday" has changed) — see
+    // ADR-0102 for the full worked example of both failure directions.
+    public async Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
         var template = await predictInstanceRepository.GetTemplateByIdAsync(config.TemplateId, cancellationToken)
             ?? throw new PredictGenerationException($"PredictTemplate '{config.TemplateId}' not found.");
@@ -61,6 +71,29 @@ public class XGPredictGameModule(
         }
 
         var selected = SelectTightestKickoffCluster(fixtures, template.MatchCount);
+
+        // ADR-0102: fixture-ID-set equality against the latest existing
+        // instance (if any) — the cheapest, most direct answer to "have I
+        // already built an instance for exactly this set of matches,"
+        // without widening IFootballDataClient to expose matchday numbers
+        // (ADR-0099 already marks that client's contract as deliberately
+        // narrow). Accepted, deliberate limitation: if a match within an
+        // otherwise-unchanged matchday gets postponed/rescheduled between
+        // two generation calls, the tightest-cluster selection could shift
+        // slightly and this exact-set check would (correctly, if
+        // conservatively) treat it as a new round rather than silently
+        // missing that edge case — not something this story resolves.
+        if (config.LatestGameInstanceId is { } latestInstanceId)
+        {
+            var latestInstance = await predictInstanceRepository.GetInstanceByIdAsync(latestInstanceId, cancellationToken);
+            if (latestInstance is not null)
+            {
+                var selectedFixtureIds = selected.Select(f => f.FixtureId).ToHashSet();
+                var latestFixtureIds = latestInstance.Matches.Select(m => m.ExternalFixtureId).ToHashSet();
+                if (selectedFixtureIds.SetEquals(latestFixtureIds))
+                    return null;
+            }
+        }
 
         var instanceId = Guid.NewGuid();
         var instance = new PredictInstance
@@ -80,7 +113,27 @@ public class XGPredictGameModule(
 
         await predictInstanceRepository.AddInstanceAsync(instance, cancellationToken);
 
-        return new GameInstance { Id = instance.Id };
+        // ADR-0102: SuggestedStartTime = now makes the round Active
+        // immediately on generation (matching "this is the current/upcoming
+        // round" semantics) — REQ-1303's real submission gate is
+        // PredictInstance.LockInstant, entirely independent of
+        // Round.StartTime/EndTime (ADR-0097 Decision §4): a round can be
+        // Active/Closed per REQ-302 with zero effect on locking or grading.
+        // SuggestedEndTime anchors to the last selected match's own kickoff
+        // plus PredictGradingOptions.TypicalMatchDuration (already the
+        // grading margin used elsewhere, reused here rather than a new
+        // constant) — giving REQ-302's derived Closed status a sensible
+        // real-world meaning ("closed once this gameweek should be done
+        // playing") without gating or blocking grading in any way
+        // (ADR-0097 already established Closed/ClosedAt are fully decoupled
+        // from grading completeness).
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        return new GameInstance
+        {
+            Id = instance.Id,
+            SuggestedStartTime = now,
+            SuggestedEndTime = selected.Max(f => f.KickoffUtc) + predictGradingOptions.TypicalMatchDuration,
+        };
     }
 
     // ADR-0096 §4: validate and store a two-integer score prediction,

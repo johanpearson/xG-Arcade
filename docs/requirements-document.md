@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.38"
+version: "2.39"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10339,6 +10339,32 @@ alongside `generate-grid-round.yml`/`generate-path-round.yml`, not a loop
 extension of a shared file. This covers round *generation* only — REQ-1302
 prediction submission still has no HTTP endpoint; see this section's intro
 note above.
+
+**Status note (2026-09-02, ADR-0102/S-204):** the round-scheduling wiring
+above generated correct match content but had a real, product-visible
+timing bug — `RoundGenerationService`'s chain-math `StartTime`/`EndTime`
+formula (`latest.EndTime` / `+ RoundDuration`) has no relationship to real
+fixture kickoff timing, so no fixed `RoundDurationHours` value could avoid
+either duplicating a matchday (value too short) or silently never playing
+a midweek matchday (value too long, e.g. 168h against a real Saturday →
+Tuesday gap — the round would be generated with the correct matches but
+scheduled to *start* after they'd already kicked off, locked from the
+moment it went live). Fixed by extending, not replacing, this same
+generation path: `XGPredictGameModule.GenerateInstanceAsync` now compares
+the fixture-ID set it's about to select against the fixture-ID set of the
+`GameKey`'s existing latest instance (`RoundConfig.LatestGameInstanceId`,
+new) and returns "no new round due" (`null`, `IGameModule.
+GenerateInstanceAsync` is now `Task<GameInstance?>`) when unchanged, and
+otherwise supplies its own `SuggestedStartTime`/`SuggestedEndTime`
+(`GameInstance`, new, both nullable) anchored to the real matches' kickoff
+times, which `RoundGenerationService` now prefers over chain math
+whenever a module supplies them. This does not change REQ-1301's own
+Given/When/Then above (match *selection* was always correct) — only how
+often generation runs and what `Round.StartTime`/`EndTime` the result
+gets. See ADR-0102 for the full root-cause analysis and worked example.
+`RoundScheduling:XGPredict:RoundDurationHours` remains registered but is
+now a dead fallback for this `GameKey`'s round timing (see that ADR's
+Consequences).
 
 **REQ-1302 – Score prediction submission**
 > As a player, I want to predict the final score of each match in an xG

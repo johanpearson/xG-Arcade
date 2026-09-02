@@ -44,6 +44,18 @@ public class RoundGenerationService(
         // round this job has never had a chance to close until now.
         // CloseRoundAsync is idempotent (its own doc comment), so a repeat
         // call here on an already-closed predecessor is harmless.
+        //
+        // ADR-0102 (S-204) exception: for "xg-predict" specifically, "latest"
+        // is always created with StartTime = SuggestedStartTime = its own
+        // generation-time "now" — NOT `predecessor.EndTime` — so the
+        // "predecessor's EndTime equals latest's StartTime" equality above no
+        // longer holds for that one GameKey. This does not make the check
+        // below unsafe: `previous.EndTime <= now` is still evaluated
+        // explicitly (never assumed from the broken equality), so a
+        // predecessor whose own matches haven't finished yet is correctly
+        // left open rather than closed early — it just means xg-predict's
+        // predecessor may take one additional cron cycle to close relative
+        // to xg-grid/xg-path's guaranteed-immediate case described above.
         if (latest is not null && latest.StartTime <= now)
         {
             var previous = await roundRepository.GetPreviousByGameKeyAsync(options.GameKey, latest.StartTime, cancellationToken);
@@ -58,12 +70,42 @@ public class RoundGenerationService(
             return latest;
 
         var gameModule = gameModuleResolver.Resolve(options.GameKey);
+        // ADR-0102: threads the existing GameKey's own latest GameInstanceId
+        // (if any) through to the module, so it can decide for itself
+        // whether a new instance is actually due (e.g. xG Predict comparing
+        // fixture sets) rather than RoundGenerationService assuming
+        // "generation always produces a new instance," which was only ever
+        // true for xg-grid/xg-path's arbitrary (non-real-world) content.
+        config.LatestGameInstanceId = latest?.GameInstanceId;
+
         // Games.XGGrid: assemble the instance and return its ID first —
         // Core.Rounds only creates the Round once generation has actually
         // succeeded (architecture-document.md §6.1's flow).
         var instance = await gameModule.GenerateInstanceAsync(config, cancellationToken);
 
-        var startTime = latest?.EndTime ?? now;
+        // ADR-0102: null means "no new round due for this GameKey right
+        // now" (e.g. xG Predict determined the next real matchday hasn't
+        // changed since `latest`) — treated exactly like the "one round
+        // ahead already satisfied" no-op above: return `latest` unchanged,
+        // persist nothing new. A module violating its own contract (
+        // returning null with no `latest` to fall back to, i.e. for a
+        // GameKey's first-ever round) is a bug in that module, not a
+        // recoverable state here — fail loudly rather than let `latest!`
+        // below throw a confusing NullReferenceException.
+        if (instance is null)
+        {
+            if (latest is null)
+            {
+                throw new InvalidOperationException(
+                    $"IGameModule.GenerateInstanceAsync returned null for GameKey '{options.GameKey}' with no " +
+                    "existing round to fall back to — a module must only return null when " +
+                    "RoundConfig.LatestGameInstanceId was non-null (see ADR-0102).");
+            }
+
+            return latest;
+        }
+
+        var startTime = instance.SuggestedStartTime ?? latest?.EndTime ?? now;
 
         // REQ-304: MAX(SequenceNumber)+1 scoped to this GameKey, starting at
         // 1 for a GameKey's first-ever round — read here, immediately before
@@ -83,10 +125,17 @@ public class RoundGenerationService(
             GameInstanceId = instance.Id,
             SequenceNumber = (maxSequenceNumber ?? 0) + 1,
             StartTime = startTime,
-            // roundDurationOverride, when supplied, wins for this call only —
+            // ADR-0102: instance.SuggestedEndTime, when the module supplied
+            // one, wins over chain-math entirely — a module that anchors its
+            // own EndTime to real-world content timing (e.g. xG Predict's
+            // last-kickoff-plus-typical-duration) knows better than a
+            // fixed-period formula ever could. Falls back to the original
+            // chain-math EndTime (startTime + RoundDuration) for xg-grid/
+            // xg-path, unchanged. roundDurationOverride, when supplied, wins
+            // over the *configured* RoundDuration for that fallback only —
             // it never mutates the shared RoundSchedulingOptions singleton
             // (IRoundGenerationService's own doc comment).
-            EndTime = startTime + (roundDurationOverride ?? options.RoundDuration),
+            EndTime = instance.SuggestedEndTime ?? (startTime + (roundDurationOverride ?? options.RoundDuration)),
             AllowGuessChange = options.AllowGuessChange,
         };
 

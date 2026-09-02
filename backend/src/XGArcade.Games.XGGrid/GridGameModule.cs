@@ -33,7 +33,10 @@ public class GridGameModule(
 
     public string GameKey => XGGridGameKey;
 
-    public Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default) =>
+    // ADR-0102: never returns null — xg-grid has no real-world-content
+    // concept to check against config.LatestGameInstanceId, so it always
+    // generates a fresh instance, same as before that interface change.
+    public Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default) =>
         generationService.GenerateInstanceAsync(config, cancellationToken);
 
     // S-009: REQ-210's lock/attempt-cap checks and REQ-202's guess-change

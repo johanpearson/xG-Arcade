@@ -171,11 +171,21 @@ public static class ServiceRegistration
         // amendment re-derived that the existing per-GameKey pattern still
         // applies unchanged for this third GameKey; no structural deviation).
         builder.Services.AddScoped<IPredictInstanceRepository, PredictInstanceRepository>();
+        // ADR-0102: XGPredictGameModule's constructor now also takes
+        // PredictGradingOptions (registered as a singleton immediately
+        // below) — resolved automatically by the container regardless of
+        // registration order (registration just populates the
+        // IServiceCollection; the container itself is built once after
+        // every Add* call here has run).
         builder.Services.AddScoped<IGameModule, XGPredictGameModule>();
         // REQ-1305/ADR-0097: PredictGradingOptions is a plain, non-
         // appsettings-bound constant (see that class's own doc comment,
         // mirrors GridGenerationOptions' registration above) — a singleton
         // is fine since it's immutable configuration, not per-request state.
+        // ADR-0102: also now consumed by XGPredictGameModule itself, to
+        // anchor GenerateInstanceAsync's SuggestedEndTime to the last
+        // selected match's kickoff plus TypicalMatchDuration, reusing this
+        // existing constant rather than inventing a new one.
         builder.Services.AddSingleton(new PredictGradingOptions());
         // ADR-0097 Decision §2: PredictGradingService takes the CONCRETE
         // XGPredictScoringStrategy type directly, registered as itself
@@ -274,20 +284,27 @@ public static class ServiceRegistration
             GameKey = XGPathGameModule.XGPathGameKey,
             RoundDuration = TimeSpan.FromHours(xgPathRoundDurationHours),
         });
-        // This story (wiring "xg-predict" into round scheduling, ADR-0051's
-        // 2026-08-30 amendment): xG Predict's own RoundSchedulingOptions
-        // instance, resolved independently of xG Grid's/xG Path's via
+        // xG Predict's own RoundSchedulingOptions instance, resolved
+        // independently of xG Grid's/xG Path's via
         // IRoundSchedulingOptionsResolver (registered below) — a distinct
         // config key (RoundScheduling:XGPredict:RoundDurationHours), same
         // "independent config key per GameKey" reasoning as xG Path's own
-        // registration immediately above. Default is also 48h — REQ-1301
-        // draws matches from a Premier League gameweek (roughly weekly, not
-        // daily), so whether this default should eventually differ from xG
-        // Grid/xG Path's is an open product question the wiring story does
-        // not decide (see ADR-0072's 2026-08-30 amendment); change
-        // independently via this key (or the deployed Container App's
-        // RoundScheduling__XGPredict__RoundDurationHours env var) if that
-        // changes.
+        // registration immediately above.
+        //
+        // ADR-0102 (S-204): this RoundDuration value is now a DEAD FALLBACK
+        // for "xg-predict" specifically — XGPredictGameModule always
+        // supplies GameInstance.SuggestedStartTime/SuggestedEndTime once it
+        // returns a non-null instance, and RoundGenerationService prefers
+        // those over chain-math (startTime + RoundDuration) unconditionally.
+        // It is NOT read for xg-predict's actual round timing anymore. Kept
+        // registered anyway — RoundSchedulingOptionsResolver.Resolve is
+        // called unconditionally for every GameKey RoundGenerationService
+        // handles, regardless of whether that GameKey's chain-math EndTime
+        // ever actually gets used; removing this registration would throw
+        // InvalidOperationException the next time xg-predict's round is
+        // generated. Default (48h) is otherwise inert for this GameKey —
+        // only relevant again if XGPredictGameModule is ever changed to
+        // return a null SuggestedEndTime (it never does today).
         var xgPredictRoundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:XGPredict:RoundDurationHours") ?? 48;
         builder.Services.AddSingleton(new RoundSchedulingOptions
         {

@@ -8,7 +8,18 @@ public interface IGameModule
 {
     string GameKey { get; }
 
-    Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default);
+    // ADR-0102: returns null to mean "no new round due for this GameKey
+    // right now" — RoundGenerationService treats that exactly like its
+    // existing "one round ahead already satisfied" no-op path (returns the
+    // existing `latest` Round unchanged, persists nothing new, never an
+    // error). A module must only return null when
+    // `config.LatestGameInstanceId` was non-null (i.e. it found an
+    // existing instance to compare against and determined nothing has
+    // changed) — it must never return null for a GameKey's first-ever
+    // round. xg-grid/xg-path never return null (they have no equivalent
+    // "has the real-world content changed" concept to check) — this is a
+    // backward-compatible extension, not a behavior change, for those two.
+    Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default);
 
     Task<ScoreResult> ScoreSubmissionAsync(
         Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default);
