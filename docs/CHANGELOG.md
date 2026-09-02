@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/backlog.md`, `docs/requirements-document.md`
+  (2.36→2.37), `docs/implementation-document.md` (1.16→1.17) — S-203
+  (Epic 13, REQ-1301/1302/1303/1304/1305/1306/410): doc-sync for
+  `frontend/tests/e2e/play-predict.spec.ts`, the new Playwright E2E spec
+  covering the full xG Predict playthrough (5-match slate, submission,
+  round-wide lock notice, per-player confirm-and-lock including cancel,
+  and a graded prediction's score reaching the leaderboard). Closes the
+  E2E gap REQ-1302's and REQ-1303's own status notes had flagged
+  ("no `play-predict.spec.ts` exists yet"). Also documents the two new
+  non-Production-only `/internal/test-data/*` endpoints the spec depends
+  on (`seed-guessable-predict-round`, `grade-predict-match/{matchId}`) in
+  the implementation doc's `/predict` frontend-module entry.
+  `architecture-reviewer` confirmed no component/boundary change and no
+  new ADR needed (same-shaped extension of the existing ADR-0006 test-data
+  pattern to a third game); `docs/architecture-document.md` left
+  unchanged.
 - 2026-08-31 — `docs/decisions/0101-account-deletion-purges-per-game-data-via-igamemodule.md`,
   `docs/requirements-document.md` (2.35→2.36), `docs/architecture-document.md`
   (1.30→1.31), `docs/implementation-document.md` (1.15→1.16),

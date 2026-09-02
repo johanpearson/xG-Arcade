@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.36"
+version: "2.37"
 status: draft
-last_updated: 2026-08-31
+last_updated: 2026-09-02
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -10397,11 +10397,12 @@ to 409, and `PredictScoringException` (unresolvable match/instance id) to
 and reject-after-lock cases for a match whose own individual kickoff has
 not yet occurred. The frontend calls this endpoint from
 `PredictMatchInput.tsx`'s per-match "Save" button
-(`frontend/src/lib/predict.ts`'s `submitPrediction`). No Playwright E2E
-spec exists yet for xG Predict (`frontend/tests/e2e/` has
-`play-grid.spec.ts`/`play-path.spec.ts` but no `play-predict.spec.ts`) —
-E2E coverage was out of scope for the agent that built this screen and
-remains a `docs/backlog.md` follow-up, not silently claimed as done.
+(`frontend/src/lib/predict.ts`'s `submitPrediction`).
+
+**Status (2026-09-02, S-203):** the Playwright E2E gap flagged above is
+closed — `frontend/tests/e2e/play-predict.spec.ts` now exists and covers
+submission (including resubmission via the "Save" button) end to end,
+mirroring `play-grid.spec.ts`/`play-path.spec.ts`'s conventions.
 
 **REQ-1303 – Round lock at the first match's kickoff (exploit prevention)**
 > As xG Arcade, I want an entire xG Predict round to lock the instant the
@@ -10466,10 +10467,13 @@ shared formula, now extracted to `PredictInstance.LockInstant`
 re-derived at three call sites) so the endpoint and
 `ScoreSubmissionAsync` can never drift apart on what "locked" means.
 Covered by `PredictEndpointTests`, including submission to matches 2-5
-after the round has locked but before their own individual kickoff. The
-E2E test level remains not built — no `play-predict.spec.ts` exists yet
-(see REQ-1302's own status note above); tracked as a `docs/backlog.md`
-follow-up, not silently claimed as covered.
+after the round has locked but before their own individual kickoff.
+
+**Status (2026-09-02, S-203):** the E2E test level flagged as not built
+above is now closed — `frontend/tests/e2e/play-predict.spec.ts`'s
+`REQ-1303` case seeds an already-locked round (via
+`seed-guessable-predict-round`'s `firstKickoffMinutesFromNow` knob) and
+verifies the round-wide-lock notice and disabled inputs end to end.
 
 **REQ-1304 – Independent, partial-credit scoring per match**
 > As a player, I want each match prediction scored on three independent
