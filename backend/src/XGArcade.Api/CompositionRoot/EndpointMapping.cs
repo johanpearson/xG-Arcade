@@ -52,6 +52,12 @@ public static class EndpointMapping
         // MapInternalRoundEndpoints above — its only caller is
         // .github/workflows/grade-predict-matches.yml's hourly cron.
         app.MapInternalPredictGradingEndpoints();
+        // REQ-1403/ADR-0103 (S-210): the matchmaking pairing/expiry sweep —
+        // same bearer-token /internal/* pattern as MapInternalRoundEndpoints
+        // above; see InternalMatchmakingSweepEndpoints.cs's own doc comment
+        // for why this uses that pattern rather than
+        // sweep-recent-transfers.yml's CLI-verb one (ADR-0024).
+        app.MapInternalMatchmakingSweepEndpoints();
         app.MapRoundEndpoints();
         // REQ-1203/S-082: xg-path's own read-only display endpoint (GET
         // /path/current) — POST /rounds/{roundId}/cells/{cellId}/guesses below
@@ -126,5 +132,17 @@ public static class EndpointMapping
         // dependency on any Games.XGConnect (COMP-17) code (that's
         // S-210+'s match/challenge logic).
         app.MapFriendEndpoints();
+        // REQ-1402/S-210/ADR-0103: Core.Social (COMP-16)'s direct-challenge
+        // send/accept/decline surface — its own file/registration, same
+        // "submission file vs. admin file"-style per-feature split as
+        // MapFriendEndpoints above. The accept handler is the one place
+        // this story writes a Games.XGConnect ConnectMatch row, per
+        // ADR-0103's orchestration-lives-in-XGArcade.Api requirement.
+        app.MapChallengeEndpoints();
+        // REQ-1403/S-210/ADR-0103: Core.Social's random-matchmaking opt-in
+        // surface — pairing itself happens only via the scheduled sweep
+        // (MapInternalMatchmakingSweepEndpoints above), never from this
+        // player-triggered endpoint.
+        app.MapMatchmakingEndpoints();
     }
 }

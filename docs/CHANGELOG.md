@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/requirements-document.md` (2.44→2.45, REQ-1402/1403
+  Status lines updated from Proposed to Built), `docs/architecture-document.md`
+  (1.36→1.37, COMP-16/COMP-17 rows updated), `docs/backlog.md` (S-210 entry
+  annotated as Built, with the CLI-verb-vs-`/internal/*` pattern departure
+  called out) — S-210 (REQ-1402/1403): `IChallengeService`/`ChallengeService`
+  and `IMatchmakingService`/`MatchmakingService` (`XGArcade.Core.Social`)
+  implement direct-challenge send/accept/decline (friendship precondition,
+  both-directions duplicate-pending rejection) and matchmaking opt-in
+  creation, on top of S-208's data model. Per ADR-0103, neither service ever
+  writes a `ConnectMatch` row itself: `ChallengeService.AcceptChallengeAsync`
+  takes a caller-supplied `resultingMatchId` and `XGArcade.Api.Social.
+  ChallengeEndpoints`' accept handler creates the actual row via
+  `IConnectMatchRepository` once the service confirms `Resolved`; the new
+  `XGArcade.Api.Social.MatchmakingSweepService` (also in `XGArcade.Api`, not
+  `Core.Social`) orchestrates the periodic pairing/expiry sweep the same
+  way, tracking every `UserId` paired within a run so a user's own second
+  opt-in row can never make them a participant in more than one resulting
+  match. New endpoints: `POST /challenges`, `.../{id}/accept`,
+  `.../{id}/decline`, `GET /challenges/pending`, `POST /matchmaking/opt-in`,
+  and the bearer-token-gated `POST /internal/sweep-matchmaking-pairings`
+  (`.github/workflows/sweep-matchmaking-pairings.yml`, hourly cron — see
+  that file's own header comment for why it uses the
+  `grade-predict-matches.yml`/`purge-guest-accounts.yml` curl+cron pattern
+  rather than `sweep-recent-transfers.yml`'s CLI-verb one, per ADR-0024).
+  Full `REQ1402_...`/`REQ1403_...`-named test coverage added in
+  `ChallengeServiceTests.cs`/`ChallengeEndpointTests.cs`
+  (`XGArcade.Core.Tests`/`XGArcade.Api.Tests`) and
+  `MatchmakingSweepServiceTests.cs`/`MatchmakingEndpointTests.cs`/
+  `InternalMatchmakingSweepEndpointTests.cs` (`XGArcade.Api.Tests`, since
+  the sweep service lives in `XGArcade.Api` per ADR-0103's boundary).
 - 2026-09-02 — `docs/requirements-document.md` (2.43→2.44, REQ-1401's
   Status line updated), `docs/architecture-document.md` (1.35→1.36,
   COMP-16 row updated, COMP-14's stale `ResolveCurrentUserAsync` mention

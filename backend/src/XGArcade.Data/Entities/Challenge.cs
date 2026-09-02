@@ -8,9 +8,10 @@ namespace XGArcade.Data.Entities;
 // ChallengerUserId/ChallengedUserId both get a real FK to User, cascade —
 // same "pure relationship/flag row" precedent as FriendRequest above.
 //
-// Status starts and stays Pending until S-210's accept/decline workflow
-// moves it to Accepted/Declined; ResolvedAt mirrors FriendRequest's own
-// shape.
+// Status starts Pending; S-210's accept/decline workflow
+// (Core.Social.ChallengeService, driven by XGArcade.Api's
+// ChallengeEndpoints) moves it to Accepted/Declined; ResolvedAt mirrors
+// FriendRequest's own shape.
 //
 // ResultingMatchId is a plain, opaque Guid? column with NO EF
 // HasForeignKey/navigation to ConnectMatch (Games.XGConnect, COMP-17) — this
@@ -18,8 +19,8 @@ namespace XGArcade.Data.Entities;
 // exactly: Core.Social referencing a Games.XGConnect-owned row's id is the
 // identical cross-component shape, and ADR-0103 explicitly requires "never
 // a direct project reference" from Core.Social into Games.XGConnect
-// internals. Set once a challenge acceptance resolves into a real
-// ConnectMatch (S-210) — never written by this story.
+// internals. Set by ChallengeService once a challenge acceptance resolves
+// into a real ConnectMatch (S-210).
 public class Challenge
 {
     public Guid Id { get; set; }

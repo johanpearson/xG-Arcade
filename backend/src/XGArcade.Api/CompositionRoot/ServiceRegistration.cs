@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Avatars;
+using XGArcade.Api.Social;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.IncidentReporting;
@@ -222,11 +223,29 @@ public static class ServiceRegistration
         // of IFriendRepository above — see FriendService's own doc comment.
         builder.Services.AddScoped<IFriendService, FriendService>();
         builder.Services.AddScoped<IChallengeRepository, ChallengeRepository>();
+        // REQ-1402/S-210: send/accept/decline business logic layered on top
+        // of IChallengeRepository above — see ChallengeService's own doc
+        // comment. Note this does NOT create the resulting ConnectMatch row
+        // (ADR-0103) — that's XGArcade.Api.Social.ChallengeEndpoints' own
+        // accept-handler orchestration, registered separately below.
+        builder.Services.AddScoped<IChallengeService, ChallengeService>();
         builder.Services.AddScoped<IMatchmakingOptInRepository, MatchmakingOptInRepository>();
+        // REQ-1403/S-210: the opt-in half only, layered on top of
+        // IMatchmakingOptInRepository above — see MatchmakingService's own
+        // doc comment for why the pairing sweep is a separate type below,
+        // not part of this interface.
+        builder.Services.AddScoped<IMatchmakingService, MatchmakingService>();
         // Games.XGConnect (COMP-17)/ADR-0103, S-208: REQ-1404-1407/1410's
         // match/target-pick/chain-step/chat persistence.
         builder.Services.AddScoped<IConnectMatchRepository, ConnectMatchRepository>();
         builder.Services.AddScoped<IConnectChatMessageRepository, ConnectChatMessageRepository>();
+        // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
+        // (Core.Social) together with IConnectMatchRepository above
+        // (Games.XGConnect) for the periodic pairing sweep — lives in
+        // XGArcade.Api.Social, not Core.Social, for the same ADR-0103
+        // reason ChallengeEndpoints' own accept handler does its
+        // ConnectMatch write here rather than in ChallengeService.
+        builder.Services.AddScoped<MatchmakingSweepService>();
 
         builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
         // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into

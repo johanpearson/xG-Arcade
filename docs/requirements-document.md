@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.44"
+version: "2.45"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10920,7 +10920,8 @@ decline does not and leaves the requester free to resend later.
 /friends/requests/{id}/decline`, `GET /friends/requests/pending`, and `GET
 /friends`, all `.RequireAuthorization()`'d. Full `REQ1401_...`-named test
 coverage in `FriendServiceTests.cs`/`FriendEndpointTests.cs`. REQ-1402/1403
-(challenges, matchmaking) remain unbuilt — S-210.
+(challenges, matchmaking) are built too, as of S-210 — see their own status
+blocks below.
 
 - Given two existing xG Arcade accounts, User A and User B, who are not
   already friends and have no pending friend request between them
@@ -10958,9 +10959,25 @@ rejection; a declined request does not block a later resend.
 > Connect, and have them accept or decline, so we can agree to play a
 > match on our own initiative rather than waiting for random matchmaking.
 
-**Status: Proposed — data model exists (S-208: `Challenge` entity +
-`IChallengeRepository` in `XGArcade.Data`); send/accept/decline service
-logic not implemented yet.**
+**Status: Built, 2026-09-02 (S-210).** `IChallengeService`/`ChallengeService`
+(`XGArcade.Core.Social`) implements every branch below on top of S-208's
+`Challenge` entity and `IChallengeRepository`: `SendChallengeAsync` (rejects
+unless `IFriendRepository.AreFriendsAsync` confirms an existing friendship,
+plus duplicate-pending rejection checked in both directions), and
+`AcceptChallengeAsync`/`DeclineChallengeAsync` (found/responder-is-the-
+challenged-user/still-Pending preconditions; only the challenged user may
+resolve). Per ADR-0103, `ChallengeService` never creates the resulting
+`ConnectMatch` row itself — `AcceptChallengeAsync` takes a caller-supplied
+`resultingMatchId` and persists Accepted+that id in the same repository
+call, while `XGArcade.Api.Social.ChallengeEndpoints`' accept handler
+pre-generates that id and creates the actual `ConnectMatch` row via
+`IConnectMatchRepository` immediately after a `Resolved` outcome — never
+before, so an invalid accept attempt never leaves an orphan match.
+`ChallengeEndpoints` exposes this as `POST /challenges`, `POST
+/challenges/{id}/accept`, `POST /challenges/{id}/decline`, and `GET
+/challenges/pending`, all `.RequireAuthorization()`'d. Full
+`REQ1402_...`-named test coverage in `ChallengeServiceTests.cs`/
+`ChallengeEndpointTests.cs`.
 
 - Given User A and User B are friends (REQ-1401)
 - When User A sends User B a direct xG Connect challenge
@@ -10990,9 +11007,34 @@ transition.
 > paired with another player who also opts in, so I can play xG Connect
 > without already knowing an opponent.
 
-**Status: Proposed — data model exists (S-208: `MatchmakingOptIn` entity +
-`IMatchmakingOptInRepository` in `XGArcade.Data`); the pairing/sweep logic
-is not implemented yet.**
+**Status: Built, 2026-09-02 (S-210).** `IMatchmakingService`/
+`MatchmakingService` (`XGArcade.Core.Social`) implements the opt-in half —
+`OptInAsync` always creates a new `Waiting` `MatchmakingOptIn` row
+(`ExpiresAt` = `OptedInAt` + 12h; opting in is itself the consent, so there
+is no rejection branch, even for a user who already has a `Waiting` row —
+see the next paragraph for how a second row from the same user is handled
+at pairing time), exposed as `POST /matchmaking/opt-in`
+(`XGArcade.Api.Social.MatchmakingEndpoints`). The pairing/expiry sweep
+(`XGArcade.Api.Social.MatchmakingSweepService.RunSweepAsync`) is a separate
+type in `XGArcade.Api`, not `Core.Social` — per ADR-0103 it orchestrates
+`IMatchmakingOptInRepository` together with `IConnectMatchRepository`
+(Games.XGConnect), which `Core.Social` must never depend on directly. Each
+sweep run first expires every `Waiting` row whose `ExpiresAt` has passed,
+then greedily pairs remaining rows oldest-opted-in-first, tracking every
+`UserId` already paired that run so neither of a user's own two `Waiting`
+rows (if they opted in twice) is ever paired with the other, or with any
+third party once either row has already been paired — guaranteeing no
+`UserId` participates in more than one resulting `ConnectMatch` from a
+single sweep. Exposed as the bearer-token-gated `POST
+/internal/sweep-matchmaking-pairings`
+(`XGArcade.Api.Social.InternalMatchmakingSweepEndpoints`), triggered hourly
+by `.github/workflows/sweep-matchmaking-pairings.yml` (see that workflow's
+own header comment for why it uses the curl+cron `/internal/*` pattern
+rather than the CLI-verb pattern, per ADR-0024). Full
+`REQ1403_...`-named test coverage in `MatchmakingSweepServiceTests.cs`/
+`MatchmakingEndpointTests.cs`/`InternalMatchmakingSweepEndpointTests.cs`
+(`XGArcade.Api.Tests`, since the sweep service itself lives in
+`XGArcade.Api`).
 
 - Given User A opts into random matchmaking and no other unpaired opt-in
   exists at that moment

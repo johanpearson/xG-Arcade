@@ -10449,11 +10449,25 @@ four near-identical copies across `LeaderboardEndpoints.cs`/
 (ADR-0084 rule-of-three) — mechanical cleanup, not part of REQ-1401 itself,
 no ADR needed. REQ-1402/1403 (challenges, matchmaking) not started — S-210.
 
-**S-210 · Direct challenge + random matchmaking (REQ-1402/1403)**
+**S-210 · Direct challenge + random matchmaking (REQ-1402/1403)** — Built,
+2026-09-02.
 Challenge send/accept/decline (requires an existing friendship); random
-matchmaking opt-in pool + 12-hour pairing sweep job (mirrors the existing
-scheduled-sweep pattern, e.g. `sweep-recent-transfers.yml`). Both paths
-resolve into a new `ConnectMatch`.
+matchmaking opt-in pool + 12-hour pairing sweep job. Both paths resolve
+into a new `ConnectMatch`. `IChallengeService`/`ChallengeService` and
+`IMatchmakingService`/`MatchmakingService` (`XGArcade.Core.Social`)
+implement the send/accept/decline and opt-in logic; per ADR-0103 neither
+ever writes a `ConnectMatch` row itself — `XGArcade.Api.Social.
+ChallengeEndpoints`' accept handler and the new
+`XGArcade.Api.Social.MatchmakingSweepService` do that orchestration in
+`XGArcade.Api` instead. **Deliberately does NOT mirror
+`sweep-recent-transfers.yml`'s CLI-verb pattern** despite this story's own
+original wording — that pattern is reserved (ADR-0024) for long-running,
+multiple-live-external-API-call work, which this fast, bounded,
+pure-in-database sweep is not; it uses the bearer-token `/internal/*`
++ hourly-cron pattern instead (same shape as
+`grade-predict-matches.yml`/`purge-guest-accounts.yml`) — see
+`sweep-matchmaking-pairings.yml`'s own header comment for the full
+reasoning.
 *Accept:* `REQ1402_...`/`REQ1403_...`-named tests, including 12h expiry
 with no pairing and no player double-booked into two matches from one
 pairing event.

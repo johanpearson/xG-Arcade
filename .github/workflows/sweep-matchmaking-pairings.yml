@@ -1,0 +1,79 @@
+name: sweep-matchmaking-pairings
+
+# REQ-1403/ADR-0103: pairs up (or expires) random-matchmaking opt-ins
+# (POST /internal/sweep-matchmaking-pairings,
+# XGArcade.Api.Social.InternalMatchmakingSweepEndpoints ->
+# XGArcade.Api.Social.MatchmakingSweepService).
+#
+# Pattern note for future readers (S-210): the backlog story text for this
+# job originally said it "mirrors the existing sweep-recent-transfers.yml
+# pattern" (a `dotnet run -- <verb>` CLI verb against a raw connection
+# string, dispatched with no HTTP round trip). Having read
+# sweep-recent-transfers.yml, .github/actions/run-cli-verb/action.yml, and
+# ADR-0024 in full, that CLI-verb pattern is deliberately reserved (ADR-0024's
+# own "For AI agents" section) for long-running, unbounded-duration work
+# with multiple live external API calls (Wikidata SPARQL sweeps) that would
+# otherwise risk the Azure Container Apps ingress's ~240s timeout. This job
+# is the opposite shape: fast, bounded, pure in-database work against live
+# application data through the normal service/repository layer (no external
+# API calls at all) — the exact same shape grade-predict-matches.yml and
+# purge-guest-accounts.yml already use. This workflow deliberately follows
+# THAT pattern (bearer-token-gated /internal/* endpoint via curl, with a
+# retry loop) instead, so a future reader isn't confused by the mismatch
+# between the backlog story's wording and what's actually implemented here.
+#
+# Cadence: hourly (0 * * * *) — REQ-1403's own pairing/expiry windows are
+# both 12h-granularity, so a pairing or expiry landing up to ~1h late has no
+# correctness impact a player would notice (mirrors
+# purge-guest-accounts.yml's own "a few hours late has no correctness
+# impact" reasoning for its day-granularity windows, scaled down to this
+# job's much shorter 12h window). Hourly also keeps two overlapping opt-ins
+# from sitting paired-but-undetected for anywhere near as long as the
+# window itself, without adding meaningful DB load (this job's own query
+# cost is a handful of indexed reads/writes against MatchmakingOptIn, not a
+# rate-limited third-party API like grade-predict-matches.yml's own hourly
+# cadence has to budget around).
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
+
+jobs:
+  sweep-matchmaking-pairings:
+    runs-on: ubuntu-latest
+    steps:
+      # Same 3-attempt, 30s/60s-backoff retry-loop shape as
+      # grade-predict-matches.yml's own step.
+      - name: Trigger matchmaking pairing sweep
+        shell: bash
+        run: |
+          max_attempts=3
+          http_status=""
+          for attempt in $(seq 1 "$max_attempts"); do
+            http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+              "https://${BACKEND_HOSTNAME}/internal/sweep-matchmaking-pairings" \
+              -H "Authorization: Bearer ${INTERNAL_JOB_TOKEN}")
+
+            echo "Attempt $attempt/$max_attempts — response body:"
+            cat response.json
+
+            # curl reports "000" (not a real HTTP status) when it never got
+            # a response at all — requiring >= 200 as well excludes that
+            # (and any other non-response code) from the success path, same
+            # fix grade-predict-matches.yml/trigger-round-generation apply.
+            if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 400 ]; then
+              exit 0
+            fi
+
+            echo "::warning::/internal/sweep-matchmaking-pairings returned HTTP $http_status (attempt $attempt/$max_attempts)"
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep $((attempt * 30))
+            fi
+          done
+
+          echo "::error::/internal/sweep-matchmaking-pairings failed after $max_attempts attempts (last status: $http_status)"
+          exit 1
+        env:
+          BACKEND_HOSTNAME: ${{ secrets.DEV_BACKEND_HOSTNAME }}
+          INTERNAL_JOB_TOKEN: ${{ secrets.INTERNAL_JOB_TOKEN }}
