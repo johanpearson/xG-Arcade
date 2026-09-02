@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.37"
+version: "2.38"
 status: draft
 last_updated: 2026-09-02
 owner: Johan
@@ -10557,8 +10557,11 @@ implements this REQ's three-component formula
 the Test level above; the interface member `ScoreCorrectGuess` throws
 `NotSupportedException` instead, since it is architecturally unreachable
 for this `GameKey` (ADR-0096 — xG Predict never writes `Guess` rows) —
-see ADR-0095's amendment for the full reasoning and the standing item this
-leaves for REQ-1305's grading job. `LeaderboardService`'s three
+see ADR-0095's amendment for the full reasoning. **Status (2026-09-02,
+S-205):** the standing item this left open — whether `ScorePrediction` is
+this `GameKey`'s permanent second entry point, or `IScoringStrategy`
+itself needs reshaping — is now closed; see ADR-0095's "Standing item
+closed" amendment. `LeaderboardService`'s three
 `OrderBy(TotalPoints)` scopes (`GetActiveRoundLeaderboardAsync`,
 `GetClosedRoundLeaderboardAsync`, `GetWindowedLeaderboardAsync`) now
 resolve ascending/descending per `GameKey` via `IScoringStrategyResolver`
