@@ -141,9 +141,18 @@ public class FriendServiceTests
         Assert.That(friendshipsForB, Has.Count.EqualTo(1));
         Assert.That(friendshipsForA[0].Id, Is.EqualTo(friendshipsForB[0].Id));
 
-        // No longer appears in either player's pending list.
+        // No longer appears in the recipient's pending list.
+        // GetPendingFriendRequestsAsync is recipient-scoped
+        // (IFriendRepository.GetPendingFriendRequestsForUserAsync filters on
+        // RecipientUserId) — userA is the requester here, never the
+        // recipient, so asserting GetPendingFriendRequestsAsync(userA) would
+        // be vacuously Is.Empty regardless of whether accept worked and
+        // wouldn't exercise the requester's side at all. The symmetric
+        // friendship assertions above (visible identically via
+        // GetFriendshipsAsync from either userA's or userB's side) are what
+        // actually prove the request resolved out of "either player's"
+        // relevant view.
         Assert.That(await _service.GetPendingFriendRequestsAsync(userB), Is.Empty);
-        Assert.That(await _service.GetPendingFriendRequestsAsync(userA), Is.Empty);
     }
 
     // ---- REQ-1401 GWT#3: decline, then resend later ------------------------
@@ -264,5 +273,37 @@ public class FriendServiceTests
 
         Assert.That(secondAccept.Outcome, Is.EqualTo(ResolveFriendRequestOutcome.AlreadyResolved));
         Assert.That(await _service.GetFriendshipsAsync(userA), Has.Count.EqualTo(1));
+    }
+
+    // Same NotYourRequest/AlreadyResolved branches as the Accept-side tests
+    // above, exercised via DeclineFriendRequestAsync instead — both public
+    // methods delegate to the same private ResolveFriendRequestAsync, but
+    // each caller path is worth its own explicit coverage.
+    [Test]
+    public async Task REQ1401_DeclineFriendRequestAsync_CalledByTheRequesterRatherThanTheRecipient_ReturnsNotYourRequestAndCreatesNoFriendship()
+    {
+        var userA = await CreateUserAsync("Alex");
+        var userB = await CreateUserAsync("Blair");
+        var sendResult = await _service.SendFriendRequestAsync(userA, userB);
+
+        var result = await _service.DeclineFriendRequestAsync(sendResult.FriendRequest!.Id, userA);
+
+        Assert.That(result.Outcome, Is.EqualTo(ResolveFriendRequestOutcome.NotYourRequest));
+        Assert.That(await _service.GetFriendshipsAsync(userA), Is.Empty);
+        Assert.That(await _service.GetFriendshipsAsync(userB), Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ1401_DeclineFriendRequestAsync_RequestAlreadyResolved_ReturnsAlreadyResolved()
+    {
+        var userA = await CreateUserAsync("Alex");
+        var userB = await CreateUserAsync("Blair");
+        var sendResult = await _service.SendFriendRequestAsync(userA, userB);
+        await _service.DeclineFriendRequestAsync(sendResult.FriendRequest!.Id, userB);
+
+        var secondDecline = await _service.DeclineFriendRequestAsync(sendResult.FriendRequest.Id, userB);
+
+        Assert.That(secondDecline.Outcome, Is.EqualTo(ResolveFriendRequestOutcome.AlreadyResolved));
+        Assert.That(await _service.GetFriendshipsAsync(userA), Is.Empty);
     }
 }
