@@ -1,0 +1,224 @@
+using Microsoft.EntityFrameworkCore;
+using XGArcade.Data.Entities;
+using XGArcade.Data.Repositories;
+
+namespace XGArcade.Data.Tests;
+
+// Games.XGConnect (COMP-17)/ADR-0103, S-208: ConnectMatchRepository's basic
+// persistence round-trips for ConnectMatch/ConnectTargetPick/
+// ConnectChainStep. Schema + CRUD only — no trivial-pair rejection,
+// match-start/lock, live overlap validation, or bust/scoring/resolution
+// logic (that's S-211 through S-215).
+public class ConnectMatchRepositoryTests
+{
+    // Always assigned in SetUp before any test body runs — null! is safe here.
+    private XGArcadeDbContext _dbContext = null!;
+    private IConnectMatchRepository _repository = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        var options = new DbContextOptionsBuilder<XGArcadeDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        _dbContext = new XGArcadeDbContext(options);
+        _repository = new ConnectMatchRepository(_dbContext);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        _dbContext.Dispose();
+    }
+
+    // ---- ConnectMatch CRUD ----------------------------------------------
+
+    [Test]
+    public async Task AddMatchAsync_ThenGetMatchByIdAsync_PersistsAndRetrievesTheRow()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var createdAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var match = new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            PlayerAUserId = playerA,
+            PlayerBUserId = playerB,
+            CreatedAt = createdAt,
+        };
+
+        var added = await _repository.AddMatchAsync(match);
+
+        Assert.That(added, Is.SameAs(match));
+        var result = await _repository.GetMatchByIdAsync(match.Id);
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PlayerAUserId, Is.EqualTo(playerA));
+        Assert.That(result.PlayerBUserId, Is.EqualTo(playerB));
+        Assert.That(result.Status, Is.EqualTo(ConnectMatchStatus.AwaitingTargetPicks), "Status defaults to AwaitingTargetPicks");
+        Assert.That(result.Outcome, Is.EqualTo(ConnectMatchOutcome.Pending), "Outcome defaults to Pending");
+        Assert.That(result.StartedAt, Is.Null);
+        Assert.That(result.DeadlineUtc, Is.Null);
+        Assert.That(result.ResolvedAt, Is.Null);
+    }
+
+    [Test]
+    public async Task GetMatchByIdAsync_UnknownId_ReturnsNull()
+    {
+        var result = await _repository.GetMatchByIdAsync(Guid.NewGuid());
+
+        Assert.That(result, Is.Null);
+    }
+
+    // ---- ConnectTargetPick CRUD (AddOrUpdateTargetPickAsync) ------------
+
+    [Test]
+    public async Task AddOrUpdateTargetPickAsync_NoExistingRow_InsertsNewPick()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var targetPlayerId = Guid.NewGuid();
+        var selectedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        var pick = await _repository.AddOrUpdateTargetPickAsync(matchId, userId, targetPlayerId, selectedAt);
+
+        Assert.That(pick.ConnectMatchId, Is.EqualTo(matchId));
+        Assert.That(pick.UserId, Is.EqualTo(userId));
+        Assert.That(pick.TargetPlayerId, Is.EqualTo(targetPlayerId));
+        Assert.That(pick.SelectedAt, Is.EqualTo(selectedAt));
+        Assert.That(pick.IsLocked, Is.False);
+
+        var stored = await _repository.GetTargetPickAsync(matchId, userId);
+        Assert.That(stored, Is.Not.Null);
+        Assert.That(stored!.TargetPlayerId, Is.EqualTo(targetPlayerId));
+    }
+
+    [Test]
+    public async Task AddOrUpdateTargetPickAsync_ExistingRowForSameMatchAndUser_ReplacesValueRatherThanInsertingSecondRow()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var firstTarget = Guid.NewGuid();
+        var secondTarget = Guid.NewGuid();
+        await _repository.AddOrUpdateTargetPickAsync(matchId, userId, firstTarget, new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc));
+
+        await _repository.AddOrUpdateTargetPickAsync(matchId, userId, secondTarget, new DateTime(2026, 9, 1, 13, 0, 0, DateTimeKind.Utc));
+
+        var stored = await _repository.GetTargetPickAsync(matchId, userId);
+        Assert.That(stored!.TargetPlayerId, Is.EqualTo(secondTarget));
+        Assert.That(await _dbContext.ConnectTargetPicks.CountAsync(p => p.ConnectMatchId == matchId && p.UserId == userId),
+            Is.EqualTo(1), "a resubmission must overwrite the existing row, never insert a second one (REQ-1404/1405)");
+    }
+
+    [Test]
+    public async Task GetTargetPickAsync_NoStoredPick_ReturnsNull()
+    {
+        var result = await _repository.GetTargetPickAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task GetTargetPicksForMatchAsync_ReturnsBothPlayersPicksForThatMatch()
+    {
+        var matchId = Guid.NewGuid();
+        var otherMatchId = Guid.NewGuid();
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        await _repository.AddOrUpdateTargetPickAsync(matchId, playerA, Guid.NewGuid(), DateTime.UtcNow);
+        await _repository.AddOrUpdateTargetPickAsync(matchId, playerB, Guid.NewGuid(), DateTime.UtcNow);
+        await _repository.AddOrUpdateTargetPickAsync(otherMatchId, Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow);
+
+        var result = await _repository.GetTargetPicksForMatchAsync(matchId);
+
+        Assert.That(result.Select(p => p.UserId), Is.EquivalentTo(new Guid?[] { playerA, playerB }));
+    }
+
+    // ---- ConnectChainStep CRUD -------------------------------------------
+
+    [Test]
+    public async Task AddChainStepAsync_ThenGetChainStepsForMatchAndUserAsync_PersistsAndRetrievesTheRow()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var candidatePlayerId = Guid.NewGuid();
+        var submittedAt = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        var chainStep = new ConnectChainStep
+        {
+            Id = Guid.NewGuid(),
+            ConnectMatchId = matchId,
+            UserId = userId,
+            Position = 1,
+            AttemptNumber = 1,
+            CandidatePlayerId = candidatePlayerId,
+            ClaimedClubName = "Arsenal",
+            IsValid = true,
+            SubmittedAt = submittedAt,
+        };
+
+        var added = await _repository.AddChainStepAsync(chainStep);
+
+        Assert.That(added, Is.SameAs(chainStep));
+        var result = await _repository.GetChainStepsForMatchAndUserAsync(matchId, userId);
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CandidatePlayerId, Is.EqualTo(candidatePlayerId));
+        Assert.That(result[0].ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(result[0].IsValid, Is.True);
+    }
+
+    // REQ-1406/1407: a failed first attempt and a successful retry at the
+    // same position are both legitimate, distinct rows — never overwritten.
+    [Test]
+    public async Task AddChainStepAsync_FailedFirstAttemptThenRetryAtSamePosition_BothRowsPersist()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var failedAttempt = new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Wrong Club", IsValid = false, SubmittedAt = DateTime.UtcNow,
+        };
+        var retryAttempt = new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 2,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Right Club", IsValid = true, SubmittedAt = DateTime.UtcNow,
+        };
+
+        await _repository.AddChainStepAsync(failedAttempt);
+        await _repository.AddChainStepAsync(retryAttempt);
+
+        var result = await _repository.GetChainStepsForMatchAndUserAsync(matchId, userId);
+        Assert.That(result, Has.Count.EqualTo(2), "a failed first attempt and a successful retry are both legitimate, distinct rows");
+        Assert.That(result.Select(s => s.AttemptNumber), Is.EquivalentTo(new[] { 1, 2 }));
+    }
+
+    [Test]
+    public async Task GetChainStepsForMatchAndUserAsync_IsScopedToOneMatchAndOneUser()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        await _repository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, SubmittedAt = DateTime.UtcNow,
+        });
+        await _repository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = otherUserId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, SubmittedAt = DateTime.UtcNow,
+        });
+
+        var result = await _repository.GetChainStepsForMatchAndUserAsync(matchId, userId);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].UserId, Is.EqualTo(userId));
+    }
+
+    [Test]
+    public async Task GetChainStepsForMatchAndUserAsync_NoSteps_ReturnsEmpty()
+    {
+        var result = await _repository.GetChainStepsForMatchAndUserAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.That(result, Is.Empty);
+    }
+}
