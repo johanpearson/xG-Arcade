@@ -10201,21 +10201,64 @@ verification via `ci.yml`'s `workflow_dispatch` is required before this is
 considered done, same recurring constraint as other recent backend
 stories in this log.
 
-**S-204 · Tune `"xg-predict"`'s `RoundDuration` default toward its real gameweek cadence**
-Flagged as an open product-tuning question by S-196's ADR-0072 amendment,
-not a bug: `RoundScheduling:XGPredict:RoundDurationHours`
-(`backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs:282`)
-defaults to 48h, copied from `"xg-grid"`/`"xg-path"` for consistency only —
-not because 48h fits a Premier League gameweek, which recurs roughly
-weekly. Decision made here rather than left open further: default to 168h
-(7 days) so one xG Predict round spans one gameweek without needing a
-mid-week round change; `generate-predict-round.yml`'s daily cron remains
-safe either way (idempotent, no-op on days no new round is due — S-196's
-own note).
-*Accept:* config default changed to 168h with a comment recording this
-story's reasoning; `RoundSchedulingOptionsResolverTests`' `"xg-predict"`
-case updated to assert the new default; ADR-0072's amendment section
-updated to mark this open item resolved.
+**S-204 · Fix `"xg-predict"` round generation's incompatibility with irregular (e.g. midweek) gameweek spacing (needs ADR-0102)**
+**Correction (2026-08-31): this story previously proposed defaulting
+`RoundScheduling:XGPredict:RoundDurationHours` to 168h as a product-tuning
+call. That was wrong, not just imprecise — flagged by the product owner
+(real Premier League gameweeks are not always 7 days apart; midweek
+rounds are routine around cup replays, European-competition weeks, and
+rearranged fixtures) and confirmed by reading the actual generation code.
+Rewritten below as a real fix, not a config tweak.**
+
+Root cause, traced through the two files involved:
+`RoundGenerationService.GenerateNextRoundIfNeededAsync`
+(`backend/src/XGArcade.Core/Rounds/RoundGenerationService.cs`) chains
+rounds strictly back-to-back and periodically — round N+1's `StartTime` is
+always exactly round N's `EndTime` (`= StartTime + RoundDuration`), and
+generation only fires once round N has itself started. This is a fixed
+period, by construction, regardless of GameKey.
+`XGPredictGameModule.GenerateInstanceAsync`
+(`backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs:46`) calls
+`IFootballDataClient.GetUpcomingGameweekFixturesAsync` fresh on every
+call, with **no tracking of which matchday a previous round already
+used** — that client method itself is correctly real-world-driven (it
+walks forward from the current matchday to the next one where every fixture
+is still in the future, `FootballDataClient.cs`'s own comment on why), but
+nothing stops two different Round-generation calls from resolving to the
+same matchday, or a Round-generation call from landing after a
+fully-in-the-future matchday has already slipped by.
+
+Combined, no fixed `RoundDuration` value is safe: too long, and a
+midweek gameweek's fixtures kick off before the chain gets around to
+generating that round — the matchday is silently skipped, never played,
+not merely delayed (`GetUpcomingGameweekFixturesAsync` has already moved
+past it by the time generation runs). Too short, and the chain generates a
+new round before the real upcoming matchday has changed — since there is
+no dedup, this creates a duplicate `PredictInstance`/`Round` for the exact
+same real matches. 48h (today's default, unchanged since S-196) and 168h
+(this story's own original, wrong proposal) both fail for different real
+gameweek spacings; there is no constant that doesn't.
+
+*Accept:* a new ADR (ADR-0102 — 0100/0101 are taken by S-199/S-201) decides
+how `"xg-predict"` round generation should actually be triggered so it
+tracks real matchday changes instead of elapsed time — options to weigh,
+not a foregone conclusion: (a) `XGPredictGameModule` records which
+matchday/fixture set it already used (e.g. on `PredictInstance` or a new
+field) and `GenerateInstanceAsync` returns "no new round due" when the
+next upcoming matchday is unchanged from the latest existing instance,
+requiring `RoundGenerationService`/`IRoundGenerationService` to gain a way
+to no-op generation for a GameKey without treating that as a failure; or
+(b) a GameKey-specific generation path for `"xg-predict"` outside the
+shared periodic chain entirely, if forcing this into the existing
+one-round-ahead/fixed-`RoundDuration` shape (built for xg-grid/xg-path's
+arbitrary, non-real-world cadence) turns out to be the wrong fit rather
+than a clean extension of it. Whichever shape is chosen, add test coverage
+proving a midweek matchday (two real gameweeks close together) is neither
+skipped nor duplicated, and that the ordinary weekly case still produces
+exactly one round per gameweek. Update `RoundSchedulingOptionsResolverTests`'
+`"xg-predict"` case and ADR-0072's amendment section to reflect whatever
+`RoundDuration`'s role becomes once this lands (possibly unused for
+`"xg-predict"` specifically, if option (b) above is chosen).
 *Deps:* none.
 
 **S-205 · ADR note: confirm `ScorePrediction` as `XGPredictScoringStrategy`'s permanent second entry point**
