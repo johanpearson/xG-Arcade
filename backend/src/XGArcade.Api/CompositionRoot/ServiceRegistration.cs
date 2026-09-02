@@ -8,6 +8,7 @@ using XGArcade.Core.IncidentReporting;
 using XGArcade.Core.Leagues;
 using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
+using XGArcade.Core.Social;
 using XGArcade.Core.Storage;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
@@ -217,6 +218,9 @@ public static class ServiceRegistration
         // No IGameModule registration for xG Connect yet (this story is
         // schema + CRUD only, no game logic).
         builder.Services.AddScoped<IFriendRepository, FriendRepository>();
+        // REQ-1401/S-209: send/accept/decline business logic layered on top
+        // of IFriendRepository above — see FriendService's own doc comment.
+        builder.Services.AddScoped<IFriendService, FriendService>();
         builder.Services.AddScoped<IChallengeRepository, ChallengeRepository>();
         builder.Services.AddScoped<IMatchmakingOptInRepository, MatchmakingOptInRepository>();
         // Games.XGConnect (COMP-17)/ADR-0103, S-208: REQ-1404-1407/1410's
