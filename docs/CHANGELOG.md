@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-02 — `docs/requirements-document.md` (2.40→2.41, §4.15 +
+  REQ-1411) — added a cross-cutting notification-indicator requirement to
+  the xG Connect proposal: a persistent, visible indicator (badge-style,
+  exact visual left to `design-document.md`) surfacing pending friend
+  requests, pending challenges, and matches still awaiting the player's
+  next move, so async invites/challenges/turns can't go unnoticed. Flagged
+  as belonging to neither COMP-16 nor COMP-17 cleanly — ownership left to
+  the same pending architecture decision as the rest of §4.15.
+- 2026-09-02 — `docs/requirements-document.md` (2.39→2.40, new §4.15,
+  REQ-1401-1410), `docs/architecture-document.md` (1.32→1.33, new
+  COMP-16/COMP-17 rows, both proposed), `MVP-SCOPE.md` (new Tier 2 entry)
+  — design-only proposal for **xG Connect**, a fourth game: 1v1
+  asynchronous friend challenges and random matchmaking (12h pairing
+  window), each match racing to build the shortest "played together"
+  (same club, overlapping time) chain linking two independently-picked
+  target players, incremental per-step live validation, a two-strikes
+  penalty/bust rule, and a 6-hour per-match forfeit timer. No code exists
+  yet. Flagged, not resolved: whether Friends/Challenges become a new
+  arcade-level component (COMP-16) separate from the game module
+  (COMP-17), and whether a pairwise on-demand match fits the existing
+  `Round`/`League` model at all or needs a new first-class concept — both
+  need a deliberate ADR before implementation begins.
 - 2026-09-02 — `docs/decisions/0102-xg-predict-matchday-tracked-round-generation.md`
   (new), `docs/decisions/0072-split-generate-round-workflow-per-gamekey.md`
   (amendment), `docs/requirements-document.md` (2.38→2.39, REQ-1301 status

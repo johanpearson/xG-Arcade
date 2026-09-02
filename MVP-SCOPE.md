@@ -581,6 +581,19 @@ is written as something you can actually observe, not a vague feeling:
 
 - Club crests (`ClubCrest`, ADR-0008) — Phase 2, as already documented
 - Round-result notification emails (REQ-706) — Phase 2, as already documented
+- **xG Connect (new, 2026-09-02)** — a proposed fourth game: 1v1 asynchronous
+  friend challenges/random matchmaking, racing to build the shortest
+  "played together" chain linking two independently-picked target players
+  (REQ-1401-1410, `docs/requirements-document.md` §4.15; `architecture-document.md`
+  COMP-16/COMP-17, both proposed/unassigned). Design-only — no Tier 0/1
+  precondition work has started, no account/data-source setup beyond what
+  Tier 0 already has is currently known to be needed (it reuses the
+  existing live Wikidata career-lookup pattern rather than a new provider).
+  The open question of whether this fits the existing `Round`/`League`
+  model or needs new Core primitives (friends/challenges) is unresolved —
+  see §4.15's own component-boundary note. Do not start building this
+  before Tier 0/1 are actually done and this doc is updated to promote it,
+  per this file's own standing rule.
 
 ## What this means for the other docs
 
