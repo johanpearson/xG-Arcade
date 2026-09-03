@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.87"
+version: "0.88"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -2170,26 +2170,19 @@ Opens SCREEN-15.
 
 **Badge treatment — count, not a presence dot (resolving REQ-1411's own
 explicitly-deferred "count vs. presence dot" question).** The entry's
-label is plain text, "Friends" or "Friends (N)" — the combined total of
-`GET /notifications/summary`'s three counts
+label was originally plain text, "Friends" or "Friends (N)" — the combined
+total of `GET /notifications/summary`'s three counts
 (`pendingFriendRequestCount + pendingChallengeCount +
-matchesAwaitingActionCount`), omitted entirely at zero. This is exactly
+matchesAwaitingActionCount`), omitted entirely at zero. This was exactly
 the same inline "(N)" convention `PlayerSuggestionsEntry`'s "Player
 suggestions (N)" and `UnverifiedDataSection`'s "Unverified data (N)"
-already established (SCREEN-04's own entries) — chosen over a colored
-dot/pill for the same reason those two precedents already give: this
-table has no token for a small numeric badge/pill, and inventing one for
-this single use would be exactly the ad-hoc-value CLAUDE.md's token rule
-warns against, whereas the existing plain-text convention needs nothing
-new at all. A count is also strictly more informative than a presence dot
-at identical cost — REQ-1411's own text only requires presence ("that at
-least one such item exists"), but nothing about a bare dot is cheaper to
-build or verify than the count already sitting in the same response, and
-this app already has an established "count in parens" reader expectation
-from the two precedents above, so a dot here would actually be a second,
-inconsistent treatment for the same kind of information rather than a
-simpler one. Never color-only (§6): the figure is real text, not a
-colored shape alone.
+already established (SCREEN-04's own entries). **Superseded 2026-09-03
+(same day, direct user feedback) — see "Badge redesign" below**: the
+count-vs-dot decision itself (a count, never a bare presence dot) still
+stands and is the one thing carried forward unchanged; what changed is
+*where and how* that count is shown. The label text itself is now always
+plain "Friends," with no "(N)" suffix at all — see below for why and where
+the count moved to.
 
 Polled every 15s while a session exists (`useNotificationSummary`,
 `frontend/src/lib/`), mounted once at the top of `App()` (same "regardless
@@ -2201,7 +2194,130 @@ poll-driven refresh is sufficient," no live push — same interval reused
 for consistency, not re-derived). A transient poll failure never blanks
 or errors the nav — it just leaves the last known count showing, the same
 "never replace already-good state with an error" discipline the
-leaderboard's own poll already follows.
+leaderboard's own poll already follows. Unchanged by the redesign below.
+
+**Badge redesign, 2026-09-03, same day — direct user feedback:** *"I want
+the notification to be visible from the main screen, like a green or red
+icon with a white number of how many notifications there is over/in front
+or next to the menu icon or something.. and then when clicking it, showing
+where the notification is at. not only (1) like it was now.."* Two real
+gaps in the original treatment above: (1) the "(N)" suffix was plain text
+*inside* the "Friends" link's own label, which only became visible once
+the mobile nav menu was opened below the 480px breakpoint — not "visible
+from the main screen" at all on a phone, the platform this feedback came
+from; (2) a bare count gave no way to tell *which* category needed
+attention without first opening the Friends screen and checking each tab.
+
+*Placement.* A new `NotificationBadge` (`frontend/src/nav/`) renders
+unconditionally in the header, immediately before the "☰ Menu" toggle —
+at every viewport width, not only below the mobile breakpoint, and never
+nested inside the outer/"Games" disclosures. This directly answers "next
+to the menu icon," and being outside the collapsible mobile menu is what
+makes it visible without first opening that menu, closing gap (1) above.
+The "Friends" nav-entry label itself reverts to plain "Friends," no
+suffix — restating the same count a second way, right next to where the
+badge itself already shows it, would be redundant, not reinforcing.
+
+*Visual: a small filled circular pill, `accent-red` fill, a white numeral,
+not a bare dot.* REQ-1411's earlier "count, not a dot" reasoning still
+applies in full (a count is strictly more informative than presence alone
+at identical cost) — this redesign changes *where* the count renders, not
+whether it's a count. Color choice, deliberate and recorded here per this
+document's own "record a deliberate color choice with rationale" pattern
+(see `accent-green-scrim`'s row in §2 for the house style this follows):
+the two candidates already in the token table are `accent-red` (`#C4463C`
+light / `#D2726A` dark — "incorrect states... not an alarm red") and
+`accent-green` (`#1E9E63` — "live/active states, primary actions"). A
+notification/alert badge is semantically closer to "something needs
+looking at" than to "currently live" — the same spirit this table already
+uses `accent-red` for, even though its existing role (incorrect-guess
+states) is a different concept than "you have a pending request." This is
+therefore a deliberate second use of `accent-red`'s existing hue for a
+related-but-distinct meaning ("needs your attention"), the same kind of
+explicit, recorded reuse `accent-green-scrim`'s own row documents for a
+different token — not a silent reinterpretation, and not a new hex value
+(CLAUDE.md's token-discipline rule: reuse the existing token, don't
+recolor it). `accent-green` was considered and rejected: this app's own
+"Green means live/active, gold means settled/correct" rule (§2) already
+gives green a specific, different meaning, and a pending-request/challenge
+notification isn't "currently live" in that sense.
+
+*Contrast, verified for both theme variants, no new hex or math needed.*
+The numeral uses `--color-surface-card` for its color — the same
+"button-label color" convention `.auth-screen__submit`/`.guess-input__submit`
+already establish (background `accent-green-text`, label `surface-card`;
+here, background `accent-red`, label `surface-card`), not a literal
+hardcoded white. This turns out to be exactly the right choice
+independent of theme, because the WCAG contrast ratio between two colors
+is symmetric regardless of which one is "foreground text" and which is
+"background fill" — so the pairing needed here (`surface-card` numeral on
+`accent-red` fill) is numerically identical to a pairing this document
+already verified, just with the two roles swapped:
+- **Light theme:** `surface-card` is `#FFFFFF`, `accent-red` is `#C4463C`
+  — this is the exact pairing §2's `accent-red` row already verifies
+  ("passes text contrast as-is (~4.9:1 on white)"). **4.9:1**, clears the
+  4.5:1 normal-text floor.
+- **Dark theme:** `surface-card` is `#1C211F`, `accent-red` is `#D2726A`
+  — this is the exact pairing §2's dark-theme table already verifies for
+  `accent-red` ("**4.94:1** against `surface-card`"), just with the two
+  colors swapped between foreground/background roles, which doesn't change
+  the ratio. **4.94:1**, clears the floor with the same margin the dark
+  theme table already banked.
+
+  Both numbers were independently re-derived (relative-luminance formula,
+  same methodology as every other ratio in §2) rather than assumed from
+  symmetry alone, and matched the table's own published values exactly.
+  No new token, no new hex, no new derivation — a genuine reuse, per
+  CLAUDE.md's rule, and dark theme is real, shipped, switchable code today
+  (`frontend/src/index.css`'s `:root[data-theme='dark']` block), not a
+  future-only concern, so this verification wasn't optional.
+
+*Disclosure/dropdown, not a link straight to SCREEN-15.* The badge is a
+real `<button>` exposing `aria-expanded`/`aria-controls` — the same
+accessible-disclosure pattern HeaderNav's own outer/"Games" toggles already
+establish (Tab-reachable, Enter/Space-activatable by native button
+semantics, no custom key handling). Activating it reveals a small panel
+anchored beneath it (`role="menu"`), listing each of
+`NotificationSummaryResponse`'s three categories that is currently
+non-zero — a category at exactly 0 is omitted entirely from the list, the
+same "no indicator at zero" rule REQ-1411 already established for the
+badge itself, now applied per-category too. **No new motion**: an instant
+show/hide, same "no new motion" rule the outer/"Games" toggles already
+follow — this isn't a second bold motion moment alongside the badge-dock
+reveal.
+
+- **"Friend requests (N)"** and **"Challenges (N)"** are each a real
+  `role="menuitem"` link (`accent-green-text`, the same "this is a real
+  link" treatment `LeaderboardRowsList`'s own name-buttons and
+  `SendFriendRequestAction`'s "Respond in Friends & Challenges" link
+  already use) that opens SCREEN-15 with the matching tab already active —
+  `FriendsScreen`'s new `initialTab` prop (see SCREEN-15's own update
+  below), not always landing on the default "Friends" tab. This is the
+  direct fix for gap (2) above: clicking the badge now shows *where* the
+  notification is, not just how many.
+- **"Matches awaiting your move (N)"** is deliberately plain,
+  non-interactive text, not a link — S-218 (the match/gameplay screen)
+  doesn't exist yet, so there is nowhere for this category to navigate to.
+  Rendering a broken/dead link here would be worse than an honest
+  non-interactive line. **This is a temporary, flagged gap, not a
+  permanent design decision** — the same "flag it plainly, mirror the
+  house style for a known temporary limitation" approach SCREEN-15's own
+  now-resolved "Identity gap" note and its still-open "Matchmaking tab"
+  session-local-status note both use. Once S-218 ships a real match
+  screen, this category should become a third clickable link, matching the
+  other two.
+
+*Known, accepted limitation, not a new one this redesign introduces:* the
+category links seed `FriendsScreen`'s `initialTab` the same "read once at
+the target screen's own mount" way `LeaderboardRoundTarget`
+(`leaderboardInitial`, this same App.tsx) already seeds
+`LeaderboardScreen`'s own initial scope/round. Clicking a category link
+while `FriendsScreen` is *already* the showing screen doesn't re-seed an
+already-mounted instance's active tab, for the same reason a
+completion-banner-seeded leaderboard target doesn't re-jump an
+already-open leaderboard. Not fixed here, to stay consistent with that
+established precedent rather than giving this one seed a different,
+inconsistent mechanism.
 
 ### SCREEN-08: Settings
 
@@ -3243,8 +3359,10 @@ fetched only once this screen is showing someone else's profile):
   success-text convention already established elsewhere in this app.
   **The reverse "I already sent them one" direction can't be predicted
   client-side** (no endpoint tells the viewer their own *sent*,
-  still-pending requests) — see SCREEN-15's own identity-gap note for the
-  fuller explanation; a 409 "Duplicate pending request" from the server is
+  still-pending requests — a separate, still-open gap from SCREEN-15's own
+  "Identity gap" note above, which was about missing display names and was
+  resolved 2026-09-03; this one is about a missing query surface and
+  remains open); a 409 "Duplicate pending request" from the server is
   instead handled the same way every other duplicate-conflict error in
   this app is, inline in `accent-red` with the server's own detail text.
 
@@ -3438,45 +3556,56 @@ inside a game).
 │ [Friends] [Challenges] [Matchmaking] │  ← tab bar, accent-green underline
 ├───────────────────────────────┤
 │ Friend requests (2)              │
-│ Player A1B2C3D4     [Accept] [Decline] │
-│ Player E5F6A7B8     [Accept] [Decline] │
+│ Alex                [Accept] [Decline] │
+│ Robin                [Accept] [Decline] │
 │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
 │ My friends                       │
-│ Player 11223344          [Challenge] │
+│ Robin (link)              [Challenge] │
 │ You don't have any friends yet.  │
 │ Visit a player's stats page to   │
 │ send a friend request.           │
 └───────────────────────────────┘
 ```
 
+**Updated 2026-09-03, same day — resolved: real display names, and
+clickable friend rows.** The mock above now shows real display names
+("Alex," "Robin") rather than the original `Player A1B2C3D4`-style
+placeholder — see "Identity gap" below, now marked resolved. "My friends"
+rows additionally mark the name itself as a link (`(link)` annotation
+above) — see "Friends tab" below for the new click-through to SCREEN-13.
+
 - **Tab bar**: same plain underline-tab pattern (`role="tablist"`,
   `role="tab"`, `aria-selected`, `accent-green` underline on the active
   tab) SCREEN-03/SCREEN-13's own game switchers already established — "not
   a new control type" (this doc's own recurring rule). Three tabs:
   "Friends" (default), "Challenges", "Matchmaking" — plain labels, no
-  per-tab count badge (the header-nav entry itself already carries the
-  combined count, per SCREEN-07's update above — a second, per-tab count
-  would just restate the same information twice on screen at once).
+  per-tab count badge (the header nav's own `NotificationBadge`, per
+  SCREEN-07's 2026-09-03 badge-redesign update above, already shows the
+  combined count and, per category, in its dropdown — a second, per-tab
+  count on this screen itself would just restate the same information a
+  third way).
 
-- **Identity gap, flagged rather than silently worked around.** REQ-1401/
-  1402's response shapes (`FriendRequestResponse`/`ChallengeResponse`/
-  `FriendshipResponse`) only ever carry the *other* party's raw `userId` —
-  there is no backend endpoint that resolves an arbitrary `userId` to a
-  `displayName` (the one place a name is ever attached to an id at all is
-  `LeaderboardRow`/`PendingSuggestion`-style rows, neither of which apply
-  here). Rather than fabricate a name or reach into `PlayerNameIndex`/
-  `PlayerData` (which would also violate ADR-0007 — those tables are
-  football-player data, not xG Arcade account data, an unrelated boundary
-  entirely), every row on this screen renders a short, stable,
-  deterministic label instead: **"Player " + the first 8 characters of the
-  raw id, uppercased** (`shortUserId()`, `frontend/src/social/
-  shortUserId.ts`) — e.g. `Player A1B2C3D4`. This is a known, real UX gap,
-  not a design choice worth keeping: a real follow-up story should extend
-  these three response shapes with the other party's `displayName`
-  (mirroring how `PendingSuggestion.submittingUserDisplayName` already
-  does this for a different id) so this screen can show a real name.
-  Recorded here plainly, not silently left to read as a deliberate
-  "player IDs, not names" product decision.
+- **Identity gap — resolved 2026-09-03.** REQ-1401/1402's response shapes
+  (`FriendRequestResponse`/`ChallengeResponse`/`FriendshipResponse`)
+  originally only ever carried the *other* party's raw `userId`, with no
+  backend endpoint that resolved an arbitrary `userId` to a `displayName`.
+  Every row on this screen rendered a short, stable, deterministic
+  placeholder label instead — **"Player " + the first 8 characters of the
+  raw id, uppercased** (`shortUserId()`) — e.g. `Player A1B2C3D4`. This was
+  recorded plainly as a known, real UX gap, not a design choice worth
+  keeping, and direct user feedback the same day ("feels weird to not show
+  the display name when receiving a friend request or when looking at your
+  friend list..") confirmed it. **Fix, same day:** `FriendRequestResponse`
+  gained `requesterDisplayName`/`recipientDisplayName`, `FriendshipResponse`
+  gained `friendDisplayName`, and `ChallengeResponse` gained
+  `challengerDisplayName`/`challengedDisplayName` — batch-resolved
+  server-side (never one lookup per row), mirroring how
+  `PendingSuggestion.submittingUserDisplayName` already does this for a
+  different id, and never touching `PlayerNameIndex`/`PlayerData` (ADR-0007
+  is about a different, football-player-data boundary and was never
+  actually implicated by this fix). Every row on this screen now renders
+  the real display name directly; `shortUserId()` and its dedicated test
+  file were deleted as dead code once nothing called it anymore.
 
 - **Friends tab.**
   - "Friend requests" — every `Pending` row from `GET
@@ -3485,8 +3614,9 @@ inside a game).
     convention `PlayerSuggestionsEntry`/`UnverifiedDataSection` already use
     elsewhere in this doc (plain text, not a colored pill — no token exists
     for one, CLAUDE.md's token-discipline rule), omitted entirely at zero.
-    Each row: the requester's `shortUserId()` label, an "Accept" and a
-    "Decline" button (`POST .../accept` / `.../decline`), both
+    Each row: the requester's real display name (`requesterDisplayName` —
+    see "Identity gap — resolved" above), an "Accept" and a "Decline"
+    button (`POST .../accept` / `.../decline`), both
     `min-height: --touch-target-min`. A resolved row disappears from the
     list on the next refetch (no lingering "resolved" state needed — it's
     simply gone from `GET /friends/requests/pending`'s next response). A
@@ -3494,28 +3624,45 @@ inside a game).
     renders inline under that row in `accent-red`, the same "server's own
     detail text shown inline" convention every other screen in this app
     uses — never a page-level banner for a single row's failure.
-  - "My friends" — every row from `GET /friends`, `shortUserId()` label
-    plus a "Challenge" button (`POST /challenges` with this friend's
-    `friendUserId` as `challengedUserId`). A successful send shows
-    "Challenge sent." in `accent-green-text` beside that row, replacing the
-    button (mirrors `SettingsScreen`'s "Display name updated." inline
-    confirmation). A 409 "Duplicate pending challenge" (the one
-    precondition this screen can't check in advance — see the identity-gap
-    note above for why "already pending" can only be surfaced by
-    attempting the send and reading the server's own response, not
-    predicted client-side) shows inline in `accent-red` in its place.
-    Empty state (design-document.md §5, "empty states are invitations"):
-    "You don't have any friends yet. Visit a player's stats page to send a
-    friend request." — pointing at SCREEN-13's own new entry point, the
-    only way to acquire a friend in the first place.
+  - "My friends" — every row from `GET /friends`, the friend's real display
+    name (`friendDisplayName`) plus a "Challenge" button (`POST /challenges`
+    with this friend's `friendUserId` as `challengedUserId`). A successful
+    send shows "Challenge sent." in `accent-green-text` beside that row,
+    replacing the button (mirrors `SettingsScreen`'s "Display name
+    updated." inline confirmation). A 409 "Duplicate pending challenge"
+    (the one precondition this screen can't check in advance — "already
+    pending" can only be surfaced by attempting the send and reading the
+    server's own response, not predicted client-side) shows inline in
+    `accent-red` in its place. Empty state (design-document.md §5, "empty
+    states are invitations"): "You don't have any friends yet. Visit a
+    player's stats page to send a friend request." — pointing at
+    SCREEN-13's own new entry point, the only way to acquire a friend in
+    the first place.
+  - **Added 2026-09-03, same day — clickable friend rows.** Direct user
+    feedback: *"should also be possible to click a friend in the list to go
+    to their profile."* The display name on a "My friends" row (only — not
+    a pending-request row, which isn't yet an established friendship) is
+    now also a real navigation target to SCREEN-13, `accent-green-text` and
+    underlined, the exact same "clickable name text, separate from any
+    action button" treatment `LeaderboardRowsList`'s own player-name links
+    already establish on the leaderboard (not a new visual pattern).
+    Deliberately **not** the whole row/`<li>` — the name link and the
+    "Challenge" button sit as two separate controls on the same row, per
+    this document's own accessibility floor (§6) against nested/ambiguous
+    click targets. Reuses the same `onSelectPlayer(userId, displayName)`
+    navigation App.tsx already threads from the leaderboard to
+    `UserStatsScreen`, with one difference: "Back" on the resulting stats
+    view returns to `'friends'` (this screen) rather than `'leaderboard'`,
+    generalized from a single hardcoded return screen to a parameter.
 
 - **Challenges tab.**
   - Every `Pending` row from `GET /challenges/pending` (REQ-1402:
     challenges where the caller is the challenged party), same
     heading-count convention as "Friend requests" above ("Challenges
-    (N)"). Each row: `shortUserId()` label plus "Accept"/"Decline".
-    Declining behaves exactly like declining a friend request (row
-    disappears on refetch, no lingering state).
+    (N)"). Each row: the challenger's real display name
+    (`challengerDisplayName`) plus "Accept"/"Decline". Declining behaves
+    exactly like declining a friend request (row disappears on refetch, no
+    lingering state).
   - **Accepting is where S-218's boundary actually shows up.** REQ-1402's
     accept response now carries a populated `resultingMatchId` — a real
     `ConnectMatch` was just created server-side — but this story stops

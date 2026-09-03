@@ -18,10 +18,13 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response);
 }
 
-function renderFriendsScreen(fetchMock = vi.fn().mockImplementation(() => jsonResponse([]))) {
+function renderFriendsScreen(
+  fetchMock = vi.fn().mockImplementation(() => jsonResponse([])),
+  overrides: Partial<Parameters<typeof FriendsScreen>[0]> = {},
+) {
   vi.stubGlobal('fetch', fetchMock);
   const onAuthError = vi.fn();
-  render(<FriendsScreen accessToken="token" onAuthError={onAuthError} />);
+  render(<FriendsScreen accessToken="token" onAuthError={onAuthError} {...overrides} />);
   return { onAuthError };
 }
 
@@ -64,5 +67,16 @@ describe('FriendsScreen', () => {
 
     expect(screen.getByRole('tab', { name: 'Matchmaking' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('button', { name: 'Opt in' })).toBeVisible();
+  });
+
+  // REQ-1411 (design-document.md SCREEN-07's badge-redesign status note,
+  // 2026-09-03): the notification badge's category links open this screen
+  // already on the matching tab, not always "Friends".
+  it('REQ-1411: initialTab="challenges" opens directly on the "Challenges" tab instead of the default "Friends" tab', async () => {
+    renderFriendsScreen(vi.fn().mockImplementation(() => jsonResponse([])), { initialTab: 'challenges' });
+
+    expect(screen.getByRole('tab', { name: 'Challenges' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Friends' })).toHaveAttribute('aria-selected', 'false');
+    expect(await screen.findByText('No pending challenges.')).toBeVisible();
   });
 });

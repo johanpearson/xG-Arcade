@@ -4,7 +4,6 @@ import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { useSubmitAction } from '../lib/useSubmitAction';
 import type { ChallengeResponse } from '../lib/types';
 import { FetchListSection } from './FetchListSection';
-import { shortUserId } from './shortUserId';
 
 export interface ChallengesTabProps {
   accessToken: string;
@@ -86,7 +85,7 @@ function PendingChallengeRow({ challenge, onAuthError, onAccept, onDecline }: Pe
 
   return (
     <li className="friends-screen__row">
-      <span className="friends-screen__row-name">{shortUserId(challenge.challengerUserId)} challenged you</span>
+      <span className="friends-screen__row-name">{challenge.challengerDisplayName} challenged you</span>
       <span className="friends-screen__row-actions">
         <button type="button" disabled={submitting} onClick={() => resolve(onAccept)}>
           Accept
