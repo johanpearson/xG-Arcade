@@ -107,6 +107,24 @@ public interface IConnectMatchRepository
     Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(
         Guid matchId, Guid? userId, CancellationToken cancellationToken = default);
 
+    // REQ-1411/S-216: the notification indicator's own candidate set — every
+    // match this user is a participant in (either slot) that has not yet
+    // reached ConnectMatch.Status == Resolved. Deliberately a pure
+    // status/participant filter only, same "repository returns the coarse
+    // candidate set, caller does the finer per-slot terminal-state check"
+    // split GetActiveMatchesPastDeadlineAsync above establishes for
+    // ConnectMatchLifecycleService.RunForfeitSweepAsync — the bust/timeout/
+    // ClosesChain-per-slot filtering that turns this into "matches actually
+    // awaiting THIS user's own next move" lives in
+    // ConnectMatchLifecycleService.GetMatchesAwaitingActionAsync (Games.
+    // XGConnect), not here, since that filtering already depends on
+    // ConnectChainStepExtensions.HasClosedChain and this repository has no
+    // business evaluating game-specific terminal-state rules itself.
+    // AsNoTracking — same read-only shape as every other list read on this
+    // interface.
+    Task<IReadOnlyList<ConnectMatch>> GetOpenMatchesForUserAsync(
+        Guid userId, CancellationToken cancellationToken = default);
+
     // REQ-710/ADR-0101: anonymizes every UserId-shaped column this user
     // appears in, across all three of this component's per-user tables —
     // ConnectMatch.PlayerAUserId/PlayerBUserId, ConnectTargetPick.UserId,

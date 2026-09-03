@@ -10713,6 +10713,23 @@ categories, zero once every contributing item resolves, unpaired opt-in
 excluded.
 *Deps:* S-209, S-210, S-212 (needs all three pending-item sources to exist).
 
+*Built as (2026-09-03):* `GET /notifications/summary`
+(`XGArcade.Api.Notifications.NotificationEndpoints`), aggregating
+`IFriendService.GetPendingFriendRequestsAsync`,
+`IChallengeService.GetPendingChallengesAsync`, and a new
+`IConnectMatchLifecycleService.GetMatchesAwaitingActionAsync`
+(`XGArcade.Games.XGConnect`) — the last layered on a new
+`IConnectMatchRepository.GetOpenMatchesForUserAsync` (participant + `Status
+!= Resolved` candidate set) plus the same per-slot bust/timeout/
+`ConnectChainStepExtensions.HasClosedChain` terminal check
+`ConnectMatchLifecycleService`'s forfeit-sweep/resolution methods already
+use, evaluated for the caller's own slot only (the other participant's
+terminal state does not affect whether a match is still "awaiting my
+move"). Response (`NotificationSummaryResponse`) carries per-category
+counts plus a combined `HasPending` flag. `REQ1411_...`-named test
+coverage is a separate, following pass (test-writer), not included in this
+commit.
+
 **S-217 · Frontend: friends/challenges/matchmaking screens**
 New `design-document.md` SCREEN entries (via the `frontend-design`
 skill/`ui-implementer`) for the friends list, send/accept/decline UI,

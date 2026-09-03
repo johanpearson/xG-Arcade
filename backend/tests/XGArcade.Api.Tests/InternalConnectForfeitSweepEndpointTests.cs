@@ -184,5 +184,8 @@ public class InternalConnectForfeitSweepEndpointTests
 
         public Task<bool> TryResolveMatchIfBothTerminalAsync(Guid matchId, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("simulated forfeit sweep failure");
+
+        public Task<IReadOnlyList<ConnectMatch>> GetMatchesAwaitingActionAsync(Guid userId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("simulated forfeit sweep failure");
     }
 }
