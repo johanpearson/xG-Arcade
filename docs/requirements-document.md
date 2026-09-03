@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.51"
+version: "2.52"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11495,7 +11495,19 @@ resolved for both players. Exposed as `POST`/`GET
 (`XGArcade.Api.Connect.ConnectChatEndpoints`). Full `REQ1410_...`-named
 coverage now exists (S-215 follow-up, 2026-09-03, commit `d895c1a`):
 `ConnectChatServiceTests.cs` and `ConnectChatEndpointTests.cs`. **Test
-level below is satisfied by that coverage.**
+level below is satisfied by that coverage.** Two further same-story
+quality-gate follow-ups (2026-09-03, no REQ-1410 acceptance-criteria
+change): a pure refactor (`5b535c2`) extracted the repeated
+match-lookup/participant-check shape into
+`ConnectMatchAccessExtensions.ResolveParticipantMatchAsync`, used by
+`ConnectChatService`'s two methods alongside `ConnectTargetPickService`/
+`ConnectChainStepService`; and a real behavior addition (`a142c43`,
+tests in `71dc730`) rejects a null/empty/whitespace-only `MessageText` or
+one over 1000 trimmed characters with a `400` Problem response before the
+message is persisted — this codebase's standard free-text validation
+convention, not something this REQ's own Given/When/Then text mandates.
+`ConnectChatEndpointTests.cs` now also covers those rejection cases and
+the 1000-char boundary.
 
 - Given an active xG Connect match between two players (REQ-1405)
 - When either player sends a chat message

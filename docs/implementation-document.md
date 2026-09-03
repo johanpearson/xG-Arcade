@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.24"
+version: "1.25"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -710,6 +710,42 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    requirements-document.md §4.15's REQ-1410
                                    status note and architecture-document.md's
                                    COMP-17 row for the fuller reasoning.
+                                   Two same-story quality-gate follow-ups
+                                   (2026-09-03): (1) a pure refactor, no
+                                   behavior change — the "load match, then
+                                   confirm caller is PlayerA/PlayerB" shape
+                                   was reimplemented at four call sites
+                                   across ConnectTargetPickService,
+                                   ConnectChainStepService, and both
+                                   ConnectChatService methods, so it was
+                                   extracted into a new
+                                   ConnectMatchAccessExtensions.
+                                   ResolveParticipantMatchAsync extension
+                                   method on IConnectMatchRepository (new
+                                   file, same directory/naming convention as
+                                   ConnectChainStepExtensions.cs above),
+                                   used by all four; every outcome enum,
+                                   result record, and public signature on
+                                   the three services is unchanged. (2) a
+                                   real behavior addition — ConnectChatEndpoints
+                                   now rejects a null/empty/whitespace-only
+                                   MessageText and anything over
+                                   MaxMessageLength = 1000 trimmed characters
+                                   with a 400 Problem response (titles "A
+                                   message is required"/"Message is too
+                                   long"), checked before
+                                   RequestingUserResolver/IConnectChatService
+                                   run, and trims the message before it
+                                   reaches ConnectChatService/persistence.
+                                   Not mandated by REQ-1410's own
+                                   Given/When/Then text; matches the
+                                   blank/max-length convention this codebase
+                                   already applies to every other free-text
+                                   endpoint (GuessEndpoints,
+                                   AdminAnnouncementBannerEndpoints,
+                                   LeagueEndpoints). No new ADR for either
+                                   follow-up — see architecture-document.md's
+                                   COMP-17 row for the fuller reasoning.
                                    NOTE: the COMP-16/17 data model built by
                                    S-208-S-210 (FriendRequest/Friendship/
                                    Challenge/MatchmakingOptIn/ConnectMatch/
@@ -947,7 +983,19 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    PurgeUserDataAsync test to assert chat
                                    messages are anonymized end-to-end
                                    alongside the match/pick/step rows it
-                                   already covered.
+                                   already covered. A second same-story
+                                   follow-up (71dc730, 2026-09-03) extended
+                                   ConnectChatEndpointTests.cs again
+                                   (XGArcade.Api.Tests, not a new file) with
+                                   cases for the MessageText validation
+                                   added to POST
+                                   /matches/{matchId}/chat-messages by
+                                   a142c43: null/empty messageText,
+                                   whitespace-only messageText,
+                                   over-max-length (1001 chars),
+                                   trim-before-persist with surrounding
+                                   whitespace, and the 1000-char boundary
+                                   (inclusive limit).
 
 /frontend
   /src                          -> feature folders, not the layer folders this

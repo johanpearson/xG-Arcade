@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.51→2.52, REQ-1410 status
+  note extended), `docs/implementation-document.md` (1.24→1.25,
+  `/XGArcade.Games.XGConnect` and `/XGArcade.Games.XGConnect.Tests`/
+  `/XGArcade.Api.Tests` project-structure entries extended),
+  `docs/architecture-document.md` (1.44→1.45, COMP-17 row extended),
+  `docs/backlog.md` (S-215 entry extended) — doc-sync for two same-story
+  quality-gate follow-up commits that landed after the previous doc-sync
+  pass: (1) `5b535c2`, a pure internal refactor with no behavior change —
+  the repeated "load match, then confirm caller is PlayerA/PlayerB" shape
+  (four call sites across `ConnectTargetPickService`,
+  `ConnectChainStepService`, and both `ConnectChatService` methods) was
+  extracted into a new `ConnectMatchAccessExtensions.
+  ResolveParticipantMatchAsync` (`backend/src/XGArcade.Games.XGConnect/`),
+  mirroring `ConnectChainStepExtensions.cs`'s own S-214 placement/naming
+  precedent; no outcome enum, result record, or public signature changed.
+  (2) `a142c43` (test coverage in `71dc730`), a real behavior addition —
+  `POST /matches/{matchId}/chat-messages` now rejects a null/empty/
+  whitespace-only `MessageText` (400, "A message is required") and
+  anything over `MaxMessageLength = 1000` trimmed characters (400,
+  "Message is too long"), and trims the message before persisting,
+  matching the blank/max-length validation convention already used by
+  `GuessEndpoints`/`AdminAnnouncementBannerEndpoints`/`LeagueEndpoints` —
+  not mandated by REQ-1410's own Given/When/Then text, but not a new
+  structural decision either. No new ADR for either follow-up (confirmed,
+  same "behavior-preserving refactor"/"enforcement of an already-
+  established convention" reasoning `ConnectChainStepExtensions.
+  HasClosedChain()` and S-213/S-214's own validation precedents already
+  used). Re-verified REQ-1410's full Given/When/Then against all four docs:
+  no remaining "pending"/stale language. REQ refs: REQ-1410.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.50→2.51, REQ-1410 status
   note corrected), `docs/implementation-document.md` (1.23→1.24,
   `/XGArcade.Games.XGConnect.Tests`/`/XGArcade.Api.Tests`/
