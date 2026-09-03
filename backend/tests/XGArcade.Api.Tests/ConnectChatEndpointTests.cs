@@ -244,4 +244,93 @@ public class ConnectChatEndpointTests
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.That(problem!.Title, Is.EqualTo("Not a participant"));
     }
+
+    // ---- REQ-1410: MessageText validation (a142c43) -------------------------
+    // ConnectChatEndpoints validates messageText before touching the user
+    // repository or IConnectChatService, so an unresolvable matchId is fine
+    // for the rejection cases below — the handler never gets that far.
+    // MaxMessageLength (1000) is a private const on ConnectChatEndpoints, so
+    // it's mirrored here as a literal rather than referenced directly.
+
+    [TestCase(null)]
+    [TestCase("")]
+    public async Task REQ1410_PostChatMessage_BlankMessageText_ReturnsBadRequest(string? messageText)
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/matches/{Guid.NewGuid()}/chat-messages", new SendChatMessageRequest(messageText!));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("A message is required"));
+    }
+
+    [Test]
+    public async Task REQ1410_PostChatMessage_WhitespaceOnlyMessageText_ReturnsBadRequest()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/matches/{Guid.NewGuid()}/chat-messages", new SendChatMessageRequest("   "));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("A message is required"));
+    }
+
+    [Test]
+    public async Task REQ1410_PostChatMessage_MessageTextOverMaxLength_ReturnsBadRequest()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        var tooLong = new string('a', 1001);
+
+        var response = await client.PostAsJsonAsync(
+            $"/matches/{Guid.NewGuid()}/chat-messages", new SendChatMessageRequest(tooLong));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Message is too long"));
+    }
+
+    [Test]
+    public async Task REQ1410_PostChatMessage_MessageTextWithSurroundingWhitespace_PersistsTrimmedText()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await clientA.PostAsJsonAsync(
+            $"/matches/{matchId}/chat-messages", new SendChatMessageRequest("  hello  "));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var posted = await response.Content.ReadFromJsonAsync<ChatMessageResponse>();
+        Assert.That(posted!.MessageText, Is.EqualTo("hello"));
+    }
+
+    [Test]
+    public async Task REQ1410_PostChatMessage_MessageTextAtMaxLength_ReturnsOk()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+        var atMaxLength = new string('a', 1000);
+
+        var response = await clientA.PostAsJsonAsync(
+            $"/matches/{matchId}/chat-messages", new SendChatMessageRequest(atMaxLength));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var posted = await response.Content.ReadFromJsonAsync<ChatMessageResponse>();
+        Assert.That(posted!.MessageText, Is.EqualTo(atMaxLength));
+    }
 }
