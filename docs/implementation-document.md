@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.21"
+version: "1.22"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -613,6 +613,65 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    requirements-document.md §4.15's REQ-1406
                                    status note and architecture-document.md's
                                    COMP-17 row for the fuller reasoning.
+                                   REQ-1407/1408/1409 (two-strikes bust rule,
+                                   scoring, win/draw/forfeit resolution) are
+                                   implemented (S-214, 2026-09-03):
+                                   ConnectChainStepService.
+                                   SubmitChainStepAsync enforces REQ-1407 —
+                                   a second, consecutive failure at the same
+                                   chain position calls a new, idempotent
+                                   IConnectMatchRepository.
+                                   MarkPlayerBustedAsync (mirrors
+                                   MarkPlayerTimedOutAsync's ??= semantics,
+                                   new nullable ConnectMatch.
+                                   PlayerABustedAt/PlayerBBustedAt columns)
+                                   and returns a new SubmitChainStepOutcome.
+                                   Busted (200 OK, SubmitChainStepResponse.
+                                   Busted: true), distinct from InvalidStep;
+                                   a new AlreadyForfeited precondition (409)
+                                   rejects any submission from a caller whose
+                                   own slot already busted or timed out,
+                                   closing a gap where such a player could
+                                   otherwise keep submitting steps for as
+                                   long as ConnectMatch.Status stayed Active
+                                   (true whenever the opponent hadn't yet
+                                   reached terminal). New
+                                   IConnectScoringService/
+                                   ConnectScoringService (pure, stateless)
+                                   implements REQ-1408:
+                                   score = Math.Max(1, validStepCount +
+                                   firstAttemptFailureCount).
+                                   ConnectMatchLifecycleService gained
+                                   TryResolveMatchIfBothTerminalAsync,
+                                   implementing REQ-1409 via a new shared
+                                   private ResolveIfBothTerminalAsync helper
+                                   (also used by RunForfeitSweepAsync) that
+                                   converges all three terminal paths
+                                   (timeout, bust, chain completion — the
+                                   latter detected via a new shared
+                                   ConnectChainStepExtensions.
+                                   HasClosedChain() extension) into a
+                                   resolution decision, persisting new
+                                   nullable ConnectMatch.PlayerAScore/
+                                   PlayerBScore in the same ResolveMatchAsync
+                                   write as Outcome/ResolvedAt.
+                                   RunForfeitSweepAsync's own sweep loop was
+                                   corrected in the same story to check each
+                                   slot's already-terminal state (bust
+                                   column, chain completion) before marking a
+                                   new timeout — previously it marked BOTH
+                                   slots timed-out unconditionally once the
+                                   deadline passed, which was wrong once
+                                   bust/completion existed as terminal paths.
+                                   New migration
+                                   20260903140000_AddConnectMatchBustAndScoreTracking
+                                   adds the four new columns
+                                   (PlayerABustedAt/PlayerBBustedAt/
+                                   PlayerAScore/PlayerBScore). See
+                                   requirements-document.md §4.15's
+                                   REQ-1407/1408/1409 status notes and
+                                   architecture-document.md's COMP-17 row for
+                                   the fuller reasoning.
                                    NOTE: the COMP-16/17 data model built by
                                    S-208-S-210 (FriendRequest/Friendship/
                                    Challenge/MatchmakingOptIn/ConnectMatch/
@@ -623,8 +682,11 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    data-model sections — flagged here as a
                                    pre-existing gap (now also including
                                    S-212's ConnectMatch.PlayerATimedOutAt/
-                                   PlayerBTimedOutAt columns), not something
-                                   this entry attempts to fully backfill.
+                                   PlayerBTimedOutAt columns and S-214's
+                                   PlayerABustedAt/PlayerBBustedAt/
+                                   PlayerAScore/PlayerBScore columns), not
+                                   something this entry attempts to fully
+                                   backfill.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/football-data.org clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -764,6 +826,26 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    FakePlayerCareerOverlapService.cs/
                                    PlayerCareerOverlapServiceTests.cs with
                                    HaveOverlapAtClubAsync coverage.
+                                   S-214 (2026-09-03) extended
+                                   ConnectChainStepServiceTests.cs
+                                   (REQ1407_-named: first-failure vs.
+                                   second-consecutive-failure-busts,
+                                   successful-retry resets the strike count,
+                                   AlreadyForfeited for an already-busted/
+                                   timed-out caller) and
+                                   ConnectMatchLifecycleServiceTests.cs
+                                   (REQ1409_-named:
+                                   TryResolveMatchIfBothTerminalAsync's
+                                   both-completed/one-forfeited/both-
+                                   forfeited/already-resolved/only-one-
+                                   terminal cases, and that a forfeit leaves
+                                   any other match between the same players
+                                   untouched), and added a new
+                                   ConnectScoringServiceTests.cs
+                                   (REQ1408_-named: connector-count-plus-
+                                   penalty formula, the 1-connector/
+                                   zero-penalty minimum, a second-attempt
+                                   failure never counted as a penalty).
     /XGArcade.TestSupport      -> new shared plain class library, added
                                    2026-09-02 (S-211 quality-review fix):
                                    FixedTimeProvider, promoted here once a
@@ -790,6 +872,20 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    candidate search still returns a player
                                    with zero ClubDefinition/CountryDefinition
                                    rows seeded anywhere in the database.
+                                   S-214 (2026-09-03) extended
+                                   ConnectChainStepEndpointTests.cs
+                                   (REQ1407_-named: Busted: true on a
+                                   second-consecutive-failure response,
+                                   AlreadyForfeited mapped to 409) and
+                                   InternalConnectForfeitSweepEndpointTests.cs
+                                   (the sweep no longer double-marks an
+                                   already-terminal slot). XGArcade.Data.Tests
+                                   gained REQ1407_/REQ1408_-named coverage in
+                                   ConnectMatchRepositoryTests.cs
+                                   (MarkPlayerBustedAsync's idempotent ??=
+                                   semantics, ResolveMatchAsync persisting
+                                   PlayerAScore/PlayerBScore in the same
+                                   write).
 
 /frontend
   /src                          -> feature folders, not the layer folders this

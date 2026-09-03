@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.48"
+version: "2.49"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11144,10 +11144,12 @@ is in place.
 > picks are locked in, with a clear 6-hour deadline to finish, so both
 > players have a fair, equal-length window to race the same puzzle.
 
-**Status: Built, 2026-09-03 (S-212), for the match-start trigger and the
+**Status: Built, 2026-09-03 (S-212) for the match-start trigger and the
 both-players-time-out forfeit path; the mixed-outcome case (one player
-times out while the other legitimately busts or completes their chain) is
-not implemented yet.** `IConnectMatchLifecycleService`/
+times out while the other legitimately busts or completes their chain) was
+completed by S-214 (2026-09-03) — see REQ-1409's own status note for the
+resolution logic that ties all three terminal paths together.**
+`IConnectMatchLifecycleService`/
 `ConnectMatchLifecycleService` (`XGArcade.Games.XGConnect`) implements the
 match-start transition: `StartMatchIfBothPicksLockedAsync` re-confirms via
 `IConnectMatchRepository.GetTargetPicksForMatchAsync` that exactly two
@@ -11169,14 +11171,16 @@ and — if both slots are terminal after that same pass — resolves the match
 to `ConnectMatchOutcome.Draw` immediately in that same sweep call, per
 REQ-1409's "both players forfeit -> draw" rule and this REQ's "resolves
 immediately, never waiting out the unused remainder of the window" rule.
-This deliberately only resolves the both-timed-out case; REQ-1409's
+This originally only resolved the both-timed-out case; REQ-1409's
 mixed-outcome resolution (one player times out while the other legitimately
-completes a chain or busts) is out of scope until S-213/S-214 build
-REQ-1406/1407/1408's chain-step submission, bust, and completion logic —
-until then, a player who completes their chain before the deadline has no
-code path that marks them terminal, so the sweep only ever encounters
-either both slots open or (after this sweep) both slots timed out. The
-sweep is triggered exclusively by a new bearer-token-gated endpoint, `POST
+completes a chain or busts) was out of scope until S-213/S-214 built
+REQ-1406/1407/1408's chain-step submission, bust, and completion logic — as
+of S-214, `RunForfeitSweepAsync` checks each slot's already-terminal state
+(via bust columns and chain-completion, not just the timeout columns)
+before marking a new timeout, so a player who completed or busted before
+the deadline is never also marked timed out; see REQ-1409's own status note
+for the shared resolution logic this now delegates to. The sweep is
+triggered exclusively by a new bearer-token-gated endpoint, `POST
 /internal/sweep-connect-forfeits`
 (`XGArcade.Api.Connect.InternalConnectForfeitSweepEndpoints`), called
 hourly by `.github/workflows/sweep-connect-forfeits.yml` — hourly is
@@ -11186,11 +11190,10 @@ window. Migration `20260903120000_AddConnectMatchTimeoutTracking` adds the
 two new columns. Full `REQ1405_...`-named test coverage in
 `ConnectMatchRepositoryTests.cs`, `ConnectMatchLifecycleServiceTests.cs`,
 `ConnectTargetPickServiceTests.cs`, and
-`InternalConnectForfeitSweepEndpointTests.cs`. **Test level below is
-satisfied for the shared-clock-start and independent-per-player-timeout
-criteria, and for the both-timeout resolution case; the mixed-outcome
-resolution case (bust/completion vs. timeout) remains untested because it
-is unbuilt, per S-213/S-214.**
+`InternalConnectForfeitSweepEndpointTests.cs`, extended by S-214
+(2026-09-03) with `REQ1409_...`-named mixed-outcome coverage in
+`ConnectMatchLifecycleServiceTests.cs`. **Test level below is fully
+satisfied, including the mixed-outcome resolution case.**
 
 - Given both players have each selected a non-trivially-connected target
   pick (REQ-1404)
@@ -11309,9 +11312,30 @@ search returns players outside the curated reference tables.
 > match if I fail that same step twice in a row, so mistakes are
 > forgiving once but not indefinitely.
 
-**Status: Proposed — data model exists (S-208: `ConnectChainStep`'s
-`Position`/`AttemptNumber` columns support two attempts per position);
-the strike-counting and bust logic are not implemented yet.**
+**Status: Built, 2026-09-03 (S-214).** `ConnectChainStepService.SubmitChainStepAsync`
+(`XGArcade.Games.XGConnect`) enforces the two-strikes rule inline with the
+existing per-step validation it already runs (REQ-1406): a first failure at
+a position is persisted as an ordinary `InvalidStep` outcome (no separate
+counter — the +1 penalty is derived later, at scoring time, by
+`IConnectScoringService` counting `AttemptNumber == 1` invalid rows, per
+REQ-1408); a second, consecutive failure at that same position
+(`AttemptNumber >= 2`) marks that player's slot busted via a new,
+idempotent `IConnectMatchRepository.MarkPlayerBustedAsync` (mirrors
+`MarkPlayerTimedOutAsync`'s own `??=` semantics, new nullable
+`ConnectMatch.PlayerABustedAt`/`PlayerBBustedAt` columns) and returns a new
+`SubmitChainStepOutcome.Busted` (`200 OK`, `SubmitChainStepResponse.Busted:
+true`, `XGArcade.Api.Connect.ConnectChainStepEndpoints`) distinct from an
+ordinary `InvalidStep`. Because `ConnectMatch.Status` only flips to
+`Resolved` once BOTH players are terminal (REQ-1409), a player whose own
+slot already busted or timed out could previously keep submitting further
+steps for as long as the opponent hadn't finished — this story closes that
+gap with a new precondition, `AlreadyForfeited` (`409 Conflict`), checked
+before any step is processed. Migration
+`20260903140000_AddConnectMatchBustAndScoreTracking` adds the two bust
+columns (alongside the score columns REQ-1408 needs). Full
+`REQ1407_...`-named coverage in `ConnectChainStepServiceTests.cs`,
+`ConnectChainStepEndpointTests.cs`, and `ConnectMatchRepositoryTests.cs`.
+**Test level below is fully satisfied.**
 
 - Given a player submits a step (REQ-1406) that fails validation
 - When that failure is the first failure at this position in the chain
@@ -11347,10 +11371,27 @@ strike count; failures at different positions are tracked independently.
 > how short my chain was and how many mistakes I made getting there, so a
 > clean, short solution always beats a longer or messier one.
 
-**Status: Proposed — the `ConnectChainStep` rows S-208 scaffolds hold the
-raw data a future scoring calculation would read (chain length, attempts
-per position), but no scoring formula or persisted score field exists
-yet.**
+**Status: Built, 2026-09-03 (S-214).** New `IConnectScoringService`/
+`ConnectScoringService` (`XGArcade.Games.XGConnect`) is a pure, stateless
+calculation: `score = Math.Max(1, validStepCount + firstAttemptFailureCount)`,
+counting every `IsValid` row (the connectors actually used, including the
+closing step) plus every `AttemptNumber == 1 && !IsValid` row for that
+`(ConnectMatchId, UserId)` pair — a second-attempt failure never counts as
+a penalty, since it means the player busted rather than retried (REQ-1407).
+Deliberately kept as its own small service rather than folded into
+`ConnectMatchLifecycleService`'s resolution logic, mirroring
+`Core.Scoring`'s `IScoringStrategy` shape without xG Connect actually
+depending on `Core.Scoring` itself (ADR-0103). Only called for a player
+whose chain actually closed — `ConnectMatchLifecycleService.
+TryResolveMatchIfBothTerminalAsync` (REQ-1409) is the sole caller, and
+never calls it for a busted/timed-out player, satisfying this REQ's own
+"no valid score" clause. The resulting score is persisted on new nullable
+`ConnectMatch.PlayerAScore`/`PlayerBScore` columns (migration
+`20260903140000_AddConnectMatchBustAndScoreTracking`), written in the same
+`ResolveMatchAsync` call that sets `Outcome`/`ResolvedAt` — never a
+separate write. Full `REQ1408_...`-named coverage in a new
+`ConnectScoringServiceTests.cs` and `ConnectMatchRepositoryTests.cs`.
+**Test level below is fully satisfied.**
 
 - Given a player completes a valid, end-to-end chain (REQ-1406) connecting
   both target picks
@@ -11378,9 +11419,35 @@ busted/timed-out player has no valid score.
 > us have finished, timed out, or been knocked out, so the outcome always
 > reflects a clear, documented rule rather than being ambiguous.
 
-**Status: Proposed — data model exists (S-208: `ConnectMatch.Outcome`/
-`ResolvedAt` columns in `XGArcade.Data`, defaulting to `Pending`/unset);
-the resolution logic that sets them is not implemented yet.**
+**Status: Built, 2026-09-03 (S-214).** `ConnectMatchLifecycleService`
+gained `TryResolveMatchIfBothTerminalAsync`, and a shared private
+`ResolveIfBothTerminalAsync` helper now backs both it and
+`RunForfeitSweepAsync` (REQ-1405) — the single place all three
+terminal-reaching paths (timeout, bust/REQ-1407, chain completion/REQ-1408)
+converge into a resolution decision. A slot is terminal via timed-out-at,
+busted-at, or a `ClosesChain: true` `ConnectChainStep` row (detected via
+the new shared `ConnectChainStepExtensions.HasClosedChain()` extension); a
+match resolves the instant both slots are terminal, by whichever mix of
+those three paths applies — both-completed compares
+`IConnectScoringService.CalculateScore` for each (strictly lower wins,
+equal draws); one-completed-one-forfeited is an outright win for the
+completer with no minimum score; both-forfeited (any mix of bust/timeout)
+is always a draw. `TryResolveMatchIfBothTerminalAsync` is called from
+`ConnectChainStepService.SubmitChainStepAsync` immediately after a bust or
+a chain-close, so resolution happens in the same request that just made a
+player terminal, never deferred. `RunForfeitSweepAsync`'s own sweep loop
+(REQ-1405) was corrected in the same story: it previously marked BOTH
+slots timed-out unconditionally once the shared 6h deadline passed, which
+was wrong once bust/completion existed as terminal paths — it now checks
+each slot's already-terminal state first, which is what makes the
+mixed-outcome case (one player times out while the other already
+busted/completed before the deadline) resolve correctly. `ConnectMatch.
+PlayerAScore`/`PlayerBScore` are persisted in the same `ResolveMatchAsync`
+write as `Outcome`/`ResolvedAt`, null for a forfeiting player (REQ-1408). A
+forfeit carries no consequence into any other match — resolution only ever
+reads/writes the one `ConnectMatch` row being resolved. Full
+`REQ1409_...`-named coverage in `ConnectMatchLifecycleServiceTests.cs` and
+`ConnectMatchRepositoryTests.cs`. **Test level below is fully satisfied.**
 
 - Given both players complete a valid chain (REQ-1408) before the 6-hour
   deadline

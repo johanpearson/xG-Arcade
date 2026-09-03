@@ -13,6 +13,33 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.48→2.49, REQ-1407/1408/1409
+  Status updated from Proposed to Built, REQ-1405's own status note
+  corrected — its "mixed-outcome case not implemented" caveat is now
+  stale), `docs/architecture-document.md` (1.41→1.42, COMP-17 row extended
+  with the S-214 bust/scoring/resolution build note, closing sentence
+  updated to name only REQ-1410/S-215 and the frontend as remaining),
+  `docs/implementation-document.md` (1.21→1.22, `/XGArcade.Games.XGConnect`
+  project-structure entry extended with `IConnectScoringService`,
+  `TryResolveMatchIfBothTerminalAsync`, the bust/score columns, and the
+  `RunForfeitSweepAsync` mixed-outcome fix; test-project-structure
+  paragraphs extended with S-214's new/changed test files), `docs/
+  backlog.md` (S-214 entry annotated as Built) — S-214 (REQ-1407/1408/1409):
+  `ConnectChainStepService.SubmitChainStepAsync` enforces the two-strikes
+  bust rule (new `IConnectMatchRepository.MarkPlayerBustedAsync`, new
+  `SubmitChainStepOutcome.Busted`/`AlreadyForfeited`); new
+  `IConnectScoringService`/`ConnectScoringService` implements the scoring
+  formula; `ConnectMatchLifecycleService.TryResolveMatchIfBothTerminalAsync`
+  implements win/draw/forfeit resolution across all three terminal paths,
+  and fixes `RunForfeitSweepAsync`'s previously-incorrect
+  both-timeout-only sweep logic for the mixed-outcome case. New migration
+  `20260903140000_AddConnectMatchBustAndScoreTracking`
+  (`PlayerABustedAt`/`PlayerBBustedAt`/`PlayerAScore`/`PlayerBScore`). No
+  new ADR — reviewed against the diff and confirmed as the same
+  straightforward-implementation-of-already-accepted-REQ-text reasoning
+  S-211/S-212/S-213 already used for this component. REQ refs: REQ-1405
+  (status note correction only), REQ-1407, REQ-1408, REQ-1409.
+
 - 2026-09-03 — `docs/implementation-document.md` (doc-sync pass, no version
   bump — same S-213 change, filling a gap the implementing agent's own edit
   left) — `/XGArcade.Games.XGConnect.Tests` and `/XGArcade.Api.Tests`

@@ -10603,6 +10603,54 @@ resolution once both players reach a terminal state.
 Given/When/Then.
 *Deps:* S-213.
 
+*Built as (2026-09-03):* `ConnectChainStepService.SubmitChainStepAsync`
+(`XGArcade.Games.XGConnect`) enforces REQ-1407 inline with its existing
+per-step validation — a second, consecutive failure at the same chain
+position calls a new, idempotent `IConnectMatchRepository.
+MarkPlayerBustedAsync` (mirroring `MarkPlayerTimedOutAsync`'s own `??=`
+semantics, new nullable `ConnectMatch.PlayerABustedAt`/`PlayerBBustedAt`
+columns) and returns a new `SubmitChainStepOutcome.Busted` (`200 OK`,
+`SubmitChainStepResponse.Busted: true`), distinct from an ordinary
+`InvalidStep`; a new `AlreadyForfeited` precondition (`409 Conflict`)
+rejects any submission from a caller whose own slot already busted or
+timed out — closing a real pre-existing gap, since `ConnectMatch.Status`
+only flips to `Resolved` once BOTH players are terminal, so such a player
+could otherwise keep submitting steps for as long as the opponent hadn't
+finished. New `IConnectScoringService`/`ConnectScoringService` (pure,
+stateless) implements REQ-1408: `score = Math.Max(1, validStepCount +
+firstAttemptFailureCount)`. `ConnectMatchLifecycleService` gained
+`TryResolveMatchIfBothTerminalAsync`, implementing REQ-1409: a shared
+private `ResolveIfBothTerminalAsync` helper (used by both this new method
+and `RunForfeitSweepAsync`) converges all three terminal paths (timeout,
+bust, chain completion — the latter detected via a new shared
+`ConnectChainStepExtensions.HasClosedChain()` extension) into a
+resolution decision — both-completed compares scores (lower wins, equal
+draws), one-completed-one-forfeited is an outright win for the completer
+with no minimum score, both-forfeited is always a draw; called from
+`ConnectChainStepService` right after a bust or a chain-close, so
+resolution is never deferred to a later pass. `RunForfeitSweepAsync`'s own
+sweep loop was corrected in the same story: it previously marked BOTH
+slots timed-out unconditionally once the shared 6h deadline passed, which
+was wrong once bust/completion existed as terminal paths — it now checks
+each slot's already-terminal state first, which is what makes the
+mixed-outcome case (one player times out while the other already
+busted/completed) resolve correctly. `ConnectMatch.PlayerAScore`/
+`PlayerBScore` are persisted in the same `ResolveMatchAsync` write as
+`Outcome`/`ResolvedAt`, null for a forfeiting player. New migration
+`20260903140000_AddConnectMatchBustAndScoreTracking` adds the four new
+columns. Full `REQ1407_...`/`REQ1408_...`/`REQ1409_...`-named test
+coverage across `ConnectChainStepServiceTests.cs`,
+`ConnectChainStepEndpointTests.cs`, `ConnectMatchLifecycleServiceTests.cs`,
+`ConnectMatchRepositoryTests.cs`, and a new `ConnectScoringServiceTests.cs`.
+Quality gate found one duplication issue (the chain-completion check was
+being re-derived at multiple call sites), fixed by extracting
+`ConnectChainStepExtensions.HasClosedChain()` in a same-story follow-up
+commit (no behavior change). No new ADR — same "straightforward,
+requirement-mandated implementation of already-accepted REQ text"
+reasoning S-211/S-212/S-213's own entries above already used for this
+component, confirmed by `architecture-reviewer` against this story's own
+diff.
+
 **S-215 · In-match chat (REQ-1410)**
 Send/read chat scoped to one match; participant-only access; chat
 persists and stays readable after the match ends.
