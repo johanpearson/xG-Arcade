@@ -81,7 +81,9 @@ public record SubmitTargetPickRequest(Guid TargetPlayerId);
 // fixed (this submission was the completing, non-trivial one) — false
 // whenever this is the first-in/awaiting-the-other-player pick, or a
 // pre-lock resubmission replacing an earlier unlocked pick. Does not itself
-// mean the match has officially started (ConnectMatch.Status) — that's
-// S-212's own separate concept, derived from this same underlying
-// IsLocked flag but not exposed by this endpoint.
+// mean the match has officially started (ConnectMatch.Status) — that
+// transition (S-212, REQ-1405) now really happens the instant this becomes
+// true (ConnectTargetPickService.SubmitTargetPickAsync's completing-pick
+// branch triggers it), but it is still a separate concept, derived from
+// this same underlying IsLocked flag rather than exposed by this endpoint.
 public record SubmitTargetPickResponse(Guid TargetPlayerId, DateTime SelectedAt, bool Locked);

@@ -37,8 +37,15 @@ public class ConnectTargetPickServiceTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
+    // REQ-1405/S-212: a real ConnectMatchLifecycleService, backed by the
+    // same InMemory _connectMatchRepository as the rest of this fixture —
+    // no fake needed since this service has no external dependency of its
+    // own (same "real service over InMemory repository" reasoning as
+    // _connectMatchRepository itself), sharing the same `now` as the
+    // ConnectTargetPickService instance under test so the match-start
+    // timestamp this test asserts on is deterministic.
     private ConnectTargetPickService BuildService(DateTimeOffset now) =>
-        new(_connectMatchRepository, _overlapService, new FixedTimeProvider(now));
+        new(_connectMatchRepository, _overlapService, new ConnectMatchLifecycleService(_connectMatchRepository, new FixedTimeProvider(now)), new FixedTimeProvider(now));
 
     private async Task<ConnectMatch> CreateMatchAsync(Guid playerAUserId, Guid playerBUserId)
     {
@@ -194,6 +201,51 @@ public class ConnectTargetPickServiceTests
         var picks = await _connectMatchRepository.GetTargetPicksForMatchAsync(match.Id);
         Assert.That(picks, Has.Count.EqualTo(2));
         Assert.That(picks.All(p => p.IsLocked), Is.True);
+    }
+
+    // ---- REQ-1405: the completing pick's lock also starts the match's
+    // ---- shared 6h forfeit clock, from that same instant -------------------
+
+    [Test]
+    public async Task REQ1405_SubmitTargetPickAsync_NonTriviallyConnectedCompletingPick_StartsMatchWithSixHourDeadline()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var aTarget = Guid.NewGuid();
+        var bTarget = Guid.NewGuid();
+        var firstService = BuildService(FixedNow);
+        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget);
+
+        var completingAt = FixedNow.AddMinutes(5);
+        var secondService = BuildService(completingAt);
+        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget);
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAndLocked));
+        var storedMatch = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(storedMatch, Is.Not.Null);
+        Assert.That(storedMatch!.Status, Is.EqualTo(ConnectMatchStatus.Active));
+        Assert.That(storedMatch.StartedAt, Is.EqualTo(completingAt.UtcDateTime));
+        Assert.That(storedMatch.DeadlineUtc, Is.EqualTo(completingAt.UtcDateTime.AddHours(6)));
+    }
+
+    // ---- REQ-1405: a first-selection-only pick (no completing pick yet)
+    // ---- never starts the match ---------------------------------------------
+
+    [Test]
+    public async Task REQ1405_SubmitTargetPickAsync_OnlyOnePickSoFar_DoesNotStartMatch()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var service = BuildService(FixedNow);
+
+        await service.SubmitTargetPickAsync(match.Id, playerA, Guid.NewGuid());
+
+        var storedMatch = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(storedMatch!.Status, Is.EqualTo(ConnectMatchStatus.AwaitingTargetPicks));
+        Assert.That(storedMatch.StartedAt, Is.Null);
+        Assert.That(storedMatch.DeadlineUtc, Is.Null);
     }
 
     // ---- Mechanical branches beyond REQ-1404's literal Given/When/Then -----

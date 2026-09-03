@@ -43,11 +43,50 @@ public interface IConnectMatchRepository
     // and both must lock together — there is no valid state where only one
     // of the two should end up locked. Load-then-SaveChangesAsync
     // (coding-guidelines.md), never ExecuteUpdateAsync. Does NOT touch
-    // ConnectMatch.Status/StartedAt/DeadlineUtc — that's S-212's own
-    // separate match-start/timer transition, which detects "both target
-    // picks locked" via GetTargetPicksForMatchAsync rather than being
-    // triggered from here.
+    // ConnectMatch.Status/StartedAt/DeadlineUtc — that's
+    // ConnectMatchLifecycleService.StartMatchIfBothPicksLockedAsync's own
+    // separate match-start/timer transition (REQ-1405, S-212), which
+    // re-detects "both target picks locked" via GetTargetPicksForMatchAsync
+    // rather than being triggered directly from here.
     Task LockTargetPicksForMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    // REQ-1405/S-212: the four methods below back
+    // ConnectMatchLifecycleService's match-start/forfeit-timer/resolution
+    // scaffolding. Every call trusts an already-known-valid matchId (the
+    // caller always resolved it via GetMatchByIdAsync/
+    // GetActiveMatchesPastDeadlineAsync first) — no defensive not-found
+    // handling, per CLAUDE.md's "don't add error handling for scenarios
+    // that can't happen".
+
+    // The forfeit sweep's own candidate set: every match still Active whose
+    // shared 6h deadline has already passed. AsNoTracking — the sweep only
+    // reads match identity/slot state from these rows before deciding what
+    // to write through MarkPlayerTimedOutAsync/ResolveMatchAsync below, it
+    // never mutates the objects returned here directly.
+    Task<IReadOnlyList<ConnectMatch>> GetActiveMatchesPastDeadlineAsync(
+        DateTime now, CancellationToken cancellationToken = default);
+
+    // The match-start transition (REQ-1405): both target picks just locked,
+    // so the shared 6h forfeit clock starts for BOTH players from this same
+    // instant. Load-then-save, tracked (unlike the AsNoTracking read above)
+    // since this row is mutated in place.
+    Task<ConnectMatch> StartMatchAsync(
+        Guid matchId, DateTime startedAt, DateTime deadlineUtc, CancellationToken cancellationToken = default);
+
+    // Forfeits exactly one SLOT (PlayerA or PlayerB, never a UserId — see
+    // ConnectMatch's own doc comment for why slot-based tracking is the only
+    // safe approach post-anonymization). Idempotent: `??=` semantics, so a
+    // slot already marked timed-out is left with its original timestamp,
+    // never overwritten by a later sweep pass.
+    Task<ConnectMatch> MarkPlayerTimedOutAsync(
+        Guid matchId, bool isPlayerA, DateTime timedOutAt, CancellationToken cancellationToken = default);
+
+    // The resolution transition (REQ-1405/1409): both players have now
+    // reached a terminal state (by whatever mix of timeout/bust/completion
+    // paths exist), so the match is fixed at this outcome, immediately —
+    // never deferred to wait out any unused remainder of the 6h window.
+    Task<ConnectMatch> ResolveMatchAsync(
+        Guid matchId, ConnectMatchOutcome outcome, DateTime resolvedAt, CancellationToken cancellationToken = default);
 
     Task<ConnectChainStep> AddChainStepAsync(ConnectChainStep chainStep, CancellationToken cancellationToken = default);
 

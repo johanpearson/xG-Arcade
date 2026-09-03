@@ -59,6 +59,12 @@ public static class EndpointMapping
         // for why this uses that pattern rather than
         // sweep-recent-transfers.yml's CLI-verb one (ADR-0024).
         app.MapInternalMatchmakingSweepEndpoints();
+        // REQ-1405/ADR-0103 (S-212): the xG Connect per-player forfeit-
+        // timeout/resolution sweep — same bearer-token /internal/* pattern
+        // as MapInternalMatchmakingSweepEndpoints above; see
+        // InternalConnectForfeitSweepEndpoints.cs's own doc comment for why
+        // this uses that pattern rather than the CLI-verb one (ADR-0024).
+        app.MapInternalConnectForfeitSweepEndpoints();
         app.MapRoundEndpoints();
         // REQ-1203/S-082: xg-path's own read-only display endpoint (GET
         // /path/current) — POST /rounds/{roundId}/cells/{cellId}/guesses below

@@ -83,6 +83,62 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    // REQ-1405/S-212: the forfeit sweep's candidate set — see this method's
+    // own doc comment on IConnectMatchRepository.
+    public async Task<IReadOnlyList<ConnectMatch>> GetActiveMatchesPastDeadlineAsync(
+        DateTime now, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectMatches
+            .AsNoTracking()
+            .Where(m => m.Status == ConnectMatchStatus.Active && m.DeadlineUtc != null && m.DeadlineUtc <= now)
+            .ToListAsync(cancellationToken);
+
+    // REQ-1405/S-212: load-then-save (coding-guidelines.md — never
+    // ExecuteUpdateAsync), tracked since this row is mutated in place.
+    public async Task<ConnectMatch> StartMatchAsync(
+        Guid matchId, DateTime startedAt, DateTime deadlineUtc, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
+
+        match.Status = ConnectMatchStatus.Active;
+        match.StartedAt = startedAt;
+        match.DeadlineUtc = deadlineUtc;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return match;
+    }
+
+    // REQ-1405/S-212: load-then-save, tracked. `??=` is what makes this
+    // idempotent — a slot already marked timed-out keeps its original
+    // timestamp even if a later sweep pass calls this again for the same
+    // slot (see IConnectMatchRepository's own doc comment).
+    public async Task<ConnectMatch> MarkPlayerTimedOutAsync(
+        Guid matchId, bool isPlayerA, DateTime timedOutAt, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
+
+        if (isPlayerA)
+            match.PlayerATimedOutAt ??= timedOutAt;
+        else
+            match.PlayerBTimedOutAt ??= timedOutAt;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return match;
+    }
+
+    // REQ-1405/1409/S-212: load-then-save, tracked.
+    public async Task<ConnectMatch> ResolveMatchAsync(
+        Guid matchId, ConnectMatchOutcome outcome, DateTime resolvedAt, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
+
+        match.Status = ConnectMatchStatus.Resolved;
+        match.Outcome = outcome;
+        match.ResolvedAt = resolvedAt;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return match;
+    }
+
     public async Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(
         Guid matchId, Guid? userId, CancellationToken cancellationToken = default) =>
         await dbContext.ConnectChainSteps

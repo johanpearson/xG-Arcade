@@ -13,6 +13,56 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.46→2.47, REQ-1405 Status
+  updated from Proposed to Built for the match-start trigger and the
+  both-players-time-out forfeit path; mixed-outcome resolution flagged as
+  still unbuilt), `docs/architecture-document.md` (1.39→1.40, COMP-17 row's
+  "match-start/forfeit-timeout logic not yet implemented" language
+  corrected, "remaining not-yet-implemented" list narrowed to
+  REQ-1406-1410 plus REQ-1409's mixed-outcome case), `docs/implementation-
+  document.md` (1.19→1.20, `/XGArcade.Games.XGConnect` project-structure
+  entry extended with `IConnectMatchLifecycleService`, the new
+  `PlayerATimedOutAt`/`PlayerBTimedOutAt` columns, and the new migration —
+  also updates the pre-existing "COMP-16/17 data model never separately
+  backfilled into §5" gap note to include these two new columns),
+  `docs/backlog.md` (S-212 entry annotated as Built) — S-212 (REQ-1405):
+  `IConnectMatchLifecycleService`/`ConnectMatchLifecycleService`
+  (`XGArcade.Games.XGConnect`) implements the match-start transition
+  (`StartMatchIfBothPicksLockedAsync`, called from
+  `ConnectTargetPickService`'s completing-pick branch right after
+  `LockTargetPicksForMatchAsync`, re-confirming both target picks are
+  locked before setting `ConnectMatch.Status = Active`/`StartedAt`/
+  `DeadlineUtc = StartedAt + 6h`) and the forfeit-timeout sweep
+  (`RunForfeitSweepAsync`: finds `Active` matches past `DeadlineUtc`, marks
+  each not-yet-terminal player slot timed out independently and
+  idempotently via two new nullable `ConnectMatch` columns,
+  `PlayerATimedOutAt`/`PlayerBTimedOutAt` — slot-based, not `UserId`-keyed,
+  since those go null after REQ-710 anonymization — and resolves the match
+  to `ConnectMatchOutcome.Draw` in the same sweep pass once both slots are
+  terminal, per REQ-1409's "both forfeit -> draw" rule). Migration
+  `20260903120000_AddConnectMatchTimeoutTracking` adds the two columns. The
+  sweep's only trigger is a new bearer-token-gated `POST
+  /internal/sweep-connect-forfeits`
+  (`XGArcade.Api.Connect.InternalConnectForfeitSweepEndpoints`, mirroring
+  `InternalMatchmakingSweepEndpoints`), called hourly by a new
+  `.github/workflows/sweep-connect-forfeits.yml` (same curl+retry-loop
+  shape as `sweep-matchmaking-pairings.yml`, scaled to a 6h window).
+  Deliberately only resolves the both-timed-out case — REQ-1409's
+  mixed-outcome resolution (one player times out while the other busts or
+  completes a chain) needs REQ-1406-1408's chain logic first (S-213/S-214).
+  Full `REQ1405_...`-named coverage added across
+  `ConnectMatchRepositoryTests.cs`, a new
+  `ConnectMatchLifecycleServiceTests.cs`, `ConnectTargetPickServiceTests.cs`,
+  and a new `InternalConnectForfeitSweepEndpointTests.cs`; a small
+  same-branch follow-up commit fixed CI compile errors in the latter test
+  file (no behavior change). Quality gate (architecture-reviewer +
+  quality-architect) found no boundary violations and no ADR needed — both
+  the slot-based timeout tracking and the both-timeout-resolves-to-Draw
+  behavior are direct, requirement-mandated implementations of
+  already-accepted REQ-1405/REQ-1409 text, not new structural decisions;
+  one advisory-only code-health note (a 4th near-duplicate of the
+  internal-job-endpoint boilerplate shape) was raised for a future
+  `code-health-auditor` sweep, not addressed here.
 - 2026-09-02 — `docs/requirements-document.md` (2.45→2.46, REQ-1404 Status
   updated from Proposed to Built), `docs/architecture-document.md`
   (1.38→1.39, COMP-17 row's "target-pick selection not yet implemented"

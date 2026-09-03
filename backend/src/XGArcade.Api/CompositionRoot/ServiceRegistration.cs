@@ -264,6 +264,12 @@ public static class ServiceRegistration
         // IPlayerCareerOverlapService immediately above — see
         // ConnectTargetPickService's own doc comment.
         builder.Services.AddScoped<IConnectTargetPickService, ConnectTargetPickService>();
+        // REQ-1405/S-212: match-start/6h-forfeit-timer/resolution
+        // scaffolding, layered on top of IConnectMatchRepository above —
+        // see ConnectMatchLifecycleService's own doc comment. Injected by
+        // ConnectTargetPickService (the match-start trigger) and by
+        // InternalConnectForfeitSweepEndpoints (the periodic sweep) below.
+        builder.Services.AddScoped<IConnectMatchLifecycleService, ConnectMatchLifecycleService>();
         // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
         // (Core.Social) together with IConnectMatchRepository above
         // (Games.XGConnect) for the periodic pairing sweep — lives in

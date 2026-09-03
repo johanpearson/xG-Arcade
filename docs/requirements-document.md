@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.46"
+version: "2.47"
 status: draft
-last_updated: 2026-09-02
+last_updated: 2026-09-03
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -11144,9 +11144,53 @@ is in place.
 > picks are locked in, with a clear 6-hour deadline to finish, so both
 > players have a fair, equal-length window to race the same puzzle.
 
-**Status: Proposed — data model exists (S-208: `ConnectMatch.Status`/
-`StartedAt`/`DeadlineUtc` columns in `XGArcade.Data`); the start-trigger
-and forfeit-timeout sweep logic are not implemented yet.**
+**Status: Built, 2026-09-03 (S-212), for the match-start trigger and the
+both-players-time-out forfeit path; the mixed-outcome case (one player
+times out while the other legitimately busts or completes their chain) is
+not implemented yet.** `IConnectMatchLifecycleService`/
+`ConnectMatchLifecycleService` (`XGArcade.Games.XGConnect`) implements the
+match-start transition: `StartMatchIfBothPicksLockedAsync` re-confirms via
+`IConnectMatchRepository.GetTargetPicksForMatchAsync` that exactly two
+`ConnectTargetPick` rows exist and both are `IsLocked`, then sets
+`ConnectMatch.Status = Active`, `StartedAt = now`, `DeadlineUtc = StartedAt
++ 6h`. It is called from `ConnectTargetPickService.SubmitTargetPickAsync`'s
+completing-pick branch, immediately after
+`LockTargetPicksForMatchAsync` — so the match starts the instant the
+second, non-trivially-connected target pick locks, per this REQ's first
+acceptance criterion. `RunForfeitSweepAsync` implements the timeout half
+of the second/third/fourth criteria: it loads every `Active` match whose
+`DeadlineUtc` has passed
+(`IConnectMatchRepository.GetActiveMatchesPastDeadlineAsync`), marks each
+not-yet-terminal player slot as timed out independently and idempotently
+via new `ConnectMatch.PlayerATimedOutAt`/`PlayerBTimedOutAt` columns
+(slot-based, not `UserId`-keyed, since `PlayerAUserId`/`PlayerBUserId` go
+null after REQ-710 anonymization — see `ConnectMatch`'s own doc comment),
+and — if both slots are terminal after that same pass — resolves the match
+to `ConnectMatchOutcome.Draw` immediately in that same sweep call, per
+REQ-1409's "both players forfeit -> draw" rule and this REQ's "resolves
+immediately, never waiting out the unused remainder of the window" rule.
+This deliberately only resolves the both-timed-out case; REQ-1409's
+mixed-outcome resolution (one player times out while the other legitimately
+completes a chain or busts) is out of scope until S-213/S-214 build
+REQ-1406/1407/1408's chain-step submission, bust, and completion logic —
+until then, a player who completes their chain before the deadline has no
+code path that marks them terminal, so the sweep only ever encounters
+either both slots open or (after this sweep) both slots timed out. The
+sweep is triggered exclusively by a new bearer-token-gated endpoint, `POST
+/internal/sweep-connect-forfeits`
+(`XGArcade.Api.Connect.InternalConnectForfeitSweepEndpoints`), called
+hourly by `.github/workflows/sweep-connect-forfeits.yml` — hourly is
+"up-to-1h-late has no correctness impact" reasoning scaled from
+`sweep-matchmaking-pairings.yml`'s own 12h-window cadence to this REQ's 6h
+window. Migration `20260903120000_AddConnectMatchTimeoutTracking` adds the
+two new columns. Full `REQ1405_...`-named test coverage in
+`ConnectMatchRepositoryTests.cs`, `ConnectMatchLifecycleServiceTests.cs`,
+`ConnectTargetPickServiceTests.cs`, and
+`InternalConnectForfeitSweepEndpointTests.cs`. **Test level below is
+satisfied for the shared-clock-start and independent-per-player-timeout
+criteria, and for the both-timeout resolution case; the mixed-outcome
+resolution case (bust/completion vs. timeout) remains untested because it
+is unbuilt, per S-213/S-214.**
 
 - Given both players have each selected a non-trivially-connected target
   pick (REQ-1404)

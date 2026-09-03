@@ -66,7 +66,7 @@ public class XGConnectGameModule(IConnectMatchRepository connectMatchRepository)
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException(
             "xG Connect has no per-cell attempt-cap concept — REQ-1407's two-strikes-per-step penalty/bust rule " +
-            "is a different, per-chain-step mechanism, owned by S-212's own service logic, not this method. " +
+            "is a different, per-chain-step mechanism, owned by S-214's own service logic, not this method. " +
             "See ADR-0103.");
 
     public Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>

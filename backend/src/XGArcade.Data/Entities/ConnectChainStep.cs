@@ -4,7 +4,7 @@ namespace XGArcade.Data.Entities;
 // player's chain-building attempt to link their ConnectMatch's two target
 // players via real "played together" overlaps. Live validation logic
 // (IsValid's computation) and the two-strikes/bust rule (REQ-1407) are
-// later stories (S-212+) — this entity only stores the outcome of each
+// later stories (S-213/S-214) — this entity only stores the outcome of each
 // attempt.
 //
 // ConnectMatchId is a real FK to ConnectMatch, cascade — same COMP-17-

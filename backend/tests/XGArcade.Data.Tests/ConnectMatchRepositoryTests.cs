@@ -6,9 +6,14 @@ namespace XGArcade.Data.Tests;
 
 // Games.XGConnect (COMP-17)/ADR-0103, S-208: ConnectMatchRepository's basic
 // persistence round-trips for ConnectMatch/ConnectTargetPick/
-// ConnectChainStep. Schema + CRUD only — no trivial-pair rejection,
-// match-start/lock, live overlap validation, or bust/scoring/resolution
-// logic (that's S-211 through S-215).
+// ConnectChainStep, plus (S-212/REQ-1405) the match-start/forfeit-timer/
+// resolution primitives StartMatchAsync/MarkPlayerTimedOutAsync/
+// ResolveMatchAsync/GetActiveMatchesPastDeadlineAsync. Pure persistence
+// only — no trivial-pair rejection, live overlap validation, or bust/
+// scoring/chain-completion logic (that's S-211/S-213/S-214; those
+// primitives' own business-logic orchestration is
+// ConnectTargetPickService/ConnectMatchLifecycleService's job, covered by
+// their own test files).
 public class ConnectMatchRepositoryTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -67,6 +72,104 @@ public class ConnectMatchRepositoryTests
         var result = await _repository.GetMatchByIdAsync(Guid.NewGuid());
 
         Assert.That(result, Is.Null);
+    }
+
+    // ---- REQ-1405/S-212: match-start/forfeit-timer/resolution primitives ----
+
+    [Test]
+    public async Task REQ1405_StartMatchAsync_SetsStatusActiveAndStartedAtAndDeadlineUtc()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var startedAt = new DateTime(2026, 9, 3, 12, 0, 0, DateTimeKind.Utc);
+        var deadlineUtc = startedAt.AddHours(6);
+
+        var result = await _repository.StartMatchAsync(match.Id, startedAt, deadlineUtc);
+
+        Assert.That(result.Status, Is.EqualTo(ConnectMatchStatus.Active));
+        Assert.That(result.StartedAt, Is.EqualTo(startedAt));
+        Assert.That(result.DeadlineUtc, Is.EqualTo(deadlineUtc));
+        var stored = await _repository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.Status, Is.EqualTo(ConnectMatchStatus.Active));
+    }
+
+    [Test]
+    public async Task REQ1405_MarkPlayerTimedOutAsync_UnsetSlot_SetsThatSlotOnly()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var timedOutAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+
+        var result = await _repository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, timedOutAt);
+
+        Assert.That(result.PlayerATimedOutAt, Is.EqualTo(timedOutAt));
+        Assert.That(result.PlayerBTimedOutAt, Is.Null, "only the requested slot is set");
+    }
+
+    [Test]
+    public async Task REQ1405_MarkPlayerTimedOutAsync_AlreadySetSlot_IsIdempotentAndNeverOverwrites()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var firstTimedOutAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+        await _repository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, firstTimedOutAt);
+
+        var laterTimedOutAt = firstTimedOutAt.AddHours(1);
+        var result = await _repository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, laterTimedOutAt);
+
+        Assert.That(result.PlayerATimedOutAt, Is.EqualTo(firstTimedOutAt), "a later call must never overwrite an already-set timeout timestamp");
+    }
+
+    [Test]
+    public async Task REQ1405_ResolveMatchAsync_SetsStatusResolvedOutcomeAndResolvedAt()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var resolvedAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+
+        var result = await _repository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt);
+
+        Assert.That(result.Status, Is.EqualTo(ConnectMatchStatus.Resolved));
+        Assert.That(result.Outcome, Is.EqualTo(ConnectMatchOutcome.Draw));
+        Assert.That(result.ResolvedAt, Is.EqualTo(resolvedAt));
+    }
+
+    [Test]
+    public async Task REQ1405_GetActiveMatchesPastDeadlineAsync_ReturnsOnlyActiveMatchesWithPassedDeadline()
+    {
+        var now = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+
+        var pastDeadlineActive = await _repository.AddMatchAsync(new ConnectMatch { Id = Guid.NewGuid(), CreatedAt = now.AddHours(-7) });
+        await _repository.StartMatchAsync(pastDeadlineActive.Id, now.AddHours(-7), now.AddHours(-1));
+
+        var notYetPastDeadlineActive = await _repository.AddMatchAsync(new ConnectMatch { Id = Guid.NewGuid(), CreatedAt = now.AddHours(-1) });
+        await _repository.StartMatchAsync(notYetPastDeadlineActive.Id, now.AddHours(-1), now.AddHours(5));
+
+        // Awaiting picks, never started — DeadlineUtc is null, must never
+        // be swept even though it's old.
+        await _repository.AddMatchAsync(new ConnectMatch { Id = Guid.NewGuid(), CreatedAt = now.AddDays(-1) });
+
+        // Already resolved, deadline was in the past — must not be swept
+        // again.
+        var alreadyResolved = await _repository.AddMatchAsync(new ConnectMatch { Id = Guid.NewGuid(), CreatedAt = now.AddHours(-7) });
+        await _repository.StartMatchAsync(alreadyResolved.Id, now.AddHours(-7), now.AddHours(-1));
+        await _repository.ResolveMatchAsync(alreadyResolved.Id, ConnectMatchOutcome.Draw, now.AddHours(-1));
+
+        var result = await _repository.GetActiveMatchesPastDeadlineAsync(now);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { pastDeadlineActive.Id }));
     }
 
     // ---- ConnectTargetPick CRUD (AddOrUpdateTargetPickAsync) ------------
