@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.20"
+version: "1.21"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -571,6 +571,46 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    resolution needs REQ-1406-1408's
                                    chain-step logic (S-213/S-214) first. See
                                    requirements-document.md §4.15's REQ-1405
+                                   status note and architecture-document.md's
+                                   COMP-17 row for the fuller reasoning.
+                                   REQ-1406 (incremental chain-step
+                                   submission + live validation) is
+                                   implemented as a fourth new service,
+                                   IConnectChainStepService/
+                                   ConnectChainStepService (S-213,
+                                   2026-09-03): resolves the submitted
+                                   candidate name via IPlayerRepository.
+                                   GetPlayersByNormalizedFullNameAsync
+                                   (COMP-06, never PlayerNameIndex/COMP-10),
+                                   runs a new IPlayerCareerOverlapService.
+                                   HaveOverlapAtClubAsync check (shares its
+                                   fetch-once/live-refresh plumbing with the
+                                   existing HaveSharedClubOverlapAsync via a
+                                   new private LoadBothPlayersStintsAsync
+                                   helper) against the immediately preceding
+                                   chain player, then — only once that
+                                   passes — checks chain-closing via the
+                                   existing, unmodified
+                                   HaveSharedClubOverlapAsync against the
+                                   OTHER participant's target pick.
+                                   ConnectChainStep gained a ClosesChain
+                                   column (migration
+                                   20260903130000_AddConnectChainStepClosesChain).
+                                   Exposed as POST
+                                   /matches/{matchId}/chain-steps
+                                   (XGArcade.Api.Connect.
+                                   ConnectChainStepEndpoints), mirroring
+                                   GuessEndpoints' "a wrong answer is a
+                                   normal 200 body" shape — a step failing
+                                   live validation is 200 OK with IsValid:
+                                   false, not an error. Candidate search
+                                   needed no new endpoint (the existing
+                                   /players/autocomplete already satisfies
+                                   REQ-1406's "not restricted to the
+                                   curated reference tables" clause). No cap
+                                   on invalid attempts per position yet —
+                                   REQ-1407/S-214's job. See
+                                   requirements-document.md §4.15's REQ-1406
                                    status note and architecture-document.md's
                                    COMP-17 row for the fuller reasoning.
                                    NOTE: the COMP-16/17 data model built by

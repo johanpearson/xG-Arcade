@@ -159,5 +159,9 @@ public static class EndpointMapping
         // target-pick selection is entirely COMP-17-internal state
         // (ConnectTargetPick), never orchestrated against Core.Social.
         app.MapConnectMatchEndpoints();
+        // REQ-1406/S-213/ADR-0103: Games.XGConnect (COMP-17)'s own
+        // chain-step submission surface — its own file/registration, same
+        // per-feature split as MapConnectMatchEndpoints immediately above.
+        app.MapConnectChainStepEndpoints();
     }
 }

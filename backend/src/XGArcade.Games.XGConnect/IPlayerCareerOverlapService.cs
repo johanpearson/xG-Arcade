@@ -34,4 +34,15 @@ public interface IPlayerCareerOverlapService
     // GuessSubmissionService/GridLiveLookupDispatcher already apply to
     // REQ-211's guess-time fallback.
     Task<bool> HaveSharedClubOverlapAsync(Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default);
+
+    // S-213/REQ-1406: the same "fetch once, cache forever, throw
+    // LiveLookupUnavailableException on a genuine technical failure" contract
+    // as HaveSharedClubOverlapAsync above, but the overlap predicate is
+    // narrowed to one specific claimed club rather than any shared club —
+    // this is what REQ-1406's per-step "did the candidate genuinely play for
+    // the claimed club during a period overlapping the preceding chain
+    // player's own time there" check needs, since a chain step names one
+    // specific club, not "any club in common."
+    Task<bool> HaveOverlapAtClubAsync(
+        Guid playerAId, Guid playerBId, string clubName, CancellationToken cancellationToken = default);
 }
