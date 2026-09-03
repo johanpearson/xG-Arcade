@@ -10795,8 +10795,8 @@ in-match chat UI.
 browser check.
 *Deps:* S-214, S-215, S-217.
 
-**In progress (2026-09-03):** while preparing this story's handoff, found
-every existing xG Connect endpoint (`ConnectMatchEndpoints`/
+**Backend read-side prep (2026-09-03):** while preparing this story's
+handoff, found every existing xG Connect endpoint (`ConnectMatchEndpoints`/
 `ConnectChainStepEndpoints`/`ConnectChatEndpoints`) was write-only — there
 was no way for this screen to read a match's current state, or even
 discover which `matchId`s belong to the caller. Closed that gap first, as
@@ -10806,5 +10806,54 @@ a natural read-side extension of already-built REQ-1404/1405/1406/1409/
 `IConnectMatchQueryService`/`ConnectMatchQueryService` in
 `XGArcade.Games.XGConnect`). See each of those REQs' own "Read-side
 addendum" status notes in `requirements-document.md` §4.15 for the exact
-shapes. The gameplay screen itself (this story's actual scope) is
-otherwise still to build.
+shapes.
+
+**Built as (2026-09-03):** new `docs/design-document.md` SCREEN-16 "xG
+Connect match/gameplay" — a fourth "Matches" tab on `FriendsScreen.tsx`
+(SCREEN-15), not a new top-level header-nav entry or App-level Screen/hash
+route (a match has no deep-linking requirement in REQ-1404-1411, so the
+drill-down between the matches list and one match's detail is
+component-local state). New `frontend/src/connect/`: `MatchesTab.tsx`
+(list, from `GET /matches`), `MatchScreen.tsx` (single-match container,
+polling `GET /matches/{matchId}` every 15s while unresolved, driving
+whichever sub-screen matches `status`), `TargetPickPanel.tsx` (REQ-1404,
+including the trivially-connected-rejection retry flow), `ChainBuilder.tsx`
+(REQ-1406/1407, incremental submission with live feedback and the
+two-strikes/bust terminal state), `ChainStepsList.tsx` (shared chain render,
+used by `ChainBuilder` and `MatchResolution.tsx`), `MatchResolution.tsx`
+(REQ-1408/1409), `MatchChat.tsx` (REQ-1410, 15s-polled, gated on nothing),
+and `PlayerSearchField.tsx` (the shared debounced autocomplete input behind
+both the target-pick and chain-step candidate searches, REQ-1406's own
+search-pattern precedent — built shared from the start since, unlike
+`GuessInput.tsx`/`PathGuessInput.tsx`, both call sites live in this same
+new feature area). New `frontend/src/lib/connectMatches.ts` (typed fetch
+wrappers for all six xG Connect endpoints) and six new response types in
+`frontend/src/lib/types.ts`. `shortUserId.ts` gained
+`shortUserIdOrDeleted()`, a nullable-safe wrapper — this screen's
+`opponentUserId`/`senderUserId` fields go null post-REQ-710 anonymization,
+unlike SCREEN-15's own response shapes. `ChallengesTab`'s post-accept
+banner and `MatchmakingTab`'s opted-in status both gained a "View your
+matches" link switching to the new tab, closing the gap S-217's own entry
+explicitly left open. See each affected REQ's own "Status note (S-218 —
+frontend built)" in `requirements-document.md` §4.15 for exact behavior,
+and SCREEN-16 itself for the three deliberately-flagged limitations (no
+live countdown timer, a 15s-polled rather than live-pushed match/opponent
+state, no invalid-attempt history in the chain view — only the current
+valid chain). Vitest: 42 new tests across the eight new `connect/`
+components plus updates to `FriendsScreen.test.tsx`/`ChallengesTab.test.tsx`/
+`MatchmakingTab.test.tsx` for the new tab/links — full suite (868 tests)
+green, `tsc -b` clean, `oxlint` clean (pre-existing, unrelated warnings
+only). Manual browser check (2026-09-03): real Chromium (not jsdom) against
+the Vite dev server with mocked API responses (no local backend available
+in this sandbox — see this doc's own dotnet/Docker-unavailability
+precedent), driving the full golden path — matches list → target-pick
+search/submit → simulated match-start → chain-step submission → chat send
+→ (separately) challenge-accept banner → "View your matches" link →
+resolved-match summary with a completed chain — all rendered correctly
+against the token system, screenshots reviewed. **Playwright E2E against a
+real backend is explicitly NOT included in this pass** — `test-writer` owns
+that per this story's own handoff instructions; the UI was built with
+stable, role/label-queryable controls for that purpose (see each
+component's own accessible labels: "Target player name," "Candidate player
+name," "Claimed shared club," "Chat message," "View match," "Set target
+pick," "Submit connector," "Send message").

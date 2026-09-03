@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/design-document.md` (0.87→0.88, new SCREEN-16 "xG
+  Connect match/gameplay," plus small cross-reference updates to SCREEN-15's
+  Challenges/Matchmaking tab notes and tab-bar description), `docs/
+  requirements-document.md` (2.55→2.56, "Status note (S-218 — frontend
+  built)" added to REQ-1404/1406/1407/1408/1409/1410/1411),
+  `docs/backlog.md` (S-218 entry given a "Built as" paragraph) — S-218's
+  actual gameplay screen: target-pick selection, incremental chain-building
+  with live per-submission feedback and the two-strikes/bust rule, match
+  resolution, and in-match chat, all in a new `frontend/src/connect/`
+  (`MatchesTab`/`MatchScreen`/`TargetPickPanel`/`ChainBuilder`/
+  `ChainStepsList`/`MatchResolution`/`MatchChat`/`PlayerSearchField`),
+  reached via a new fourth "Matches" tab on `FriendsScreen.tsx` (SCREEN-15)
+  rather than a new top-level nav entry or App-level route. New
+  `frontend/src/lib/connectMatches.ts` and six new response types in
+  `types.ts`; `shortUserId.ts` gained a nullable-safe
+  `shortUserIdOrDeleted()` for this screen's post-REQ-710-anonymization
+  fields. `ChallengesTab`/`MatchmakingTab` each gained a "View your
+  matches" link, closing the gap S-217's own entry deliberately left open.
+  42 new Vitest tests (plus updates to three existing S-217 test files);
+  full suite (868 tests), `tsc -b`, and `oxlint` all clean in this sandbox.
+  Manual check: real Chromium against the Vite dev server with mocked API
+  responses (no local backend available), golden path confirmed by
+  screenshot. Playwright E2E against a real backend is explicitly deferred
+  to `test-writer`, per this story's own handoff instructions. REQ-1404/
+  1406/1407/1408/1409/1410/1411.
 - 2026-09-03 — `docs/requirements-document.md` (2.54→2.55, "Read-side
   addendum" status notes added to REQ-1404/1405/1406/1409/1411),
   `docs/backlog.md` (S-218 entry given an "In progress" note) — while
