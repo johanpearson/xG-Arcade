@@ -23,12 +23,33 @@ namespace XGArcade.Data.Entities;
 //
 // Status: AwaitingTargetPicks (initial) -> Active (both picks locked,
 // StartedAt set, REQ-1405) -> Resolved (REQ-1409's win/draw/forfeit
-// outcome reached). None of those transitions are written by this story —
-// S-208 only scaffolds the schema/CRUD those later stories (S-211 onward)
-// will drive.
+// outcome reached). S-212 (this story) implements the first transition
+// (ConnectMatchLifecycleService.StartMatchIfBothPicksLockedAsync, called
+// from ConnectTargetPickService's completing-pick branch) and the
+// forfeit-timeout half of the second (ConnectMatchLifecycleService.
+// RunForfeitSweepAsync) — REQ-1407/1408's bust/chain-completion terminal
+// paths (S-213/S-214) are the only other ways a player reaches terminal,
+// and are not built yet.
 //
 // DeadlineUtc is StartedAt + 6h (REQ-1405's forfeit timer) — computed and
-// persisted by the caller once the match starts, not derived here.
+// persisted by ConnectMatchLifecycleService.StartMatchIfBothPicksLockedAsync
+// the instant both target picks lock, not derived here.
+//
+// PlayerATimedOutAt/PlayerBTimedOutAt (REQ-1405, S-212): non-null once that
+// SLOT (not UserId — PlayerAUserId/PlayerBUserId are nullable
+// post-anonymization per REQ-710, so slot-based tracking is the only safe
+// way to record "this participant, whoever they were/are, timed out") has
+// been auto-forfeited by ConnectMatchLifecycleService.RunForfeitSweepAsync
+// for not reaching a terminal state (timeout, bust, or chain completion) by
+// DeadlineUtc. Each is set independently of the other — REQ-1405's "each
+// player is forfeited independently" rule — and, once set, is never
+// overwritten (MarkPlayerTimedOutAsync's own idempotent ??= semantics).
+// Timeout is currently the ONLY terminal-reaching path with real code
+// behind it; REQ-1407 (bust)/REQ-1408 (chain completion) will each need
+// their own "this slot reached terminal" write once S-213/S-214 build them,
+// but that write is a different concept from these two timeout-specific
+// columns — see ConnectMatchLifecycleService's own doc comment for how the
+// two are meant to be told apart once both terminal-reaching paths exist.
 //
 // Outcome defaults to Pending and is set exactly once, at resolution
 // (REQ-1409) — mirrors PredictMatch.GradingStatus's own "sole source of
@@ -42,6 +63,8 @@ public class ConnectMatch
     public DateTime? StartedAt { get; set; }
     public DateTime? DeadlineUtc { get; set; }
     public ConnectMatchStatus Status { get; set; } = ConnectMatchStatus.AwaitingTargetPicks;
+    public DateTime? PlayerATimedOutAt { get; set; }
+    public DateTime? PlayerBTimedOutAt { get; set; }
     public ConnectMatchOutcome Outcome { get; set; } = ConnectMatchOutcome.Pending;
     public DateTime? ResolvedAt { get; set; }
 }

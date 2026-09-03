@@ -3,13 +3,18 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.Games.XGConnect;
 
-// S-211/REQ-1404: see IConnectTargetPickService's own doc comment. The
-// check-before-persist ordering below is what makes "a rejected completing
-// pick is truly never written" trivially true — the caller's own row is
-// never touched until the overlap check has already returned false.
+// S-211/REQ-1404, S-212/REQ-1405: see IConnectTargetPickService's own doc
+// comment. The check-before-persist ordering below is what makes "a
+// rejected completing pick is truly never written" trivially true — the
+// caller's own row is never touched until the overlap check has already
+// returned false. The completing-pick branch also triggers
+// IConnectMatchLifecycleService.StartMatchIfBothPicksLockedAsync (REQ-1405)
+// once both picks are locked — see that call's own inline comment for why
+// this class doesn't compute the match-start transition itself.
 public class ConnectTargetPickService(
     IConnectMatchRepository connectMatchRepository,
     IPlayerCareerOverlapService playerCareerOverlapService,
+    IConnectMatchLifecycleService connectMatchLifecycleService,
     TimeProvider timeProvider) : IConnectTargetPickService
 {
     public async Task<SubmitTargetPickResult> SubmitTargetPickAsync(
@@ -64,6 +69,14 @@ public class ConnectTargetPickService(
         var lockedPick = await connectMatchRepository.AddOrUpdateTargetPickAsync(
             matchId, userId, targetPlayerId, selectedAt, cancellationToken);
         await connectMatchRepository.LockTargetPicksForMatchAsync(matchId, cancellationToken);
+
+        // REQ-1405/S-212: both target picks are now locked — start the
+        // shared 6h forfeit clock. Delegated to
+        // IConnectMatchLifecycleService rather than computed inline here so
+        // this class stays scoped to target-pick selection only (REQ-1404);
+        // that service independently re-confirms "both picks locked" rather
+        // than trusting this call site blindly.
+        await connectMatchLifecycleService.StartMatchIfBothPicksLockedAsync(matchId, cancellationToken);
 
         // The repository call above is the persisted source of truth for
         // both rows' IsLocked flag — this local mutation just keeps the

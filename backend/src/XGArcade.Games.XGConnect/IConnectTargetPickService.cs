@@ -25,8 +25,11 @@ public enum SubmitTargetPickOutcome
     // REQ-1404: this was the completing (second) selection, the two target
     // picks are NOT already directly connected, and both ConnectTargetPick
     // rows for this match are now IsLocked = true — the puzzle is fixed.
-    // Does NOT itself start the match (ConnectMatch.Status/StartedAt/
-    // DeadlineUtc) — that's S-212's own separate transition.
+    // This outcome IS also the trigger for the match-start transition
+    // (ConnectMatch.Status/StartedAt/DeadlineUtc, REQ-1405) — see
+    // ConnectTargetPickService.SubmitTargetPickAsync's own call to
+    // IConnectMatchLifecycleService.StartMatchIfBothPicksLockedAsync,
+    // added by S-212.
     RecordedAndLocked,
 
     MatchNotFound,

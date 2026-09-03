@@ -1,0 +1,74 @@
+name: sweep-connect-forfeits
+
+# REQ-1405/ADR-0103: forfeits (POST /internal/sweep-connect-forfeits,
+# XGArcade.Api.Connect.InternalConnectForfeitSweepEndpoints ->
+# XGArcade.Games.XGConnect.ConnectMatchLifecycleService.RunForfeitSweepAsync)
+# any xG Connect player who hasn't reached a terminal state by their
+# match's shared 6h deadline (REQ-1405), and resolves a match to Draw the
+# same sweep pass both players are found terminal in.
+#
+# Pattern note (mirrors sweep-matchmaking-pairings.yml's own note): this job
+# uses the bearer-token-gated /internal/* endpoint via curl with a retry
+# loop, not the `dotnet run -- <verb>` CLI-verb pattern
+# (sweep-recent-transfers.yml) — ADR-0024 reserves that pattern for
+# long-running, unbounded-duration work with multiple live external API
+# calls, which risks the Azure Container Apps ingress's ~240s timeout. This
+# sweep is the opposite shape: fast, bounded, pure in-database work against
+# live application data through the normal service/repository layer (no
+# external API calls at all) — the same shape sweep-matchmaking-pairings.yml/
+# grade-predict-matches.yml/purge-guest-accounts.yml already use.
+#
+# Cadence: hourly (0 * * * *) — same reasoning as
+# sweep-matchmaking-pairings.yml's own hourly cadence against its 12h
+# window, scaled to this job's 6h window: a forfeit or resolution landing up
+# to ~1h late has no correctness impact a player would notice (the match is
+# already unplayable for the timed-out player either way, whether the sweep
+# catches it at the top of this hour or the next), and hourly keeps a match
+# with one side already terminal from sitting unresolved for anywhere near
+# as long as the window itself, without adding meaningful DB load (a
+# handful of indexed reads/writes against ConnectMatch, not a rate-limited
+# third-party API).
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
+
+jobs:
+  sweep-connect-forfeits:
+    runs-on: ubuntu-latest
+    steps:
+      # Same 3-attempt, 30s/60s-backoff retry-loop shape as
+      # sweep-matchmaking-pairings.yml's own step.
+      - name: Trigger connect forfeit sweep
+        shell: bash
+        run: |
+          max_attempts=3
+          http_status=""
+          for attempt in $(seq 1 "$max_attempts"); do
+            http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+              "https://${BACKEND_HOSTNAME}/internal/sweep-connect-forfeits" \
+              -H "Authorization: Bearer ${INTERNAL_JOB_TOKEN}")
+
+            echo "Attempt $attempt/$max_attempts — response body:"
+            cat response.json
+
+            # curl reports "000" (not a real HTTP status) when it never got
+            # a response at all — requiring >= 200 as well excludes that
+            # (and any other non-response code) from the success path, same
+            # fix sweep-matchmaking-pairings.yml/grade-predict-matches.yml apply.
+            if [ "$http_status" -ge 200 ] && [ "$http_status" -lt 400 ]; then
+              exit 0
+            fi
+
+            echo "::warning::/internal/sweep-connect-forfeits returned HTTP $http_status (attempt $attempt/$max_attempts)"
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep $((attempt * 30))
+            fi
+          done
+
+          echo "::error::/internal/sweep-connect-forfeits failed after $max_attempts attempts (last status: $http_status)"
+          exit 1
+        env:
+          BACKEND_HOSTNAME: ${{ secrets.DEV_BACKEND_HOSTNAME }}
+          INTERNAL_JOB_TOKEN: ${{ secrets.INTERNAL_JOB_TOKEN }}
