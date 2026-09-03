@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shortUserId } from './shortUserId';
+import { shortUserId, shortUserIdOrDeleted } from './shortUserId';
 
 // REQ-1401/1402 (S-217): design-document.md SCREEN-15's own "Identity gap"
 // note — this is the deliberately short, stable, deterministic stand-in for
@@ -18,5 +18,19 @@ describe('shortUserId', () => {
     expect(shortUserId('aaaaaaaa-0000-0000-0000-000000000000')).not.toBe(
       shortUserId('bbbbbbbb-0000-0000-0000-000000000000'),
     );
+  });
+});
+
+// S-218 (design-document.md SCREEN-16): the nullable-safe wrapper used by
+// xG Connect response shapes whose user-id fields go null post-REQ-710
+// anonymization.
+describe('shortUserIdOrDeleted', () => {
+  it('S-218: renders the same label as shortUserId for a real id', () => {
+    const id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    expect(shortUserIdOrDeleted(id)).toBe(shortUserId(id));
+  });
+
+  it('S-218: renders "Deleted account" for a null id', () => {
+    expect(shortUserIdOrDeleted(null)).toBe('Deleted account');
   });
 });

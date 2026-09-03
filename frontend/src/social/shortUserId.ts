@@ -15,3 +15,17 @@
 export function shortUserId(userId: string): string {
   return `Player ${userId.slice(0, 8).toUpperCase()}`;
 }
+
+// S-218 (design-document.md SCREEN-16): a handful of xG Connect response
+// shapes (ConnectMatchListItem.opponentUserId, ConnectMatchDetail.
+// opponentUserId, ConnectChatMessage.senderUserId) are nullable — they go
+// null once REQ-710 account-deletion anonymization has run for that user,
+// unlike FriendRequestResponse/ChallengeResponse/FriendshipResponse above,
+// none of which can currently go null. Rather than every one of those
+// call sites re-deriving the same `userId ? shortUserId(userId) : '…'`
+// branch, this wraps it once: a null id renders as "Deleted account" — a
+// plain, factual label (not a fabricated name), consistent with this
+// file's own "never fabricate a name" principle.
+export function shortUserIdOrDeleted(userId: string | null): string {
+  return userId ? shortUserId(userId) : 'Deleted account';
+}
