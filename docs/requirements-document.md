@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.49"
+version: "2.52"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11482,10 +11482,32 @@ beyond the match outcome itself.
 > As a player in an active match, I want to chat with my opponent, so we
 > can talk trash, celebrate, or just chat while playing asynchronously.
 
-**Status: Proposed — data model exists (S-208: `ConnectChatMessage`
-entity + `IConnectChatMessageRepository` in `XGArcade.Data`); send/read
-endpoints and participant-only access enforcement are not implemented
-yet.**
+**Status: Built, 2026-09-03 (S-215).** `IConnectChatService`/
+`ConnectChatService` (`XGArcade.Games.XGConnect`) layers send/read on top
+of the S-208 `IConnectChatMessageRepository` and `IConnectMatchRepository`
+(participant-only check — `MatchNotFound`/`NotAParticipant` outcomes,
+same ordering as `ConnectChainStepService`). Deliberately does not gate on
+`ConnectMatch.Status`, unlike `ConnectChainStepService` — none of this
+REQ's three Given/When/Then blocks make match status a precondition, and
+the second block requires chat to remain readable once a match has
+resolved for both players. Exposed as `POST`/`GET
+/matches/{matchId}/chat-messages`
+(`XGArcade.Api.Connect.ConnectChatEndpoints`). Full `REQ1410_...`-named
+coverage now exists (S-215 follow-up, 2026-09-03, commit `d895c1a`):
+`ConnectChatServiceTests.cs` and `ConnectChatEndpointTests.cs`. **Test
+level below is satisfied by that coverage.** Two further same-story
+quality-gate follow-ups (2026-09-03, no REQ-1410 acceptance-criteria
+change): a pure refactor (`5b535c2`) extracted the repeated
+match-lookup/participant-check shape into
+`ConnectMatchAccessExtensions.ResolveParticipantMatchAsync`, used by
+`ConnectChatService`'s two methods alongside `ConnectTargetPickService`/
+`ConnectChainStepService`; and a real behavior addition (`a142c43`,
+tests in `71dc730`) rejects a null/empty/whitespace-only `MessageText` or
+one over 1000 trimmed characters with a `400` Problem response before the
+message is persisted — this codebase's standard free-text validation
+convention, not something this REQ's own Given/When/Then text mandates.
+`ConnectChatEndpointTests.cs` now also covers those rejection cases and
+the 1000-char boundary.
 
 - Given an active xG Connect match between two players (REQ-1405)
 - When either player sends a chat message

@@ -20,6 +20,7 @@ public class XGConnectGameModuleTests
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IConnectMatchRepository _repository = null!;
+    private IConnectChatMessageRepository _chatMessageRepository = null!;
     private XGConnectGameModule _module = null!;
 
     [SetUp]
@@ -30,7 +31,8 @@ public class XGConnectGameModuleTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _repository = new ConnectMatchRepository(_dbContext);
-        _module = new XGConnectGameModule(_repository);
+        _chatMessageRepository = new ConnectChatMessageRepository(_dbContext);
+        _module = new XGConnectGameModule(_repository, _chatMessageRepository);
     }
 
     [TearDown]
@@ -92,7 +94,7 @@ public class XGConnectGameModuleTests
     // ---- REQ-710: PurgeUserDataAsync -----------------------------------
 
     [Test]
-    public async Task REQ710_PurgeUserDataAsync_AnonymizesMatchTargetPickAndChainStepRows()
+    public async Task REQ710_PurgeUserDataAsync_AnonymizesMatchTargetPickChainStepAndChatMessageRows()
     {
         var userId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
@@ -122,6 +124,20 @@ public class XGConnectGameModuleTests
             SubmittedAt = DateTime.UtcNow,
         });
 
+        // S-215/REQ-1410: a chat message this user sent in the match, plus
+        // the other participant's own message in the same match — proves
+        // PurgeUserDataAsync's AnonymizeSenderAsync call is scoped to
+        // exactly the deleted user, same as the match/pick/step assertions
+        // below.
+        await _chatMessageRepository.AddMessageAsync(new ConnectChatMessage
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, SenderUserId = userId, MessageText = "gl hf", SentAt = DateTime.UtcNow,
+        });
+        await _chatMessageRepository.AddMessageAsync(new ConnectChatMessage
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, SenderUserId = otherUserId, MessageText = "gg", SentAt = DateTime.UtcNow,
+        });
+
         await _module.PurgeUserDataAsync(userId);
 
         var reloadedMatch = await _repository.GetMatchByIdAsync(match.Id);
@@ -138,5 +154,11 @@ public class XGConnectGameModuleTests
         var reloadedSteps = await _repository.GetChainStepsForMatchAndUserAsync(match.Id, null);
         Assert.That(reloadedSteps, Has.Count.EqualTo(1));
         Assert.That(reloadedSteps[0].UserId, Is.Null);
+
+        var reloadedMessages = await _chatMessageRepository.GetMessagesForMatchAsync(match.Id);
+        Assert.That(reloadedMessages, Has.Count.EqualTo(2));
+        Assert.That(reloadedMessages.Single(m => m.MessageText == "gl hf").SenderUserId, Is.Null);
+        // The other participant's chat message is untouched.
+        Assert.That(reloadedMessages.Single(m => m.MessageText == "gg").SenderUserId, Is.EqualTo(otherUserId));
     }
 }

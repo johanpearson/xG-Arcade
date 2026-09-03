@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.22"
+version: "1.25"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -491,9 +491,11 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    AnonymizeUserDataAsync (XGArcade.Data)
                                    that anonymizes ConnectMatch.PlayerAUserId/
                                    PlayerBUserId, ConnectTargetPick.UserId,
-                                   and ConnectChainStep.UserId (not
-                                   ConnectChatMessage.SenderUserId — REQ-1410
-                                   chat isn't built yet). Every round-
+                                   and ConnectChainStep.UserId, plus (as of
+                                   S-215) a new IConnectChatMessageRepository.
+                                   AnonymizeSenderAsync that anonymizes
+                                   ConnectChatMessage.SenderUserId — see the
+                                   REQ-1410 paragraph below. Every round-
                                    generation-shaped IGameModule method
                                    (GenerateInstanceAsync,
                                    ScoreSubmissionAsync, GetCellIdsAsync,
@@ -672,6 +674,78 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    REQ-1407/1408/1409 status notes and
                                    architecture-document.md's COMP-17 row for
                                    the fuller reasoning.
+                                   REQ-1410 (in-match text chat) is
+                                   implemented (S-215, 2026-09-03) as a fifth
+                                   new service, IConnectChatService/
+                                   ConnectChatService, layered on the
+                                   existing S-208 IConnectChatMessageRepository
+                                   (send/read persistence) and
+                                   IConnectMatchRepository (participant check
+                                   only, via GetMatchByIdAsync) —
+                                   MatchNotFound/NotAParticipant outcomes,
+                                   same shape as ConnectChainStepService.
+                                   Deliberately does not gate on
+                                   ConnectMatch.Status, unlike
+                                   ConnectChainStepService/
+                                   ConnectTargetPickService — REQ-1410 has no
+                                   match-status precondition for sending or
+                                   reading, and requires chat to stay
+                                   readable once a match has resolved.
+                                   Exposed as POST/GET
+                                   /matches/{matchId}/chat-messages
+                                   (XGArcade.Api.Connect.
+                                   ConnectChatEndpoints). Also closes the
+                                   REQ-710 gap flagged above: a new
+                                   IConnectChatMessageRepository.
+                                   AnonymizeSenderAsync (load-then-save,
+                                   mirrors ConnectMatchRepository.
+                                   AnonymizeUserDataAsync's per-entity-type
+                                   shape) is injected into and called from
+                                   XGConnectGameModule.PurgeUserDataAsync
+                                   alongside the existing
+                                   IConnectMatchRepository.
+                                   AnonymizeUserDataAsync call. No schema
+                                   migration — ConnectChatMessage already
+                                   existed (S-208). See
+                                   requirements-document.md §4.15's REQ-1410
+                                   status note and architecture-document.md's
+                                   COMP-17 row for the fuller reasoning.
+                                   Two same-story quality-gate follow-ups
+                                   (2026-09-03): (1) a pure refactor, no
+                                   behavior change — the "load match, then
+                                   confirm caller is PlayerA/PlayerB" shape
+                                   was reimplemented at four call sites
+                                   across ConnectTargetPickService,
+                                   ConnectChainStepService, and both
+                                   ConnectChatService methods, so it was
+                                   extracted into a new
+                                   ConnectMatchAccessExtensions.
+                                   ResolveParticipantMatchAsync extension
+                                   method on IConnectMatchRepository (new
+                                   file, same directory/naming convention as
+                                   ConnectChainStepExtensions.cs above),
+                                   used by all four; every outcome enum,
+                                   result record, and public signature on
+                                   the three services is unchanged. (2) a
+                                   real behavior addition — ConnectChatEndpoints
+                                   now rejects a null/empty/whitespace-only
+                                   MessageText and anything over
+                                   MaxMessageLength = 1000 trimmed characters
+                                   with a 400 Problem response (titles "A
+                                   message is required"/"Message is too
+                                   long"), checked before
+                                   RequestingUserResolver/IConnectChatService
+                                   run, and trims the message before it
+                                   reaches ConnectChatService/persistence.
+                                   Not mandated by REQ-1410's own
+                                   Given/When/Then text; matches the
+                                   blank/max-length convention this codebase
+                                   already applies to every other free-text
+                                   endpoint (GuessEndpoints,
+                                   AdminAnnouncementBannerEndpoints,
+                                   LeagueEndpoints). No new ADR for either
+                                   follow-up — see architecture-document.md's
+                                   COMP-17 row for the fuller reasoning.
                                    NOTE: the COMP-16/17 data model built by
                                    S-208-S-210 (FriendRequest/Friendship/
                                    Challenge/MatchmakingOptIn/ConnectMatch/
@@ -885,7 +959,43 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    (MarkPlayerBustedAsync's idempotent ??=
                                    semantics, ResolveMatchAsync persisting
                                    PlayerAScore/PlayerBScore in the same
-                                   write).
+                                   write). S-215 (2026-09-03) added
+                                   IConnectChatService/ConnectChatService and
+                                   ConnectChatEndpoints (see the REQ-1410
+                                   paragraph in XGArcade.Games.XGConnect
+                                   above) and updated
+                                   XGConnectGameModuleTests.cs's SetUp to
+                                   construct XGConnectGameModule with its new
+                                   second constructor parameter,
+                                   IConnectChatMessageRepository. A follow-up
+                                   commit the same story (d895c1a, 2026-09-03)
+                                   then added the REQ1410_-named unit coverage
+                                   (ConnectChatServiceTests.cs, in
+                                   XGArcade.Games.XGConnect.Tests) and API
+                                   coverage (ConnectChatEndpointTests.cs, in
+                                   XGArcade.Api.Tests) that were originally
+                                   left to a separate test-writer pass, plus
+                                   the REQ710_-named coverage of the new
+                                   AnonymizeSenderAsync method: an extended
+                                   ConnectChatMessageRepositoryTests.cs
+                                   (XGArcade.Data.Tests) and an extension of
+                                   XGConnectGameModuleTests.cs's own existing
+                                   PurgeUserDataAsync test to assert chat
+                                   messages are anonymized end-to-end
+                                   alongside the match/pick/step rows it
+                                   already covered. A second same-story
+                                   follow-up (71dc730, 2026-09-03) extended
+                                   ConnectChatEndpointTests.cs again
+                                   (XGArcade.Api.Tests, not a new file) with
+                                   cases for the MessageText validation
+                                   added to POST
+                                   /matches/{matchId}/chat-messages by
+                                   a142c43: null/empty messageText,
+                                   whitespace-only messageText,
+                                   over-max-length (1001 chars),
+                                   trim-before-persist with surrounding
+                                   whitespace, and the 1000-char boundary
+                                   (inclusive limit).
 
 /frontend
   /src                          -> feature folders, not the layer folders this

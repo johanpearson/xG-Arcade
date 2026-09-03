@@ -10657,6 +10657,52 @@ persists and stays readable after the match ends.
 *Accept:* `REQ1410_...`-named tests.
 *Deps:* S-212 (does not need S-213/S-214's chain-scoring logic).
 
+*Built as (2026-09-03):* New `IConnectChatService`/`ConnectChatService`
+(`XGArcade.Games.XGConnect`) layers send/read on top of the existing S-208
+`IConnectChatMessageRepository` and `IConnectMatchRepository`
+(participant check only). Deliberately does not gate on
+`ConnectMatch.Status` — REQ-1410's Given/When/Then never makes match
+status a precondition for sending or reading, and one clause explicitly
+requires chat to remain readable once a match has resolved. Exposed as
+`POST`/`GET /matches/{matchId}/chat-messages`
+(`XGArcade.Api.Connect.ConnectChatEndpoints`), same thin-endpoint pattern
+as `ConnectChainStepEndpoints`/`ConnectMatchEndpoints` — `MatchNotFound`
+→ 404, `NotAParticipant` → 403 Problem. Also closed the REQ-710
+anonymization gap S-208/S-214's own doc comments had flagged: new
+`IConnectChatMessageRepository.AnonymizeSenderAsync` (load-then-save,
+mirrors `ConnectMatchRepository.AnonymizeUserDataAsync`'s own shape) is
+now injected into and called from `XGConnectGameModule.PurgeUserDataAsync`
+alongside the existing `IConnectMatchRepository.AnonymizeUserDataAsync`
+call, so a deleted user's `ConnectChatMessage.SenderUserId` rows are
+anonymized too, not just `ConnectMatch`/`ConnectTargetPick`/
+`ConnectChainStep`. No schema migration — `ConnectChatMessage` already
+existed (S-208). No new ADR — same "straightforward, requirement-mandated
+implementation of already-accepted REQ text" reasoning S-211 through
+S-214's own entries already used for this component. A follow-up commit
+the same story (`d895c1a`, 2026-09-03) satisfied this story's
+`REQ1410_...`-named tests accept criterion: `ConnectChatServiceTests.cs`
+and `ConnectChatEndpointTests.cs`, plus `REQ710_...`-named coverage of
+`AnonymizeSenderAsync` in an extended `ConnectChatMessageRepositoryTests.cs`
+and `XGConnectGameModuleTests.cs`. Two further same-story quality-gate
+follow-ups (2026-09-03): a pure refactor (`5b535c2`, no behavior change)
+extracted the four-times-duplicated match-lookup/participant-check shape
+(across `ConnectTargetPickService`, `ConnectChainStepService`, and both
+`ConnectChatService` methods) into a new
+`ConnectMatchAccessExtensions.ResolveParticipantMatchAsync`, mirroring
+`ConnectChainStepExtensions.cs`'s own placement/naming convention from
+S-214's rule-of-three extraction; and a real behavior addition (`a142c43`,
+test coverage in `71dc730`) rejects a null/empty/whitespace-only
+`MessageText`, or one over `MaxMessageLength = 1000` trimmed characters,
+with a `400` Problem response, and trims the message before persisting —
+not required by REQ-1410's own Given/When/Then, but bringing this endpoint
+in line with the blank/max-length validation convention every other
+free-text endpoint already applies (`GuessEndpoints`,
+`AdminAnnouncementBannerEndpoints`, `LeagueEndpoints`). No new ADR for
+either follow-up — the extraction is behavior-preserving (same reasoning
+as `ConnectChainStepExtensions.HasClosedChain()` needing none in S-214),
+and the validation addition enforces an already-established convention
+rather than making a new structural choice.
+
 **S-216 · Notification indicator, backend (REQ-1411)**
 Aggregate endpoint for the current user: pending friend requests +
 pending challenges + matches awaiting their own next move (no target pick

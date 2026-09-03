@@ -13,6 +13,88 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.51→2.52, REQ-1410 status
+  note extended), `docs/implementation-document.md` (1.24→1.25,
+  `/XGArcade.Games.XGConnect` and `/XGArcade.Games.XGConnect.Tests`/
+  `/XGArcade.Api.Tests` project-structure entries extended),
+  `docs/architecture-document.md` (1.44→1.45, COMP-17 row extended),
+  `docs/backlog.md` (S-215 entry extended) — doc-sync for two same-story
+  quality-gate follow-up commits that landed after the previous doc-sync
+  pass: (1) `5b535c2`, a pure internal refactor with no behavior change —
+  the repeated "load match, then confirm caller is PlayerA/PlayerB" shape
+  (four call sites across `ConnectTargetPickService`,
+  `ConnectChainStepService`, and both `ConnectChatService` methods) was
+  extracted into a new `ConnectMatchAccessExtensions.
+  ResolveParticipantMatchAsync` (`backend/src/XGArcade.Games.XGConnect/`),
+  mirroring `ConnectChainStepExtensions.cs`'s own S-214 placement/naming
+  precedent; no outcome enum, result record, or public signature changed.
+  (2) `a142c43` (test coverage in `71dc730`), a real behavior addition —
+  `POST /matches/{matchId}/chat-messages` now rejects a null/empty/
+  whitespace-only `MessageText` (400, "A message is required") and
+  anything over `MaxMessageLength = 1000` trimmed characters (400,
+  "Message is too long"), and trims the message before persisting,
+  matching the blank/max-length validation convention already used by
+  `GuessEndpoints`/`AdminAnnouncementBannerEndpoints`/`LeagueEndpoints` —
+  not mandated by REQ-1410's own Given/When/Then text, but not a new
+  structural decision either. No new ADR for either follow-up (confirmed,
+  same "behavior-preserving refactor"/"enforcement of an already-
+  established convention" reasoning `ConnectChainStepExtensions.
+  HasClosedChain()` and S-213/S-214's own validation precedents already
+  used). Re-verified REQ-1410's full Given/When/Then against all four docs:
+  no remaining "pending"/stale language. REQ refs: REQ-1410.
+
+- 2026-09-03 — `docs/requirements-document.md` (2.50→2.51, REQ-1410 status
+  note corrected), `docs/implementation-document.md` (1.23→1.24,
+  `/XGArcade.Games.XGConnect.Tests`/`/XGArcade.Api.Tests`/
+  `/XGArcade.Data.Tests` project-structure entries corrected),
+  `docs/architecture-document.md` (1.43→1.44, COMP-17 row extended),
+  `docs/backlog.md` (S-215 entry extended) — doc-sync pass: the S-215
+  commit's own doc edit (previous entry below) said `REQ1410_...`-named
+  test coverage was "pending a test-writer pass," but a later commit in
+  the same story (`d895c1a`, "Add REQ-1410 test coverage for in-match text
+  chat (S-215)") already added it before the docs were updated to say so.
+  Verified `ConnectChatServiceTests.cs`, `ConnectChatEndpointTests.cs`,
+  the extended `ConnectChatMessageRepositoryTests.cs`, and the extended
+  `XGConnectGameModuleTests.cs` all exist and contain `REQ1410_...`/
+  `REQ710_...`-named tests before correcting the four docs above to say
+  the coverage exists rather than is pending. No code changed, no new
+  ADR. REQ refs: REQ-1410, REQ-710.
+
+- 2026-09-03 — `docs/requirements-document.md` (2.49→2.50, REQ-1410 Status
+  updated from Proposed to Built), `docs/architecture-document.md`
+  (1.42→1.43, COMP-17 row extended with the S-215 in-match-chat build note,
+  narrowing the "not yet implemented" list to only the S-218 frontend
+  screen), `docs/implementation-document.md` (1.22→1.23,
+  `/XGArcade.Games.XGConnect` project-structure entry extended with the
+  REQ-1410 paragraph and the `PurgeUserDataAsync` anonymization-gap
+  closure, `/XGArcade.Games.XGConnect.Tests` entry noting
+  `XGConnectGameModuleTests.cs`'s constructor-signature update and that
+  `REQ1410_...`-named test coverage is left to a separate test-writer
+  pass), `docs/backlog.md` (S-215 entry annotated as Built) — S-215
+  (REQ-1410): new `IConnectChatService`/`ConnectChatService`
+  (`XGArcade.Games.XGConnect`) implements match-scoped chat send/read on
+  top of the existing S-208 `IConnectChatMessageRepository` and
+  `IConnectMatchRepository` (participant-only check, `MatchNotFound`/
+  `NotAParticipant` outcomes), deliberately without gating on
+  `ConnectMatch.Status` — REQ-1410's Given/When/Then has no such
+  precondition and requires chat to remain readable after a match
+  resolves. Exposed as `POST`/`GET /matches/{matchId}/chat-messages`
+  (`XGArcade.Api.Connect.ConnectChatEndpoints`), registered in
+  `EndpointMapping.cs`/`ServiceRegistration.cs`. Also closed the REQ-710
+  anonymization gap `IConnectMatchRepository.AnonymizeUserDataAsync`'s own
+  doc comment had flagged since S-208: new
+  `IConnectChatMessageRepository.AnonymizeSenderAsync` is now injected
+  into and called from `XGConnectGameModule.PurgeUserDataAsync` alongside
+  the existing `IConnectMatchRepository.AnonymizeUserDataAsync` call, so a
+  deleted user's `ConnectChatMessage.SenderUserId` rows are anonymized
+  too. No schema migration (`ConnectChatMessage` already existed from
+  S-208). No new ADR — same "straightforward, requirement-mandated
+  implementation of already-accepted REQ text" reasoning S-211 through
+  S-214's own entries already used for this component. `REQ1410_...`-named
+  tests were not written by this story — left to a dedicated test-writer
+  pass, and the sandbox has no `dotnet` SDK, so a CI verification run of
+  this diff is still needed before merge. REQ refs: REQ-1410, REQ-710.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.48→2.49, REQ-1407/1408/1409
   Status updated from Proposed to Built, REQ-1405's own status note
   corrected — its "mixed-outcome case not implemented" caveat is now

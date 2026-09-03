@@ -103,4 +103,61 @@ public class ConnectChatMessageRepositoryTests
 
         Assert.That(result, Is.Empty);
     }
+
+    // ---- REQ-710/S-215: AnonymizeSenderAsync -------------------------------
+    // Added this story alongside ConnectChatMessage/REQ-1410 itself, closing
+    // the pre-existing gap in IGameModule.PurgeUserDataAsync's coverage for
+    // COMP-17 chat rows — see XGConnectGameModule.PurgeUserDataAsync and
+    // XGConnectGameModuleTests' own REQ710_PurgeUserDataAsync test for the
+    // module-level (end-to-end, both anonymize calls together) counterpart.
+
+    [Test]
+    public async Task REQ710_AnonymizeSenderAsync_SetsSenderUserIdNullOnEveryMessageThatUserSent_AcrossMatches()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var matchOneId = Guid.NewGuid();
+        var matchTwoId = Guid.NewGuid();
+        await _repository.AddMessageAsync(new ConnectChatMessage
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchOneId, SenderUserId = userId, MessageText = "from match one", SentAt = DateTime.UtcNow,
+        });
+        await _repository.AddMessageAsync(new ConnectChatMessage
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchTwoId, SenderUserId = userId, MessageText = "from match two", SentAt = DateTime.UtcNow,
+        });
+        await _repository.AddMessageAsync(new ConnectChatMessage
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchOneId, SenderUserId = otherUserId, MessageText = "other participant's message", SentAt = DateTime.UtcNow,
+        });
+
+        await _repository.AnonymizeSenderAsync(userId);
+
+        var matchOneMessages = await _repository.GetMessagesForMatchAsync(matchOneId);
+        var deletedUsersMessage = matchOneMessages.Single(m => m.MessageText == "from match one");
+        Assert.That(deletedUsersMessage.SenderUserId, Is.Null);
+        // The other participant's own message in the SAME match is untouched.
+        var otherParticipantsMessage = matchOneMessages.Single(m => m.MessageText == "other participant's message");
+        Assert.That(otherParticipantsMessage.SenderUserId, Is.EqualTo(otherUserId));
+
+        var matchTwoMessages = await _repository.GetMessagesForMatchAsync(matchTwoId);
+        Assert.That(matchTwoMessages.Single().SenderUserId, Is.Null,
+            "anonymization applies across every match the deleted user sent messages in, not just one");
+    }
+
+    [Test]
+    public async Task REQ710_AnonymizeSenderAsync_NoMessagesForThatUser_IsANoOp()
+    {
+        var matchId = Guid.NewGuid();
+        var untouchedSenderId = Guid.NewGuid();
+        await _repository.AddMessageAsync(new ConnectChatMessage
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchId, SenderUserId = untouchedSenderId, MessageText = "unrelated", SentAt = DateTime.UtcNow,
+        });
+
+        await _repository.AnonymizeSenderAsync(Guid.NewGuid());
+
+        var messages = await _repository.GetMessagesForMatchAsync(matchId);
+        Assert.That(messages.Single().SenderUserId, Is.EqualTo(untouchedSenderId));
+    }
 }

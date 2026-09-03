@@ -19,4 +19,21 @@ public class ConnectChatMessageRepository(XGArcadeDbContext dbContext) : IConnec
             .Where(m => m.ConnectMatchId == matchId)
             .OrderBy(m => m.SentAt)
             .ToListAsync(cancellationToken);
+
+    // REQ-710/ADR-0101/S-215: load-then-save (coding-guidelines.md — never
+    // ExecuteUpdateAsync, the InMemory test provider can't translate it),
+    // tracked (not AsNoTracking) since every row here is mutated in place —
+    // mirrors ConnectMatchRepository.AnonymizeUserDataAsync's own
+    // per-entity-type loop shape.
+    public async Task AnonymizeSenderAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var messages = await dbContext.ConnectChatMessages
+            .Where(m => m.SenderUserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var message in messages)
+            message.SenderUserId = null;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }
