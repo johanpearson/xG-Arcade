@@ -10945,3 +10945,25 @@ clears the field, does not call `onSubmitted`. No control names changed
 updated (new request-shape assertion plus a new not-found test case). Full
 suite green: `tsc -b` clean, `oxlint` clean (same pre-existing unrelated
 warnings only), Vitest 67 files / 869 tests passed.
+
+**Re-verified post-fix (2026-09-03, `test-writer`):** confirmed
+`play-connect.spec.ts`'s target-pick step (type into the search field,
+click the matching `role="option"`, click "Set target pick") needed zero
+interaction changes — the fix is internal to what gets submitted (name,
+not id), not how the control is driven, and `PlayerSearchField.tsx`'s
+control roles/labels are unchanged. Only comments needed updating: this
+section's own earlier "workaround, not a fix" language, and matching
+language in `play-connect.spec.ts` and
+`InternalConnectTestDataEndpoints.cs`'s top-of-file/inline comments, no
+longer described a live bug now that both halves are fixed. Updated all
+three to say plainly that `PlayerNameIndex` seeding there is still needed
+(so `/players/autocomplete` has a suggestion for the UI's
+required-selection step to work through) but the `PlayerId` value on those
+rows is no longer load-bearing, since resolution is now by name. Did not
+touch `ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs`/
+`TargetPickPanel.test.tsx` — those already cover the new contract per the
+two entries directly above. No `dotnet` SDK or reachable Docker daemon in
+this sandbox (same precedent as above): `tsc -b` clean, `oxlint` clean, the
+two touched Vitest files (`TargetPickPanel.test.tsx`, 7/7) pass, and
+`npx playwright test play-connect.spec.ts --list` parses/type-checks the
+spec correctly — the spec itself was not executed against a real backend.

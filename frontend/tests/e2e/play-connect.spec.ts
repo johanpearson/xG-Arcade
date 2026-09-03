@@ -17,9 +17,11 @@ const API_BASE_URL = process.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 // Matches backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs's
 // SeedConnectPlayersResponse record exactly (System.Text.Json's default
 // camelCase policy). See that file's own top-of-file comment for exactly
-// why this endpoint exists and, importantly, for a real cross-boundary bug
-// it works around rather than fixes — flagged again at this spec's own
-// target-pick step below, at the exact point that workaround is load-bearing.
+// why this endpoint exists, including the real cross-boundary id-space bug
+// (REQ-1404, now fixed on both backend and frontend) it originally had to
+// work around before target-pick resolution moved to name-based lookup —
+// this endpoint's PlayerNameIndex seeding step remains useful afterward for
+// an unrelated reason, noted again at this spec's own target-pick step below.
 interface SeedConnectPlayersResponse {
   targetPlayerAName: string
   targetPlayerBName: string
@@ -156,10 +158,13 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // See InternalConnectTestDataEndpoints.cs's own top-of-file comment for
       // exactly how these three players/two clubs are constructed so that (a)
       // Target A and Target B are NOT trivially connected, and (b) the one
-      // connector closes either target's one-step chain symmetrically —
-      // and for a real cross-boundary id-space bug this endpoint works around
-      // (not fixes) so the target-pick step below can go through the real UI
-      // at all. No live Wikidata reachability is needed anywhere in this spec.
+      // connector closes either target's one-step chain symmetrically. It
+      // also seeds a PlayerNameIndex row per target player so
+      // /players/autocomplete has something to suggest for the target-pick
+      // step below to select through the real UI — target-pick resolution
+      // itself is now by name (COMP-06), not by that row's PlayerId, since
+      // REQ-1404's id-space mismatch bug was fixed. No live Wikidata
+      // reachability is needed anywhere in this spec.
       const seedResponse = await request.post(`${API_BASE_URL}/internal/test-data/seed-connect-players`)
       expect(seedResponse.ok(), `seed-connect-players failed: ${seedResponse.status()}`).toBeTruthy()
       const seed = (await seedResponse.json()) as SeedConnectPlayersResponse
@@ -200,12 +205,13 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
 
       // ---- Target-pick phase (REQ-1404) -----------------------------------
       // TargetPickPanel.tsx requires selecting a real `/players/autocomplete`
-      // suggestion before "Set target pick" is enabled at all — this is
-      // exactly the step InternalConnectTestDataEndpoints.cs's own
-      // PlayerNameIndex-alignment workaround (see that file's top-of-file
-      // comment) makes possible for this spec's seeded players; it does not
-      // mean this same flow is reliable for real, Wikidata-imported players
-      // today.
+      // suggestion before "Set target pick" is enabled at all — this is why
+      // InternalConnectTestDataEndpoints.cs seeds a PlayerNameIndex row for
+      // each target player (see that file's top-of-file comment). The
+      // submission itself sends the selected suggestion's NAME, resolved
+      // server-side against Player/COMP-06 (REQ-1404's id-space mismatch fix)
+      // — this is now the same real path a genuine, Wikidata-imported player
+      // selection would take, not a test-only workaround.
       async function submitTargetPick(page: Page, name: string): Promise<void> {
         await page.getByLabel('Target player name').fill(name)
         await page.getByRole('option', { name }).click()

@@ -19,31 +19,36 @@ namespace XGArcade.Api.Connect;
 // here means neither REQ-1404's target-pick overlap check nor REQ-1406's
 // chain-step overlap check ever reaches Wikidata during an E2E run.
 //
-// **Bug found here during this story's Playwright E2E test-writing, fixed
-// on the backend, frontend follow-up still pending.** `TargetPickPanel.tsx`
-// (design-document.md SCREEN-16) currently requires selecting a suggestion
-// from `/players/autocomplete` (COMP-10, PlayerNameIndex) before "Set target
-// pick" is even enabled, and submits that suggestion's own `playerId` — but
-// `PlayerNameIndex.PlayerId` is a synthetic, QID-derived hash with, per that
-// entity's own doc comment, "no guaranteed relationship to any
-// separately-created Player.Id... for the same real person" (ADR-0007), a
-// DIFFERENT id space from `Player.Id`/`PlayerCareerStint.PlayerId` (COMP-06)
-// that `ConnectTargetPickService`/`PlayerCareerOverlapService` actually
-// check against. The backend half of this is now fixed:
-// `POST /matches/{matchId}/target-pick` takes a player NAME
-// (`SubmitTargetPickRequest.TargetPlayerName`), resolved server-side inside
-// `ConnectTargetPickService.SubmitTargetPickAsync` via
-// `IPlayerRepository.GetPlayersByNormalizedFullNameAsync` — the exact same
-// pattern `ConnectChainStepService.SubmitChainStepAsync` already used for
-// `candidatePlayerName`, and never `PlayerNameIndex` (COMP-06/COMP-10
-// separation, ADR-0007). This endpoint still seeds a matching
-// `PlayerNameIndex` row below (`PlayerId` equal to the real `Player.Id`)
-// purely because `TargetPickPanel.tsx`'s frontend UI hasn't been updated to
-// match yet — that's the immediately-following, separate frontend task; once
-// it lands (switching to a free-text name submission the same way
-// `ChainBuilder.tsx`'s candidate field already works, or otherwise sending
-// the resolved suggestion's NAME rather than its `playerId`), this
-// `PlayerNameIndex` seeding step becomes unnecessary and should be removed.
+// **Bug found here during this story's Playwright E2E test-writing, now
+// fully fixed (backend + frontend).** `PlayerNameIndex.PlayerId` is a
+// synthetic, QID-derived hash with, per that entity's own doc comment, "no
+// guaranteed relationship to any separately-created Player.Id... for the
+// same real person" (ADR-0007) — a DIFFERENT id space from
+// `Player.Id`/`PlayerCareerStint.PlayerId` (COMP-06) that
+// `ConnectTargetPickService`/`PlayerCareerOverlapService` actually check
+// against. `TargetPickPanel.tsx` originally submitted a
+// `/players/autocomplete` (COMP-10) suggestion's raw `playerId` straight
+// into that mismatched space. Both halves are now fixed the same way
+// `ConnectChainStepService.SubmitChainStepAsync`/`ChainBuilder.tsx` already
+// handled `candidatePlayerName`: `POST /matches/{matchId}/target-pick` takes
+// a player NAME (`SubmitTargetPickRequest.TargetPlayerName`), resolved
+// server-side inside `ConnectTargetPickService.SubmitTargetPickAsync` via
+// `IPlayerRepository.GetPlayersByNormalizedFullNameAsync`, never
+// `PlayerNameIndex` (COMP-06/COMP-10 separation, ADR-0007); and
+// `TargetPickPanel.tsx` now submits the selected suggestion's NAME.
+//
+// This endpoint still seeds a matching `PlayerNameIndex` row below for each
+// target player — not for id-space correctness anymore (the submitted value
+// is a name, and resolution never touches `PlayerNameIndex`), but because
+// `TargetPickPanel.tsx`'s UI still only enables "Set target pick" after the
+// player clicks a real `/players/autocomplete` suggestion (see
+// `PlayerSearchField.tsx`): without a `PlayerNameIndex` row for these
+// seeded target players, autocomplete would return no suggestions and the
+// E2E spec's `submitTargetPick` helper (`play-connect.spec.ts`) would have
+// nothing to select. The `PlayerId` value on these rows is no longer
+// load-bearing — it is kept equal to the real `Player.Id` only because
+// that's the simplest thing to write, not because anything downstream reads
+// or requires it.
 //
 // The chain-step candidate field (ChainBuilder.tsx) has no such issue — it
 // submits typed name text, resolved server-side via that same
@@ -111,9 +116,11 @@ public static class InternalConnectTestDataEndpoints
                 ],
                 cancellationToken);
 
-            // TEST-ONLY id-space alignment — see this file's own top-of-file
-            // comment for exactly why this exists and why it is not a real
-            // fix for the underlying mismatch.
+            // Seeded purely so /players/autocomplete has something to return
+            // for these target players' names (TargetPickPanel.tsx requires
+            // a real suggestion click before submitting) — see this file's
+            // own top-of-file comment for why the PlayerId value itself is
+            // no longer load-bearing now that target-pick resolves by name.
             await playerNameIndexRepository.UpsertManyAsync(
                 [
                     new PlayerNameIndex

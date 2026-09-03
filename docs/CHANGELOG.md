@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/backlog.md` (S-218 entry given a re-verification
+  addendum), `frontend/tests/e2e/play-connect.spec.ts`,
+  `backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs` —
+  `test-writer` re-verified `play-connect.spec.ts` against REQ-1404's
+  id-space-mismatch fix (both halves landed in the two entries directly
+  below): the spec's target-pick interaction (search, click suggestion,
+  submit) needed zero changes, since the fix is internal to what gets
+  submitted, not how the control is driven. Only comment text changed —
+  the spec's and the seed endpoint's own doc comments no longer describe a
+  live "workaround, not a fix" bug now that both halves are fixed; both now
+  explain that the endpoint's `PlayerNameIndex` seeding is still needed
+  (so `/players/autocomplete` has a suggestion for the required-selection
+  step) but the seeded `PlayerId` value is no longer load-bearing. No test
+  logic/assertions changed. No `dotnet` SDK or reachable Docker daemon in
+  this sandbox: `tsc -b` clean, `oxlint` clean, `TargetPickPanel.test.tsx`
+  (7/7) passes, `playwright test --list` parses/type-checks the spec; the
+  spec itself was not run against a real backend. REQ-1404, no ADR.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.57→2.58, REQ-1404 "Bug
   fix" status note addendum), `docs/backlog.md` (S-218 entry given a
   frontend-fix addendum) — closed the "frontend half still outstanding" gap
