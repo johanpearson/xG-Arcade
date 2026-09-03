@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NotificationBadge } from './NotificationBadge';
 import './HeaderNav.css';
 
 export interface HeaderNavProps {
@@ -24,14 +25,21 @@ export interface HeaderNavProps {
   onSelectLeagues: () => void;
   onSelectFriends: () => void;
   onSelectSettings: () => void;
-  // REQ-1411 (S-217, design-document.md SCREEN-07's 2026-09-03 status
-  // note): the combined pending count shown as "Friends (N)" — omitted
-  // entirely at 0, same inline "(N)" convention PlayerSuggestionsEntry's
-  // "Player suggestions (N)"/UnverifiedDataSection's "Unverified data (N)"
-  // already established (SCREEN-04). App.tsx computes this from
-  // useNotificationSummary's three counts; this component has no fetch of
-  // its own.
-  friendsNotificationCount: number;
+  // REQ-1411 (S-217, design-document.md SCREEN-07's 2026-09-03
+  // badge-redesign status note): the three raw `NotificationSummaryResponse`
+  // counts, passed straight through to NotificationBadge below (this
+  // component does no summing/formatting of its own). Direct user feedback
+  // replaced the previous inline "Friends (N)" text-in-parens label — see
+  // that status note for the full redesign. App.tsx computes these from
+  // useNotificationSummary; this component has no fetch of its own.
+  pendingFriendRequestCount: number;
+  pendingChallengeCount: number;
+  matchesAwaitingActionCount: number;
+  // Opens SCREEN-15 already on the matching tab — NotificationBadge's own
+  // "Friend requests"/"Challenges" category links call this. Never called
+  // for the third category (matches awaiting a move) — see
+  // NotificationBadge's own doc comment for why.
+  onOpenFriendsTab: (tab: 'friends' | 'challenges') => void;
   // REQ-720: selecting "xG Grid" from the "Games" list — same destination
   // GameSelectScreen's own "xG Grid" tile already triggers.
   onSelectGrid: () => void;
@@ -72,7 +80,10 @@ export function HeaderNav({
   onSelectLeaderboard,
   onSelectLeagues,
   onSelectFriends,
-  friendsNotificationCount,
+  pendingFriendRequestCount,
+  pendingChallengeCount,
+  matchesAwaitingActionCount,
+  onOpenFriendsTab,
   onSelectSettings,
   onSelectGrid,
   onSelectPath,
@@ -108,6 +119,21 @@ export function HeaderNav({
 
   return (
     <nav className="header-nav">
+      {/* design-document.md SCREEN-07 (2026-09-03 badge-redesign, direct
+          user feedback): rendered immediately before the "☰ Menu" toggle,
+          unconditionally (never nested inside the outer/"Games" toggles
+          below) — visible from the main screen at every viewport width
+          without first opening the nav menu, per the actual feedback that
+          the previous "Friends (N)" label was buried in the collapsed menu
+          below 480px and gave no indication of *where* the notification
+          was. Renders nothing at all when every count is 0 (REQ-1411's own
+          "no indicator at zero" rule, unchanged from before this redesign). */}
+      <NotificationBadge
+        pendingFriendRequestCount={pendingFriendRequestCount}
+        pendingChallengeCount={pendingChallengeCount}
+        matchesAwaitingActionCount={matchesAwaitingActionCount}
+        onOpenFriendsTab={onOpenFriendsTab}
+      />
       {/* A real, focusable <button> (Tab-reachable, Enter/Space-activatable
           by default) — the same accessible-disclosure pattern REQ-204's
           reveal toggles already established (GridCell.tsx): aria-expanded
@@ -208,19 +234,22 @@ export function HeaderNav({
         >
           Leagues
         </button>
-        {/* REQ-1401/1402/1403/1411 (S-217): friends, direct challenges, and
-            random matchmaking opt-in, plus the combined pending-count badge
-            (design-document.md SCREEN-07's 2026-09-03 status note — a
-            count, not a presence dot). Arcade-level (COMP-16), same
+        {/* REQ-1401/1402/1403 (S-217): friends, direct challenges, and
+            random matchmaking opt-in. Arcade-level (COMP-16), same
             reasoning "Leaderboard"/"Leagues" above already sit outside the
-            "Games" list. */}
+            "Games" list. Plain label — no inline "(N)" count anymore
+            (design-document.md SCREEN-07's 2026-09-03 badge-redesign status
+            note): the NotificationBadge rendered above now carries that
+            count as a real visual badge, always visible regardless of
+            whether this menu is even open, so restating it here would just
+            duplicate the same information a second way. */}
         <button
           type="button"
           className="header-nav__link"
           aria-current={isFriendsCurrent ? 'page' : undefined}
           onClick={() => selectAndClose(onSelectFriends)}
         >
-          Friends{friendsNotificationCount > 0 ? ` (${friendsNotificationCount})` : ''}
+          Friends
         </button>
         {/* REQ-713: replaces the previously separate "Delete account" and
             (admin-only) "Admin" top-level links with this one entry. */}

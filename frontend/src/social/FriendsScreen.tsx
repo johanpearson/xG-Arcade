@@ -7,9 +7,20 @@ import './FriendsScreen.css';
 export interface FriendsScreenProps {
   accessToken: string;
   onAuthError: () => void;
+  // REQ-1411 (design-document.md SCREEN-07's badge-redesign status note,
+  // 2026-09-03): lets a caller open this screen with a specific tab already
+  // active — the header nav's own notification-badge dropdown uses this to
+  // jump straight to "Friend requests"/"Challenges" instead of always
+  // landing on the default "Friends" tab. Optional and defaults to
+  // `activeTab`'s own useState initializer ('friends') when omitted, so
+  // every existing caller (the plain "Friends" nav entry) is unaffected.
+  initialTab?: FriendsTabKey;
+  // Direct user feedback (2026-09-03): threaded straight through to
+  // FriendsTab's own `onSelectPlayer` — see that prop's doc comment.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
-type FriendsTabKey = 'friends' | 'challenges' | 'matchmaking';
+export type FriendsTabKey = 'friends' | 'challenges' | 'matchmaking';
 
 const TABS: Array<{ value: FriendsTabKey; label: string }> = [
   { value: 'friends', label: 'Friends' },
@@ -28,8 +39,8 @@ const TABS: Array<{ value: FriendsTabKey; label: string }> = [
 // sections" shape AdminScreen.tsx already uses — switching tabs never
 // unmounts the others (see the `hidden` attribute below), so already-loaded
 // data isn't refetched on every tab switch.
-export function FriendsScreen({ accessToken, onAuthError }: FriendsScreenProps) {
-  const [activeTab, setActiveTab] = useState<FriendsTabKey>('friends');
+export function FriendsScreen({ accessToken, onAuthError, initialTab, onSelectPlayer }: FriendsScreenProps) {
+  const [activeTab, setActiveTab] = useState<FriendsTabKey>(initialTab ?? 'friends');
 
   return (
     <div className="friends-screen">
@@ -51,7 +62,7 @@ export function FriendsScreen({ accessToken, onAuthError }: FriendsScreenProps) 
       </div>
 
       <div hidden={activeTab !== 'friends'}>
-        <FriendsTab accessToken={accessToken} onAuthError={onAuthError} />
+        <FriendsTab accessToken={accessToken} onAuthError={onAuthError} onSelectPlayer={onSelectPlayer} />
       </div>
       <div hidden={activeTab !== 'challenges'}>
         <ChallengesTab accessToken={accessToken} onAuthError={onAuthError} />

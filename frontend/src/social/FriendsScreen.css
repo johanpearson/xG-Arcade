@@ -132,6 +132,29 @@
   font-size: 14px;
 }
 
+/* Direct user feedback (2026-09-03): a friend's name is now a real
+   navigation target to SCREEN-13 — same layout as the plain
+   `.friends-screen__row-name` span above (font-weight/size unchanged) with
+   button chrome reset out, plus `accent-green-text` and an underline so it
+   reads as an actionable link, exactly mirroring
+   `LeaderboardScreen.css`'s own `.leaderboard-screen__name-button` (not a
+   new visual pattern). `min-height` covers the touch-target floor even
+   though the row itself already clears it, same defensive habit that rule
+   already established. Chained with the element selector below — same
+   "beat the plain `.friends-screen__row button` rule on specificity alone"
+   trick `.send-friend-request-action__link` already uses, no !important
+   needed. */
+.friends-screen__row button.friends-screen__row-name-button {
+  min-height: var(--touch-target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  color: var(--color-accent-green-text);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .friends-screen__row-actions {
   display: flex;
   gap: var(--space-2);

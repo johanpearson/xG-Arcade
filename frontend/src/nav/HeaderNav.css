@@ -6,6 +6,10 @@
   position: relative;
   display: flex;
   align-items: center;
+  /* Small gap between NotificationBadge and the "☰ Menu" toggle/flat row
+     beside it — design-document.md SCREEN-07's 2026-09-03 badge-redesign
+     note ("immediately next to the menu icon"). */
+  gap: var(--space-1);
 }
 
 /* Hidden by default (desktop-first base rule); only shown below the

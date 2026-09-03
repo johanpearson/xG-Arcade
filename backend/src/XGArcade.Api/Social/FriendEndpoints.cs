@@ -39,8 +39,15 @@ public static class FriendEndpoints
 
             return result.Outcome switch
             {
+                // The caller is always the requester here, so their own
+                // DisplayName is already in hand — only the recipient's
+                // needs a lookup (SCREEN-15 "Identity gap" fix, REQ-1401).
                 SendFriendRequestOutcome.Sent => Results.Created(
-                    $"/friends/requests/{result.FriendRequest!.Id}", ToResponse(result.FriendRequest)),
+                    $"/friends/requests/{result.FriendRequest!.Id}",
+                    ToResponse(
+                        result.FriendRequest,
+                        requestingUser.DisplayName,
+                        await ResolveDisplayNameAsync(userRepository, result.FriendRequest.RecipientUserId, cancellationToken))),
                 SendFriendRequestOutcome.SelfRequest => Results.Problem(
                     title: "Cannot friend yourself",
                     detail: "You cannot send a friend request to your own account.",
@@ -77,7 +84,7 @@ public static class FriendEndpoints
 
             var result = await friendService.AcceptFriendRequestAsync(id, requestingUser.Id, cancellationToken);
 
-            return ToResult(result);
+            return await ToResultAsync(result, requestingUser, userRepository, cancellationToken);
         }).RequireAuthorization();
 
         // REQ-1401: the recipient declines — resolves the request as
@@ -97,7 +104,7 @@ public static class FriendEndpoints
 
             var result = await friendService.DeclineFriendRequestAsync(id, requestingUser.Id, cancellationToken);
 
-            return ToResult(result);
+            return await ToResultAsync(result, requestingUser, userRepository, cancellationToken);
         }).RequireAuthorization();
 
         // REQ-1401: every request currently Pending where the caller is the
@@ -116,7 +123,16 @@ public static class FriendEndpoints
 
             var pending = await friendService.GetPendingFriendRequestsAsync(requestingUser.Id, cancellationToken);
 
-            return Results.Ok(pending.Select(ToResponse).ToList());
+            // The caller is always the recipient of every row here (that's
+            // this query's own filter), so only the varying requester ids
+            // need a batch lookup — one query for the whole page, never one
+            // per row (SCREEN-15 "Identity gap" fix, REQ-1401).
+            var requesterDisplayNamesById = await ResolveDisplayNamesAsync(
+                userRepository, pending.Select(r => r.RequesterUserId), cancellationToken);
+
+            return Results.Ok(pending
+                .Select(r => ToResponse(r, GetDisplayName(requesterDisplayNamesById, r.RequesterUserId), requestingUser.DisplayName))
+                .ToList());
         }).RequireAuthorization();
 
         // REQ-1401's accepted outcome: every current friendship of the
@@ -135,50 +151,124 @@ public static class FriendEndpoints
 
             var friendships = await friendService.GetFriendshipsAsync(requestingUser.Id, cancellationToken);
 
-            return Results.Ok(friendships.Select(f => ToResponse(f, requestingUser.Id)).ToList());
+            // Every row's "other" user varies, so batch-resolve every
+            // distinct friend id in one query rather than one round-trip
+            // per row (SCREEN-15 "Identity gap" fix, REQ-1401).
+            var friendIds = friendships.Select(f => f.UserAId == requestingUser.Id ? f.UserBId : f.UserAId);
+            var friendDisplayNamesById = await ResolveDisplayNamesAsync(userRepository, friendIds, cancellationToken);
+
+            return Results.Ok(friendships
+                .Select(f => ToResponse(f, requestingUser.Id, friendDisplayNamesById))
+                .ToList());
         }).RequireAuthorization();
     }
 
-    private static IResult ToResult(ResolveFriendRequestResult result) => result.Outcome switch
+    private static async Task<IResult> ToResultAsync(
+        ResolveFriendRequestResult result,
+        User requestingUser,
+        IUserRepository userRepository,
+        CancellationToken cancellationToken)
     {
-        ResolveFriendRequestOutcome.Resolved => Results.Ok(ToResponse(result.FriendRequest!)),
-        ResolveFriendRequestOutcome.NotFound => Results.Problem(
-            title: "Friend request not found",
-            detail: "No friend request found with that id.",
-            statusCode: StatusCodes.Status404NotFound),
-        ResolveFriendRequestOutcome.NotYourRequest => Results.Problem(
-            title: "Not your request",
-            detail: "Only the recipient of a friend request can accept or decline it.",
-            statusCode: StatusCodes.Status403Forbidden),
-        ResolveFriendRequestOutcome.AlreadyResolved => Results.Problem(
-            title: "Already resolved",
-            detail: "This friend request has already been accepted or declined.",
-            statusCode: StatusCodes.Status409Conflict),
-        _ => throw new InvalidOperationException($"Unhandled ResolveFriendRequestOutcome '{result.Outcome}'."),
-    };
+        if (result.Outcome != ResolveFriendRequestOutcome.Resolved)
+        {
+            return result.Outcome switch
+            {
+                ResolveFriendRequestOutcome.NotFound => Results.Problem(
+                    title: "Friend request not found",
+                    detail: "No friend request found with that id.",
+                    statusCode: StatusCodes.Status404NotFound),
+                ResolveFriendRequestOutcome.NotYourRequest => Results.Problem(
+                    title: "Not your request",
+                    detail: "Only the recipient of a friend request can accept or decline it.",
+                    statusCode: StatusCodes.Status403Forbidden),
+                ResolveFriendRequestOutcome.AlreadyResolved => Results.Problem(
+                    title: "Already resolved",
+                    detail: "This friend request has already been accepted or declined.",
+                    statusCode: StatusCodes.Status409Conflict),
+                _ => throw new InvalidOperationException($"Unhandled ResolveFriendRequestOutcome '{result.Outcome}'."),
+            };
+        }
 
-    private static FriendRequestResponse ToResponse(FriendRequest friendRequest) =>
+        var friendRequest = result.FriendRequest!;
+        // ResolveFriendRequestOutcome.NotYourRequest above already guarantees
+        // requestingUser is the recipient here — only the requester's
+        // DisplayName needs a lookup.
+        var requesterDisplayName = await ResolveDisplayNameAsync(userRepository, friendRequest.RequesterUserId, cancellationToken);
+
+        return Results.Ok(ToResponse(friendRequest, requesterDisplayName, requestingUser.DisplayName));
+    }
+
+    private static FriendRequestResponse ToResponse(FriendRequest friendRequest, string requesterDisplayName, string recipientDisplayName) =>
         new(
             friendRequest.Id,
             friendRequest.RequesterUserId,
             friendRequest.RecipientUserId,
             friendRequest.Status.ToString(),
             friendRequest.CreatedAt,
-            friendRequest.ResolvedAt);
+            friendRequest.ResolvedAt,
+            requesterDisplayName,
+            recipientDisplayName);
 
-    private static FriendshipResponse ToResponse(Friendship friendship, Guid requestingUserId) =>
-        new(
+    private static FriendshipResponse ToResponse(Friendship friendship, Guid requestingUserId, IReadOnlyDictionary<Guid, string> friendDisplayNamesById)
+    {
+        var friendUserId = friendship.UserAId == requestingUserId ? friendship.UserBId : friendship.UserAId;
+        return new(
             friendship.Id,
-            friendship.UserAId == requestingUserId ? friendship.UserBId : friendship.UserAId,
-            friendship.CreatedAt);
+            friendUserId,
+            friendship.CreatedAt,
+            GetDisplayName(friendDisplayNamesById, friendUserId));
+    }
+
+    // SCREEN-15 "Identity gap" fix (REQ-1401/1402): resolves every distinct
+    // user id's DisplayName in one IUserRepository.GetByIdsAsync call rather
+    // than one round-trip per row — same batch-then-map shape
+    // LeaderboardService already established around this same repository
+    // method. Shared with ChallengeEndpoints via internal visibility.
+    internal static async Task<IReadOnlyDictionary<Guid, string>> ResolveDisplayNamesAsync(
+        IUserRepository userRepository, IEnumerable<Guid> userIds, CancellationToken cancellationToken)
+    {
+        var distinctIds = userIds.Distinct().ToList();
+        if (distinctIds.Count == 0)
+            return new Dictionary<Guid, string>();
+
+        var users = await userRepository.GetByIdsAsync(distinctIds, cancellationToken);
+        return users.ToDictionary(u => u.Id, u => u.DisplayName);
+    }
+
+    // Single-id convenience wrapper over ResolveDisplayNamesAsync, for
+    // handlers that only ever need one other party's name (send/accept/
+    // decline) rather than a whole page's worth.
+    internal static async Task<string> ResolveDisplayNameAsync(
+        IUserRepository userRepository, Guid userId, CancellationToken cancellationToken)
+    {
+        var displayNamesById = await ResolveDisplayNamesAsync(userRepository, new[] { userId }, cancellationToken);
+        return GetDisplayName(displayNamesById, userId);
+    }
+
+    // Defensive fallback only — every FriendRequest/Friendship/Challenge row
+    // is created between two users that existed at creation time, so this
+    // should never actually be hit today (no code path hard-deletes a User
+    // row referenced by one of these; see REQ-710's Guess-anonymization
+    // carve-out for the analogous concern elsewhere).
+    internal const string UnknownDisplayName = "Unknown Player";
+
+    internal static string GetDisplayName(IReadOnlyDictionary<Guid, string> displayNamesById, Guid userId) =>
+        displayNamesById.TryGetValue(userId, out var displayName) ? displayName : UnknownDisplayName;
 }
 
 public record SendFriendRequestRequest(Guid RecipientUserId);
 
 public record FriendRequestResponse(
-    Guid Id, Guid RequesterUserId, Guid RecipientUserId, string Status, DateTime CreatedAt, DateTime? ResolvedAt);
+    Guid Id,
+    Guid RequesterUserId,
+    Guid RecipientUserId,
+    string Status,
+    DateTime CreatedAt,
+    DateTime? ResolvedAt,
+    string RequesterDisplayName,
+    string RecipientDisplayName);
 
 // FriendUserId is always the *other* user relative to the caller — never
 // UserAId/UserBId directly, since that normalized order has no meaning to
 // a client (see Friendship's own doc comment).
-public record FriendshipResponse(Guid Id, Guid FriendUserId, DateTime CreatedAt);
+public record FriendshipResponse(Guid Id, Guid FriendUserId, DateTime CreatedAt, string FriendDisplayName);

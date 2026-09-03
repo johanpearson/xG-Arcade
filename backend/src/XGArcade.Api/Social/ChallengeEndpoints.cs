@@ -37,8 +37,16 @@ public static class ChallengeEndpoints
 
             return result.Outcome switch
             {
+                // The caller is always the challenger here, so their own
+                // DisplayName is already in hand — only the challenged
+                // party's needs a lookup (SCREEN-15 "Identity gap" fix,
+                // REQ-1402).
                 SendChallengeOutcome.Sent => Results.Created(
-                    $"/challenges/{result.Challenge!.Id}", ToResponse(result.Challenge)),
+                    $"/challenges/{result.Challenge!.Id}",
+                    ToResponse(
+                        result.Challenge,
+                        requestingUser.DisplayName,
+                        await FriendEndpoints.ResolveDisplayNameAsync(userRepository, result.Challenge.ChallengedUserId, cancellationToken))),
                 SendChallengeOutcome.NotFriends => Results.Problem(
                     title: "Not friends",
                     detail: "A direct challenge can only be sent to an existing friend.",
@@ -88,7 +96,13 @@ public static class ChallengeEndpoints
                 CreatedAt = timeProvider.GetUtcNow().UtcDateTime,
             }, cancellationToken);
 
-            return Results.Ok(ToResponse(result.Challenge));
+            // Only the challenged user can reach here (accept requires
+            // requestingUser == ChallengedUserId), so their own DisplayName
+            // is already in hand — only the challenger's needs a lookup.
+            var challengerDisplayName = await FriendEndpoints.ResolveDisplayNameAsync(
+                userRepository, result.Challenge.ChallengerUserId, cancellationToken);
+
+            return Results.Ok(ToResponse(result.Challenge, challengerDisplayName, requestingUser.DisplayName));
         }).RequireAuthorization();
 
         // REQ-1402: the challenged user declines — resolves the challenge
@@ -107,9 +121,15 @@ public static class ChallengeEndpoints
 
             var result = await challengeService.DeclineChallengeAsync(id, requestingUser.Id, cancellationToken);
 
-            return result.Outcome == ResolveChallengeOutcome.Resolved
-                ? Results.Ok(ToResponse(result.Challenge!))
-                : ToProblem(result.Outcome);
+            if (result.Outcome != ResolveChallengeOutcome.Resolved)
+                return ToProblem(result.Outcome);
+
+            // Only the challenged user can reach here (decline requires
+            // requestingUser == ChallengedUserId), same as accept above.
+            var challengerDisplayName = await FriendEndpoints.ResolveDisplayNameAsync(
+                userRepository, result.Challenge!.ChallengerUserId, cancellationToken);
+
+            return Results.Ok(ToResponse(result.Challenge, challengerDisplayName, requestingUser.DisplayName));
         }).RequireAuthorization();
 
         // REQ-1402: every challenge currently Pending where the caller is
@@ -126,7 +146,17 @@ public static class ChallengeEndpoints
 
             var pending = await challengeService.GetPendingChallengesAsync(requestingUser.Id, cancellationToken);
 
-            return Results.Ok(pending.Select(ToResponse).ToList());
+            // The caller is always the challenged party of every row here
+            // (that's this query's own filter), so only the varying
+            // challenger ids need a batch lookup — one query for the whole
+            // page, never one per row (SCREEN-15 "Identity gap" fix,
+            // REQ-1402).
+            var challengerDisplayNamesById = await FriendEndpoints.ResolveDisplayNamesAsync(
+                userRepository, pending.Select(c => c.ChallengerUserId), cancellationToken);
+
+            return Results.Ok(pending
+                .Select(c => ToResponse(c, FriendEndpoints.GetDisplayName(challengerDisplayNamesById, c.ChallengerUserId), requestingUser.DisplayName))
+                .ToList());
         }).RequireAuthorization();
     }
 
@@ -147,7 +177,7 @@ public static class ChallengeEndpoints
         _ => throw new InvalidOperationException($"Unhandled ResolveChallengeOutcome '{outcome}'."),
     };
 
-    private static ChallengeResponse ToResponse(Challenge challenge) =>
+    private static ChallengeResponse ToResponse(Challenge challenge, string challengerDisplayName, string challengedDisplayName) =>
         new(
             challenge.Id,
             challenge.ChallengerUserId,
@@ -155,7 +185,9 @@ public static class ChallengeEndpoints
             challenge.Status.ToString(),
             challenge.CreatedAt,
             challenge.ResolvedAt,
-            challenge.ResultingMatchId);
+            challenge.ResultingMatchId,
+            challengerDisplayName,
+            challengedDisplayName);
 }
 
 public record SendChallengeRequest(Guid ChallengedUserId);
@@ -167,4 +199,6 @@ public record ChallengeResponse(
     string Status,
     DateTime CreatedAt,
     DateTime? ResolvedAt,
-    Guid? ResultingMatchId);
+    Guid? ResultingMatchId,
+    string ChallengerDisplayName,
+    string ChallengedDisplayName);

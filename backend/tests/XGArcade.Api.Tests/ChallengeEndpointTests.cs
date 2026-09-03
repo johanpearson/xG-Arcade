@@ -165,11 +165,16 @@ public class ChallengeEndpointTests
         Assert.That(sent!.ChallengerUserId, Is.EqualTo(userAId));
         Assert.That(sent.ChallengedUserId, Is.EqualTo(userBId));
         Assert.That(sent.Status, Is.EqualTo("Pending"));
+        // REQ-1402 display-name fix: both parties' names always populated.
+        Assert.That(sent.ChallengerDisplayName, Is.EqualTo("Alex"));
+        Assert.That(sent.ChallengedDisplayName, Is.EqualTo("Blair"));
 
         var pendingResponse = await clientB.GetAsync("/challenges/pending");
         Assert.That(pendingResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var pending = await pendingResponse.Content.ReadFromJsonAsync<List<ChallengeResponse>>();
         Assert.That(pending!.Select(c => c.Id), Is.EquivalentTo(new[] { sent.Id }));
+        Assert.That(pending.Single().ChallengerDisplayName, Is.EqualTo("Alex"));
+        Assert.That(pending.Single().ChallengedDisplayName, Is.EqualTo("Blair"));
 
         var acceptResponse = await clientB.PostAsync($"/challenges/{sent.Id}/accept", content: null);
         Assert.That(acceptResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
@@ -177,6 +182,8 @@ public class ChallengeEndpointTests
         Assert.That(accepted!.Status, Is.EqualTo("Accepted"));
         Assert.That(accepted.ResolvedAt, Is.Not.Null);
         Assert.That(accepted.ResultingMatchId, Is.Not.Null);
+        Assert.That(accepted.ChallengerDisplayName, Is.EqualTo("Alex"));
+        Assert.That(accepted.ChallengedDisplayName, Is.EqualTo("Blair"));
 
         // Proves the endpoint's own ADR-0103 orchestration actually wrote a
         // real ConnectMatch row via IConnectMatchRepository, not just a
@@ -212,6 +219,40 @@ public class ChallengeEndpointTests
         var declined = await declineResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
         Assert.That(declined!.Status, Is.EqualTo("Declined"));
         Assert.That(declined.ResultingMatchId, Is.Null);
+        Assert.That(declined.ChallengerDisplayName, Is.EqualTo("Alex"));
+        Assert.That(declined.ChallengedDisplayName, Is.EqualTo("Blair"));
+    }
+
+    // ---- REQ-1402 display-name batch-resolve: the multi-row case that an ---
+    // ---- N+1-avoiding dictionary keying can subtly get wrong ---------------
+
+    [Test]
+    public async Task REQ1402_GetChallengesPending_TwoChallengesFromDifferentChallengers_EachRowHasCorrectlyMatchedDisplayName()
+    {
+        var challengedAuthProviderUserId = Guid.NewGuid();
+        var challengedId = await SeedUserAsync(challengedAuthProviderUserId, "Challenged");
+        var challenger1AuthProviderUserId = Guid.NewGuid();
+        var challenger1Id = await SeedUserAsync(challenger1AuthProviderUserId, "Casey");
+        var challenger2AuthProviderUserId = Guid.NewGuid();
+        var challenger2Id = await SeedUserAsync(challenger2AuthProviderUserId, "Devon");
+        await MakeFriendsAsync(challengedId, challenger1Id);
+        await MakeFriendsAsync(challengedId, challenger2Id);
+        var challenger1Client = CreateAuthenticatedClient(challenger1AuthProviderUserId);
+        var challenger2Client = CreateAuthenticatedClient(challenger2AuthProviderUserId);
+        var challengedClient = CreateAuthenticatedClient(challengedAuthProviderUserId);
+
+        await challenger1Client.PostAsJsonAsync("/challenges", new SendChallengeRequest(challengedId));
+        await challenger2Client.PostAsJsonAsync("/challenges", new SendChallengeRequest(challengedId));
+
+        var pendingResponse = await challengedClient.GetAsync("/challenges/pending");
+        Assert.That(pendingResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var pending = await pendingResponse.Content.ReadFromJsonAsync<List<ChallengeResponse>>();
+
+        Assert.That(pending, Has.Count.EqualTo(2));
+        var byChallengerId = pending!.ToDictionary(c => c.ChallengerUserId, c => c.ChallengerDisplayName);
+        Assert.That(byChallengerId[challenger1Id], Is.EqualTo("Casey"));
+        Assert.That(byChallengerId[challenger2Id], Is.EqualTo("Devon"));
+        Assert.That(pending.Select(c => c.ChallengedDisplayName), Has.All.EqualTo("Challenged"));
     }
 
     // ---- Representative rejection: proves the problem-details shape --------

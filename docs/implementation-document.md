@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.26"
+version: "1.27"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -1121,12 +1121,30 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      hamburger toggle collapsing the header nav
                                      below 480px). S-217 (REQ-1401/1411,
                                      2026-09-03) added a "Friends" nav entry
-                                     (destination: /social's FriendsScreen)
-                                     and a `friendsNotificationCount` prop,
-                                     rendered as an inline "Friends (N)"
-                                     count sourced from App.tsx's
-                                     useNotificationSummary — HeaderNav
-                                     itself has no fetch of its own
+                                     (destination: /social's FriendsScreen).
+                                     Same-day follow-up (direct user
+                                     feedback, REQ-1401/1402/1411) added
+                                     NotificationBadge.tsx: a small
+                                     always-visible (not nested in the
+                                     collapsible mobile menu) badge rendered
+                                     immediately before the "☰ Menu" toggle,
+                                     replacing the original inline
+                                     "Friends (N)" label. Takes the three raw
+                                     useNotificationSummary counts as props
+                                     (HeaderNav itself still has no fetch of
+                                     its own) and renders a click-to-expand
+                                     dropdown breaking them down by category
+                                     — "Friend requests"/"Challenges" are
+                                     real links opening FriendsScreen already
+                                     on the matching tab (a new
+                                     `onOpenFriendsTab` callback threaded up
+                                     to App.tsx, which seeds FriendsScreen's
+                                     new `initialTab` prop), "Matches
+                                     awaiting your move" is plain
+                                     non-interactive text since S-218's match
+                                     screen doesn't exist yet. The "Friends"
+                                     nav entry label itself reverted to plain
+                                     "Friends," no count suffix
     /settings                     -> SettingsScreen (SCREEN-08, REQ-713: the
                                      "Settings" nav entry's destination, wraps
                                      /auth's DeleteAccountScreen unchanged plus
@@ -1206,14 +1224,10 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      its "in the pool until…" status is
                                      session-local only). Also
                                      SendFriendRequestAction (see /users
-                                     above) and shortUserId.ts (a small
-                                     display-name-fallback helper, since
-                                     this screen only ever has raw user ids
-                                     to show, no display names). A
-                                     same-story quality-gate follow-up
-                                     extracted two shared shapes duplicated
-                                     across this directory past the
-                                     rule-of-three threshold (ADR-0084):
+                                     above). A same-story quality-gate
+                                     follow-up extracted two shared shapes
+                                     duplicated across this directory past
+                                     the rule-of-three threshold (ADR-0084):
                                      FetchListSection.tsx (loading/error/
                                      empty/list render shape, scoped to this
                                      directory's own CSS classes) and
@@ -1221,7 +1235,29 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      error/onAuthError shape, mirroring
                                      useAuthedFetch.ts for the
                                      user-triggered-submit case instead of
-                                     the mount-fetch case)
+                                     the mount-fetch case). Same-day follow-up
+                                     (direct user feedback, 2026-09-03):
+                                     the backend's FriendRequestResponse/
+                                     FriendshipResponse/ChallengeResponse now
+                                     carry real `*DisplayName` fields
+                                     (batch-resolved server-side), so
+                                     FriendsTab/ChallengesTab render actual
+                                     names instead of the previous
+                                     id-derived placeholder —
+                                     shortUserId.ts and its test were deleted
+                                     as dead code. FriendsTab's "My friends"
+                                     rows also gained a clickable display
+                                     name (a new optional `onSelectPlayer`
+                                     prop, mirroring
+                                     LeaderboardRowsList.tsx's prop of the
+                                     same name/signature) navigating to that
+                                     friend's UserStatsScreen; App.tsx's
+                                     handleSelectPlayerStats gained a
+                                     `returnScreen` parameter (defaulting to
+                                     'leaderboard', unchanged for every
+                                     existing caller) so "Back" from that
+                                     screen returns to 'friends' when reached
+                                     this way
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts,
                                      scoringRules.ts (MAX_POINTS_PER_CELL,

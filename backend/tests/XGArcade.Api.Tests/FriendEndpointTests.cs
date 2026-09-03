@@ -154,25 +154,34 @@ public class FriendEndpointTests
         Assert.That(sent!.RequesterUserId, Is.EqualTo(userAId));
         Assert.That(sent.RecipientUserId, Is.EqualTo(userBId));
         Assert.That(sent.Status, Is.EqualTo("Pending"));
+        // REQ-1401 display-name fix: both parties' names always populated.
+        Assert.That(sent.RequesterDisplayName, Is.EqualTo("Alex"));
+        Assert.That(sent.RecipientDisplayName, Is.EqualTo("Blair"));
 
         var pendingResponse = await clientB.GetAsync("/friends/requests/pending");
         Assert.That(pendingResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var pending = await pendingResponse.Content.ReadFromJsonAsync<List<FriendRequestResponse>>();
         Assert.That(pending!.Select(r => r.Id), Is.EquivalentTo(new[] { sent.Id }));
+        Assert.That(pending.Single().RequesterDisplayName, Is.EqualTo("Alex"));
+        Assert.That(pending.Single().RecipientDisplayName, Is.EqualTo("Blair"));
 
         var acceptResponse = await clientB.PostAsync($"/friends/requests/{sent.Id}/accept", content: null);
         Assert.That(acceptResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var accepted = await acceptResponse.Content.ReadFromJsonAsync<FriendRequestResponse>();
         Assert.That(accepted!.Status, Is.EqualTo("Accepted"));
         Assert.That(accepted.ResolvedAt, Is.Not.Null);
+        Assert.That(accepted.RequesterDisplayName, Is.EqualTo("Alex"));
+        Assert.That(accepted.RecipientDisplayName, Is.EqualTo("Blair"));
 
         var friendsOfAResponse = await clientA.GetAsync("/friends");
         var friendsOfA = await friendsOfAResponse.Content.ReadFromJsonAsync<List<FriendshipResponse>>();
         Assert.That(friendsOfA!.Select(f => f.FriendUserId), Is.EquivalentTo(new[] { userBId }));
+        Assert.That(friendsOfA.Single().FriendDisplayName, Is.EqualTo("Blair"));
 
         var friendsOfBResponse = await clientB.GetAsync("/friends");
         var friendsOfB = await friendsOfBResponse.Content.ReadFromJsonAsync<List<FriendshipResponse>>();
         Assert.That(friendsOfB!.Select(f => f.FriendUserId), Is.EquivalentTo(new[] { userAId }));
+        Assert.That(friendsOfB.Single().FriendDisplayName, Is.EqualTo("Alex"));
 
         var pendingForBAfterAccept = await clientB.GetAsync("/friends/requests/pending");
         var pendingAfterAccept = await pendingForBAfterAccept.Content.ReadFromJsonAsync<List<FriendRequestResponse>>();
@@ -197,10 +206,42 @@ public class FriendEndpointTests
         Assert.That(declineResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var declined = await declineResponse.Content.ReadFromJsonAsync<FriendRequestResponse>();
         Assert.That(declined!.Status, Is.EqualTo("Declined"));
+        Assert.That(declined.RequesterDisplayName, Is.EqualTo("Alex"));
+        Assert.That(declined.RecipientDisplayName, Is.EqualTo("Blair"));
 
         var friendsOfAResponse = await clientA.GetAsync("/friends");
         var friendsOfA = await friendsOfAResponse.Content.ReadFromJsonAsync<List<FriendshipResponse>>();
         Assert.That(friendsOfA, Is.Empty);
+    }
+
+    // ---- REQ-1401 display-name batch-resolve: the multi-row case that an ---
+    // ---- N+1-avoiding dictionary keying can subtly get wrong ---------------
+
+    [Test]
+    public async Task REQ1401_GetFriendsRequestsPending_TwoRequestsFromDifferentRequesters_EachRowHasCorrectlyMatchedDisplayName()
+    {
+        var recipientAuthProviderUserId = Guid.NewGuid();
+        var recipientId = await SeedUserAsync(recipientAuthProviderUserId, "Recipient");
+        var requester1AuthProviderUserId = Guid.NewGuid();
+        var requester1Id = await SeedUserAsync(requester1AuthProviderUserId, "Casey");
+        var requester2AuthProviderUserId = Guid.NewGuid();
+        var requester2Id = await SeedUserAsync(requester2AuthProviderUserId, "Devon");
+        var requester1Client = CreateAuthenticatedClient(requester1AuthProviderUserId);
+        var requester2Client = CreateAuthenticatedClient(requester2AuthProviderUserId);
+        var recipientClient = CreateAuthenticatedClient(recipientAuthProviderUserId);
+
+        await requester1Client.PostAsJsonAsync("/friends/requests", new SendFriendRequestRequest(recipientId));
+        await requester2Client.PostAsJsonAsync("/friends/requests", new SendFriendRequestRequest(recipientId));
+
+        var pendingResponse = await recipientClient.GetAsync("/friends/requests/pending");
+        Assert.That(pendingResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var pending = await pendingResponse.Content.ReadFromJsonAsync<List<FriendRequestResponse>>();
+
+        Assert.That(pending, Has.Count.EqualTo(2));
+        var byRequesterId = pending!.ToDictionary(r => r.RequesterUserId, r => r.RequesterDisplayName);
+        Assert.That(byRequesterId[requester1Id], Is.EqualTo("Casey"));
+        Assert.That(byRequesterId[requester2Id], Is.EqualTo("Devon"));
+        Assert.That(pending.Select(r => r.RecipientDisplayName), Has.All.EqualTo("Recipient"));
     }
 
     // ---- Representative rejection: proves the problem-details shape --------

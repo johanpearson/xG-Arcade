@@ -1,0 +1,92 @@
+/* design-document.md SCREEN-07 (2026-09-03 badge-redesign). Tokens only —
+   `--color-accent-red` (fill) and `--color-surface-card` (numeral) — see
+   that status note for the full color-choice rationale and contrast math.
+   No new hex value, no new motion (a plain instant show/hide, same "no new
+   motion" rule HeaderNav's own disclosures already follow). */
+
+.notification-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* The outer button is the full 44px touch target (design-document.md §6);
+   the visually small pill sits inside it as a decorative span so the badge
+   reads as a small accent, not a giant red circle taking over the header. */
+.notification-badge__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.notification-badge__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-accent-red);
+  color: var(--color-surface-card);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.notification-badge__panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 220px;
+  padding: var(--space-1);
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  z-index: 10;
+}
+
+.notification-badge__item {
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-family: var(--font-body);
+  font-size: 13px;
+  text-align: left;
+}
+
+.notification-badge__item--link {
+  color: var(--color-accent-green-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notification-badge__item--static {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+/* Below the mobile breakpoint, anchor the panel to the right edge instead
+   of the left — the same "flip toward the header's own edge below 480px"
+   treatment HeaderNav.css's own outer menu already uses, so the panel never
+   overflows the viewport on a narrow phone. */
+@media (max-width: 480px) {
+  .notification-badge__panel {
+    left: auto;
+    right: 0;
+  }
+}
