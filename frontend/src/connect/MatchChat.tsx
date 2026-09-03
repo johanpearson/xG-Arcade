@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { fetchConnectChatMessages, sendConnectChatMessage } from '../lib/connectMatches';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
+import { usePolling } from '../lib/usePolling';
 import { useSubmitAction } from '../lib/useSubmitAction';
 import { shortUserIdOrDeleted } from '../social/shortUserId';
 
@@ -18,7 +19,11 @@ const MAX_MESSAGE_LENGTH = 1000;
 // regardless of match phase — mounted by MatchScreen unconditionally, never
 // gated on `status`. Polled on the same 15s self-rescheduling cadence as
 // useNotificationSummary.ts, since REQ-1410's own acceptance criteria says
-// this "does not require a live push update."
+// this "does not require a live push update." The poll loop itself is
+// `usePolling` (lib/usePolling.ts, S-218 quality-gate follow-up) — this
+// file used to hand-roll its own self-rescheduling `setTimeout` effect
+// here, byte-for-byte identical to MatchScreen.tsx's own, until that
+// duplication was extracted.
 export function MatchChat({ matchId, accessToken, viewerUserId, onAuthError }: MatchChatProps) {
   // useCallback here is load-bearing, not stylistic — useAuthedFetch's own
   // mount effect depends on this function's identity; an unmemoized
@@ -32,24 +37,7 @@ export function MatchChat({ matchId, accessToken, viewerUserId, onAuthError }: M
   const [messageText, setMessageText] = useState('');
   const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
 
-  useEffect(() => {
-    let cancelled = false;
-    let timeoutId: number | undefined;
-
-    function scheduleNext() {
-      timeoutId = window.setTimeout(async () => {
-        if (cancelled) return;
-        await refetch();
-        if (!cancelled) scheduleNext();
-      }, POLL_INTERVAL_MS);
-    }
-    scheduleNext();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    };
-  }, [refetch]);
+  usePolling(refetch, POLL_INTERVAL_MS);
 
   function handleSend() {
     const trimmed = messageText.trim();

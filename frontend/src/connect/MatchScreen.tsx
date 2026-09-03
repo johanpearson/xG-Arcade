@@ -1,6 +1,7 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { fetchConnectMatchDetail } from '../lib/connectMatches';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
+import { usePolling } from '../lib/usePolling';
 import { shortUserIdOrDeleted } from '../social/shortUserId';
 import { ChainBuilder } from './ChainBuilder';
 import { MatchChat } from './MatchChat';
@@ -21,8 +22,10 @@ export interface MatchScreenProps {
 // /matches/{matchId} — renders the right sub-UI for whichever phase the
 // match is actually in (`status`). Polls that same endpoint on the same
 // 15s cadence MatchChat.tsx/useNotificationSummary.ts already use, but only
-// while the match hasn't resolved yet — see this file's own "Known
-// limitation" note on why this is a plain poll, not a live countdown.
+// while the match hasn't resolved yet (usePolling's own `enabled` option
+// below) — a plain poll, not a live countdown, since REQ-1405's deadline
+// display (the `deadlineUtc` passed to ChainBuilder) only needs an
+// eventually-accurate static timestamp, never a ticking clock.
 const POLL_INTERVAL_MS = 15_000;
 
 export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, onBack }: MatchScreenProps) {
@@ -32,26 +35,13 @@ export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, o
   const fetchFn = useCallback(() => fetchConnectMatchDetail(accessToken, matchId), [accessToken, matchId]);
   const { data: detail, loadError, refetch } = useAuthedFetch(fetchFn, { onAuthError });
 
-  useEffect(() => {
-    if (!detail || detail.status === 'Resolved') return;
-
-    let cancelled = false;
-    let timeoutId: number | undefined;
-
-    function scheduleNext() {
-      timeoutId = window.setTimeout(async () => {
-        if (cancelled) return;
-        await refetch();
-        if (!cancelled) scheduleNext();
-      }, POLL_INTERVAL_MS);
-    }
-    scheduleNext();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    };
-  }, [detail, refetch]);
+  // usePolling (lib/usePolling.ts, S-218 quality-gate follow-up): stops
+  // polling once the match has resolved, via `enabled`, rather than the
+  // hand-rolled `if (!detail || detail.status === 'Resolved') return;`
+  // early-return this file's own poll effect used to open with (before that
+  // effect's exact shape, duplicated byte-for-byte in MatchChat.tsx, was
+  // extracted into this shared hook).
+  usePolling(refetch, POLL_INTERVAL_MS, { enabled: detail !== null && detail.status !== 'Resolved' });
 
   return (
     <div className="connect-match">

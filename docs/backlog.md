@@ -11074,3 +11074,41 @@ else mounted at that point, so no change was needed there. `npx
 playwright test --list` and `tsc --noEmit` clean; not run against a real
 backend in this sandbox — a `ci.yml` `workflow_dispatch` run is needed to
 confirm.
+
+**Quality-gate follow-up (2026-09-03, `quality-architect`) — same-story
+refactor, no behavior change:** the pre-merge review of this story's own
+diff found `MatchChat.tsx` and `MatchScreen.tsx` had each grown a
+byte-for-byte-identical self-rescheduling `setTimeout` poll effect
+(cancelled flag, `timeoutId`, a `scheduleNext` closure re-arming itself
+after each `await refetch()`, cleanup clearing the pending timeout) —
+the second copy of that exact shape to land in this diff, tripping
+`coding-guidelines.md`'s Code Health Budget rule-of-three trigger (ADR-0084),
+the same convention S-217's own `useSubmitAction`/`FetchListSection`
+extractions already established for this kind of same-story follow-up.
+Extracted a new `usePolling(refetch, intervalMs, { enabled? })` hook into
+`frontend/src/lib/usePolling.ts`, alongside `useAuthedFetch.ts`/
+`useSubmitAction.ts`; both components now call it in place of their own
+hand-rolled effect. `MatchScreen.tsx`'s own "stop polling once
+`status === 'Resolved'`" rule now goes through the hook's `enabled` option
+rather than an early-return inside the effect body. Deliberately did NOT
+touch `useNotificationSummary.ts`/`AllTimeLeaderboard.tsx`'s own inline
+poll variant (they own their fetch/state directly rather than delegating
+to a caller-supplied `refetch` — a big enough shape difference that
+folding all four into one hook is `code-health-auditor`'s call for a future
+whole-tree sweep, not this diff's). Pure refactor, no new ADR (same
+reasoning every prior rule-of-three extraction in this codebase has used):
+behavior is unchanged for both call sites — confirmed by leaving
+`MatchChat.test.tsx`/`MatchScreen.test.tsx` untouched and green as-is. New
+`usePolling.test.ts` (6 tests, fake timers, mirroring
+`useSubmitAction.test.ts`'s isolated-hook-coverage style) covers: no
+immediate call, repeated rescheduling, `enabled: false` never polling,
+`enabled` flipping false→true and true→false mid-cycle, cleanup on
+unmount, and no overlapping in-flight `refetch` calls. Full suite green:
+`tsc -b` clean, `oxlint` clean (same pre-existing unrelated warnings only),
+Vitest 68 files / 876 tests passed (870 → 876: the 6 new `usePolling.test.ts`
+cases, `MatchChat.test.tsx`/`MatchScreen.test.tsx` unchanged at 7/6). Also
+closed a small, unrelated doc-drift item found in the same pass while
+editing `MatchScreen.tsx`'s own top-of-file comment: it referenced a
+"Known limitation" note that (unlike `ChainBuilder.tsx`'s own, real one)
+was never actually added to this file — replaced with an accurate
+description of why this is a plain poll, not a live countdown.

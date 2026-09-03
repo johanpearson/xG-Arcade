@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/architecture-document.md` (COMP-17 row, v1.46 → v1.47) —
+  `quality-architect` closed a doc-drift gap `architecture-reviewer`
+  flagged: the row hadn't been updated for S-218's read-side addition
+  (`IConnectMatchQueryService`/`ConnectMatchQueryService`, `GET /matches`/
+  `GET /matches/{matchId}` via `ConnectMatchQueryEndpoints`) even though
+  `docs/backlog.md`'s S-218 entry already documented it. No behavior
+  change, no REQ/ADR change.
+
+- 2026-09-03 — `frontend/src/lib/usePolling.ts` (new),
+  `frontend/src/connect/MatchChat.tsx`, `frontend/src/connect/MatchScreen.tsx`,
+  `docs/backlog.md` (S-218 entry given a quality-gate-follow-up addendum) —
+  `quality-architect` extracted a shared `usePolling(refetch, intervalMs,
+  { enabled? })` hook to collapse a byte-for-byte-identical self-rescheduling
+  `setTimeout` poll effect duplicated between `MatchChat.tsx` and
+  `MatchScreen.tsx` in the same diff (`coding-guidelines.md`'s Code Health
+  Budget rule-of-three trigger, ADR-0084) — same same-story quality-gate
+  follow-up convention S-217's `useSubmitAction`/`FetchListSection`
+  extractions already established. Pure refactor, behavior-preserving
+  (`MatchChat.test.tsx`/`MatchScreen.test.tsx` unchanged and green); new
+  `usePolling.test.ts` adds direct coverage. No REQ/ADR change.
+
 - 2026-09-03 — `frontend/tests/e2e/play-connect.spec.ts`, `docs/backlog.md`
   (S-218 entry given a further spec-bugfix addendum) — `test-writer` fixed
   a third, same-category bug in the E2E spec itself (not the product),
