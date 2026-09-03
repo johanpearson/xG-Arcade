@@ -24,7 +24,7 @@ export interface UseSubmitActionResult<T> {
 
 // The "submit action" shape (clear error, set submitting, await a call,
 // react to success, escalate a 401, capture any other error, always clear
-// submitting) was duplicated five times across `src/social/` (COMP-06's
+// submitting) was duplicated five times across `src/social/` (COMP-16's
 // FriendsTab.tsx had it twice, ChallengesTab.tsx, MatchmakingTab.tsx, and
 // SendFriendRequestAction.tsx each once) before being flagged as a
 // rule-of-three-plus code-health-budget finding (ADR-0084) during S-217's
