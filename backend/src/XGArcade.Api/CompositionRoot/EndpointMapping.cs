@@ -8,6 +8,7 @@ using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Incidents;
 using XGArcade.Api.Leagues;
+using XGArcade.Api.Notifications;
 using XGArcade.Api.Path;
 using XGArcade.Api.Players;
 using XGArcade.Api.Predict;
@@ -167,5 +168,13 @@ public static class EndpointMapping
         // chat send/read surface — its own file/registration, same per-
         // feature split as MapConnectChainStepEndpoints immediately above.
         app.MapConnectChatEndpoints();
+        // REQ-1411/S-216/ADR-0103: the visible-notification-indicator
+        // aggregate read (GET /notifications/summary) — combines pending
+        // friend requests (Core.Social/COMP-16), pending challenges
+        // (Core.Social/COMP-16), and open xG Connect matches still awaiting
+        // the caller's own next move (Games.XGConnect/COMP-17). Not a new
+        // component per ADR-0103's own "belongs to neither" paragraph — see
+        // NotificationEndpoints.cs's own doc comment.
+        app.MapNotificationEndpoints();
     }
 }

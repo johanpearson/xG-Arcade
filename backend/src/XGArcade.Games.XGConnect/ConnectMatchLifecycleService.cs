@@ -196,4 +196,43 @@ public class ConnectMatchLifecycleService(
         await connectMatchRepository.ResolveMatchAsync(match.Id, outcome, now, playerAScore, playerBScore, cancellationToken);
         return true;
     }
+
+    // REQ-1411/S-216: see this method's own doc comment on
+    // IConnectMatchLifecycleService. Small-N by construction (a player
+    // realistically has a handful of open matches at once), so a
+    // GetChainStepsForMatchAndUserAsync call per open match here is the
+    // simpler, sufficient approach — same reasoning the brief for this story
+    // uses to reject a batched chain-step query as unnecessary at this data
+    // scale.
+    public async Task<IReadOnlyList<ConnectMatch>> GetMatchesAwaitingActionAsync(
+        Guid userId, CancellationToken cancellationToken = default)
+    {
+        var openMatches = await connectMatchRepository.GetOpenMatchesForUserAsync(userId, cancellationToken);
+
+        var awaitingAction = new List<ConnectMatch>();
+        foreach (var match in openMatches)
+        {
+            var isPlayerA = match.PlayerAUserId == userId;
+            var bustedAt = isPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
+            var timedOutAt = isPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
+
+            // Already terminal via bust or timeout — not awaiting this
+            // player's move, regardless of the other participant's state.
+            if (bustedAt is not null || timedOutAt is not null)
+                continue;
+
+            // Already terminal via a completed chain (REQ-1408). A player
+            // who hasn't submitted a target pick yet, or who has an
+            // in-progress chain with no ClosesChain=true step, naturally
+            // falls through both checks above and is included below — no
+            // separate "no target pick yet" branch is needed.
+            var steps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, userId, cancellationToken);
+            if (steps.HasClosedChain())
+                continue;
+
+            awaitingAction.Add(match);
+        }
+
+        return awaitingAction;
+    }
 }

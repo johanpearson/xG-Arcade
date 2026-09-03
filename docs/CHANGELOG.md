@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.52→2.53, REQ-1411 status
+  updated to Built), `docs/architecture-document.md` (1.45→1.46, COMP-16/
+  COMP-17 rows extended), `docs/backlog.md` (S-216 entry extended) — S-216
+  implemented REQ-1411's notification-indicator aggregate read: `GET
+  /notifications/summary` (new `XGArcade.Api.Notifications.
+  NotificationEndpoints`) combines pending friend requests
+  (`IFriendService.GetPendingFriendRequestsAsync`), pending challenges
+  (`IChallengeService.GetPendingChallengesAsync`), and a new
+  `IConnectMatchLifecycleService.GetMatchesAwaitingActionAsync`
+  (`XGArcade.Games.XGConnect`) that filters a caller's open `ConnectMatch`
+  rows to those where their own slot hasn't reached a terminal state
+  (bust/timeout/`ClosesChain`), layered on a new
+  `IConnectMatchRepository.GetOpenMatchesForUserAsync`. Per ADR-0103, this
+  is a `XGArcade.Api`-level aggregating endpoint, not a new component.
+  `REQ1411_...`-named tests are a following, separate pass (test-writer),
+  not part of this commit.
 - 2026-09-03 — `docs/requirements-document.md` (2.51→2.52, REQ-1410 status
   note extended), `docs/implementation-document.md` (1.24→1.25,
   `/XGArcade.Games.XGConnect` and `/XGArcade.Games.XGConnect.Tests`/

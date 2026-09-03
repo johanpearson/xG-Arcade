@@ -1,3 +1,5 @@
+using XGArcade.Data.Entities;
+
 namespace XGArcade.Games.XGConnect;
 
 // REQ-1405/S-212, REQ-1407/1408/1409/S-214: match-start, 6h forfeit-timer,
@@ -41,6 +43,23 @@ public interface IConnectMatchLifecycleService
     // yet reached a terminal state. Returns true only when this call is the
     // one that actually resolved the match.
     Task<bool> TryResolveMatchIfBothTerminalAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    // REQ-1411/S-216: the notification indicator's category-3 source — every
+    // one of this user's open (non-Resolved) matches where THEIR OWN slot
+    // has not yet reached a terminal state (bust, timeout, or a
+    // ClosesChain=true chain step), regardless of the other participant's
+    // state. Layered on IConnectMatchRepository.GetOpenMatchesForUserAsync's
+    // coarse participant/status candidate set, same "repository returns
+    // candidates, this service applies the per-slot terminal check" split
+    // RunForfeitSweepAsync/TryResolveMatchIfBothTerminalAsync above already
+    // use, reusing the same ConnectChainStepExtensions.HasClosedChain
+    // predicate. Deliberately does NOT reuse ResolveIfBothTerminalAsync's
+    // "both players" logic — REQ-1411 only cares about the caller's own
+    // slot, not whether the other participant is also terminal (a match
+    // stays "awaiting my move" even if the other player already busted/
+    // timed out and only the shared resolution sweep hasn't run yet).
+    Task<IReadOnlyList<ConnectMatch>> GetMatchesAwaitingActionAsync(
+        Guid userId, CancellationToken cancellationToken = default);
 }
 
 // PlayersForfeited: how many individual player SLOTS were newly marked

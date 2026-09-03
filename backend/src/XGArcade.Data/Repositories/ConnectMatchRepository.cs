@@ -167,6 +167,17 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
             .Where(s => s.ConnectMatchId == matchId && s.UserId == userId)
             .ToListAsync(cancellationToken);
 
+    // REQ-1411/S-216: see this method's own doc comment on
+    // IConnectMatchRepository for why the per-slot terminal-state check is
+    // deliberately NOT done here.
+    public async Task<IReadOnlyList<ConnectMatch>> GetOpenMatchesForUserAsync(
+        Guid userId, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectMatches
+            .AsNoTracking()
+            .Where(m => (m.PlayerAUserId == userId || m.PlayerBUserId == userId)
+                && m.Status != ConnectMatchStatus.Resolved)
+            .ToListAsync(cancellationToken);
+
     // REQ-710/ADR-0101: load-then-save (coding-guidelines.md — never
     // ExecuteUpdateAsync, the InMemory test provider can't translate it),
     // tracked (not AsNoTracking) since every row here is mutated in place.

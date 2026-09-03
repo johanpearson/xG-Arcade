@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.52"
+version: "2.53"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11536,7 +11536,23 @@ challenges, and awaiting-action matches**
 > challenge, or an xG Connect match still waiting on my next move, without
 > having to go check each screen manually.
 
-**Status: Proposed — no code exists yet.**
+**Status: Backend built, 2026-09-03 (S-216) — frontend badge is separate,
+deferred work (S-217).** `GET /notifications/summary`
+(`XGArcade.Api.Notifications.NotificationEndpoints`, `.RequireAuthorization()`'d)
+aggregates the three categories below through each owning component's own
+normal read path — `IFriendService.GetPendingFriendRequestsAsync` (COMP-16),
+`IChallengeService.GetPendingChallengesAsync` (COMP-16), and a new
+`IConnectMatchLifecycleService.GetMatchesAwaitingActionAsync` (COMP-17,
+layered on a new `IConnectMatchRepository.GetOpenMatchesForUserAsync`) that
+filters a user's open (non-`Resolved`) `ConnectMatch` rows down to those
+where that user's own slot has not yet reached a terminal state (bust,
+timeout, or a `ClosesChain=true` `ConnectChainStep`). Response is
+`NotificationSummaryResponse` with per-category counts plus a combined
+`HasPending` flag. Per ADR-0103's own "belongs to neither component"
+paragraph, this is not a new component — the aggregating logic lives
+directly in `XGArcade.Api`. An unpaired `MatchmakingOptIn` (REQ-1403,
+`Waiting` status) is never queried by this endpoint. Test coverage
+(`REQ1411_...`-named) is a separate, following pass.
 
 - Given a player has at least one item in any of these three states: a
   friend request sent to them and not yet accepted/declined (REQ-1401), a
