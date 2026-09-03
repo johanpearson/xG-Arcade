@@ -127,6 +127,37 @@ public class PlayerAutocompleteEndpointTests
         Assert.That(suggestions[0].BirthYear, Is.EqualTo(1995));
     }
 
+    // ---- REQ-1406: candidate search for xG Connect's chain-step builder
+    // ---- stays on the platform's existing broad search (COMP-10), not the
+    // ---- curated club/country reference tables --------------------------------
+
+    [Test]
+    public async Task REQ1406_Autocomplete_Get_ReturnsPlayerWithZeroClubOrCountryDefinitionRows()
+    {
+        // REQ-1406's own Given/When/Then: "suggested candidates are drawn
+        // from the platform's existing broad player-name search, which is
+        // not restricted to the curated club/country reference tables" — no
+        // new endpoint for xG Connect's own candidate search; this proves
+        // the existing, unmodified /players/autocomplete endpoint already
+        // satisfies that requirement, since it never reads
+        // ClubDefinition/CountryDefinition at all (only PlayerNameIndex,
+        // ADR-0007). No ClubDefinition/CountryDefinition rows are seeded in
+        // this test's database at all — a real player from any club or
+        // league can still be found.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var playerId = await SeedPlayerNameIndexEntryAsync("Uncurated Club Player");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/players/autocomplete?query=uncurated");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var suggestions = await response.Content.ReadFromJsonAsync<List<PlayerAutocompleteSuggestion>>();
+        Assert.That(suggestions!, Has.Count.EqualTo(1));
+        Assert.That(suggestions[0].PlayerId, Is.EqualTo(playerId));
+        Assert.That(suggestions[0].Name, Is.EqualTo("Uncurated Club Player"));
+    }
+
     // Bug-bundle fix (2026-07-27, ADR-0007/REQ-207): Nationality must never
     // appear in the autocomplete response at all, regardless of whether the
     // underlying PlayerNameIndex row has one — seeding a nationality above

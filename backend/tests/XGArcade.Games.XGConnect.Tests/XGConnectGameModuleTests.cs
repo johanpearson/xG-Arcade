@@ -118,6 +118,7 @@ public class XGConnectGameModuleTests
             CandidatePlayerId = Guid.NewGuid(),
             ClaimedClubName = "Some Club",
             IsValid = true,
+            ClosesChain = false,
             SubmittedAt = DateTime.UtcNow,
         });
 

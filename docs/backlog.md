@@ -10568,6 +10568,33 @@ closing-step detection, candidate search returns players outside the
 curated reference tables.
 *Deps:* S-212.
 
+*Built as (2026-09-03):* `IPlayerCareerOverlapService` gained
+`HaveOverlapAtClubAsync` (shares its fetch-once/live-refresh plumbing with
+the existing `HaveSharedClubOverlapAsync` via a new private
+`LoadBothPlayersStintsAsync` helper — no behavior change to the existing
+method). New `IConnectChainStepService`/`ConnectChainStepService`
+implements REQ-1406's per-step submission: resolves the candidate name via
+the same COMP-06 `IPlayerRepository.GetPlayersByNormalizedFullNameAsync`
+path `GridNameMatcher` uses (never `PlayerNameIndex`/COMP-10, per
+ADR-0007), runs the claimed-club check, and — only once that passes —
+checks chain-closing against the OTHER target pick via the existing,
+unmodified `HaveSharedClubOverlapAsync`. `ConnectChainStep` gained a
+`ClosesChain` column (migration
+`20260903130000_AddConnectChainStepClosesChain`). Exposed as `POST
+/matches/{matchId}/chain-steps`
+(`XGArcade.Api.Connect.ConnectChainStepEndpoints`), mirroring
+`GuessEndpoints`'s "a wrong answer is a normal 200, not an error" shape —
+only match-not-found/not-a-participant/not-active/chain-already-complete
+and live-lookup-unavailable get non-200 statuses. This story does NOT
+enforce a cap on invalid attempts per position (REQ-1407/S-214's job).
+Full `REQ1406_...`-named coverage in `PlayerCareerOverlapServiceTests.cs`,
+new `ConnectChainStepServiceTests.cs`, new
+`ConnectChainStepEndpointTests.cs`, and one addition to
+`PlayerAutocompleteEndpointTests.cs` proving candidate search stays on the
+existing broad search with zero `ClubDefinition`/`CountryDefinition` rows
+seeded. No new ADR — same `Games.XGPath`-precedent reasoning S-211's own
+entry already covers for `PlayerCareerOverlapService`'s placement.
+
 **S-214 · Penalty/bust rule, scoring, match resolution (REQ-1407/1408/1409)**
 Two-strikes-per-step tracking (independent per chain position), scoring
 formula (connections + accumulated penalties, min 1), win/draw/forfeit

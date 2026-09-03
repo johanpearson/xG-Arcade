@@ -13,6 +13,68 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/implementation-document.md` (doc-sync pass, no version
+  bump — same S-213 change, filling a gap the implementing agent's own edit
+  left) — `/XGArcade.Games.XGConnect.Tests` and `/XGArcade.Api.Tests`
+  project-structure entries extended to name the four new/changed S-213
+  test files (`ConnectChainStepServiceTests.cs`,
+  `ConnectChainStepEndpointTests.cs`, and the `FakePlayerCareerOverlapService.cs`/
+  `PlayerCareerOverlapServiceTests.cs`/`PlayerAutocompleteEndpointTests.cs`
+  additions) that the S-213 commit's own doc edit omitted — verified against
+  `git diff origin/main...claude/connection-chain-submission-gg8p2h`.
+  requirements-document.md, architecture-document.md, and backlog.md's own
+  S-213 edits were checked against the real code diff and found accurate;
+  no ADR needed (confirmed, same `Games.XGPath`-precedent reasoning
+  S-211/S-212 already established). REQ/ADR refs: REQ-1406.
+
+- 2026-09-03 — `docs/requirements-document.md` (2.47→2.48, REQ-1406 Status
+  updated from Proposed to Built), `docs/architecture-document.md`
+  (1.40→1.41, COMP-17 row extended with the S-213 chain-step-submission
+  build note, "remaining not-yet-implemented" list narrowed to
+  REQ-1407-1410 plus REQ-1409's mixed-outcome case), `docs/implementation-
+  document.md` (1.20→1.21, `/XGArcade.Games.XGConnect` project-structure
+  entry extended with `IConnectChainStepService`/`ConnectChainStepService`,
+  the new `ClosesChain` column, and the new migration), `docs/backlog.md`
+  (S-213 entry annotated as Built) — S-213 (REQ-1406): new
+  `IConnectChainStepService`/`ConnectChainStepService`
+  (`XGArcade.Games.XGConnect`) implements incremental chain-step submission
+  with live per-step validation. `IPlayerCareerOverlapService` gained
+  `HaveOverlapAtClubAsync(playerAId, playerBId, clubName)` — the claimed-
+  club-specific overlap check a chain step needs — sharing its fetch-once/
+  live-refresh plumbing with the pre-existing `HaveSharedClubOverlapAsync`
+  via a new private `LoadBothPlayersStintsAsync` helper (no behavior change
+  to that existing method or its own tests). Each submitted candidate name
+  is resolved against `IPlayerRepository.GetPlayersByNormalizedFullNameAsync`
+  (COMP-06) — deliberately never `PlayerNameIndex`/COMP-10, mirroring
+  `GridNameMatcher`'s existing autocomplete/correctness separation
+  (ADR-0007) — then checked against the immediately preceding chain player
+  (the caller's own fixed target pick for the first step, otherwise the
+  most recently accepted valid step's candidate). Only once that check
+  passes does chain-closing get checked, reusing the existing, unmodified
+  `HaveSharedClubOverlapAsync` against the OTHER participant's target pick
+  (never the one the chain started from) — a `LiveLookupUnavailableException`
+  from either check discards the whole step, including an already-passed
+  main check, so nothing is ever partially persisted. `ConnectChainStep`
+  gained a `ClosesChain` column (migration
+  `20260903130000_AddConnectChainStepClosesChain`, true only alongside
+  `IsValid`). Exposed as `POST /matches/{matchId}/chain-steps`
+  (`XGArcade.Api.Connect.ConnectChainStepEndpoints`), mirroring
+  `GuessEndpoints`' "a wrong answer is a normal 200 body, not an error"
+  shape — a step failing live validation is `200 OK` with `IsValid: false`;
+  only match-not-found/not-a-participant/not-active/chain-already-complete
+  (404/403/409/409) and a genuine live-lookup failure (503) are non-200.
+  Candidate search needed no new endpoint — the existing
+  `/players/autocomplete` (REQ-207, COMP-10) already satisfies REQ-1406's
+  "not restricted to the curated reference tables" clause, proven by a new
+  `PlayerAutocompleteEndpointTests.cs` test seeding a player with zero
+  `ClubDefinition`/`CountryDefinition` rows anywhere in the database. This
+  story does not enforce any cap on invalid attempts per position —
+  REQ-1407/S-214's job; `AttemptNumber` is computed and stored but never
+  checked against a limit. No new ADR — reviewed and judged a
+  straightforward continuation of S-211/S-212's already-accepted
+  `Games.XGPath`-precedent reasoning for `PlayerCareerOverlapService`'s
+  placement, not a new structural decision. REQ/ADR refs: REQ-1406.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.46→2.47, REQ-1405 Status
   updated from Proposed to Built for the match-start trigger and the
   both-players-time-out forfeit path; mixed-outcome resolution flagged as

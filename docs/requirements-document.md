@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.47"
+version: "2.48"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11226,10 +11226,35 @@ both are reached, rather than always waiting out the full 6 hours.
 > always know right away whether my chain is still valid, rather than
 > finding out only at the end.
 
-**Status: Proposed — data model exists (S-208: `ConnectChainStep` entity
-in `XGArcade.Data`, storing position/attempt-number/candidate/validity
-per submitted step); the live overlap-validation logic itself is not
-implemented yet.**
+**Status: Built, 2026-09-03 (S-213).** `IConnectChainStepService`/
+`ConnectChainStepService` (`XGArcade.Games.XGConnect`) implements the
+per-step live validation: `IPlayerCareerOverlapService` gained a new
+`HaveOverlapAtClubAsync(playerAId, playerBId, clubName)` method (shares
+its fetch-once/live-refresh plumbing with the existing
+`HaveSharedClubOverlapAsync`, extracted into a private
+`LoadBothPlayersStintsAsync` helper) for the per-step claimed-club check,
+while chain-closing detection reuses the existing, unmodified
+`HaveSharedClubOverlapAsync` against the match's OTHER target pick.
+`ConnectChainStep` gained a `ClosesChain` column (migration
+`20260903130000_AddConnectChainStepClosesChain`) — true only on a step
+that is also `IsValid` and additionally connects to the other target.
+Exposed as `POST /matches/{matchId}/chain-steps`
+(`XGArcade.Api.Connect.ConnectChainStepEndpoints`), `.RequireAuthorization()`'d;
+a step that fails live validation is a normal `200 OK` with
+`IsValid: false` (mirroring `GuessEndpoints`'s "wrong guess is not an
+error" precedent), never a 4xx/5xx — only genuine precondition failures
+(404 not-found, 403 not-a-participant, 409 not-active, 409
+chain-already-complete) or a technical live-lookup failure (503) get a
+non-200 status. Candidate search itself needs no new endpoint — the
+existing `/players/autocomplete` (REQ-207/COMP-10) already satisfies this
+REQ's "not restricted to the curated reference tables" clause. This
+story does NOT enforce any cap on invalid attempts per position — that is
+REQ-1407/S-214's job; `AttemptNumber` is computed and stored but never
+checked against a limit here. Full `REQ1406_...`-named test coverage in
+`PlayerCareerOverlapServiceTests.cs`, `ConnectChainStepServiceTests.cs`,
+`ConnectChainStepEndpointTests.cs`, and one test in
+`PlayerAutocompleteEndpointTests.cs`. **Test level below is fully
+satisfied.**
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players

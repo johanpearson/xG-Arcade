@@ -33,6 +33,16 @@ namespace XGArcade.Data.Entities;
 // IsValid is the outcome of the live overlapping-time-period check
 // (computed by a later story, not this one).
 //
+// ClosesChain (S-213/REQ-1406): true only on a step that is ALSO IsValid,
+// where the candidate additionally has a valid overlapping-time shared-club
+// connection (checked via IPlayerCareerOverlapService.HaveSharedClubOverlapAsync
+// — any shared club, not restricted to this step's own ClaimedClubName) to
+// the match's OTHER target pick — never the one this player's chain started
+// from. Never true when IsValid is false. Once a step with ClosesChain=true
+// exists for a (ConnectMatchId, UserId) pair, that player's chain is
+// complete and no further steps may be submitted for this match
+// (ConnectChainStepService enforces this, not this entity).
+//
 // Index on (ConnectMatchId, UserId, Position, AttemptNumber) matches a
 // future chain-reconstruction read's natural shape — deliberately NOT
 // unique: both a failed first attempt and a successful retry at the same
@@ -47,5 +57,6 @@ public class ConnectChainStep
     public required Guid CandidatePlayerId { get; set; }
     public required string ClaimedClubName { get; set; }
     public required bool IsValid { get; set; }
+    public required bool ClosesChain { get; set; }
     public required DateTime SubmittedAt { get; set; }
 }

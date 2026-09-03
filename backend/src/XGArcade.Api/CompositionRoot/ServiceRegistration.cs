@@ -264,6 +264,11 @@ public static class ServiceRegistration
         // IPlayerCareerOverlapService immediately above — see
         // ConnectTargetPickService's own doc comment.
         builder.Services.AddScoped<IConnectTargetPickService, ConnectTargetPickService>();
+        // REQ-1406/S-213: chain-step submission/live-validation business
+        // logic, layered on top of IConnectMatchRepository above,
+        // IPlayerCareerOverlapService above, and IPlayerRepository (COMP-06)
+        // — see ConnectChainStepService's own doc comment.
+        builder.Services.AddScoped<IConnectChainStepService, ConnectChainStepService>();
         // REQ-1405/S-212: match-start/6h-forfeit-timer/resolution
         // scaffolding, layered on top of IConnectMatchRepository above —
         // see ConnectMatchLifecycleService's own doc comment. Injected by

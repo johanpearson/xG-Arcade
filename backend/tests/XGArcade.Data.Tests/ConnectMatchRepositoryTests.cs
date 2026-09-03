@@ -255,6 +255,7 @@ public class ConnectMatchRepositoryTests
             CandidatePlayerId = candidatePlayerId,
             ClaimedClubName = "Arsenal",
             IsValid = true,
+            ClosesChain = false,
             SubmittedAt = submittedAt,
         };
 
@@ -278,12 +279,12 @@ public class ConnectMatchRepositoryTests
         var failedAttempt = new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 1,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Wrong Club", IsValid = false, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Wrong Club", IsValid = false, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         };
         var retryAttempt = new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 2,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Right Club", IsValid = true, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Right Club", IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         };
 
         await _repository.AddChainStepAsync(failedAttempt);
@@ -303,12 +304,12 @@ public class ConnectMatchRepositoryTests
         await _repository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 1,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         });
         await _repository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = otherUserId, Position = 1, AttemptNumber = 1,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         });
 
         var result = await _repository.GetChainStepsForMatchAndUserAsync(matchId, userId);
