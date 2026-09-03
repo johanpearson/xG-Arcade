@@ -22,12 +22,12 @@ public class ConnectChainStepService(
         Guid matchId, Guid userId, string candidatePlayerName, string claimedClubName,
         CancellationToken cancellationToken = default)
     {
-        var match = await connectMatchRepository.GetMatchByIdAsync(matchId, cancellationToken);
-        if (match is null)
+        var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
+        if (access.Outcome == ConnectMatchAccessOutcome.MatchNotFound)
             return new SubmitChainStepResult(SubmitChainStepOutcome.MatchNotFound, null);
-
-        if (match.PlayerAUserId != userId && match.PlayerBUserId != userId)
+        if (access.Outcome == ConnectMatchAccessOutcome.NotAParticipant)
             return new SubmitChainStepResult(SubmitChainStepOutcome.NotAParticipant, null);
+        var match = access.Match!;
 
         if (match.Status != ConnectMatchStatus.Active)
             return new SubmitChainStepResult(SubmitChainStepOutcome.MatchNotActive, null);

@@ -13,11 +13,10 @@ public class ConnectChatService(
     public async Task<SendChatMessageResult> SendMessageAsync(
         Guid matchId, Guid userId, string messageText, CancellationToken cancellationToken = default)
     {
-        var match = await connectMatchRepository.GetMatchByIdAsync(matchId, cancellationToken);
-        if (match is null)
+        var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
+        if (access.Outcome == ConnectMatchAccessOutcome.MatchNotFound)
             return new SendChatMessageResult(ConnectChatOutcome.MatchNotFound, null);
-
-        if (match.PlayerAUserId != userId && match.PlayerBUserId != userId)
+        if (access.Outcome == ConnectMatchAccessOutcome.NotAParticipant)
             return new SendChatMessageResult(ConnectChatOutcome.NotAParticipant, null);
 
         var message = new ConnectChatMessage
@@ -36,11 +35,10 @@ public class ConnectChatService(
     public async Task<GetChatMessagesResult> GetMessagesAsync(
         Guid matchId, Guid userId, CancellationToken cancellationToken = default)
     {
-        var match = await connectMatchRepository.GetMatchByIdAsync(matchId, cancellationToken);
-        if (match is null)
+        var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
+        if (access.Outcome == ConnectMatchAccessOutcome.MatchNotFound)
             return new GetChatMessagesResult(ConnectChatOutcome.MatchNotFound, null);
-
-        if (match.PlayerAUserId != userId && match.PlayerBUserId != userId)
+        if (access.Outcome == ConnectMatchAccessOutcome.NotAParticipant)
             return new GetChatMessagesResult(ConnectChatOutcome.NotAParticipant, null);
 
         var messages = await connectChatMessageRepository.GetMessagesForMatchAsync(matchId, cancellationToken);

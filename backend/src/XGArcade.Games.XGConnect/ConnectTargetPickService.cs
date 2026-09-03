@@ -20,12 +20,12 @@ public class ConnectTargetPickService(
     public async Task<SubmitTargetPickResult> SubmitTargetPickAsync(
         Guid matchId, Guid userId, Guid targetPlayerId, CancellationToken cancellationToken = default)
     {
-        var match = await connectMatchRepository.GetMatchByIdAsync(matchId, cancellationToken);
-        if (match is null)
+        var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
+        if (access.Outcome == ConnectMatchAccessOutcome.MatchNotFound)
             return new SubmitTargetPickResult(SubmitTargetPickOutcome.MatchNotFound, null);
-
-        if (match.PlayerAUserId != userId && match.PlayerBUserId != userId)
+        if (access.Outcome == ConnectMatchAccessOutcome.NotAParticipant)
             return new SubmitTargetPickResult(SubmitTargetPickOutcome.NotAParticipant, null);
+        var match = access.Match!;
 
         var callerExistingPick = await connectMatchRepository.GetTargetPickAsync(matchId, userId, cancellationToken);
         if (callerExistingPick is { IsLocked: true })
