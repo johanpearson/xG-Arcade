@@ -3,9 +3,11 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.Games.XGConnect;
 
-// REQ-1405/S-212: see IConnectMatchLifecycleService's own doc comment.
+// REQ-1405/S-212, REQ-1407/1408/1409/S-214: see
+// IConnectMatchLifecycleService's own doc comment.
 public class ConnectMatchLifecycleService(
     IConnectMatchRepository connectMatchRepository,
+    IConnectScoringService connectScoringService,
     TimeProvider timeProvider) : IConnectMatchLifecycleService
 {
     public async Task StartMatchIfBothPicksLockedAsync(Guid matchId, CancellationToken cancellationToken = default)
@@ -34,55 +36,121 @@ public class ConnectMatchLifecycleService(
 
         foreach (var match in matches)
         {
-            // Track each slot's terminal status locally rather than
-            // re-reading the match after every write — `match` came back
-            // AsNoTracking from GetActiveMatchesPastDeadlineAsync, so its
-            // own PlayerATimedOutAt/PlayerBTimedOutAt already reflect
-            // whatever was true BEFORE this sweep call (e.g. a slot marked
-            // terminal by a future S-213/S-214 bust/completion path, or an
-            // earlier sweep pass that only got as far as one slot). Folding
-            // in this pass's own writes locally is what lets "both reached
-            // terminal" be evaluated correctly in the SAME iteration that
-            // just wrote one or both of them, rather than needing a second
-            // sweep pass to notice.
-            var playerATimedOutAt = match.PlayerATimedOutAt;
-            var playerBTimedOutAt = match.PlayerBTimedOutAt;
-
-            if (playerATimedOutAt is null)
+            // REQ-1407/1408/S-214: a slot can already be terminal via a
+            // bust or a completed chain while the match is still Active
+            // (because the OTHER player hasn't reached terminal yet) — such
+            // a slot must NOT be marked timed-out just because the shared
+            // deadline has passed. `match` came back AsNoTracking from
+            // GetActiveMatchesPastDeadlineAsync, so PlayerATimedOutAt/
+            // PlayerBTimedOutAt/PlayerABustedAt/PlayerBBustedAt reflect
+            // state as of before this sweep pass; chain completion isn't a
+            // column on this entity at all, so it's checked here the same
+            // way TryResolveMatchIfBothTerminalAsync checks it below — a
+            // ClosesChain=true ConnectChainStep row for that slot's UserId.
+            if (match.PlayerATimedOutAt is null && match.PlayerABustedAt is null)
             {
-                await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, now, cancellationToken);
-                playerATimedOutAt = now;
-                playersForfeited++;
+                var playerASteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, match.PlayerAUserId, cancellationToken);
+                if (!playerASteps.Any(s => s.IsValid && s.ClosesChain))
+                {
+                    await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, now, cancellationToken);
+                    playersForfeited++;
+                }
             }
 
-            if (playerBTimedOutAt is null)
+            if (match.PlayerBTimedOutAt is null && match.PlayerBBustedAt is null)
             {
-                await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, now, cancellationToken);
-                playerBTimedOutAt = now;
-                playersForfeited++;
+                var playerBSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, match.PlayerBUserId, cancellationToken);
+                if (!playerBSteps.Any(s => s.IsValid && s.ClosesChain))
+                {
+                    await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, now, cancellationToken);
+                    playersForfeited++;
+                }
             }
 
-            // Both slots are now terminal — timeout is currently the ONLY
-            // terminal-reaching path with real code behind it (REQ-1407's
-            // bust and REQ-1408's chain completion are S-213/S-214's own
-            // work), so both slots reaching terminal via timeout is,
-            // unambiguously by REQ-1409's already-documented "both players
-            // forfeit -> draw" rule, a Draw. A mixed outcome (one timed
-            // out, one legitimately busted/completed before the deadline)
-            // is S-213/S-214's own resolution logic to add once those
-            // terminal paths exist — out of scope here. Resolving inside
-            // this same loop iteration, in the same sweep call that just
-            // learned both slots are terminal, is what satisfies REQ-1405's
-            // "resolves immediately once both are reached, never waiting
-            // out an unused remainder of the 6h window" rule — there is no
-            // later pass this waits for.
-            if (playerATimedOutAt is not null && playerBTimedOutAt is not null)
-            {
-                await connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, now, cancellationToken);
+            // REQ-1405/1409: resolve immediately in this same sweep call,
+            // never deferred to a later pass — TryResolveMatchIfBothTerminalAsync
+            // re-reads the match's full terminal state itself (timeout,
+            // bust, AND chain completion, whichever mix applies) rather
+            // than this loop trying to track it locally, which is what
+            // makes a mixed outcome (one timed out, one already
+            // busted/completed) resolve correctly here too, not just the
+            // both-timed-out case this sweep used to special-case inline.
+            if (await TryResolveMatchIfBothTerminalAsync(match.Id, cancellationToken))
                 matchesResolved++;
-            }
         }
 
         return new ForfeitSweepResult(playersForfeited, matchesResolved);
+    }
+
+    public async Task<bool> TryResolveMatchIfBothTerminalAsync(Guid matchId, CancellationToken cancellationToken = default)
+    {
+        var match = await connectMatchRepository.GetMatchByIdAsync(matchId, cancellationToken);
+        if (match is null || match.Status == ConnectMatchStatus.Resolved)
+            return false;
+
+        // REQ-1408: chain completion is detected the same way
+        // ConnectChainStepService itself detects it — a ClosesChain=true
+        // ConnectChainStep row for that slot's UserId. Queried by slot
+        // (match.PlayerAUserId/PlayerBUserId) rather than by an
+        // independently-supplied userId, consistent with every other
+        // slot-based read/write in this class.
+        var playerASteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, match.PlayerAUserId, cancellationToken);
+        var playerBSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, match.PlayerBUserId, cancellationToken);
+
+        var playerACompleted = playerASteps.Any(s => s.IsValid && s.ClosesChain);
+        var playerBCompleted = playerBSteps.Any(s => s.IsValid && s.ClosesChain);
+
+        var playerAForfeited = match.PlayerATimedOutAt is not null || match.PlayerABustedAt is not null;
+        var playerBForfeited = match.PlayerBTimedOutAt is not null || match.PlayerBBustedAt is not null;
+
+        var playerATerminal = playerACompleted || playerAForfeited;
+        var playerBTerminal = playerBCompleted || playerBForfeited;
+
+        // REQ-1405's "not resolved until both players have reached a
+        // terminal state" rule — the still-active player keeps playing
+        // normally, unaffected by the other's already-reached terminal
+        // state.
+        if (!playerATerminal || !playerBTerminal)
+            return false;
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        ConnectMatchOutcome outcome;
+        int? playerAScore = null;
+        int? playerBScore = null;
+
+        if (playerACompleted && playerBCompleted)
+        {
+            // REQ-1409: both completed a valid chain — strictly lower score
+            // wins, equal scores draw.
+            playerAScore = connectScoringService.CalculateScore(playerASteps);
+            playerBScore = connectScoringService.CalculateScore(playerBSteps);
+            outcome = playerAScore < playerBScore
+                ? ConnectMatchOutcome.PlayerAWin
+                : playerBScore < playerAScore
+                    ? ConnectMatchOutcome.PlayerBWin
+                    : ConnectMatchOutcome.Draw;
+        }
+        else if (playerACompleted)
+        {
+            // REQ-1409: A completed, B forfeited (playerBTerminal is true
+            // and playerBCompleted is false, so B must be forfeited) — A
+            // wins outright, no minimum score required; B has no score.
+            playerAScore = connectScoringService.CalculateScore(playerASteps);
+            outcome = ConnectMatchOutcome.PlayerAWin;
+        }
+        else if (playerBCompleted)
+        {
+            playerBScore = connectScoringService.CalculateScore(playerBSteps);
+            outcome = ConnectMatchOutcome.PlayerBWin;
+        }
+        else
+        {
+            // REQ-1409: both forfeited (any mix of bust/timeout) — draw,
+            // neither gets a score.
+            outcome = ConnectMatchOutcome.Draw;
+        }
+
+        await connectMatchRepository.ResolveMatchAsync(matchId, outcome, now, playerAScore, playerBScore, cancellationToken);
+        return true;
     }
 }

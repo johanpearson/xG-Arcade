@@ -58,6 +58,23 @@ public enum SubmitChainStepOutcome
     // for this match."
     ChainAlreadyComplete,
 
+    // REQ-1407/S-214: the claimed overlap did NOT check out on the caller's
+    // one allowed retry (AttemptNumber 2) at this position — the second,
+    // consecutive failure at the same position. The step IS persisted
+    // (IsValid = false, same as InvalidStep) but the caller's slot is also
+    // marked busted (a terminal state) and match resolution is attempted —
+    // distinct from InvalidStep so a caller/test can tell an ordinary
+    // first-attempt failure apart from one that just ended the match for
+    // this player.
+    Busted,
+
+    // REQ-1407/S-214: the caller's own slot on this match already reached a
+    // terminal state (busted or timed out) before this submission — no
+    // further steps may be submitted by that player, even while
+    // ConnectMatch.Status is still Active (true whenever the OTHER player
+    // hasn't yet reached terminal). Nothing is persisted.
+    AlreadyForfeited,
+
     // REQ-1406/ADR-0007: candidatePlayerName didn't resolve to any known
     // Player (COMP-06) via an exact normalized-name match. Nothing is
     // persisted — ConnectChainStep.CandidatePlayerId is a required,
@@ -75,7 +92,8 @@ public enum SubmitChainStepOutcome
     LiveLookupUnavailable,
 }
 
-// ChainStep is non-null only for StepAccepted/ChainClosed/InvalidStep — the
-// three outcomes that actually persist a row. Null for every outcome where
-// nothing was (or could be) written.
+// ChainStep is non-null only for StepAccepted/ChainClosed/InvalidStep/Busted
+// — the four outcomes that actually persist a row (Busted's row IS the
+// InvalidStep-shaped row that triggered the bust). Null for every outcome
+// where nothing was (or could be) written.
 public record SubmitChainStepResult(SubmitChainStepOutcome Outcome, ConnectChainStep? ChainStep);

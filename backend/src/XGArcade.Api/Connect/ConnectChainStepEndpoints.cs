@@ -43,6 +43,13 @@ public static class ConnectChainStepEndpoints
                 SubmitChainStepOutcome.StepAccepted => Results.Ok(ToResponse(result.ChainStep!, chainComplete: false)),
                 SubmitChainStepOutcome.ChainClosed => Results.Ok(ToResponse(result.ChainStep!, chainComplete: true)),
                 SubmitChainStepOutcome.InvalidStep => Results.Ok(ToResponse(result.ChainStep!, chainComplete: false)),
+                // REQ-1407/S-214: still a normal 200 — same "your
+                // submission's outcome, not an error" shape as
+                // InvalidStep/StepAccepted/ChainClosed (GuessEndpoints'
+                // precedent) — but Busted: true distinguishes it from an
+                // ordinary first-attempt failure for a caller that needs to
+                // know its match participation just ended.
+                SubmitChainStepOutcome.Busted => Results.Ok(ToResponse(result.ChainStep!, chainComplete: false, busted: true)),
                 // REQ-1406/ADR-0007: candidatePlayerName didn't resolve to
                 // any known player at all — nothing was (or could be)
                 // persisted, since ConnectChainStep.CandidatePlayerId is a
@@ -67,6 +74,13 @@ public static class ConnectChainStepEndpoints
                     title: "Chain already complete",
                     detail: "Your chain for this match is already complete and locked — no further steps may be submitted.",
                     statusCode: StatusCodes.Status409Conflict),
+                // REQ-1407/S-214: same Problem shape as ChainAlreadyComplete
+                // above — the caller's own slot already reached a terminal
+                // state (busted or timed out) before this submission.
+                SubmitChainStepOutcome.AlreadyForfeited => Results.Problem(
+                    title: "Already forfeited",
+                    detail: "Your participation in this match has already ended (busted or timed out) — no further steps may be submitted.",
+                    statusCode: StatusCodes.Status409Conflict),
                 // ADR-0010/0011: same shape ConnectMatchEndpoints.cs uses for
                 // SubmitTargetPickOutcome.LiveLookupUnavailable.
                 SubmitChainStepOutcome.LiveLookupUnavailable => Results.Problem(
@@ -78,9 +92,9 @@ public static class ConnectChainStepEndpoints
         }).RequireAuthorization();
     }
 
-    private static SubmitChainStepResponse ToResponse(ConnectChainStep chainStep, bool chainComplete) =>
+    private static SubmitChainStepResponse ToResponse(ConnectChainStep chainStep, bool chainComplete, bool busted = false) =>
         new(chainStep.IsValid, chainComplete, chainStep.Position, chainStep.AttemptNumber,
-            chainStep.CandidatePlayerId, chainStep.ClaimedClubName);
+            chainStep.CandidatePlayerId, chainStep.ClaimedClubName, busted);
 }
 
 public record SubmitChainStepRequest(string CandidatePlayerName, string ClaimedClubName);
@@ -91,6 +105,9 @@ public record SubmitChainStepRequest(string CandidatePlayerName, string ClaimedC
 // S-218, so this DTO is deliberately not over-designed for a UI that
 // doesn't exist yet. CandidatePlayerId/ClaimedClubName/Position/
 // AttemptNumber are null only for CandidateNotFound, where nothing was
-// persisted at all.
+// persisted at all. Busted (REQ-1407/S-214) defaults to false and is true
+// only for the Busted outcome — see SubmitChainStepOutcome.Busted's own doc
+// comment.
 public record SubmitChainStepResponse(
-    bool IsValid, bool ChainComplete, int? Position, int? AttemptNumber, Guid? CandidatePlayerId, string? ClaimedClubName);
+    bool IsValid, bool ChainComplete, int? Position, int? AttemptNumber, Guid? CandidatePlayerId, string? ClaimedClubName,
+    bool Busted = false);
