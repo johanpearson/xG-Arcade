@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.54"
+version: "2.55"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -10935,6 +10935,19 @@ listing pending requests, and accept/decline. REQ-1411's header-nav badge
 (see that REQ's own status note below) surfaces a pending incoming request
 as part of its combined count.
 
+**Status note addendum (2026-09-03, same day — direct user feedback):**
+`FriendRequestResponse` gained `requesterDisplayName`/
+`recipientDisplayName` and `FriendshipResponse` gained `friendDisplayName`
+(both batch-resolved server-side via `IUserRepository.GetByIdsAsync`, never
+one lookup per row), closing SCREEN-15's "Identity gap" — every row on
+`FriendsTab` previously showed a placeholder ("Player " + 8 chars of the
+raw id) instead of a real name. A "My friends" row's display name is now
+also a real navigation link to that friend's `UserStatsScreen`
+(`onSelectPlayer`, mirroring `LeaderboardRowsList.tsx`'s existing prop of
+the same name/signature exactly), per further direct feedback the same
+day. See design-document.md SCREEN-15's own "Identity gap — resolved" and
+"clickable friend rows" notes for the full detail.
+
 - Given two existing xG Arcade accounts, User A and User B, who are not
   already friends and have no pending friend request between them
 - When User A sends User B a friend request
@@ -11001,6 +11014,13 @@ one tab over: `FriendsTab`'s own `FriendRow` gets a "Challenge" button per
 friend, per design-document.md SCREEN-15's framing that the friends list
 itself is where you'd challenge a friend, not the Challenges tab (which is
 scoped to challenges already sent to the viewer).
+
+**Status note addendum (2026-09-03, same day — direct user feedback):**
+`ChallengeResponse` gained `challengerDisplayName`/`challengedDisplayName`
+(batch-resolved server-side, same pattern as REQ-1401's own addendum
+above), closing the same SCREEN-15 "Identity gap" for `ChallengesTab` —
+previously every row showed a placeholder id-derived label instead of the
+challenger's real name.
 
 - Given User A and User B are friends (REQ-1401)
 - When User A sends User B a direct xG Connect challenge
@@ -11594,19 +11614,33 @@ extended `ConnectMatchLifecycleServiceTests.cs`/
 same-story follow-up commit not separately doc-synced at the time — this
 note corrects that gap.
 
-**Status note (2026-09-03, S-217 — frontend built):** `HeaderNav`
-(`frontend/src/nav/`) gained a `friendsNotificationCount` prop, computed
-in `App.tsx` as the sum of `useNotificationSummary`'s three counts
-(`frontend/src/lib/useNotificationSummary.ts`, a 15-second self-rescheduling
-poll of `GET /notifications/summary`, mounted once at the top of `App()`
-so it stays current regardless of which screen is showing) and rendered
-as an inline "Friends (N)" count on the "Friends" nav entry, omitted
-entirely at 0 — design-document.md SCREEN-07's 2026-09-03 status note
-resolves REQ-1411's deliberately-open count-vs-presence-dot choice in
-favor of a count, the same inline "(N)" convention `AdminScreen`'s
-existing pending-count sections ("Player suggestions (N)", "Unverified
-data (N)", SCREEN-04) already use. A transient poll failure never blanks
-the badge, only a real 401 escalates via `onAuthError`.
+**Status note (2026-09-03, S-217 — frontend built; redesigned same day,
+direct user feedback):** `App.tsx` still computes `useNotificationSummary`'s
+three counts (`frontend/src/lib/useNotificationSummary.ts`, a 15-second
+self-rescheduling poll of `GET /notifications/summary`, mounted once at the
+top of `App()` so it stays current regardless of which screen is showing),
+but the original inline "Friends (N)" text-in-parens label on the "Friends"
+nav entry was replaced the same day by a new `NotificationBadge`
+(`frontend/src/nav/NotificationBadge.tsx`) — direct feedback that the
+inline label was buried inside the collapsed mobile nav menu below the
+480px breakpoint and gave no indication of *where* the notification was.
+`NotificationBadge` renders unconditionally in the header, immediately
+before the "☰ Menu" toggle, at every viewport width: a small filled
+`accent-red` pill with a white (`surface-card`) numeral showing the same
+combined total as before (still omitted entirely at 0 — REQ-1411's
+"no indicator at zero" rule is unchanged), reusing existing design tokens
+only (no new color — contrast re-verified for both themes,
+design-document.md SCREEN-07's 2026-09-03 "Badge redesign" note). Clicking
+it opens a small dropdown (`role="menu"`) breaking the total down by
+category, each non-zero category listed and a zero category omitted:
+"Friend requests (N)" and "Challenges (N)" are real navigation links
+(`onOpenFriendsTab`) that open `FriendsScreen`/SCREEN-15 already on the
+matching tab via a new `initialTab` prop; "Matches awaiting your move (N)"
+is deliberately plain, non-interactive text, since S-218's match/gameplay
+screen doesn't exist yet for it to link to. The "Friends" nav entry itself
+reverts to a plain "Friends" label with no count suffix, since the badge
+now carries that information. A transient poll failure never blanks the
+badge, only a real 401 escalates via `onAuthError`.
 
 - Given a player has at least one item in any of these three states: a
   friend request sent to them and not yet accepted/declined (REQ-1401), a

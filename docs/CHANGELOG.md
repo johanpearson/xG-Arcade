@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.54→2.55, REQ-1411's
+  status note rewritten — it still described the pre-redesign
+  `friendsNotificationCount` prop and inline "Friends (N)" label as current
+  fact; now describes the actual shipped `NotificationBadge.tsx` badge and
+  its category-breakdown dropdown — plus short status-note addenda on
+  REQ-1401/1402 for the new `*DisplayName` response fields and the
+  friend-row-click-to-profile behavior), `docs/implementation-document.md`
+  (1.26→1.27, project-structure §4: `/nav` entry updated for
+  `NotificationBadge.tsx` replacing the old inline-count description,
+  `/social` entry updated to remove the now-dead `shortUserId.ts` and add
+  the display-name/clickable-row follow-up), `docs/backlog.md` (new S-219
+  entry, Epic 27, recording this follow-up as its own numbered story since
+  it's real shipped work distinct from S-217's own entry) — doc-sync for
+  two commits (`087b2e7`, `8a5769c`) landed on top of already-merged S-217,
+  responding to direct user feedback: backend added
+  `RequesterDisplayName`/`RecipientDisplayName`/`FriendDisplayName`/
+  `ChallengerDisplayName`/`ChallengedDisplayName` to the friend/challenge
+  response DTOs (batch-resolved, no N+1), and the frontend replaced the
+  header-nav's inline "Friends (N)" label with a real notification badge
+  plus a category-breakdown dropdown, and made friend-list rows clickable
+  to a profile. `docs/design-document.md` was already updated in the same
+  commit (SCREEN-07, SCREEN-15), not touched again here.
+  `docs/architecture-document.md` checked, no change needed — COMP-16's row
+  already covers the endpoints touched; the new fields are additive DTO
+  changes, not a boundary/responsibility change, confirmed by an
+  `architecture-reviewer` pass. No new ADR — additive response fields plus
+  a client-side visual redesign of an already-Built REQ-1411 feature.
+  REQ-1401, REQ-1402, REQ-1411.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.53→2.54, status notes
   added to REQ-1401/1402/1403 for the S-217 frontend and REQ-1411's status
   block corrected to "Built" — backend S-216, frontend S-217 — including a
