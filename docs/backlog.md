@@ -10678,7 +10678,12 @@ anonymized too, not just `ConnectMatch`/`ConnectTargetPick`/
 `ConnectChainStep`. No schema migration — `ConnectChatMessage` already
 existed (S-208). No new ADR — same "straightforward, requirement-mandated
 implementation of already-accepted REQ text" reasoning S-211 through
-S-214's own entries already used for this component.
+S-214's own entries already used for this component. A follow-up commit
+the same story (`d895c1a`, 2026-09-03) satisfied this story's
+`REQ1410_...`-named tests accept criterion: `ConnectChatServiceTests.cs`
+and `ConnectChatEndpointTests.cs`, plus `REQ710_...`-named coverage of
+`AnonymizeSenderAsync` in an extended `ConnectChatMessageRepositoryTests.cs`
+and `XGConnectGameModuleTests.cs`.
 
 **S-216 · Notification indicator, backend (REQ-1411)**
 Aggregate endpoint for the current user: pending friend requests +

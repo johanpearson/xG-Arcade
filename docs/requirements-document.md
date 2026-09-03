@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.50"
+version: "2.51"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11493,8 +11493,9 @@ the second block requires chat to remain readable once a match has
 resolved for both players. Exposed as `POST`/`GET
 /matches/{matchId}/chat-messages`
 (`XGArcade.Api.Connect.ConnectChatEndpoints`). Full `REQ1410_...`-named
-coverage pending a test-writer pass. **Test level below is satisfied by
-that coverage once written.**
+coverage now exists (S-215 follow-up, 2026-09-03, commit `d895c1a`):
+`ConnectChatServiceTests.cs` and `ConnectChatEndpointTests.cs`. **Test
+level below is satisfied by that coverage.**
 
 - Given an active xG Connect match between two players (REQ-1405)
 - When either player sends a chat message

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.23"
+version: "1.24"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -931,13 +931,23 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    XGConnectGameModuleTests.cs's SetUp to
                                    construct XGConnectGameModule with its new
                                    second constructor parameter,
-                                   IConnectChatMessageRepository — no new
-                                   assertions added there. REQ1410_-named unit
-                                   coverage (ConnectChatServiceTests.cs) and
-                                   API coverage (ConnectChatEndpointTests.cs)
-                                   were deliberately left to a separate
-                                   test-writer pass, not written by this
-                                   story's implementing agent.
+                                   IConnectChatMessageRepository. A follow-up
+                                   commit the same story (d895c1a, 2026-09-03)
+                                   then added the REQ1410_-named unit coverage
+                                   (ConnectChatServiceTests.cs, in
+                                   XGArcade.Games.XGConnect.Tests) and API
+                                   coverage (ConnectChatEndpointTests.cs, in
+                                   XGArcade.Api.Tests) that were originally
+                                   left to a separate test-writer pass, plus
+                                   the REQ710_-named coverage of the new
+                                   AnonymizeSenderAsync method: an extended
+                                   ConnectChatMessageRepositoryTests.cs
+                                   (XGArcade.Data.Tests) and an extension of
+                                   XGConnectGameModuleTests.cs's own existing
+                                   PurgeUserDataAsync test to assert chat
+                                   messages are anonymized end-to-end
+                                   alongside the match/pick/step rows it
+                                   already covered.
 
 /frontend
   /src                          -> feature folders, not the layer folders this

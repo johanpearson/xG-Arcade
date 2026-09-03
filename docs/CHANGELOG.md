@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.50→2.51, REQ-1410 status
+  note corrected), `docs/implementation-document.md` (1.23→1.24,
+  `/XGArcade.Games.XGConnect.Tests`/`/XGArcade.Api.Tests`/
+  `/XGArcade.Data.Tests` project-structure entries corrected),
+  `docs/architecture-document.md` (1.43→1.44, COMP-17 row extended),
+  `docs/backlog.md` (S-215 entry extended) — doc-sync pass: the S-215
+  commit's own doc edit (previous entry below) said `REQ1410_...`-named
+  test coverage was "pending a test-writer pass," but a later commit in
+  the same story (`d895c1a`, "Add REQ-1410 test coverage for in-match text
+  chat (S-215)") already added it before the docs were updated to say so.
+  Verified `ConnectChatServiceTests.cs`, `ConnectChatEndpointTests.cs`,
+  the extended `ConnectChatMessageRepositoryTests.cs`, and the extended
+  `XGConnectGameModuleTests.cs` all exist and contain `REQ1410_...`/
+  `REQ710_...`-named tests before correcting the four docs above to say
+  the coverage exists rather than is pending. No code changed, no new
+  ADR. REQ refs: REQ-1410, REQ-710.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.49→2.50, REQ-1410 Status
   updated from Proposed to Built), `docs/architecture-document.md`
   (1.42→1.43, COMP-17 row extended with the S-215 in-match-chat build note,
