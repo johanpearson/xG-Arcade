@@ -356,6 +356,47 @@ public class ConnectMatchLifecycleServiceTests
         Assert.That(stored.PlayerBScore, Is.Null);
     }
 
+    // REQ-1409 GWT#5: a forfeiting player's only consequence is losing/
+    // drawing THIS match and having no score for it — nothing carries
+    // forward into any other match, including a second match between the
+    // very same two players. ConnectMatch has no cross-match field at all
+    // (no per-user penalty counter, no rating) that a resolution could even
+    // write to beyond its own row; this test pins that a second, unrelated
+    // match between the same players is left completely untouched by
+    // resolving the first.
+    [Test]
+    public async Task REQ1409_TryResolveMatchIfBothTerminalAsync_PlayerForfeits_LeavesAnyOtherMatchBetweenSamePlayersUntouched()
+    {
+        var playerAUserId = Guid.NewGuid();
+        var playerBUserId = Guid.NewGuid();
+        var forfeitedMatch = await CreateMatchAsync(playerAUserId, playerBUserId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(forfeitedMatch.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await _connectMatchRepository.MarkPlayerBustedAsync(forfeitedMatch.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(forfeitedMatch.Id, isPlayerA: false, FixedNow.UtcDateTime);
+
+        // A second, otherwise-unrelated match between the SAME two players,
+        // still awaiting target picks — untouched by anything below.
+        var otherMatch = await CreateMatchAsync(playerAUserId, playerBUserId, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var resolved = await service.TryResolveMatchIfBothTerminalAsync(forfeitedMatch.Id);
+
+        Assert.That(resolved, Is.True);
+        var storedForfeitedMatch = await _connectMatchRepository.GetMatchByIdAsync(forfeitedMatch.Id);
+        Assert.That(storedForfeitedMatch!.Outcome, Is.EqualTo(ConnectMatchOutcome.Draw));
+
+        var storedOtherMatch = await _connectMatchRepository.GetMatchByIdAsync(otherMatch.Id);
+        Assert.That(storedOtherMatch!.Status, Is.EqualTo(ConnectMatchStatus.AwaitingTargetPicks),
+            "a forfeit consequence must never carry over into a different match, even one between the same two players");
+        Assert.That(storedOtherMatch.Outcome, Is.EqualTo(ConnectMatchOutcome.Pending));
+        Assert.That(storedOtherMatch.PlayerABustedAt, Is.Null);
+        Assert.That(storedOtherMatch.PlayerATimedOutAt, Is.Null);
+        Assert.That(storedOtherMatch.PlayerBBustedAt, Is.Null);
+        Assert.That(storedOtherMatch.PlayerBTimedOutAt, Is.Null);
+        Assert.That(storedOtherMatch.PlayerAScore, Is.Null);
+        Assert.That(storedOtherMatch.PlayerBScore, Is.Null);
+    }
+
     [Test]
     public async Task REQ1409_TryResolveMatchIfBothTerminalAsync_OnlyOnePlayerTerminal_ReturnsFalse_DoesNotResolve()
     {
