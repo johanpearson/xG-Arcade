@@ -168,6 +168,13 @@ public static class EndpointMapping
         // chat send/read surface — its own file/registration, same per-
         // feature split as MapConnectChainStepEndpoints immediately above.
         app.MapConnectChatEndpoints();
+        // REQ-1404/1405/1406/1409/1411/ADR-0103, S-218 prep: GET /matches +
+        // GET /matches/{matchId} — the read-only surface unblocking S-218's
+        // frontend gameplay screen (every xG Connect endpoint above this
+        // one is write-only). Its own file/registration, same per-feature
+        // split as MapConnectMatchEndpoints/MapConnectChainStepEndpoints/
+        // MapConnectChatEndpoints above.
+        app.MapConnectMatchQueryEndpoints();
         // REQ-1411/S-216/ADR-0103: the visible-notification-indicator
         // aggregate read (GET /notifications/summary) — combines pending
         // friend requests (Core.Social/COMP-16), pending challenges

@@ -10794,3 +10794,17 @@ in-match chat UI.
 (challenge → both picks → chain to completion → resolution); manual
 browser check.
 *Deps:* S-214, S-215, S-217.
+
+**In progress (2026-09-03):** while preparing this story's handoff, found
+every existing xG Connect endpoint (`ConnectMatchEndpoints`/
+`ConnectChainStepEndpoints`/`ConnectChatEndpoints`) was write-only — there
+was no way for this screen to read a match's current state, or even
+discover which `matchId`s belong to the caller. Closed that gap first, as
+a natural read-side extension of already-built REQ-1404/1405/1406/1409/
+1411 behavior (no new REQ/ADR): `GET /matches` and `GET /matches/{matchId}`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`, backed by a new
+`IConnectMatchQueryService`/`ConnectMatchQueryService` in
+`XGArcade.Games.XGConnect`). See each of those REQs' own "Read-side
+addendum" status notes in `requirements-document.md` §4.15 for the exact
+shapes. The gameplay screen itself (this story's actual scope) is
+otherwise still to build.

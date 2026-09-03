@@ -178,6 +178,14 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
                 && m.Status != ConnectMatchStatus.Resolved)
             .ToListAsync(cancellationToken);
 
+    // S-218 prep: see this method's own doc comment on IConnectMatchRepository.
+    public async Task<IReadOnlyList<ConnectMatch>> GetAllMatchesForUserAsync(
+        Guid userId, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectMatches
+            .AsNoTracking()
+            .Where(m => m.PlayerAUserId == userId || m.PlayerBUserId == userId)
+            .ToListAsync(cancellationToken);
+
     // REQ-710/ADR-0101: load-then-save (coding-guidelines.md — never
     // ExecuteUpdateAsync, the InMemory test provider can't translate it),
     // tracked (not AsNoTracking) since every row here is mutated in place.

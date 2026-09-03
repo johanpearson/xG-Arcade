@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.54→2.55, "Read-side
+  addendum" status notes added to REQ-1404/1405/1406/1409/1411),
+  `docs/backlog.md` (S-218 entry given an "In progress" note) — while
+  preparing S-218's (frontend gameplay screen) handoff, found every
+  existing xG Connect endpoint was write-only, with no way to read a
+  match's state or discover which `matchId`s belong to the caller. Added
+  two new read endpoints to close that gap: `GET /matches` and `GET
+  /matches/{matchId}` (`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`),
+  backed by a new `IConnectMatchQueryService`/`ConnectMatchQueryService`
+  (`XGArcade.Games.XGConnect`) and a new
+  `IConnectMatchRepository.GetAllMatchesForUserAsync`. Reuses rather than
+  re-derives: `ConnectMatchAccessExtensions.ResolveParticipantMatchAsync`
+  (404/403 mapping), `IConnectMatchLifecycleService.
+  GetMatchesAwaitingActionAsync` (the `awaitingMyAction` flag), and
+  `ConnectChainStepExtensions.HasClosedChain` (the opponent's terminal
+  "completed" state, exposed without ever returning their actual chain
+  steps). Enforces REQ-1404's mutual-invisibility rule by keeping
+  `opponentTargetPick` null until `ConnectMatch.Status` leaves
+  `AwaitingTargetPicks`. A straightforward read-projection of already-
+  accepted REQ-1404-1411 behavior — no new ADR. Tests:
+  `ConnectMatchQueryServiceTests.cs` (`XGArcade.Games.XGConnect.Tests`),
+  `ConnectMatchQueryEndpointTests.cs` (`XGArcade.Api.Tests`); not run
+  locally (no `dotnet` SDK in this sandbox) — CI verification pending.
 - 2026-09-03 — `docs/requirements-document.md` (2.53→2.54, status notes
   added to REQ-1401/1402/1403 for the S-217 frontend and REQ-1411's status
   block corrected to "Built" — backend S-216, frontend S-217 — including a

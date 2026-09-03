@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.54"
+version: "2.55"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11138,6 +11138,22 @@ live-lookup-unavailable). Full `REQ1404_...`-named test coverage in
 `ConnectMatchEndpointTests.cs`. **Test level below is unchanged from the
 plan and now fully satisfied.**
 
+**Read-side addendum (2026-09-03, S-218 prep):** every xG Connect endpoint
+up to this point was write-only — nothing let a client read a match's
+target-pick state at all, which blocked S-218's frontend gameplay screen.
+`GET /matches/{matchId}` (new `XGArcade.Api.Connect.
+ConnectMatchQueryEndpoints`, backed by `IConnectMatchQueryService`/
+`ConnectMatchQueryService` in `XGArcade.Games.XGConnect`) now exposes
+`myTargetPick`/`opponentTargetPick`, enforcing this REQ's mutual-
+invisibility rule by keeping `opponentTargetPick` null until
+`ConnectMatch.Status` leaves `AwaitingTargetPicks` — never derived from the
+opponent's own `IsLocked` flag, since that could be true for the caller's
+own row before the match has actually started. `GET /matches` (same file)
+lists every match the caller participates in. See REQ-1411's own status
+note for that endpoint's other returned fields. `REQ1404_...`-named
+coverage added in `ConnectMatchQueryServiceTests.cs`/
+`ConnectMatchQueryEndpointTests.cs`.
+
 - Given a match has just been created (via REQ-1402's accepted challenge or
   REQ-1403's random pairing)
 - When either player selects a target-pick player
@@ -11231,6 +11247,12 @@ two new columns. Full `REQ1405_...`-named test coverage in
 `ConnectMatchLifecycleServiceTests.cs`. **Test level below is fully
 satisfied, including the mixed-outcome resolution case.**
 
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches/{matchId}`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now surfaces
+`status`/`startedAt`/`deadlineUtc`/`resolvedAt` directly, and `GET
+/matches` returns the same fields per match in a list — see REQ-1404's own
+read-side addendum for why this pair of endpoints exists at all.
+
 - Given both players have each selected a non-trivially-connected target
   pick (REQ-1404)
 - When the second (later) selection is accepted
@@ -11294,6 +11316,15 @@ checked against a limit here. Full `REQ1406_...`-named test coverage in
 `ConnectChainStepEndpointTests.cs`, and one test in
 `PlayerAutocompleteEndpointTests.cs`. **Test level below is fully
 satisfied.**
+
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches/{matchId}`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now returns
+`myChainSteps` — the caller's OWN steps only, in submission order, with
+`candidatePlayerName` resolved via `IPlayerRepository.
+GetPlayersByIdsAsync` — never the opponent's steps; only whether the
+opponent has reached a terminal state (`opponentTerminalState`, see
+REQ-1409's own read-side addendum) is exposed for them. See REQ-1404's own
+read-side addendum for why this pair of endpoints exists at all.
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
@@ -11485,6 +11516,18 @@ reads/writes the one `ConnectMatch` row being resolved. Full
 `REQ1409_...`-named coverage in `ConnectMatchLifecycleServiceTests.cs` and
 `ConnectMatchRepositoryTests.cs`. **Test level below is fully satisfied.**
 
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches/{matchId}`
+and `GET /matches` (`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now
+expose `outcome`/`myScore`/`opponentScore`, and `myTerminalState`/
+`opponentTerminalState` (`{busted, timedOut, completed}`, derived from the
+same timeout/bust/`HasClosedChain` signals this REQ's own resolution logic
+already checks — not re-derived independently). `outcome` is translated
+into the CALLER's own perspective (`Win`/`Loss`/`Draw`/`Pending`) by a new
+`ConnectMatchQueryService.TranslateOutcome` helper, so a client never needs
+to know which of `PlayerAWin`/`PlayerBWin` applies to which slot it
+occupies. See REQ-1404's own read-side addendum for why this pair of
+endpoints exists at all.
+
 - Given both players complete a valid chain (REQ-1408) before the 6-hour
   deadline
 - When both final scores are known
@@ -11593,6 +11636,19 @@ extended `ConnectMatchLifecycleServiceTests.cs`/
 `ConnectMatchRepositoryTests.cs`) landed shortly after S-216, in a
 same-story follow-up commit not separately doc-synced at the time — this
 note corrects that gap.
+
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now lists every match
+(open or resolved) the caller participates in, with an `awaitingMyAction`
+flag per match — computed by reusing this REQ's own
+`IConnectMatchLifecycleService.GetMatchesAwaitingActionAsync` membership
+test (a match is a member of the returned set) rather than re-deriving the
+per-slot terminal-state rule a second time, so the two surfaces can never
+quietly disagree about what "awaiting my move" means. This lets the
+frontend gameplay screen (S-218) show a match list beyond just the
+notification-summary counts. See REQ-1404's own read-side addendum for the
+companion `GET /matches/{matchId}` endpoint and why this pair exists at
+all.
 
 **Status note (2026-09-03, S-217 — frontend built):** `HeaderNav`
 (`frontend/src/nav/`) gained a `friendsNotificationCount` prop, computed

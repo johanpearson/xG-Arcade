@@ -125,6 +125,19 @@ public interface IConnectMatchRepository
     Task<IReadOnlyList<ConnectMatch>> GetOpenMatchesForUserAsync(
         Guid userId, CancellationToken cancellationToken = default);
 
+    // S-218 prep (gameplay-screen read gap): every match this user
+    // participates in (either slot), Resolved included — the candidate set
+    // for GET /matches (XGArcade.Api.Connect.ConnectMatchQueryEndpoints via
+    // Games.XGConnect's IConnectMatchQueryService). Deliberately a sibling
+    // of GetOpenMatchesForUserAsync above rather than a parameter added to
+    // it — that method's own callers (the REQ-1411 notification indicator,
+    // ConnectMatchLifecycleService.GetMatchesAwaitingActionAsync) need
+    // exactly "not yet Resolved" and would otherwise need to pass a flag
+    // they never vary. AsNoTracking — same read-only shape as every other
+    // list read on this interface.
+    Task<IReadOnlyList<ConnectMatch>> GetAllMatchesForUserAsync(
+        Guid userId, CancellationToken cancellationToken = default);
+
     // REQ-710/ADR-0101: anonymizes every UserId-shaped column this user
     // appears in, across all three of this component's per-user tables —
     // ConnectMatch.PlayerAUserId/PlayerBUserId, ConnectTargetPick.UserId,
