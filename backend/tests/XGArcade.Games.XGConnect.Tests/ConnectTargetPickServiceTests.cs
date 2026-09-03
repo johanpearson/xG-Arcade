@@ -38,14 +38,16 @@ public class ConnectTargetPickServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     // REQ-1405/S-212: a real ConnectMatchLifecycleService, backed by the
-    // same InMemory _connectMatchRepository as the rest of this fixture —
-    // no fake needed since this service has no external dependency of its
-    // own (same "real service over InMemory repository" reasoning as
-    // _connectMatchRepository itself), sharing the same `now` as the
-    // ConnectTargetPickService instance under test so the match-start
-    // timestamp this test asserts on is deterministic.
+    // same InMemory _connectMatchRepository as the rest of this fixture and
+    // a real ConnectScoringService (S-214's own pure calculation, no fake
+    // needed for the same "real service, no external dependency" reasoning)
+    // — sharing the same `now` as the ConnectTargetPickService instance
+    // under test so the match-start timestamp this test asserts on is
+    // deterministic.
     private ConnectTargetPickService BuildService(DateTimeOffset now) =>
-        new(_connectMatchRepository, _overlapService, new ConnectMatchLifecycleService(_connectMatchRepository, new FixedTimeProvider(now)), new FixedTimeProvider(now));
+        new(_connectMatchRepository, _overlapService,
+            new ConnectMatchLifecycleService(_connectMatchRepository, new ConnectScoringService(), new FixedTimeProvider(now)),
+            new FixedTimeProvider(now));
 
     private async Task<ConnectMatch> CreateMatchAsync(Guid playerAUserId, Guid playerBUserId)
     {

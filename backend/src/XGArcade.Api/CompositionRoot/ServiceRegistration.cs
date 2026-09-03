@@ -264,16 +264,26 @@ public static class ServiceRegistration
         // IPlayerCareerOverlapService immediately above — see
         // ConnectTargetPickService's own doc comment.
         builder.Services.AddScoped<IConnectTargetPickService, ConnectTargetPickService>();
-        // REQ-1406/S-213: chain-step submission/live-validation business
-        // logic, layered on top of IConnectMatchRepository above,
-        // IPlayerCareerOverlapService above, and IPlayerRepository (COMP-06)
-        // — see ConnectChainStepService's own doc comment.
+        // REQ-1408/S-214: pure connector-count-plus-penalties scoring
+        // calculation — see ConnectScoringService's own doc comment.
+        // Registered independently (no facade), consumed only by
+        // IConnectMatchLifecycleService below.
+        builder.Services.AddScoped<IConnectScoringService, ConnectScoringService>();
+        // REQ-1406/S-213, REQ-1407/S-214: chain-step submission/live-
+        // validation/two-strikes-bust business logic, layered on top of
+        // IConnectMatchRepository above, IPlayerCareerOverlapService above,
+        // IPlayerRepository (COMP-06), and IConnectMatchLifecycleService
+        // below (to attempt match resolution the instant a bust or chain
+        // completion makes this caller terminal) — see
+        // ConnectChainStepService's own doc comment.
         builder.Services.AddScoped<IConnectChainStepService, ConnectChainStepService>();
-        // REQ-1405/S-212: match-start/6h-forfeit-timer/resolution
-        // scaffolding, layered on top of IConnectMatchRepository above —
+        // REQ-1405/S-212, REQ-1407/1408/1409/S-214: match-start/6h-forfeit-
+        // timer/bust-and-completion-aware resolution scaffolding, layered on
+        // top of IConnectMatchRepository and IConnectScoringService above —
         // see ConnectMatchLifecycleService's own doc comment. Injected by
-        // ConnectTargetPickService (the match-start trigger) and by
-        // InternalConnectForfeitSweepEndpoints (the periodic sweep) below.
+        // ConnectTargetPickService (the match-start trigger),
+        // ConnectChainStepService above (bust/chain-completion resolution),
+        // and InternalConnectForfeitSweepEndpoints (the periodic sweep) below.
         builder.Services.AddScoped<IConnectMatchLifecycleService, ConnectMatchLifecycleService>();
         // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
         // (Core.Social) together with IConnectMatchRepository above

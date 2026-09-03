@@ -125,15 +125,36 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
         return match;
     }
 
-    // REQ-1405/1409/S-212: load-then-save, tracked.
+    // REQ-1407/S-214: load-then-save, tracked. `??=` is what makes this
+    // idempotent — same shape as MarkPlayerTimedOutAsync immediately above.
+    public async Task<ConnectMatch> MarkPlayerBustedAsync(
+        Guid matchId, bool isPlayerA, DateTime bustedAt, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
+
+        if (isPlayerA)
+            match.PlayerABustedAt ??= bustedAt;
+        else
+            match.PlayerBBustedAt ??= bustedAt;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return match;
+    }
+
+    // REQ-1405/1408/1409/S-212/S-214: load-then-save, tracked. Scores are
+    // written in this same call — see this method's own doc comment on
+    // IConnectMatchRepository.
     public async Task<ConnectMatch> ResolveMatchAsync(
-        Guid matchId, ConnectMatchOutcome outcome, DateTime resolvedAt, CancellationToken cancellationToken = default)
+        Guid matchId, ConnectMatchOutcome outcome, DateTime resolvedAt,
+        int? playerAScore, int? playerBScore, CancellationToken cancellationToken = default)
     {
         var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
 
         match.Status = ConnectMatchStatus.Resolved;
         match.Outcome = outcome;
         match.ResolvedAt = resolvedAt;
+        match.PlayerAScore = playerAScore;
+        match.PlayerBScore = playerBScore;
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return match;

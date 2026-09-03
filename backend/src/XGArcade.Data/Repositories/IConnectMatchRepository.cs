@@ -81,12 +81,26 @@ public interface IConnectMatchRepository
     Task<ConnectMatch> MarkPlayerTimedOutAsync(
         Guid matchId, bool isPlayerA, DateTime timedOutAt, CancellationToken cancellationToken = default);
 
+    // REQ-1407/S-214: the bust half of the same slot-based terminal-marking
+    // shape as MarkPlayerTimedOutAsync immediately above — same `??=`
+    // idempotent semantics (a slot already marked busted is left with its
+    // original timestamp), called from
+    // ConnectChainStepService.SubmitChainStepAsync's bust branch (a second,
+    // consecutive failure at the same chain position).
+    Task<ConnectMatch> MarkPlayerBustedAsync(
+        Guid matchId, bool isPlayerA, DateTime bustedAt, CancellationToken cancellationToken = default);
+
     // The resolution transition (REQ-1405/1409): both players have now
     // reached a terminal state (by whatever mix of timeout/bust/completion
     // paths exist), so the match is fixed at this outcome, immediately —
     // never deferred to wait out any unused remainder of the 6h window.
+    // playerAScore/playerBScore (REQ-1408, S-214) are persisted in this same
+    // write — null for a player who forfeited (no valid score), non-null
+    // only for a player who completed a valid chain. One resolution write,
+    // never a separate follow-up call to persist scores.
     Task<ConnectMatch> ResolveMatchAsync(
-        Guid matchId, ConnectMatchOutcome outcome, DateTime resolvedAt, CancellationToken cancellationToken = default);
+        Guid matchId, ConnectMatchOutcome outcome, DateTime resolvedAt,
+        int? playerAScore, int? playerBScore, CancellationToken cancellationToken = default);
 
     Task<ConnectChainStep> AddChainStepAsync(ConnectChainStep chainStep, CancellationToken cancellationToken = default);
 

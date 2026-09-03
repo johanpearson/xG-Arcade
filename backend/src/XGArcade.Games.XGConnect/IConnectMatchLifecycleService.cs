@@ -1,8 +1,9 @@
 namespace XGArcade.Games.XGConnect;
 
-// REQ-1405/S-212: match-start, 6h forfeit-timer, and resolution scaffolding
-// — layered on top of IConnectMatchRepository's persistence primitives
-// (S-208/this story's additions), same "outcome enum + result record"-free
+// REQ-1405/S-212, REQ-1407/1408/1409/S-214: match-start, 6h forfeit-timer,
+// bust/completion-aware resolution scaffolding — layered on top of
+// IConnectMatchRepository's persistence primitives (S-208's additions) and
+// IConnectScoringService (S-214), same "outcome enum + result record"-free
 // but still service-owns-the-transition shape as IConnectTargetPickService.
 // Lives in Games.XGConnect (COMP-17), not XGArcade.Api, because — unlike
 // MatchmakingSweepService (XGArcade.Api.Social) — neither method here
@@ -25,6 +26,21 @@ public interface IConnectMatchLifecycleService
     // "resolves immediately once both players are terminal, never waiting
     // out an unused remainder of the window."
     Task<ForfeitSweepResult> RunForfeitSweepAsync(CancellationToken cancellationToken = default);
+
+    // REQ-1409/S-214: the single place every one of a match's three
+    // terminal-reaching paths (timeout/REQ-1405, bust/REQ-1407, chain
+    // completion/REQ-1408) converges — re-evaluates this match's own
+    // terminal state from scratch every time it's called (rather than
+    // trusting the caller's own view of "did this just make both players
+    // terminal"), so it is safe to call from multiple call sites without
+    // coordination: ConnectChainStepService.SubmitChainStepAsync (right
+    // after persisting a ChainClosed step or marking a bust) and
+    // RunForfeitSweepAsync above (once per swept match, after marking
+    // whichever slots are newly timed out). No-ops (returns false, touches
+    // nothing) if the match is already Resolved or if either player has not
+    // yet reached a terminal state. Returns true only when this call is the
+    // one that actually resolved the match.
+    Task<bool> TryResolveMatchIfBothTerminalAsync(Guid matchId, CancellationToken cancellationToken = default);
 }
 
 // PlayersForfeited: how many individual player SLOTS were newly marked

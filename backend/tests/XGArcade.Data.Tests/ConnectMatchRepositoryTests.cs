@@ -139,11 +139,69 @@ public class ConnectMatchRepositoryTests
         });
         var resolvedAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
 
-        var result = await _repository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt);
+        var result = await _repository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt, null, null);
 
         Assert.That(result.Status, Is.EqualTo(ConnectMatchStatus.Resolved));
         Assert.That(result.Outcome, Is.EqualTo(ConnectMatchOutcome.Draw));
         Assert.That(result.ResolvedAt, Is.EqualTo(resolvedAt));
+        Assert.That(result.PlayerAScore, Is.Null);
+        Assert.That(result.PlayerBScore, Is.Null);
+    }
+
+    // REQ-1408/1409/S-214: scores are persisted in the SAME resolution
+    // write, never a separate call.
+    [Test]
+    public async Task REQ1408_ResolveMatchAsync_PersistsPlayerAAndPlayerBScoresInSameWrite()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var resolvedAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+
+        var result = await _repository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.PlayerAWin, resolvedAt, 2, 5);
+
+        Assert.That(result.PlayerAScore, Is.EqualTo(2));
+        Assert.That(result.PlayerBScore, Is.EqualTo(5));
+        var stored = await _repository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.PlayerAScore, Is.EqualTo(2));
+        Assert.That(stored.PlayerBScore, Is.EqualTo(5));
+    }
+
+    // ---- REQ-1407/S-214: bust tracking primitives ------------------------
+
+    [Test]
+    public async Task REQ1407_MarkPlayerBustedAsync_UnsetSlot_SetsThatSlotOnly()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var bustedAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+
+        var result = await _repository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, bustedAt);
+
+        Assert.That(result.PlayerABustedAt, Is.EqualTo(bustedAt));
+        Assert.That(result.PlayerBBustedAt, Is.Null, "only the requested slot is set");
+    }
+
+    [Test]
+    public async Task REQ1407_MarkPlayerBustedAsync_AlreadySetSlot_IsIdempotentAndNeverOverwrites()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = new DateTime(2026, 9, 3, 10, 0, 0, DateTimeKind.Utc),
+        });
+        var firstBustedAt = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+        await _repository.MarkPlayerBustedAsync(match.Id, isPlayerA: false, firstBustedAt);
+
+        var laterBustedAt = firstBustedAt.AddHours(1);
+        var result = await _repository.MarkPlayerBustedAsync(match.Id, isPlayerA: false, laterBustedAt);
+
+        Assert.That(result.PlayerBBustedAt, Is.EqualTo(firstBustedAt), "a later call must never overwrite an already-set bust timestamp");
     }
 
     [Test]
@@ -165,7 +223,7 @@ public class ConnectMatchRepositoryTests
         // again.
         var alreadyResolved = await _repository.AddMatchAsync(new ConnectMatch { Id = Guid.NewGuid(), CreatedAt = now.AddHours(-7) });
         await _repository.StartMatchAsync(alreadyResolved.Id, now.AddHours(-7), now.AddHours(-1));
-        await _repository.ResolveMatchAsync(alreadyResolved.Id, ConnectMatchOutcome.Draw, now.AddHours(-1));
+        await _repository.ResolveMatchAsync(alreadyResolved.Id, ConnectMatchOutcome.Draw, now.AddHours(-1), null, null);
 
         var result = await _repository.GetActiveMatchesPastDeadlineAsync(now);
 

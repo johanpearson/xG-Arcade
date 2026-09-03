@@ -234,6 +234,63 @@ public class ConnectChainStepEndpointTests
         Assert.That(body.ChainComplete, Is.False);
     }
 
+    // ---- REQ-1407/S-214: a second, consecutive failure at the same
+    // ---- position busts the caller — still 200 OK, with Busted: true ---------
+
+    [Test]
+    public async Task REQ1407_PostChainStep_SecondConsecutiveFailureAtSamePosition_ReturnsOkWithBustedTrue()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        await SeedPlayerAsync("First Attempt Player");
+        await SeedPlayerAsync("Retry Attempt Player");
+        // Neither candidate is ever given a career stint at the claimed
+        // club — both attempts fail the live overlap check.
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+        await client.PostAsJsonAsync($"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("First Attempt Player", "Wrong Club"));
+
+        var response = await client.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Retry Attempt Player", "Also Wrong Club"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
+        Assert.That(body!.IsValid, Is.False);
+        Assert.That(body.Busted, Is.True);
+    }
+
+    // ---- REQ-1407/S-214: a player whose own slot already forfeited cannot
+    // ---- submit further steps, even while the match itself is still Active --
+
+    [Test]
+    public async Task REQ1407_PostChainStep_CallerAlreadyBusted_ReturnsConflict()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            await connectMatchRepository.MarkPlayerBustedAsync(matchId, isPlayerA: true, DateTime.UtcNow);
+        }
+
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Already forfeited"));
+    }
+
     // ---- Candidate name doesn't resolve to any known player — still 200 OK --
 
     [Test]

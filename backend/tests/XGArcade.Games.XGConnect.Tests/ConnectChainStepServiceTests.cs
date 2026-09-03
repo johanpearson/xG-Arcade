@@ -7,14 +7,21 @@ using XGArcade.TestSupport;
 namespace XGArcade.Games.XGConnect.Tests;
 
 // REQ-1406 (docs/requirements-document.md §4.15): incremental connection-
-// chain-step submission and live validation. Same no-mocking-framework,
-// real-InMemory-backed-repository pattern as ConnectTargetPickServiceTests —
-// IConnectMatchRepository/IPlayerRepository are exercised through their real
-// implementations against an InMemory-backed XGArcadeDbContext;
-// IPlayerCareerOverlapService is hand-rolled-faked (FakePlayerCareerOverlapService)
-// since its own overlap-detection logic gets dedicated, direct coverage in
-// PlayerCareerOverlapServiceTests.cs — this file is only concerned with
-// SubmitChainStepAsync's own orchestration around that check's result.
+// chain-step submission and live validation. REQ-1407/S-214: the two-
+// strikes-per-step bust rule and the "already forfeited" precondition. Same
+// no-mocking-framework, real-InMemory-backed-repository pattern as
+// ConnectTargetPickServiceTests — IConnectMatchRepository/IPlayerRepository
+// are exercised through their real implementations against an
+// InMemory-backed XGArcadeDbContext; IPlayerCareerOverlapService is
+// hand-rolled-faked (FakePlayerCareerOverlapService) since its own
+// overlap-detection logic gets dedicated, direct coverage in
+// PlayerCareerOverlapServiceTests.cs; IConnectMatchLifecycleService is the
+// real ConnectMatchLifecycleService (backed by the same real
+// ConnectMatchRepository and a real ConnectScoringService) rather than a
+// fake, since REQ-1407's bust branch needs to actually observe
+// TryResolveMatchIfBothTerminalAsync's real resolution effect — this file
+// is only concerned with SubmitChainStepAsync's own orchestration around
+// each check's result.
 public class ConnectChainStepServiceTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
@@ -23,6 +30,7 @@ public class ConnectChainStepServiceTests
     private IConnectMatchRepository _connectMatchRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private FakePlayerCareerOverlapService _overlapService = null!;
+    private IConnectMatchLifecycleService _connectMatchLifecycleService = null!;
 
     [SetUp]
     public void SetUp()
@@ -34,13 +42,15 @@ public class ConnectChainStepServiceTests
         _connectMatchRepository = new ConnectMatchRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _overlapService = new FakePlayerCareerOverlapService();
+        _connectMatchLifecycleService = new ConnectMatchLifecycleService(
+            _connectMatchRepository, new ConnectScoringService(), new FixedTimeProvider(FixedNow));
     }
 
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
     private ConnectChainStepService BuildService(DateTimeOffset now) =>
-        new(_connectMatchRepository, _overlapService, _playerRepository, new FixedTimeProvider(now));
+        new(_connectMatchRepository, _overlapService, _playerRepository, _connectMatchLifecycleService, new FixedTimeProvider(now));
 
     private async Task<Player> SeedPlayerAsync(string fullName) =>
         await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = fullName });
@@ -309,5 +319,152 @@ public class ConnectChainStepServiceTests
         Assert.That(result.ChainStep, Is.Null);
         Assert.That(await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId), Is.Empty,
             "the whole step — including its already-passed main check — must be discarded, never partially persisted");
+    }
+
+    // ---- REQ-1407: two-strikes-per-step penalty and bust rule ---------------
+
+    [Test]
+    public async Task REQ1407_SubmitChainStepAsync_FirstFailureAtPosition_ReturnsInvalidStep_NeverBusts()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        await SeedPlayerAsync("Middle Link Player");
+        // Never configured on the fake — defaults to "no overlap."
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Wrong Club");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep),
+            "a first failure at a position is an ordinary invalid step, not a bust");
+        Assert.That(result.ChainStep!.AttemptNumber, Is.EqualTo(1));
+        var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.PlayerABustedAt, Is.Null);
+        Assert.That(stored.PlayerBBustedAt, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1407_SubmitChainStepAsync_SecondConsecutiveFailureAtSamePosition_BustsThePlayer()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        await SeedPlayerAsync("First Attempt Player");
+        await SeedPlayerAsync("Retry Attempt Player");
+        // Neither candidate is configured to overlap — both attempts fail.
+        var service = BuildService(FixedNow);
+        var firstResult = await service.SubmitChainStepAsync(match.Id, aUserId, "First Attempt Player", "Wrong Club");
+        Assert.That(firstResult.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep));
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Retry Attempt Player", "Also Wrong Club");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.Busted));
+        Assert.That(result.ChainStep, Is.Not.Null, "the failed retry attempt is still persisted, same as any InvalidStep");
+        Assert.That(result.ChainStep!.AttemptNumber, Is.EqualTo(2));
+        Assert.That(result.ChainStep.IsValid, Is.False);
+
+        var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.PlayerABustedAt, Is.EqualTo(FixedNow.UtcDateTime));
+        Assert.That(stored.PlayerBBustedAt, Is.Null, "only the busted player's own slot is marked");
+
+        var persisted = await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId);
+        Assert.That(persisted, Has.Count.EqualTo(2), "both the first failure and the failed retry are distinct, persisted rows");
+    }
+
+    [Test]
+    public async Task REQ1407_SubmitChainStepAsync_SuccessfulRetry_KeepsChainGoing_NeverBusts_AndResetsStrikeCountForNextPosition()
+    {
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        await SeedPlayerAsync("Failed First Attempt");
+        var retryCandidate = await SeedPlayerAsync("Successful Retry");
+        _overlapService.SetOverlapAtClub(retryCandidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        var service = BuildService(FixedNow);
+        await service.SubmitChainStepAsync(match.Id, aUserId, "Failed First Attempt", "Wrong Club");
+
+        var retryResult = await service.SubmitChainStepAsync(match.Id, aUserId, "Successful Retry", "Arsenal");
+
+        Assert.That(retryResult.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
+        Assert.That(retryResult.ChainStep!.AttemptNumber, Is.EqualTo(2));
+        var storedAfterRetry = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(storedAfterRetry!.PlayerABustedAt, Is.Null, "a successful retry must never bust the player");
+
+        // A later failure at the NEXT position gets its own independent
+        // first attempt — never combined with the earlier position's strike.
+        await SeedPlayerAsync("Next Position Failure");
+        var nextResult = await service.SubmitChainStepAsync(match.Id, aUserId, "Next Position Failure", "Unrelated Club");
+
+        Assert.That(nextResult.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep),
+            "a fresh position starts its own independent strike count, not a bust");
+        Assert.That(nextResult.ChainStep!.Position, Is.EqualTo(2));
+        Assert.That(nextResult.ChainStep.AttemptNumber, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ1407_SubmitChainStepAsync_CallerAlreadyBusted_ReturnsAlreadyForfeited_PersistsNothing()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Anyone", "Anywhere");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.AlreadyForfeited));
+        Assert.That(result.ChainStep, Is.Null);
+        Assert.That(await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId), Is.Empty);
+    }
+
+    // Closes the pre-existing gap this story's brief calls out: a player who
+    // already timed out (REQ-1405) but whose match Status is still Active
+    // (because the other player hasn't reached terminal yet) must not be
+    // able to submit further steps.
+    [Test]
+    public async Task REQ1407_SubmitChainStepAsync_CallerAlreadyTimedOutButMatchStillActive_ReturnsAlreadyForfeited()
+    {
+        var (match, _, bUserId, _, _) = await CreateActiveMatchAsync();
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, bUserId, "Anyone", "Anywhere");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.AlreadyForfeited));
+        var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.Status, Is.EqualTo(ConnectMatchStatus.Active), "the match itself is still Active — only the caller's own forfeited slot blocks them");
+    }
+
+    // ---- REQ-1409: a bust/chain-close is a terminal state, so resolution
+    // ---- is attempted immediately from this service, not deferred --------
+
+    [Test]
+    public async Task REQ1409_SubmitChainStepAsync_BustWhileOtherPlayerAlreadyForfeited_ResolvesMatchImmediatelyAsDraw()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+        await SeedPlayerAsync("First Attempt Player");
+        await SeedPlayerAsync("Retry Attempt Player");
+        var service = BuildService(FixedNow);
+        await service.SubmitChainStepAsync(match.Id, aUserId, "First Attempt Player", "Wrong Club");
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Retry Attempt Player", "Also Wrong Club");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.Busted));
+        var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.Status, Is.EqualTo(ConnectMatchStatus.Resolved), "both players are now terminal — resolution must happen in this same call");
+        Assert.That(stored.Outcome, Is.EqualTo(ConnectMatchOutcome.Draw));
+    }
+
+    [Test]
+    public async Task REQ1409_SubmitChainStepAsync_ChainClosedWhileOtherPlayerAlreadyForfeited_ResolvesMatchImmediatelyAsCompleterWin()
+    {
+        var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+        var candidate = await SeedPlayerAsync("Closing Link Player");
+        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetOverlap(candidate.Id, bTargetPlayerId, overlaps: true);
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player", "Arsenal");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainClosed));
+        var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.Status, Is.EqualTo(ConnectMatchStatus.Resolved));
+        Assert.That(stored.Outcome, Is.EqualTo(ConnectMatchOutcome.PlayerAWin));
+        Assert.That(stored.PlayerAScore, Is.EqualTo(1));
+        Assert.That(stored.PlayerBScore, Is.Null);
     }
 }
