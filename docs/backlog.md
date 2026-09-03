@@ -10967,3 +10967,37 @@ this sandbox (same precedent as above): `tsc -b` clean, `oxlint` clean, the
 two touched Vitest files (`TargetPickPanel.test.tsx`, 7/7) pass, and
 `npx playwright test play-connect.spec.ts --list` parses/type-checks the
 spec correctly — the spec itself was not executed against a real backend.
+
+**Real bug caught by the E2E spec's first CI run (2026-09-03,
+`ui-implementer`):** `play-connect.spec.ts`'s first actual run against a
+real backend failed at `getByText('Awaiting target picks')` right after
+User B accepts a challenge and clicks "View your matches" — the match
+User B just got paired into wasn't in the list. Root cause:
+`FriendsScreen.tsx` mounted all four tab panels at once, toggling
+visibility with `hidden={activeTab !== value}`, so none of them unmount
+when their tab isn't active — a deliberate, correct convention for
+Friends/Challenges/Matchmaking (their data doesn't change out from under
+them while hidden), but wrong for `MatchesTab`, which uses
+`useAuthedFetch` (fetch-on-mount only, no refetch-on-visibility). Since
+`MatchesTab` mounts the instant `FriendsScreen` first mounts — typically
+before any match exists — its `GET /matches` response was captured once,
+empty, and never refreshed; the later "View your matches" click (just
+`setActiveTab('matches')`) landed on that same stale, already-mounted
+component. **Fixed** by making the Matches tab's content
+(`selectedMatchId ? <MatchScreen> : <MatchesTab>`) truly conditionally
+rendered — mounted only while `activeTab === 'matches'` — instead of kept
+alive under a `hidden` div, so it remounts and refetches every time the
+user switches to it. `handleViewMatches` needed no change: its
+`setSelectedMatchId(null); setActiveTab('matches');` batch into one
+render, and on that render `MatchesTab` mounts fresh and fetches, exactly
+as needed. Friends/Challenges/Matchmaking's own mount-once/`hidden`
+behavior is untouched — this is a deliberate exception for Matches only,
+documented in `design-document.md` SCREEN-16 (version 0.89). New
+regression test in `FriendsScreen.test.tsx` returns a different match
+list on the second `GET /matches` call and asserts the second render
+actually reflects it after switching away and back — the exact case that
+slipped through the first time, since the earlier "Matches tab" test only
+re-verified first-mount behavior. Full suite green: `tsc -b` clean,
+`oxlint` clean (same pre-existing unrelated warnings only), Vitest 67
+files / 870 tests passed (one new regression test added to
+`FriendsScreen.test.tsx`, bringing it from 4 to 5).

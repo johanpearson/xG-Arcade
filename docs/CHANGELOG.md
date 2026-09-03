@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `frontend/src/social/FriendsScreen.tsx`,
+  `frontend/src/social/FriendsScreen.test.tsx`,
+  `docs/design-document.md` (0.88→0.89, SCREEN-16 addendum),
+  `docs/backlog.md` (S-218 entry given a bugfix addendum) — a real bug
+  caught by `play-connect.spec.ts`'s first real CI run: after User B
+  accepts a challenge and clicks "View your matches," the new match never
+  appeared (`getByText('Awaiting target picks')` timeout). Cause: all four
+  `FriendsScreen` tab panels stayed mounted under `hidden`, including
+  `MatchesTab`, which fetches only on mount (`useAuthedFetch`) — it
+  captured an empty `GET /matches` before any match existed and never
+  refetched. Fixed by conditionally rendering the Matches tab's content
+  (mount/unmount on tab switch) instead of hiding it, so it refetches
+  every time it's selected; the other three tabs' mount-once/`hidden`
+  convention is untouched, this is a deliberate exception documented in
+  SCREEN-16. New regression test in `FriendsScreen.test.tsx` proves a
+  second `GET /matches` call's different data actually renders after
+  switching away and back. `tsc -b` clean, `oxlint` clean, Vitest 67
+  files / 870 tests pass. No REQ/ADR change — SCREEN-16 addendum only.
+
 - 2026-09-03 — `docs/backlog.md` (S-218 entry given a re-verification
   addendum), `frontend/tests/e2e/play-connect.spec.ts`,
   `backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs` —

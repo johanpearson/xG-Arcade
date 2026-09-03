@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.88"
+version: "0.89"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -3586,6 +3586,30 @@ post-accept banner (SCREEN-15's "Match started! You'll be able to play it
 soon.") and `MatchmakingTab`'s opted-in status both gained a "View your
 matches" inline link/button that switches to this tab — see each tab's own
 status note below for the exact wording change.
+
+**Deliberate exception to SCREEN-15's "tabs stay mounted" convention
+(S-218 bugfix, caught by `play-connect.spec.ts`'s first CI run).**
+SCREEN-15 documents that switching between Friends/Challenges/Matchmaking
+never unmounts the other tabs (`hidden` div, not conditional rendering),
+so each one's already-loaded data isn't refetched on every switch — safe
+for those three because nothing else on this screen changes their data
+out from under them while hidden. The **Matches** tab does not get this
+treatment: it is conditionally rendered, mounted only while it's the
+active tab, and unmounts (refetching on remount) the rest of the time.
+This is necessary because a match's data changes from an action taken
+*elsewhere on this same screen* — accepting a challenge in Challenges, or
+a matchmaking sweep pairing in Matchmaking — while `MatchesTab` may
+already be sitting mounted-but-hidden with a `GET /matches` response
+fetched once, often before any match existed yet. `MatchesTab` fetches
+via `useAuthedFetch`, which fetches only on mount and has no
+refetch-on-visibility path; kept mounted under `hidden` like the other
+three, it would never notice a match created moments earlier, so
+"View your matches" would land on stale (usually empty) data until an
+unrelated full page reload happened to remount everything. Conditional
+rendering makes it refetch every time the user switches to it, which is
+the correct behavior for this tab specifically — this is not a signal to
+revisit Friends/Challenges/Matchmaking's own mount-once convention, which
+remains correct for them.
 
 ```
 ┌───────────────────────────────┐

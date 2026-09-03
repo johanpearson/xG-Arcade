@@ -120,4 +120,68 @@ describe('FriendsScreen', () => {
     expect(await screen.findByText(/Player B2C3D4E5/)).toBeVisible();
     expect(screen.queryByText('Opponent: Player B2C3D4E5')).not.toBeInTheDocument();
   });
+
+  // S-218 regression (design-document.md SCREEN-16's "deliberate exception"
+  // note): this is the exact bug the play-connect.spec.ts E2E run caught —
+  // MatchesTab was kept mounted-but-hidden like the other three tabs, so its
+  // useAuthedFetch-on-mount GET /matches was captured once (often before any
+  // match existed) and never refreshed when the user switched back to it
+  // after accepting a challenge or a matchmaking pairing elsewhere on this
+  // screen. Proves the fix by returning a DIFFERENT match list on the
+  // second GET /matches and checking the second render actually reflects
+  // it, rather than only re-asserting the first fetch (which already passed
+  // before the fix, since first-mount fetching was never broken).
+  it('S-218: switching away from and back to the "Matches" tab refetches, rather than reusing stale mount-once data', async () => {
+    const matchV1 = {
+      matchId: 'match-1',
+      opponentUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+      status: 'AwaitingTargetPicks',
+      createdAt: '2026-09-01T00:00:00Z',
+      startedAt: null,
+      deadlineUtc: null,
+      resolvedAt: null,
+      outcome: 'Pending',
+      awaitingMyAction: true,
+    };
+    const matchV2 = {
+      matchId: 'match-2',
+      opponentUserId: 'c3d4e5f6-0000-0000-0000-000000000000',
+      status: 'Active',
+      createdAt: '2026-09-02T00:00:00Z',
+      startedAt: '2026-09-02T00:00:01Z',
+      deadlineUtc: null,
+      resolvedAt: null,
+      outcome: 'Pending',
+      awaitingMyAction: false,
+    };
+    let matchesCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/matches')) {
+        matchesCallCount += 1;
+        return jsonResponse(matchesCallCount === 1 ? [matchV1] : [matchV2]);
+      }
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+    renderFriendsScreen(fetchMock);
+    await screen.findByText('No pending friend requests.');
+
+    await user.click(screen.getByRole('tab', { name: 'Matches' }));
+    expect(await screen.findByText(/Player B2C3D4E5/)).toBeVisible();
+    expect(matchesCallCount).toBe(1);
+
+    // Switching to another tab unmounts the Matches panel (unlike the other
+    // three, which stay mounted under `hidden`).
+    await user.click(screen.getByRole('tab', { name: 'Friends' }));
+    expect(screen.queryByText(/Player B2C3D4E5/)).not.toBeInTheDocument();
+
+    // Switching back must remount MatchesTab and issue a fresh GET
+    // /matches — the second (now-current) match should appear, and the
+    // first call's now-stale match should not.
+    await user.click(screen.getByRole('tab', { name: 'Matches' }));
+    expect(await screen.findByText(/Player C3D4E5F6/)).toBeVisible();
+    expect(screen.queryByText(/Player B2C3D4E5/)).not.toBeInTheDocument();
+    expect(matchesCallCount).toBe(2);
+  });
 });

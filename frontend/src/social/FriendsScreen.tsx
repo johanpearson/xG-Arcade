@@ -33,8 +33,22 @@ const TABS: Array<{ value: FriendsTabKey; label: string }> = [
 // fetch/loading/error state independently (FriendsTab/ChallengesTab/
 // MatchmakingTab) rather than one shared fetch, the same "independent
 // sections" shape AdminScreen.tsx already uses — switching tabs never
-// unmounts the others (see the `hidden` attribute below), so already-loaded
-// data isn't refetched on every tab switch.
+// unmounts Friends/Challenges/Matchmaking (see the `hidden` attribute
+// below), so already-loaded data isn't refetched on every tab switch.
+//
+// The "matches" tab is a deliberate exception to that (design-document.md
+// SCREEN-16, S-218 bugfix): its content is truly conditionally rendered
+// (mounted only while activeTab === 'matches'), not kept alive under
+// `hidden`, because a match's data can change from something the user did
+// elsewhere on this same screen (accepting a challenge in ChallengesTab, a
+// matchmaking sweep pairing) while MatchesTab sits mounted-but-hidden.
+// useAuthedFetch only fetches on mount, so a `hidden`-only MatchesTab would
+// capture its GET /matches response once — often before any match exists —
+// and never refetch it, leaving "View your matches" landing on stale
+// (usually empty) data. Remounting on every switch to this tab is what
+// makes it refetch each time, which is the correct behavior specifically
+// for this tab. Do not apply this pattern to the other three tabs without
+// a reason as concrete as this one.
 export function FriendsScreen({ accessToken, viewerUserId, onAuthError }: FriendsScreenProps) {
   const [activeTab, setActiveTab] = useState<FriendsTabKey>('friends');
   // S-218 (design-document.md SCREEN-16's "Matches tab" placement note):
@@ -81,8 +95,8 @@ export function FriendsScreen({ accessToken, viewerUserId, onAuthError }: Friend
       <div hidden={activeTab !== 'matchmaking'}>
         <MatchmakingTab accessToken={accessToken} onAuthError={onAuthError} onViewMatches={handleViewMatches} />
       </div>
-      <div hidden={activeTab !== 'matches'}>
-        {selectedMatchId ? (
+      {activeTab === 'matches' &&
+        (selectedMatchId ? (
           <MatchScreen
             matchId={selectedMatchId}
             accessToken={accessToken}
@@ -92,8 +106,7 @@ export function FriendsScreen({ accessToken, viewerUserId, onAuthError }: Friend
           />
         ) : (
           <MatchesTab accessToken={accessToken} onAuthError={onAuthError} onOpenMatch={setSelectedMatchId} />
-        )}
-      </div>
+        ))}
     </div>
   );
 }
