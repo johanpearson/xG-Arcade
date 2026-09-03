@@ -4,6 +4,10 @@ import './HeaderNav.css';
 export interface HeaderNavProps {
   isLeaderboardCurrent: boolean;
   isLeaguesCurrent: boolean;
+  // REQ-1401/1402/1403 (S-217): whether the new "Friends" screen (SCREEN-15)
+  // is currently showing — mirrors isLeaguesCurrent's own role for its
+  // entry.
+  isFriendsCurrent: boolean;
   isSettingsCurrent: boolean;
   // REQ-720: whether xG Grid's own screen is currently showing — Tier 0's
   // only game, so this was the only per-game aria-current flag at first;
@@ -18,7 +22,16 @@ export interface HeaderNavProps {
   isPredictCurrent: boolean;
   onSelectLeaderboard: () => void;
   onSelectLeagues: () => void;
+  onSelectFriends: () => void;
   onSelectSettings: () => void;
+  // REQ-1411 (S-217, design-document.md SCREEN-07's 2026-09-03 status
+  // note): the combined pending count shown as "Friends (N)" — omitted
+  // entirely at 0, same inline "(N)" convention PlayerSuggestionsEntry's
+  // "Player suggestions (N)"/UnverifiedDataSection's "Unverified data (N)"
+  // already established (SCREEN-04). App.tsx computes this from
+  // useNotificationSummary's three counts; this component has no fetch of
+  // its own.
+  friendsNotificationCount: number;
   // REQ-720: selecting "xG Grid" from the "Games" list — same destination
   // GameSelectScreen's own "xG Grid" tile already triggers.
   onSelectGrid: () => void;
@@ -51,12 +64,15 @@ export interface HeaderNavProps {
 export function HeaderNav({
   isLeaderboardCurrent,
   isLeaguesCurrent,
+  isFriendsCurrent,
   isSettingsCurrent,
   isGridCurrent,
   isPathCurrent,
   isPredictCurrent,
   onSelectLeaderboard,
   onSelectLeagues,
+  onSelectFriends,
+  friendsNotificationCount,
   onSelectSettings,
   onSelectGrid,
   onSelectPath,
@@ -191,6 +207,20 @@ export function HeaderNav({
           onClick={() => selectAndClose(onSelectLeagues)}
         >
           Leagues
+        </button>
+        {/* REQ-1401/1402/1403/1411 (S-217): friends, direct challenges, and
+            random matchmaking opt-in, plus the combined pending-count badge
+            (design-document.md SCREEN-07's 2026-09-03 status note — a
+            count, not a presence dot). Arcade-level (COMP-16), same
+            reasoning "Leaderboard"/"Leagues" above already sit outside the
+            "Games" list. */}
+        <button
+          type="button"
+          className="header-nav__link"
+          aria-current={isFriendsCurrent ? 'page' : undefined}
+          onClick={() => selectAndClose(onSelectFriends)}
+        >
+          Friends{friendsNotificationCount > 0 ? ` (${friendsNotificationCount})` : ''}
         </button>
         {/* REQ-713: replaces the previously separate "Delete account" and
             (admin-only) "Admin" top-level links with this one entry. */}

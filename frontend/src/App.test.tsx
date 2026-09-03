@@ -1595,6 +1595,20 @@ describe('App (REQ-411: stats/profile screen navigation)', () => {
         return jsonResponse({ rows: [otherPlayerRow], requestingUserRow: null, nextCursor: null, hasMore: false });
       }
       if (url.includes('/users/user-42/stats')) return jsonResponse(otherPlayerStatsResponse);
+      // REQ-1401 (S-217): viewing another player's stats now also mounts
+      // SendFriendRequestAction, which fetches these two — empty lists so
+      // it renders its default "Send friend request" state (not under test
+      // here).
+      if (url.includes('/friends/requests/pending')) return jsonResponse([]);
+      if (url.includes('/friends')) return jsonResponse([]);
+      if (url.includes('/notifications/summary')) {
+        return jsonResponse({
+          pendingFriendRequestCount: 0,
+          pendingChallengeCount: 0,
+          matchesAwaitingActionCount: 0,
+          hasPending: false,
+        });
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);

@@ -1,0 +1,60 @@
+/* SCREEN-13 (REQ-1401, S-217): tokens only, no new values — same
+   field/button/status treatment as SettingsScreen.css's display-name
+   section. */
+
+.send-friend-request-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.send-friend-request-action button {
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.send-friend-request-action button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Same "name the action, plain text-style button" treatment as
+   UserStatsScreen.css's .user-stats-screen__back — chained with the
+   element selector below so it beats the plain `.send-friend-request-action
+   button` rule above on specificity alone, no !important needed. */
+.send-friend-request-action button.send-friend-request-action__link {
+  background: none;
+  color: var(--color-accent-green-text);
+  padding: 0;
+  min-height: var(--touch-target-min);
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.send-friend-request-action__status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.send-friend-request-action__success {
+  margin: 0;
+  color: var(--color-accent-green-text);
+  font-size: 13px;
+}
+
+.send-friend-request-action__error {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+}

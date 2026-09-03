@@ -1,0 +1,158 @@
+/* SCREEN-15 (REQ-1401/1402/1403, S-217): tokens only, no new values —
+   same narrow single-column card shell as LeaguesScreen.css, same
+   underline-tab treatment as UserStatsScreen.css's game switcher. */
+
+.friends-screen {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.friends-screen__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.friends-screen__tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.friends-screen__tab {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.friends-screen__tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-green);
+}
+
+.friends-screen__tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.friends-screen__section {
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  padding: var(--space-3);
+  background: var(--color-surface-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.friends-screen__section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.friends-screen__description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.friends-screen__status {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.friends-screen__empty {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.friends-screen__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.friends-screen__error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+.friends-screen__success {
+  color: var(--color-accent-green-text);
+  font-size: 13px;
+  margin: 0;
+}
+
+.friends-screen__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.friends-screen__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.friends-screen__row:last-child {
+  border-bottom: none;
+}
+
+.friends-screen__row-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.friends-screen__row-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.friends-screen__row button,
+.friends-screen__tab-panel > .friends-screen__section > button[type='button'] {
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.friends-screen__row button:disabled,
+.friends-screen__tab-panel > .friends-screen__section > button[type='button']:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

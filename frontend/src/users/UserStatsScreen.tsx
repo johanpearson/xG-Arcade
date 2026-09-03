@@ -13,6 +13,7 @@ import type { UserStatsResponse } from '../lib/types';
 // than redefined here.
 import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
 import type { GameKey } from '../leaderboard/LeaderboardScreen';
+import { SendFriendRequestAction } from '../social/SendFriendRequestAction';
 import './UserStatsScreen.css';
 
 export interface UserStatsScreenProps {
@@ -26,6 +27,16 @@ export interface UserStatsScreenProps {
   displayName: string;
   onAuthError: () => void;
   onBack: () => void;
+  // REQ-1401 (S-217, design-document.md SCREEN-13's 2026-09-03 status
+  // note): the currently signed-in account's own id — optional and
+  // defaults to hidden (SendFriendRequestAction never mounts) so every
+  // existing caller/test that predates this addition is unaffected.
+  // App.tsx passes currentUser?.id; only ever mounts the "Send friend
+  // request" action when this differs from `userId` above.
+  viewerUserId?: string;
+  // Optional: lets SendFriendRequestAction link out to SCREEN-15 when the
+  // viewed player already sent the viewer a pending request.
+  onOpenFriends?: () => void;
 }
 
 // REQ-411 (S-179, frontend half of S-178's backend work): SCREEN-13's
@@ -86,7 +97,15 @@ function formatAverage(average: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-export function UserStatsScreen({ accessToken, userId, displayName, onAuthError, onBack }: UserStatsScreenProps) {
+export function UserStatsScreen({
+  accessToken,
+  userId,
+  displayName,
+  onAuthError,
+  onBack,
+  viewerUserId,
+  onOpenFriends,
+}: UserStatsScreenProps) {
   const [gameKey, setGameKey] = useState<GameKey>(XG_GRID_GAME_KEY);
   const [state, setState] = useState<StatsState>({ phase: 'loading' });
 
@@ -156,6 +175,19 @@ export function UserStatsScreen({ accessToken, userId, displayName, onAuthError,
               "is this me" beyond the userId/displayName props it was handed). */}
           <h2 className="user-stats-screen__title">{displayName}&apos;s stats</h2>
         </div>
+        {/* REQ-1401 (S-217): mounted only when viewerUserId is known and
+            differs from the player being viewed — own-profile hidden
+            entirely, and every existing caller/test that never passes
+            viewerUserId sees no change at all. */}
+        {viewerUserId && viewerUserId !== userId && (
+          <SendFriendRequestAction
+            accessToken={accessToken}
+            viewerUserId={viewerUserId}
+            targetUserId={userId}
+            onAuthError={onAuthError}
+            onOpenFriends={onOpenFriends}
+          />
+        )}
       </div>
       {/* ADR-0021/design-document.md SCREEN-03: same "lowest total wins"
           framing the leaderboard already leads with, under the header —

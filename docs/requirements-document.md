@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.53"
+version: "2.54"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -10923,6 +10923,18 @@ coverage in `FriendServiceTests.cs`/`FriendEndpointTests.cs`. REQ-1402/1403
 (challenges, matchmaking) are built too, as of S-210 — see their own status
 blocks below.
 
+**Status note (2026-09-03, S-217 — frontend built):** a new `FriendsScreen`
+(`frontend/src/social/`, reached from a new "Friends" `HeaderNav` entry,
+design-document.md SCREEN-15) renders `FriendsTab` on top of
+`frontend/src/lib/friends.ts`, covering every branch above: sending a
+request (also reachable from another player's stats page via
+`SendFriendRequestAction`, `UserStatsScreen`'s new "Send friend request"
+entry point — there is no user-search-by-name endpoint, so friending always
+starts from a player already visible somewhere, e.g. a leaderboard row),
+listing pending requests, and accept/decline. REQ-1411's header-nav badge
+(see that REQ's own status note below) surfaces a pending incoming request
+as part of its combined count.
+
 - Given two existing xG Arcade accounts, User A and User B, who are not
   already friends and have no pending friend request between them
 - When User A sends User B a friend request
@@ -10978,6 +10990,17 @@ before, so an invalid accept attempt never leaves an orphan match.
 /challenges/pending`, all `.RequireAuthorization()`'d. Full
 `REQ1402_...`-named test coverage in `ChallengeServiceTests.cs`/
 `ChallengeEndpointTests.cs`.
+
+**Status note (2026-09-03, S-217 — frontend built):** a new `ChallengesTab`
+(`frontend/src/social/`, part of `FriendsScreen`, SCREEN-15) lists pending
+challenges and lets the challenged user accept or decline. Accepting shows
+an honest acknowledgment banner ("Match started! You'll be able to play it
+soon.") rather than navigating into any match/gameplay UI — that screen is
+S-218's separate, not-yet-built scope. Sending a new challenge is exposed
+one tab over: `FriendsTab`'s own `FriendRow` gets a "Challenge" button per
+friend, per design-document.md SCREEN-15's framing that the friends list
+itself is where you'd challenge a friend, not the Challenges tab (which is
+scoped to challenges already sent to the viewer).
 
 - Given User A and User B are friends (REQ-1401)
 - When User A sends User B a direct xG Connect challenge
@@ -11035,6 +11058,19 @@ rather than the CLI-verb pattern, per ADR-0024). Full
 `MatchmakingEndpointTests.cs`/`InternalMatchmakingSweepEndpointTests.cs`
 (`XGArcade.Api.Tests`, since the sweep service itself lives in
 `XGArcade.Api`).
+
+**Status note (2026-09-03, S-217 — frontend built):** a new
+`MatchmakingTab` (`frontend/src/social/`, part of `FriendsScreen`,
+SCREEN-15) is a single one-shot "Opt in" action — opting in is itself the
+consent, so there is no form or confirm step. On success it shows "You're
+in the matchmaking pool until {expiry}," sourced from the opt-in response
+itself, not fetched — there is no GET/listing endpoint for this resource,
+so that status is deliberately session-local (a plain disclosure note
+says it won't be visible again after leaving the screen). Whether/when a
+resulting pairing actually formed is not shown by this tab; the player
+learns of it only via REQ-1404's target-pick screen once it exists
+(S-218) or REQ-1411's notification badge counting the resulting match as
+awaiting their next move.
 
 - Given User A opts into random matchmaking and no other unpaired opt-in
   exists at that moment
@@ -11536,8 +11572,8 @@ challenges, and awaiting-action matches**
 > challenge, or an xG Connect match still waiting on my next move, without
 > having to go check each screen manually.
 
-**Status: Backend built, 2026-09-03 (S-216) — frontend badge is separate,
-deferred work (S-217).** `GET /notifications/summary`
+**Status: Built, 2026-09-03 (backend S-216; frontend S-217).** `GET
+/notifications/summary`
 (`XGArcade.Api.Notifications.NotificationEndpoints`, `.RequireAuthorization()`'d)
 aggregates the three categories below through each owning component's own
 normal read path — `IFriendService.GetPendingFriendRequestsAsync` (COMP-16),
@@ -11551,8 +11587,26 @@ timeout, or a `ClosesChain=true` `ConnectChainStep`). Response is
 `HasPending` flag. Per ADR-0103's own "belongs to neither component"
 paragraph, this is not a new component — the aggregating logic lives
 directly in `XGArcade.Api`. An unpaired `MatchmakingOptIn` (REQ-1403,
-`Waiting` status) is never queried by this endpoint. Test coverage
-(`REQ1411_...`-named) is a separate, following pass.
+`Waiting` status) is never queried by this endpoint. Full
+`REQ1411_...`-named test coverage (`NotificationEndpointTests.cs`, plus
+extended `ConnectMatchLifecycleServiceTests.cs`/
+`ConnectMatchRepositoryTests.cs`) landed shortly after S-216, in a
+same-story follow-up commit not separately doc-synced at the time — this
+note corrects that gap.
+
+**Status note (2026-09-03, S-217 — frontend built):** `HeaderNav`
+(`frontend/src/nav/`) gained a `friendsNotificationCount` prop, computed
+in `App.tsx` as the sum of `useNotificationSummary`'s three counts
+(`frontend/src/lib/useNotificationSummary.ts`, a 15-second self-rescheduling
+poll of `GET /notifications/summary`, mounted once at the top of `App()`
+so it stays current regardless of which screen is showing) and rendered
+as an inline "Friends (N)" count on the "Friends" nav entry, omitted
+entirely at 0 — design-document.md SCREEN-07's 2026-09-03 status note
+resolves REQ-1411's deliberately-open count-vs-presence-dot choice in
+favor of a count, the same inline "(N)" convention `AdminScreen`'s
+existing pending-count sections ("Player suggestions (N)", "Unverified
+data (N)", SCREEN-04) already use. A transient poll failure never blanks
+the badge, only a real 401 escalates via `onAuthError`.
 
 - Given a player has at least one item in any of these three states: a
   friend request sent to them and not yet accepted/declined (REQ-1401), a

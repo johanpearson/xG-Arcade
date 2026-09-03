@@ -10726,9 +10726,11 @@ excluded.
 use, evaluated for the caller's own slot only (the other participant's
 terminal state does not affect whether a match is still "awaiting my
 move"). Response (`NotificationSummaryResponse`) carries per-category
-counts plus a combined `HasPending` flag. `REQ1411_...`-named test
-coverage is a separate, following pass (test-writer), not included in this
-commit.
+counts plus a combined `HasPending` flag. Full `REQ1411_...`-named test
+coverage (`NotificationEndpointTests.cs`, plus extended
+`ConnectMatchLifecycleServiceTests.cs`/`ConnectMatchRepositoryTests.cs`)
+landed in a same-story `test-writer` follow-up commit (`cc93715`,
+2026-09-03), not included in the commit above.
 
 **S-217 · Frontend: friends/challenges/matchmaking screens**
 New `design-document.md` SCREEN entries (via the `frontend-design`
@@ -10739,6 +10741,50 @@ decision here, deliberately left open by REQ-1411 itself).
 *Accept:* Vitest coverage; manual browser check per `CLAUDE.md`'s
 UI-testing rule.
 *Deps:* S-216.
+
+*Built as (2026-09-03):* New `docs/design-document.md` SCREEN-15 "Friends &
+Challenges" (via `frontend-design`/`ui-implementer`), with updates to
+SCREEN-07 (header-nav badge, resolving REQ-1411's count-vs-presence-dot
+decision in favor of a count) and SCREEN-13 (a "Send friend request" entry
+point, since no user-search-by-name endpoint exists — friending always
+starts from a player already visible somewhere, e.g. a leaderboard row).
+New `frontend/src/social/FriendsScreen.tsx`, reached from a new "Friends"
+`HeaderNav` entry, with three tabs: `FriendsTab` (friends list, pending
+incoming requests, and — per SCREEN-15's own framing that the friends list
+is where you'd challenge a friend — a "Challenge" button per friend,
+REQ-1402), `ChallengesTab` (pending incoming challenges, accept/decline;
+accepting only shows an honest "Match started!" acknowledgment banner,
+never navigating into gameplay, which stays S-218's separate scope), and
+`MatchmakingTab` (REQ-1403's one-shot opt-in — no listing endpoint exists,
+so its "in the pool until…" status is session-local only, not fetched).
+`SendFriendRequestAction` is reused from both `FriendsTab`'s incoming-
+request rows and the new `UserStatsScreen` entry point above. New
+`frontend/src/lib/{friends,challenges,matchmaking,notifications}.ts`
+(typed fetch wrappers) and `useNotificationSummary.ts` (a 15s
+self-rescheduling poll of `GET /notifications/summary`, mirroring
+`AllTimeLeaderboard.tsx`'s own poll shape, mounted once in `App()` so
+`HeaderNav`'s badge stays current regardless of which screen is showing).
+The badge itself resolved REQ-1411's deliberately-open design question as
+a combined count (not a presence dot) rendered inline as "Friends (N)",
+omitted entirely at 0 — the same inline "(N)" convention `AdminScreen`'s
+existing pending-count sections already use. Two same-story quality-gate
+follow-up commits
+(`7a9db40`, `52a7ee7`, 2026-09-03, no behavior change): the first
+extracted two shapes duplicated past the rule-of-three threshold
+(ADR-0084) — `useSubmitAction.ts` (submit/error/onAuthError, mirroring
+`useAuthedFetch.ts`'s mount-fetch shape for the user-triggered-submit
+case; five call sites) and `FetchListSection.tsx` (loading/error/empty/
+list render shape, scoped to `/social`'s own CSS classes; three call
+sites), both with direct unit coverage added alongside the existing
+per-component tests; the second fixed a copy-paste component-id slip in a
+code comment (`useSubmitAction.ts` cited COMP-06 instead of COMP-16). No
+new ADR — same "straightforward, requirement-mandated implementation of
+already-accepted REQ text" reasoning S-211 through S-216's own entries
+already used for this component, confirmed by `architecture-reviewer`
+against this story's own diff, which also confirmed the count-vs-dot
+badge decision and the no-user-search "start from a player's stats page"
+decision are both correctly scoped as `design-document.md`-level
+decisions, not structural ones.
 
 **S-218 · Frontend: match/gameplay screen**
 Target-pick selection UI, chain-builder UI (candidate search, club claim,

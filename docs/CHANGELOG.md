@@ -13,6 +13,34 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.53→2.54, status notes
+  added to REQ-1401/1402/1403 for the S-217 frontend and REQ-1411's status
+  block corrected to "Built" — backend S-216, frontend S-217 — including a
+  fix to a stale "test coverage is a separate, following pass" claim that
+  had gone stale once `cc93715` landed it before this pass),
+  `docs/implementation-document.md` (1.25→1.26, project-structure §4:
+  new `src/social/` entry, `/nav` and `/lib` entries extended, `/users`
+  entry extended for `SendFriendRequestAction`), `docs/backlog.md`
+  (S-217 entry given a "Built as" paragraph; S-216 entry's own stale
+  test-coverage note corrected to reference `cc93715`) — S-217 built the
+  frontend for xG Connect's friends list, direct challenges, matchmaking
+  opt-in (REQ-1401/1402/1403), and the header-nav notification badge
+  (REQ-1411's frontend half): new `frontend/src/social/` (`FriendsScreen`
+  with `FriendsTab`/`ChallengesTab`/`MatchmakingTab`,
+  `SendFriendRequestAction`), `frontend/src/lib/{friends,challenges,
+  matchmaking,notifications,useNotificationSummary}.ts`, wired into
+  `HeaderNav`'s new "Friends" nav entry/badge and `UserStatsScreen`. New
+  `design-document.md` SCREEN-15, with updates to SCREEN-07/SCREEN-13
+  (already synced in the S-217 commit itself). Two same-story
+  quality-gate follow-ups (no behavior change): `useSubmitAction.ts`/
+  `FetchListSection.tsx` extracted to dedupe repeated shapes across
+  `src/social/` (ADR-0084 rule-of-three), and a component-id comment fix
+  (COMP-06 → COMP-16). No new ADR — confirmed by `architecture-reviewer`
+  against this story's own diff. `docs/architecture-document.md` checked,
+  no change needed (COMP-16/COMP-17's rows describe backend
+  responsibility only, consistent with every other component row in that
+  document — no existing precedent for noting frontend consumption
+  there). REQ-1401, REQ-1402, REQ-1403, REQ-1411.
 - 2026-09-03 — `docs/requirements-document.md` (2.52→2.53, REQ-1411 status
   updated to Built), `docs/architecture-document.md` (1.45→1.46, COMP-16/
   COMP-17 rows extended), `docs/backlog.md` (S-216 entry extended) — S-216

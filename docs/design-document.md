@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.86"
+version: "0.87"
 status: draft
-last_updated: 2026-09-02
+last_updated: 2026-09-03
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -2160,6 +2160,49 @@ from anywhere (including from inside another screen, e.g. the
 leaderboard), while the title remains the route to the full landing/picker
 screen shown right after login.
 
+**Added 2026-09-03, REQ-1411/S-217: the "Friends" nav entry and its
+notification badge.** A new top-level entry, positioned after "Leagues"
+and before "Settings" (arcade-level, same reasoning REQ-720's own "Games"
+entry note gives for why per-game entries live in their own nested list
+instead — friends/challenges/matchmaking are COMP-16, not game-specific,
+so this sits alongside Leaderboard/Leagues rather than inside "Games").
+Opens SCREEN-15.
+
+**Badge treatment — count, not a presence dot (resolving REQ-1411's own
+explicitly-deferred "count vs. presence dot" question).** The entry's
+label is plain text, "Friends" or "Friends (N)" — the combined total of
+`GET /notifications/summary`'s three counts
+(`pendingFriendRequestCount + pendingChallengeCount +
+matchesAwaitingActionCount`), omitted entirely at zero. This is exactly
+the same inline "(N)" convention `PlayerSuggestionsEntry`'s "Player
+suggestions (N)" and `UnverifiedDataSection`'s "Unverified data (N)"
+already established (SCREEN-04's own entries) — chosen over a colored
+dot/pill for the same reason those two precedents already give: this
+table has no token for a small numeric badge/pill, and inventing one for
+this single use would be exactly the ad-hoc-value CLAUDE.md's token rule
+warns against, whereas the existing plain-text convention needs nothing
+new at all. A count is also strictly more informative than a presence dot
+at identical cost — REQ-1411's own text only requires presence ("that at
+least one such item exists"), but nothing about a bare dot is cheaper to
+build or verify than the count already sitting in the same response, and
+this app already has an established "count in parens" reader expectation
+from the two precedents above, so a dot here would actually be a second,
+inconsistent treatment for the same kind of information rather than a
+simpler one. Never color-only (§6): the figure is real text, not a
+colored shape alone.
+
+Polled every 15s while a session exists (`useNotificationSummary`,
+`frontend/src/lib/`), mounted once at the top of `App()` (same "regardless
+of which screen is showing" placement as `useThemePreference`/
+`IncidentReportDialog`'s own state) — the same self-rescheduling
+`setTimeout` poll shape `AllTimeLeaderboard.tsx`'s existing 15s
+leaderboard poll already established (REQ-1411's own text: "page-load/
+poll-driven refresh is sufficient," no live push — same interval reused
+for consistency, not re-derived). A transient poll failure never blanks
+or errors the nav — it just leaves the last known count showing, the same
+"never replace already-good state with an error" discipline the
+leaderboard's own poll already follows.
+
 ### SCREEN-08: Settings
 
 **Non-guest, edit panel closed (default state):**
@@ -3167,6 +3210,51 @@ never blocking the rest of this screen's stats from rendering.
   scale, `--touch-target-min`) — no new color or typeface introduced for
   this screen.
 
+**Added 2026-09-03, REQ-1401/S-217: "Send friend request."** A new,
+optional action — `SendFriendRequestAction.tsx` (`frontend/src/social/`)
+— rendered directly under the identity row, only when this screen is
+handed a `viewerUserId` distinct from the `userId` being viewed (App.tsx
+passes the current session's own account id; the prop is optional and
+defaults to hidden so every other, unrelated existing caller/test is
+unaffected). This is the one, deliberately narrow entry point into
+REQ-1401's friend-request flow this codebase has: there is no
+user-search-by-name endpoint (and none should be added against
+`PlayerNameIndex`/`PlayerData` — those are football-player tables, not
+account data; ADR-0007's boundary is a different concept entirely), so
+"friend someone" only ever starts from *already looking at their
+profile* — reached via a leaderboard row, exactly like this screen's own
+existing entry point already is.
+
+Three states, resolved from `GET /friends` and `GET
+/friends/requests/pending` (both scoped to the *viewer's* own account,
+fetched only once this screen is showing someone else's profile):
+- Already friends (`friendUserId` matches the viewed player): muted text,
+  "You're already friends." — no button.
+- The viewed player already sent the viewer a pending request
+  (`requesterUserId` matches the viewed player, found in the viewer's own
+  pending list): muted text, "This player already sent you a friend
+  request.", plus a plain-text-style link, "Respond in Friends &
+  Challenges" (`onOpenFriends`, SCREEN-15) — the one direction this screen
+  can actually detect ahead of time, since the viewer's own
+  pending-request list is a real, fetchable thing.
+- Otherwise: a "Send friend request" button (`POST /friends/requests`
+  with `recipientUserId = userId`). Success replaces it with "Friend
+  request sent." in `accent-green-text`, mirroring the display-name/avatar
+  success-text convention already established elsewhere in this app.
+  **The reverse "I already sent them one" direction can't be predicted
+  client-side** (no endpoint tells the viewer their own *sent*,
+  still-pending requests) — see SCREEN-15's own identity-gap note for the
+  fuller explanation; a 409 "Duplicate pending request" from the server is
+  instead handled the same way every other duplicate-conflict error in
+  this app is, inline in `accent-red` with the server's own detail text.
+
+Renders nothing (not even a loading flicker) until both fetches resolve,
+and nothing at all on a fetch failure other than a 401 — same "must never
+block the rest of this screen's stats from rendering" discipline the
+avatar addition above already established, since this action is
+supplementary to the screen's real purpose (viewing stats), not the
+reason someone opens it. No new tokens.
+
 ### SCREEN-14: xG Predict round (score prediction)
 
 New for this story (REQ-1301/1302/1303/1306) — no prior SCREEN entry
@@ -3332,6 +3420,149 @@ GuestLogoutConfirm (REQ-718):
   spacing scale (`--space-*`) and `--touch-target-min` sizing throughout.
   No new color, typeface, or animation token was introduced for this
   screen.
+
+### SCREEN-15: Friends & Challenges (REQ-1401/1402/1403, S-217)
+
+New for this story — no prior SCREEN entry covered this. One component,
+`FriendsScreen.tsx` (`frontend/src/social/`), reached via a new top-level
+"Friends" header-nav entry (SCREEN-07, updated above) — arcade-level, not
+nested under "Games" (COMP-16 is a `Core.Social` concern, not a
+per-game one, same reasoning REQ-712/713 already applied when
+Leaderboard/Leagues got their own top-level entries rather than living
+inside a game).
+
+```
+┌───────────────────────────────┐
+│ Friends & Challenges             │
+├───────────────────────────────┤
+│ [Friends] [Challenges] [Matchmaking] │  ← tab bar, accent-green underline
+├───────────────────────────────┤
+│ Friend requests (2)              │
+│ Player A1B2C3D4     [Accept] [Decline] │
+│ Player E5F6A7B8     [Accept] [Decline] │
+│ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│ My friends                       │
+│ Player 11223344          [Challenge] │
+│ You don't have any friends yet.  │
+│ Visit a player's stats page to   │
+│ send a friend request.           │
+└───────────────────────────────┘
+```
+
+- **Tab bar**: same plain underline-tab pattern (`role="tablist"`,
+  `role="tab"`, `aria-selected`, `accent-green` underline on the active
+  tab) SCREEN-03/SCREEN-13's own game switchers already established — "not
+  a new control type" (this doc's own recurring rule). Three tabs:
+  "Friends" (default), "Challenges", "Matchmaking" — plain labels, no
+  per-tab count badge (the header-nav entry itself already carries the
+  combined count, per SCREEN-07's update above — a second, per-tab count
+  would just restate the same information twice on screen at once).
+
+- **Identity gap, flagged rather than silently worked around.** REQ-1401/
+  1402's response shapes (`FriendRequestResponse`/`ChallengeResponse`/
+  `FriendshipResponse`) only ever carry the *other* party's raw `userId` —
+  there is no backend endpoint that resolves an arbitrary `userId` to a
+  `displayName` (the one place a name is ever attached to an id at all is
+  `LeaderboardRow`/`PendingSuggestion`-style rows, neither of which apply
+  here). Rather than fabricate a name or reach into `PlayerNameIndex`/
+  `PlayerData` (which would also violate ADR-0007 — those tables are
+  football-player data, not xG Arcade account data, an unrelated boundary
+  entirely), every row on this screen renders a short, stable,
+  deterministic label instead: **"Player " + the first 8 characters of the
+  raw id, uppercased** (`shortUserId()`, `frontend/src/social/
+  shortUserId.ts`) — e.g. `Player A1B2C3D4`. This is a known, real UX gap,
+  not a design choice worth keeping: a real follow-up story should extend
+  these three response shapes with the other party's `displayName`
+  (mirroring how `PendingSuggestion.submittingUserDisplayName` already
+  does this for a different id) so this screen can show a real name.
+  Recorded here plainly, not silently left to read as a deliberate
+  "player IDs, not names" product decision.
+
+- **Friends tab.**
+  - "Friend requests" — every `Pending` row from `GET
+    /friends/requests/pending` (REQ-1401: requests where the caller is
+    recipient), heading carries the same inline "(N)" pending-count
+    convention `PlayerSuggestionsEntry`/`UnverifiedDataSection` already use
+    elsewhere in this doc (plain text, not a colored pill — no token exists
+    for one, CLAUDE.md's token-discipline rule), omitted entirely at zero.
+    Each row: the requester's `shortUserId()` label, an "Accept" and a
+    "Decline" button (`POST .../accept` / `.../decline`), both
+    `min-height: --touch-target-min`. A resolved row disappears from the
+    list on the next refetch (no lingering "resolved" state needed — it's
+    simply gone from `GET /friends/requests/pending`'s next response). A
+    per-row error (e.g. a 409 "Already resolved" from a stale double click)
+    renders inline under that row in `accent-red`, the same "server's own
+    detail text shown inline" convention every other screen in this app
+    uses — never a page-level banner for a single row's failure.
+  - "My friends" — every row from `GET /friends`, `shortUserId()` label
+    plus a "Challenge" button (`POST /challenges` with this friend's
+    `friendUserId` as `challengedUserId`). A successful send shows
+    "Challenge sent." in `accent-green-text` beside that row, replacing the
+    button (mirrors `SettingsScreen`'s "Display name updated." inline
+    confirmation). A 409 "Duplicate pending challenge" (the one
+    precondition this screen can't check in advance — see the identity-gap
+    note above for why "already pending" can only be surfaced by
+    attempting the send and reading the server's own response, not
+    predicted client-side) shows inline in `accent-red` in its place.
+    Empty state (design-document.md §5, "empty states are invitations"):
+    "You don't have any friends yet. Visit a player's stats page to send a
+    friend request." — pointing at SCREEN-13's own new entry point, the
+    only way to acquire a friend in the first place.
+
+- **Challenges tab.**
+  - Every `Pending` row from `GET /challenges/pending` (REQ-1402:
+    challenges where the caller is the challenged party), same
+    heading-count convention as "Friend requests" above ("Challenges
+    (N)"). Each row: `shortUserId()` label plus "Accept"/"Decline".
+    Declining behaves exactly like declining a friend request (row
+    disappears on refetch, no lingering state).
+  - **Accepting is where S-218's boundary actually shows up.** REQ-1402's
+    accept response now carries a populated `resultingMatchId` — a real
+    `ConnectMatch` was just created server-side — but this story stops
+    short of any match/gameplay UI (S-218's separate, not-yet-built
+    scope). A successful accept shows a single, persistent-until-the-next-
+    accept banner at the top of this tab, `accent-green-text` on
+    `surface-card`: **"Match started! You'll be able to play it soon."** —
+    an honest acknowledgment, not a fake "click to play" link to a screen
+    that doesn't exist yet. No `matchId` is shown or stored anywhere in
+    the UI; S-218 is responsible for however a player later reaches an
+    in-progress match.
+  - Empty state: "No pending challenges." — a plain, calm empty state, not
+    styled as an "invitation" the way the friends-list empty state above
+    is (§5's "invitation" framing applies where there's a single action
+    that resolves the emptiness; there isn't one here).
+
+- **Matchmaking tab.**
+  - A short description ("Get matched with a random opponent for a new xG
+    Connect match.") plus a single "Opt in" button (`POST
+    /matchmaking/opt-in`). REQ-1403's opt-in has no accept/decline step —
+    opting in IS the consent, so this is a one-shot action, not a form.
+  - On success, the button is replaced by a status line: "You're in the
+    matchmaking pool until {expiresAt, formatted}." (plain prose, not the
+    `mono-figure` tabular treatment — this isn't a comparable numeric
+    figure the way leaderboard ranks/points are).
+  - **Known limitation, flagged not hidden**: per S-216/REQ-1403's own
+    scope note, there is no `GET` endpoint listing the caller's own
+    outstanding opt-in — the "you're in the pool until…" status above is
+    therefore *session-local only* (component state, not fetched):
+    reloading the page or leaving and returning to this tab loses it, even
+    though the real `MatchmakingOptIn` row is still live server-side until
+    it expires or pairs. A small `text-muted` note under the status line
+    says so plainly: "This won't be visible after you leave this screen."
+    A real fix needs a new backend listing endpoint — out of scope for
+    this frontend-only story.
+  - Opting in again in the same session, before the first one's local
+    status clears, is prevented client-side (the button is replaced by the
+    status line above) — a UX nicety only, not a substitute for whatever
+    duplicate-opt-in handling the backend itself does; this screen has no
+    visibility into that either way, per the limitation above.
+
+- **Tokens only** — same card/tab/status shell every other screen in this
+  document already uses (`--color-surface-card`, `--color-border-hairline`,
+  `--color-text-muted`, `--color-accent-green`/`--color-accent-green-text`
+  for the tab underline/success text, `--color-accent-red` for inline
+  errors, existing spacing scale, `--touch-target-min`) — no new color,
+  typeface, or animation introduced for this screen.
 
 ## 4. Responsive strategy
 

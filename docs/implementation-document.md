@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.25"
+version: "1.26"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -1119,7 +1119,14 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      footer row stays plain text
     /nav                          -> HeaderNav (SCREEN-07, REQ-712: mobile-only
                                      hamburger toggle collapsing the header nav
-                                     below 480px)
+                                     below 480px). S-217 (REQ-1401/1411,
+                                     2026-09-03) added a "Friends" nav entry
+                                     (destination: /social's FriendsScreen)
+                                     and a `friendsNotificationCount` prop,
+                                     rendered as an inline "Friends (N)"
+                                     count sourced from App.tsx's
+                                     useNotificationSummary — HeaderNav
+                                     itself has no fetch of its own
     /settings                     -> SettingsScreen (SCREEN-08, REQ-713: the
                                      "Settings" nav entry's destination, wraps
                                      /auth's DeleteAccountScreen unchanged plus
@@ -1173,7 +1180,48 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      (own stats) or a leaderboard row's
                                      display name (another player's,
                                      see /leaderboard below) — never a
-                                     top-level nav entry
+                                     top-level nav entry. S-217 (REQ-1401,
+                                     2026-09-03) added an optional
+                                     SendFriendRequestAction (/social) here,
+                                     mounted only when viewing another
+                                     player's own stats (viewerUserId !==
+                                     userId) — since no user-search-by-name
+                                     endpoint exists, this is the frontend's
+                                     only "start a friendship" entry point
+                                     besides an incoming request already
+                                     visible in /social itself
+    /social                        -> FriendsScreen (SCREEN-15, REQ-1401/
+                                     1402/1403, S-217, 2026-09-03) — reached
+                                     from a new "Friends" /nav entry, with
+                                     three tabs: FriendsTab (friends list +
+                                     pending incoming requests; the
+                                     "Challenge" action per friend lives
+                                     here, REQ-1402), ChallengesTab (pending
+                                     incoming challenges, accept/decline —
+                                     accepting only shows an acknowledgment
+                                     banner, never navigates into gameplay,
+                                     which remains S-218's separate scope),
+                                     and MatchmakingTab (REQ-1403's one-shot
+                                     opt-in; no listing endpoint exists, so
+                                     its "in the pool until…" status is
+                                     session-local only). Also
+                                     SendFriendRequestAction (see /users
+                                     above) and shortUserId.ts (a small
+                                     display-name-fallback helper, since
+                                     this screen only ever has raw user ids
+                                     to show, no display names). A
+                                     same-story quality-gate follow-up
+                                     extracted two shared shapes duplicated
+                                     across this directory past the
+                                     rule-of-three threshold (ADR-0084):
+                                     FetchListSection.tsx (loading/error/
+                                     empty/list render shape, scoped to this
+                                     directory's own CSS classes) and
+                                     /lib's useSubmitAction.ts (submit/
+                                     error/onAuthError shape, mirroring
+                                     useAuthedFetch.ts for the
+                                     user-triggered-submit case instead of
+                                     the mount-fetch case)
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts,
                                      scoringRules.ts (MAX_POINTS_PER_CELL,
@@ -1197,7 +1245,21 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      leaderboard.ts's own defaulting reads,
                                      since UserStatsScreen always has a
                                      selected game-tab by fetch time) and
-                                     types.ts's UserStatsResponse
+                                     types.ts's UserStatsResponse. S-217
+                                     (REQ-1401/1402/1403/1411, 2026-09-03)
+                                     added friends.ts, challenges.ts,
+                                     matchmaking.ts, notifications.ts
+                                     (typed fetch wrappers over /social's
+                                     backend endpoints and GET
+                                     /notifications/summary), types.ts's
+                                     matching response types, and two
+                                     shared hooks: useNotificationSummary.ts
+                                     (the 15s self-rescheduling poll behind
+                                     HeaderNav's badge, mirroring
+                                     AllTimeLeaderboard.tsx's own poll
+                                     shape) and useSubmitAction.ts (a
+                                     same-story quality-gate extraction —
+                                     see /social above)
   /tests
     /unit                       -> Vitest — mostly the pre-S-010 App/health-check
                                    test; App.tsx's own top-level routing tests
