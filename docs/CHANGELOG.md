@@ -14,6 +14,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-09-03 — `frontend/tests/e2e/play-connect.spec.ts`, `docs/backlog.md`
+  (S-218 entry given a further spec-bugfix addendum) — `test-writer` fixed
+  a third, same-category bug in the E2E spec itself (not the product),
+  caught by CI run #3 after it got all the way through the happy path:
+  the final chat-attribution assertion used a bare, page-wide
+  `pageA.getByText(shortUserId(userIdB))`, which Playwright's strict mode
+  rejected because `FriendsTab.tsx`'s "My friends" row for the same user
+  (mounted-but-hidden, per `FriendsScreen.tsx`'s deliberate convention for
+  the Friends/Challenges/Matchmaking tabs) uses the identical label and
+  matches too. Scoped both chat-attribution assertions to
+  `.connect-match__chat-sender` (`MatchChat.tsx`'s own sender element,
+  which the assertion's comment already said it meant) instead. Also
+  re-checked the two other `shortUserId()`-derived `getByText` calls
+  ('Challenge sent.' / '`<id>` challenged you') against component source —
+  neither collides with anything mounted-but-hidden at those points, so no
+  change was needed there. No product code changed. `npx playwright test
+  --list` and `tsc --noEmit` clean; not run against a real backend in this
+  sandbox — a `ci.yml` `workflow_dispatch` run is needed to confirm. No
+  REQ/ADR change.
+
+- 2026-09-03 — `frontend/tests/e2e/play-connect.spec.ts`, `docs/backlog.md`
   (S-218 entry given a spec-bugfix addendum) — `test-writer` fixed a bug
   in the E2E spec itself (not the product), caught by CI run #2: the
   shared `submitTargetPick` helper asserted `getByText('Your target:

@@ -11042,3 +11042,35 @@ reachable Docker daemon in this sandbox: `npx playwright test --list` and
 `tsc --noEmit` both clean; the spec was not executed against a real
 backend — a `ci.yml` `workflow_dispatch` run is needed to confirm this
 run #2 failure is actually resolved.
+
+**Third spec-only bug, CI run #3 (2026-09-03, `test-writer`) — same
+category, not the product:** run #3 got through the entire happy path
+(challenge, both target picks, full chain to completion on both sides,
+draw resolution, both scores, both chat sends) and failed only on its own
+last assertion, `pageA.getByText(shortUserId(userIdB))`, with a Playwright
+strict-mode violation (2 elements), not a timeout. Cause: by that point A
+and B are already friends (seeded up top), and `FriendsTab.tsx` renders a
+"My friends" row for B using the exact same `shortUserId()` label, inside
+`FriendsScreen.tsx`'s deliberate mount-once/`hidden` wrapper for the
+Friends/Challenges/Matchmaking tabs (the convention the Matches tab was
+made an exception to in the fix two entries above — Friends/Challenges/
+Matchmaking are supposed to stay this way). `getByText` matches hidden
+elements too, so the bare, page-wide locator matched both that row and the
+intended `<span class="connect-match__chat-sender">` in `MatchChat.tsx`.
+**Fixed** by scoping both of this assertion's locators (User A checking
+for B's id, User B checking for A's id) to `.connect-match__chat-sender`
+specifically — the element the assertion's own comment already said it
+was trying to check — rather than a bare page-wide `getByText`; each side
+has exactly one chat message from the other player in this flow, so the
+scoped locator resolves to exactly one element. Also re-checked, against
+component source rather than by inference, the two other `getByText`
+calls that read a `shortUserId()`-derived string while a
+mounted-but-hidden tab was active (`'Challenge sent.'` at the
+challenge-send step, and `` `${shortUserId(userIdA)} challenged you}` ``
+at the challenge-accept step) — neither collides: both strings are unique
+to a single leaf element (`FriendsTab.tsx`'s success span and
+`ChallengesTab.tsx`'s row-name span respectively) not reproduced anywhere
+else mounted at that point, so no change was needed there. `npx
+playwright test --list` and `tsc --noEmit` clean; not run against a real
+backend in this sandbox — a `ci.yml` `workflow_dispatch` run is needed to
+confirm.

@@ -339,8 +339,25 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // message via its own next 15s poll tick, not instantly — a generous
       // explicit timeout lets Playwright's auto-waiting retry this assertion
       // across that poll instead of racing it.
-      await expect(pageA.getByText(shortUserId(userIdB))).toBeVisible({ timeout: 20_000 })
-      await expect(pageB.getByText(shortUserId(userIdA))).toBeVisible({ timeout: 20_000 })
+      //
+      // Scoped to MatchChat.tsx's own sender span (.connect-match__chat-sender),
+      // not a bare page-wide getByText: by this point in the test, A and B are
+      // already friends (seeded above), and FriendsTab.tsx renders a "My
+      // friends" row for the other player using this exact same shortUserId()
+      // label, mounted-but-hidden under FriendsScreen.tsx's deliberate
+      // "Friends/Challenges/Matchmaking stay mounted" convention (see that
+      // file's own top-of-file comment) rather than removed from the DOM — a
+      // bare getByText matches hidden elements too, so it resolves to both
+      // that row AND this chat message and trips Playwright's strict mode.
+      // Each side has exactly one chat message from the other player in this
+      // flow (one message sent per side), so this scoped locator resolves to
+      // exactly one element.
+      await expect(
+        pageA.locator('.connect-match__chat-sender').getByText(shortUserId(userIdB)),
+      ).toBeVisible({ timeout: 20_000 })
+      await expect(
+        pageB.locator('.connect-match__chat-sender').getByText(shortUserId(userIdA)),
+      ).toBeVisible({ timeout: 20_000 })
     } finally {
       await contextA.close()
       await contextB.close()
