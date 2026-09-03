@@ -749,6 +749,21 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    XGConnectGameModuleTests (PurgeUserDataAsync
                                    anonymization, NotSupportedException on
                                    every round-generation-shaped method).
+                                   S-213 (2026-09-03) added
+                                   ConnectChainStepServiceTests.cs
+                                   (REQ1406_-named: valid overlapping-time
+                                   step accepted and appended, non-
+                                   overlapping-period and never-played-there
+                                   claims both rejected as InvalidStep and
+                                   persisted, chain-closing detected only
+                                   against the OTHER target pick, chain-
+                                   already-complete/not-found/not-a-
+                                   participant/not-active/candidate-not-
+                                   found/LiveLookupUnavailable-on-either-
+                                   check outcomes) and extended
+                                   FakePlayerCareerOverlapService.cs/
+                                   PlayerCareerOverlapServiceTests.cs with
+                                   HaveOverlapAtClubAsync coverage.
     /XGArcade.TestSupport      -> new shared plain class library, added
                                    2026-09-02 (S-211 quality-review fix):
                                    FixedTimeProvider, promoted here once a
@@ -765,6 +780,16 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    (REQ1404_-named coverage of
                                    POST /matches/{matchId}/target-pick end to
                                    end, including every status-code mapping).
+                                   S-213 (2026-09-03) added
+                                   ConnectChainStepEndpointTests.cs
+                                   (REQ1406_-named end-to-end coverage of
+                                   POST /matches/{matchId}/chain-steps,
+                                   including every status-code mapping) and
+                                   one addition to
+                                   PlayerAutocompleteEndpointTests.cs proving
+                                   candidate search still returns a player
+                                   with zero ClubDefinition/CountryDefinition
+                                   rows seeded anywhere in the database.
 
 /frontend
   /src                          -> feature folders, not the layer folders this

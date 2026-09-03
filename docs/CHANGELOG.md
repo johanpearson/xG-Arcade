@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/implementation-document.md` (doc-sync pass, no version
+  bump — same S-213 change, filling a gap the implementing agent's own edit
+  left) — `/XGArcade.Games.XGConnect.Tests` and `/XGArcade.Api.Tests`
+  project-structure entries extended to name the four new/changed S-213
+  test files (`ConnectChainStepServiceTests.cs`,
+  `ConnectChainStepEndpointTests.cs`, and the `FakePlayerCareerOverlapService.cs`/
+  `PlayerCareerOverlapServiceTests.cs`/`PlayerAutocompleteEndpointTests.cs`
+  additions) that the S-213 commit's own doc edit omitted — verified against
+  `git diff origin/main...claude/connection-chain-submission-gg8p2h`.
+  requirements-document.md, architecture-document.md, and backlog.md's own
+  S-213 edits were checked against the real code diff and found accurate;
+  no ADR needed (confirmed, same `Games.XGPath`-precedent reasoning
+  S-211/S-212 already established). REQ/ADR refs: REQ-1406.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.47→2.48, REQ-1406 Status
   updated from Proposed to Built), `docs/architecture-document.md`
   (1.40→1.41, COMP-17 row extended with the S-213 chain-step-submission
