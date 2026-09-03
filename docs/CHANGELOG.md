@@ -13,6 +13,39 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/backlog.md` (S-218 entry given an E2E-coverage
+  addendum, `test-writer`) — landed
+  `frontend/tests/e2e/play-connect.spec.ts`, S-218's own missing Playwright
+  E2E: one continuous playthrough (REQ-1402/1404/1405/1406/1408/1409/1410)
+  covering challenge send/accept -> both target picks -> chain to
+  completion (both players) -> resolution, plus bonus in-match chat
+  coverage. First spec in this repo needing two independent, simultaneously
+  authenticated Playwright sessions (`browser.newContext()` per player)
+  rather than one. New environment-gated backend test-data endpoint, `POST
+  /internal/test-data/seed-connect-players`
+  (`XGArcade.Api.Connect.InternalConnectTestDataEndpoints`, same
+  non-Production-only pattern as `InternalRoundEndpoints`'s
+  seed-guessable-*-round endpoints), with its own API-level coverage in
+  `InternalConnectTestDataEndpointTests.cs`. Friending (REQ-1401) is seeded
+  directly via the real API rather than driven through the UI's
+  stats-page-only entry point; everything REQ-1402+ is driven through the
+  real UI. **Found and flagged, not silently fixed:** a real cross-boundary
+  id-space bug — `TargetPickPanel.tsx` submits a `/players/autocomplete`
+  (COMP-10, `PlayerNameIndex`) suggestion's own `playerId` as the
+  target-pick endpoint's `targetPlayerId`, but that endpoint resolves the id
+  against `PlayerCareerStint`/`Player` (COMP-06) — a different, unreconciled
+  id space per `PlayerNameIndex.PlayerId`'s own doc comment (ADR-0007), so a
+  target pick selected via the real UI does not reliably resolve to the
+  intended player's own career data for real, Wikidata-imported players.
+  The new seed endpoint works around this for its own test-only players
+  only (documented prominently as a workaround, not a fix); a real follow-up
+  story is needed. Not run locally against a live backend — this sandbox
+  has neither a `dotnet` SDK nor a reachable Docker daemon; `tsc -b`/
+  `oxlint` clean and the full Vitest suite (868 tests) still passes. A
+  `ci.yml` `workflow_dispatch` run is needed to verify the new Playwright
+  spec and the two new backend tests for real. No REQ/ADR text changed —
+  test/doc addition only.
+
 - 2026-09-03 — `docs/design-document.md` (0.87→0.88, new SCREEN-16 "xG
   Connect match/gameplay," plus small cross-reference updates to SCREEN-15's
   Challenges/Matchmaking tab notes and tab-bar description), `docs/

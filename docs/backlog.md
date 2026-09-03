@@ -10857,3 +10857,50 @@ stable, role/label-queryable controls for that purpose (see each
 component's own accessible labels: "Target player name," "Candidate player
 name," "Claimed shared club," "Chat message," "View match," "Set target
 pick," "Submit connector," "Send message").
+
+**E2E coverage landed (2026-09-03, `test-writer`):**
+`frontend/tests/e2e/play-connect.spec.ts` — one continuous playthrough
+(REQ-1402/1404/1405/1406/1408/1409/1410) covering exactly this story's own
+accept criterion: challenge send/accept -> both target picks -> chain to
+completion (both players) -> resolution, plus bonus in-match chat coverage
+given the same fixture. This is the first spec in this repo needing TWO
+independent, simultaneously authenticated Playwright sessions
+(`browser.newContext()` per player) rather than one — every other spec in
+this directory drives a single-player round. Friending (REQ-1401) is seeded
+directly via the real API (already has its own full FriendServiceTests.cs/
+FriendEndpointTests.cs coverage) rather than driven through the UI's
+stats-page-only entry point, which would need an unrelated round/leaderboard
+detour first; challenge send/accept and everything gameplay-related is
+driven through the real UI. A new environment-gated test-data endpoint,
+`POST /internal/test-data/seed-connect-players`
+(`XGArcade.Api.Connect.InternalConnectTestDataEndpoints`, same
+non-Production-only pattern as `InternalRoundEndpoints`'s three
+seed-guessable-*-round endpoints), seeds two `PlayerCareerStint`-backed
+target players that are NOT trivially connected plus one connector that
+closes either target's one-step chain — deterministic and hermetic, no live
+Wikidata reachability needed.
+
+**Real bug found and flagged, not silently fixed here:** `TargetPickPanel.tsx`
+submits `/players/autocomplete`'s (COMP-10, `PlayerNameIndex`) own
+suggestion `playerId` as `POST /matches/{matchId}/target-pick`'s
+`targetPlayerId`, but `ConnectTargetPickService`/`PlayerCareerOverlapService`
+resolve that id against `PlayerCareerStint`/`Player` (COMP-06) — a different,
+unreconciled id space per `PlayerNameIndex.PlayerId`'s own doc comment
+(ADR-0007). For real, Wikidata-imported players these ids will practically
+always differ, so a target pick selected via the real autocomplete UI does
+not reliably resolve to the intended player's own career data today. The new
+seed endpoint works around this (for its own test-only players only) by
+seeding a `PlayerNameIndex` row with `PlayerId` deliberately set equal to the
+real `Player.Id`, documented prominently in that endpoint's own top-of-file
+comment as a workaround, not a fix. **Needs a real follow-up story** —
+likely resolving the target pick by name server-side, mirroring
+`ConnectChainStepService.SubmitChainStepAsync`'s own
+`IPlayerRepository.GetPlayersByNormalizedFullNameAsync` pattern, rather than
+trusting a client-supplied id from a different component's id space.
+API-level coverage for the new seed endpoint itself lives in
+`InternalConnectTestDataEndpointTests.cs` (`XGArcade.Api.Tests`). Not run
+locally against a live backend — this sandbox has neither a `dotnet` SDK nor
+a reachable Docker daemon (`docker info` fails: no daemon socket) — `tsc -b`
+and `oxlint` are clean and the full Vitest suite (868 tests) still passes;
+a `ci.yml` `workflow_dispatch` run is needed to verify the Playwright spec
+and the two new backend tests for real.

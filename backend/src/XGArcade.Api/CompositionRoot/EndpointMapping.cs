@@ -66,6 +66,15 @@ public static class EndpointMapping
         // InternalConnectForfeitSweepEndpoints.cs's own doc comment for why
         // this uses that pattern rather than the CLI-verb one (ADR-0024).
         app.MapInternalConnectForfeitSweepEndpoints();
+        // S-218's own E2E accept criterion: deterministic
+        // PlayerCareerStint-backed test data for REQ-1404's target-pick
+        // overlap check and REQ-1406's chain-step overlap check, same
+        // environment-gated /internal/test-data/* pattern as
+        // MapInternalRoundEndpoints's own seed-guessable-*-round endpoints
+        // (the gate lives inside this method itself, not here — see that
+        // file's own top-of-file comment for the full "why," including a
+        // flagged, test-only id-space workaround).
+        app.MapInternalConnectTestDataEndpoints();
         app.MapRoundEndpoints();
         // REQ-1203/S-082: xg-path's own read-only display endpoint (GET
         // /path/current) — POST /rounds/{roundId}/cells/{cellId}/guesses below

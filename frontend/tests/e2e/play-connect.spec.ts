@@ -1,0 +1,317 @@
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { stubTurnstile } from './turnstile-stub'
+
+// S-218's own accept criterion: "Vitest + Playwright E2E covering a full
+// match happy path (challenge -> both picks -> chain to completion ->
+// resolution)." Unlike every other file in this directory (play-grid.spec.ts/
+// play-path.spec.ts/etc.), xG Connect is a genuine 1-vs-1 game — this is the
+// first spec in this repo that needs TWO independent, simultaneously
+// authenticated sessions racing the same server-side match, not one player
+// working through a single-player round. Two separate `browser.newContext()`
+// instances (see the test body below) give each player their own isolated
+// storage/cookies, the same way two different browsers/devices would really
+// connect — a single shared `page` (this file's Playwright `test.describe`
+// fixture) can only ever represent one logged-in session at a time.
+const API_BASE_URL = process.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+
+// Matches backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs's
+// SeedConnectPlayersResponse record exactly (System.Text.Json's default
+// camelCase policy). See that file's own top-of-file comment for exactly
+// why this endpoint exists and, importantly, for a real cross-boundary bug
+// it works around rather than fixes — flagged again at this spec's own
+// target-pick step below, at the exact point that workaround is load-bearing.
+interface SeedConnectPlayersResponse {
+  targetPlayerAName: string
+  targetPlayerBName: string
+  connectorPlayerName: string
+  clubOverlappingWithA: string
+  clubOverlappingWithB: string
+}
+
+// Matches AuthController.Me's MeResponse record (backend/src/XGArcade.Api/
+// Auth/AuthController.cs) — only `id` is used here.
+interface MeResponse {
+  id: string
+}
+
+// Same "one continuous playthrough" serial-mode precedent as play-grid.spec.ts/
+// play-path.spec.ts — this file happens to have only one test today, but a
+// generous timeout (two full sign-ups, two friend-request round trips, a
+// full match, and this file's own chat step waiting out up to two 15s poll
+// ticks) costs nothing and protects against flakiness the same way.
+test.describe.configure({ mode: 'serial', timeout: 120_000 })
+
+test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match happy path', () => {
+  // REQ-701/REQ-806's real-signup-endpoint convention (see play-grid.spec.ts/
+  // play-path.spec.ts's own identical helper) — a fresh, unique @test.invalid
+  // account per player, created and auto-logged-in through the real UI,
+  // landing on GameSelectScreen ("Choose a game").
+  async function signUpNewConnectPlayer(page: Page, displayName: string, email: string): Promise<void> {
+    await stubTurnstile(page)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Log in or sign up' }).click()
+    await page.getByRole('tab', { name: 'Sign up' }).click()
+    await page.getByLabel('Email').fill(email)
+    await page.getByLabel('Password', { exact: true }).fill('password123')
+    await page.getByLabel('Confirm password').fill('password123')
+    await page.getByLabel('Display name').fill(displayName)
+    await page.getByLabel(/at least 16 years old/).check()
+    await page.getByRole('button', { name: 'Create account' }).click()
+
+    await expect(page.getByText('Choose a game')).toBeVisible()
+  }
+
+  // A second, API-only login for the SAME account the UI signup above just
+  // created (same email/password) — purely to get a Bearer token for direct
+  // setup calls below. Same "probe login via the request context" shape as
+  // play-path.spec.ts's clearAnyExistingActivePathRound helper, just reused
+  // for a real, already-signed-up player instead of a throwaway probe.
+  async function loginForApi(request: APIRequestContext, email: string): Promise<string> {
+    const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
+      data: { email, password: 'password123', captchaToken: 'e2e-test-token' },
+    })
+    expect(loginResponse.ok(), `login failed: ${loginResponse.status()}`).toBeTruthy()
+    const { accessToken } = (await loginResponse.json()) as { accessToken: string }
+    return accessToken
+  }
+
+  async function fetchOwnUserId(request: APIRequestContext, accessToken: string): Promise<string> {
+    const meResponse = await request.get(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    expect(meResponse.ok(), `GET /auth/me failed: ${meResponse.status()}`).toBeTruthy()
+    const me = (await meResponse.json()) as MeResponse
+    return me.id
+  }
+
+  // shortUserId.ts's own deterministic "Player " + first-8-chars-uppercased
+  // label (REQ-1401's identity-gap note, design-document.md SCREEN-15) —
+  // reproduced here so this spec can assert on the opponent's row/label text
+  // without a real displayName-resolving endpoint to read it back from.
+  function shortUserId(userId: string): string {
+    return `Player ${userId.slice(0, 8).toUpperCase()}`
+  }
+
+  test('REQ-1402/1404/1405/1406/1408/1409/1410: challenge, both target picks, chain to completion, resolution, chat', async ({
+    browser,
+    request,
+  }) => {
+    const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const emailA = `test-connect-a-${tag}@test.invalid`
+    const emailB = `test-connect-b-${tag}@test.invalid`
+    const nameA = `Connect Player A ${tag}`
+    const nameB = `Connect Player B ${tag}`
+
+    // ---- Two independent, simultaneously authenticated sessions --------
+    // Unlike this file's own single-`page` fixture equivalent in every
+    // other spec in this directory (auto-closed by Playwright per test), a
+    // context created directly via `browser.newContext()` is only otherwise
+    // cleaned up when the whole worker's shared `browser` itself tears
+    // down — the `finally` block at the end of this test closes both
+    // explicitly so two never-reused sessions don't linger for the rest of
+    // the worker's lifetime.
+    const contextA = await browser.newContext()
+    const contextB = await browser.newContext()
+    try {
+      const pageA = await contextA.newPage()
+      const pageB = await contextB.newPage()
+
+      await signUpNewConnectPlayer(pageA, nameA, emailA)
+      await signUpNewConnectPlayer(pageB, nameB, emailB)
+
+      // ---- Friending (REQ-1401), seeded directly via the real API --------
+      // REQ-1401 already has full, dedicated Unit/API coverage
+      // (FriendServiceTests.cs/FriendEndpointTests.cs) — this spec's own
+      // subject is REQ-1402+ (challenge through resolution/chat), not
+      // friending itself. The UI's only entry point into sending a friend
+      // request (SendFriendRequestAction, reached from another player's stats
+      // page) needs a leaderboard row to click through, which needs an
+      // unrelated round played first — seeding the precondition directly is
+      // both faster and more reliable than that detour, consistent with this
+      // repo's existing "seed via the real write path, drive the REQ actually
+      // under test through the UI" split (see e.g. seed-guessable-round's own
+      // doc comment for the same reasoning applied to xG Grid/xG Path).
+      const accessTokenA = await loginForApi(request, emailA)
+      const accessTokenB = await loginForApi(request, emailB)
+      const userIdA = await fetchOwnUserId(request, accessTokenA)
+      const userIdB = await fetchOwnUserId(request, accessTokenB)
+
+      const sendFriendRequestResponse = await request.post(`${API_BASE_URL}/friends/requests`, {
+        headers: { Authorization: `Bearer ${accessTokenA}` },
+        data: { recipientUserId: userIdB },
+      })
+      expect(sendFriendRequestResponse.ok(), `send friend request failed: ${sendFriendRequestResponse.status()}`).toBeTruthy()
+      const friendRequest = (await sendFriendRequestResponse.json()) as { id: string }
+
+      const acceptFriendRequestResponse = await request.post(
+        `${API_BASE_URL}/friends/requests/${friendRequest.id}/accept`,
+        { headers: { Authorization: `Bearer ${accessTokenB}` } },
+      )
+      expect(
+        acceptFriendRequestResponse.ok(),
+        `accept friend request failed: ${acceptFriendRequestResponse.status()}`,
+      ).toBeTruthy()
+
+      // ---- Deterministic target/connector players (REQ-1404/1406) --------
+      // See InternalConnectTestDataEndpoints.cs's own top-of-file comment for
+      // exactly how these three players/two clubs are constructed so that (a)
+      // Target A and Target B are NOT trivially connected, and (b) the one
+      // connector closes either target's one-step chain symmetrically —
+      // and for a real cross-boundary id-space bug this endpoint works around
+      // (not fixes) so the target-pick step below can go through the real UI
+      // at all. No live Wikidata reachability is needed anywhere in this spec.
+      const seedResponse = await request.post(`${API_BASE_URL}/internal/test-data/seed-connect-players`)
+      expect(seedResponse.ok(), `seed-connect-players failed: ${seedResponse.status()}`).toBeTruthy()
+      const seed = (await seedResponse.json()) as SeedConnectPlayersResponse
+
+      // ---- Challenge send (REQ-1402), via the real UI ---------------------
+      // The "Friends" nav entry's own accessible name carries REQ-1411's
+      // combined pending-count suffix ("Friends (N)") whenever N > 0 — User A
+      // has nothing pending yet at this point, but a regex keeps this robust
+      // either way rather than assuming the exact count.
+      await pageA.getByRole('button', { name: /^Friends/ }).click()
+      // FriendsScreen.tsx defaults to its "Friends" tab on mount — User B is
+      // the only row in "My friends" (just-accepted above), so no need to
+      // search it out by name/id text first.
+      await pageA.getByRole('button', { name: 'Challenge' }).click()
+      await expect(pageA.getByText('Challenge sent.')).toBeVisible()
+
+      // ---- Challenge accept (REQ-1402), via the real UI -------------------
+      await pageB.getByRole('button', { name: /^Friends/ }).click()
+      await pageB.getByRole('tab', { name: 'Challenges' }).click()
+      await expect(pageB.getByText(`${shortUserId(userIdA)} challenged you`)).toBeVisible()
+      await pageB.getByRole('button', { name: 'Accept' }).click()
+      await expect(pageB.getByText('Match started!')).toBeVisible()
+      await pageB.getByRole('button', { name: 'View your matches' }).click()
+
+      // MatchesTab.tsx: exactly one row now exists for User B, freshly
+      // created (REQ-1402's own "accepting creates a match" transition) and
+      // therefore still AwaitingTargetPicks.
+      await expect(pageB.getByText('Awaiting target picks')).toBeVisible()
+      await pageB.getByRole('button', { name: 'View match' }).click()
+
+      // ---- User A discovers the same match via their own Matches tab -----
+      // User A is still on the "Friends" tab of the same, still-mounted
+      // FriendsScreen from the challenge-send step above — no page reload
+      // needed, just switch tabs.
+      await pageA.getByRole('tab', { name: 'Matches' }).click()
+      await expect(pageA.getByText('Awaiting target picks')).toBeVisible()
+      await pageA.getByRole('button', { name: 'View match' }).click()
+
+      // ---- Target-pick phase (REQ-1404) -----------------------------------
+      // TargetPickPanel.tsx requires selecting a real `/players/autocomplete`
+      // suggestion before "Set target pick" is enabled at all — this is
+      // exactly the step InternalConnectTestDataEndpoints.cs's own
+      // PlayerNameIndex-alignment workaround (see that file's top-of-file
+      // comment) makes possible for this spec's seeded players; it does not
+      // mean this same flow is reliable for real, Wikidata-imported players
+      // today.
+      async function submitTargetPick(page: Page, name: string): Promise<void> {
+        await page.getByLabel('Target player name').fill(name)
+        await page.getByRole('option', { name }).click()
+        await page.getByRole('button', { name: 'Set target pick' }).click()
+        await expect(page.getByText(`Your target: ${name}`)).toBeVisible()
+      }
+
+      await submitTargetPick(pageA, seed.targetPlayerAName)
+      await expect(pageA.getByText('Waiting for your opponent to lock in their target pick…')).toBeVisible()
+
+      // The second (completing) selection both locks User B's own pick AND
+      // starts the match immediately (REQ-1405) — asserted directly via
+      // ChainBuilder.tsx's own "Build your chain" heading appearing on User
+      // B's screen right after this submission (their own onSubmitted
+      // refetch), with no further wait needed.
+      await submitTargetPick(pageB, seed.targetPlayerBName)
+      await expect(pageB.getByText('Build your chain')).toBeVisible()
+
+      // User A's screen only learns the match started via its own next 15s
+      // poll or a fresh mount — re-opening the match (back to the list, then
+      // in again) forces an immediate refetch (MatchScreen.tsx's own
+      // useAuthedFetch mount effect) instead of waiting out or racing that
+      // poll, the fastest and least flaky way to observe this transition.
+      await pageA.getByRole('button', { name: /Back to matches/ }).click()
+      await expect(pageA.getByText('Active')).toBeVisible()
+      await pageA.getByRole('button', { name: 'View match' }).click()
+      await expect(pageA.getByText('Build your chain')).toBeVisible()
+
+      // ---- Chain-building to completion (REQ-1406/1407/1408) -------------
+      // Both players close their own one-connector chain in a single step:
+      // User A's chain starts from Target A (their own pick) and closes
+      // against Target B (the OTHER target, per REQ-1406's own rule); User
+      // B's starts from Target B and closes against Target A. Same connector
+      // player both times, by this spec's own seed-connect-players design.
+      // Equal 1-connector/zero-penalty scores on both sides resolve as a draw
+      // (REQ-1409's equal-score branch) — a concrete, assertable outcome on
+      // BOTH browser contexts below, not just one.
+      async function submitClosingChainStep(page: Page, claimedClub: string): Promise<void> {
+        await page.getByLabel('Candidate player name').fill(seed.connectorPlayerName)
+        await page.getByLabel('Claimed shared club').fill(claimedClub)
+        await page.getByRole('button', { name: 'Submit connector' }).click()
+        await expect(page.getByText('Connected! Your chain is complete.')).toBeVisible()
+      }
+
+      await submitClosingChainStep(pageA, seed.clubOverlappingWithA)
+      // User A alone has reached a terminal state so far (their own screen
+      // now shows their own "finished their chain" status, replacing the
+      // submission form) — but the MATCH itself is not yet resolved
+      // (REQ-1405's "resolution waits for both terminal states" rule) until
+      // User B also reaches one; User A's screen must not show a resolution
+      // outcome yet.
+      await expect(pageA.getByText('You have finished their chain.')).toBeVisible()
+      await expect(pageA.getByText("It's a draw.")).not.toBeVisible()
+
+      await submitClosingChainStep(pageB, seed.clubOverlappingWithB)
+
+      // ---- Resolution (REQ-1409) ------------------------------------------
+      // User B's own closing step was the SECOND of the two terminal-reaching
+      // submissions, so match resolution (TryResolveMatchIfBothTerminalAsync)
+      // ran inline in that same request — User B's screen reflects it
+      // immediately via the same onChanged refetch ChainBuilder.tsx already
+      // triggers on every accepted/closing step, no further navigation
+      // needed.
+      await expect(pageB.getByText("It's a draw.")).toBeVisible()
+
+      // User A's own screen only learns of the just-completed resolution via
+      // its next poll or a fresh mount — same re-open technique as the
+      // match-start transition above.
+      await pageA.getByRole('button', { name: /Back to matches/ }).click()
+      await expect(pageA.getByText('Resolved')).toBeVisible()
+      await expect(pageA.getByText('Draw')).toBeVisible()
+      await pageA.getByRole('button', { name: 'View match' }).click()
+      await expect(pageA.getByText("It's a draw.")).toBeVisible()
+
+      // Both scores are the 1-connector/zero-penalty minimum (REQ-1408's own
+      // "lowest possible score for a completed chain" case) — never "0" and
+      // never "Forfeited," since both players actually completed a chain.
+      const myScoreRowA = pageA.locator('.connect-match__score-row').filter({ hasText: 'Your score' })
+      await expect(myScoreRowA.getByText('1', { exact: true })).toBeVisible()
+      const myScoreRowB = pageB.locator('.connect-match__score-row').filter({ hasText: 'Your score' })
+      await expect(myScoreRowB.getByText('1', { exact: true })).toBeVisible()
+
+      // ---- In-match chat (REQ-1410), bonus coverage given the same fixture -
+      // Rendered unconditionally below every phase's own content, including a
+      // resolved match (REQ-1410's own "chat remains visible/readable" rule)
+      // — exercised here, after resolution, for exactly that reason.
+      await pageA.getByLabel('Chat message').fill('gg, well played')
+      await pageA.getByRole('button', { name: 'Send message' }).click()
+      await expect(pageA.getByText('gg, well played')).toBeVisible()
+
+      await pageB.getByLabel('Chat message').fill('gg to you too')
+      await pageB.getByRole('button', { name: 'Send message' }).click()
+      await expect(pageB.getByText('gg to you too')).toBeVisible()
+
+      // Each side sees the OTHER's message attributed to their own short id
+      // (MatchChat.tsx's own viewerUserId-based split — their own message
+      // shows as "You" instead, already implicitly covered by the plain text
+      // assertions above). The receiving side only learns of the other's
+      // message via its own next 15s poll tick, not instantly — a generous
+      // explicit timeout lets Playwright's auto-waiting retry this assertion
+      // across that poll instead of racing it.
+      await expect(pageA.getByText(shortUserId(userIdB))).toBeVisible({ timeout: 20_000 })
+      await expect(pageB.getByText(shortUserId(userIdA))).toBeVisible({ timeout: 20_000 })
+    } finally {
+      await contextA.close()
+      await contextB.close()
+    }
+  })
+})
