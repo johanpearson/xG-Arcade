@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using XGArcade.Api.Connect;
@@ -116,15 +118,15 @@ public class InternalConnectForfeitSweepEndpointTests
             var now = DateTime.UtcNow;
             var startedAt = now.AddHours(-7);
 
-            var match = await connectMatchRepository.AddMatchAsync(new ConnectMatch
+            var createdMatch = await connectMatchRepository.AddMatchAsync(new ConnectMatch
             {
                 Id = Guid.NewGuid(),
                 PlayerAUserId = Guid.NewGuid(),
                 PlayerBUserId = Guid.NewGuid(),
                 CreatedAt = startedAt,
             });
-            await connectMatchRepository.StartMatchAsync(match.Id, startedAt, startedAt.AddHours(6));
-            matchId = match.Id;
+            await connectMatchRepository.StartMatchAsync(createdMatch.Id, startedAt, startedAt.AddHours(6));
+            matchId = createdMatch.Id;
         }
 
         var client = CreateAuthorizedClient();
