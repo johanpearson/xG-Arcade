@@ -360,3 +360,55 @@ describe('UserStatsScreen', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 });
+
+// REQ-1401 (S-217, design-document.md SCREEN-13's 2026-09-03 status note):
+// SendFriendRequestAction's own three-state rendering is covered directly
+// in SendFriendRequestAction.test.tsx — this block only covers
+// UserStatsScreen's own wiring (when the action mounts at all, and that it
+// receives the right props).
+describe('UserStatsScreen (REQ-1401: "Send friend request" wiring)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const statsResponse = { hasRoundsPlayed: false, roundsPlayed: 0, bestFinalPoints: null, averageFinalPoints: null, rank: null };
+
+  it('REQ-1401: mounts SendFriendRequestAction (a "Send friend request" button appears) when viewerUserId differs from userId', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/stats')) return jsonResponse(statsResponse);
+        return jsonResponse([]);
+      }),
+    );
+
+    renderUserStatsScreen({ userId: 'user-99', viewerUserId: 'user-1' });
+
+    expect(await screen.findByRole('button', { name: 'Send friend request' })).toBeInTheDocument();
+  });
+
+  it('REQ-1401: does not mount SendFriendRequestAction when viewerUserId is not provided (existing/unrelated callers unaffected)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => jsonResponse(statsResponse)),
+    );
+
+    renderUserStatsScreen({ userId: 'user-99' });
+
+    await screen.findByText('No rounds played yet for this game.');
+    expect(screen.queryByRole('button', { name: 'Send friend request' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-1401: does not mount SendFriendRequestAction when viewerUserId equals userId (own profile)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => jsonResponse(statsResponse)),
+    );
+
+    renderUserStatsScreen({ userId: 'user-1', viewerUserId: 'user-1' });
+
+    await screen.findByText('No rounds played yet for this game.');
+    expect(screen.queryByRole('button', { name: 'Send friend request' })).not.toBeInTheDocument();
+  });
+});

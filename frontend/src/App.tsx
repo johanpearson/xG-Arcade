@@ -16,9 +16,11 @@ import { PathScreen } from './path/PathScreen';
 import { PredictScreen } from './predict/PredictScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
+import { FriendsScreen } from './social/FriendsScreen';
 import { UserStatsScreen } from './users/UserStatsScreen';
 import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 import { useThemePreference } from './lib/theme';
+import { useNotificationSummary } from './lib/useNotificationSummary';
 import { ACCESS_TOKEN_STORAGE_KEY, useSession } from './lib/useSession';
 
 type HealthState =
@@ -61,6 +63,12 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // screen, not HeaderNav" precedent 'admin'/'admin-suggestions' already set
 // (see REQ-712/713's own header-overflow rationale, restated on
 // SettingsScreen's `onOpenStats` prop).
+// 'friends' (REQ-1401/1402/1403, S-217, SCREEN-15) is FriendsScreen's own
+// destination — reachable from the header's new "Friends" nav entry
+// (REQ-1411's own notification badge lives on that entry, not this Screen
+// value itself) and, optionally, from UserStatsScreen's "Respond in
+// Friends & Challenges" link (onOpenFriends) when the viewed player already
+// sent the viewer a pending friend request.
 type Screen =
   | 'game-select'
   | 'grid'
@@ -68,6 +76,7 @@ type Screen =
   | 'predict'
   | 'leaderboard'
   | 'leagues'
+  | 'friends'
   | 'settings'
   | 'admin'
   | 'admin-suggestions'
@@ -85,6 +94,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   predict: '#/predict',
   leaderboard: '#/leaderboard',
   leagues: '#/leagues',
+  friends: '#/friends',
   settings: '#/settings',
   admin: '#/admin',
   'admin-suggestions': '#/admin/suggestions',
@@ -193,6 +203,11 @@ function App() {
   // the same value before this component ever mounted, so this isn't the
   // first paint of the theme — it's what keeps it in sync after that.
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
+  // REQ-1411/S-217: mounted here (not inside FriendsScreen/HeaderNav) so
+  // HeaderNav's "Friends" badge stays current regardless of which screen is
+  // showing, the same "regardless of which screen is showing" placement
+  // themePreference/incidentReportOpen above already use.
+  const notificationSummary = useNotificationSummary(accessToken, handleLogout);
   // REQ-1210/ADR-0083: seeds LeaderboardScreen's own `initial*` props the
   // one time it's set here (by handleViewRoundLeaderboard below, called
   // from GridScreen/PathScreen's round-completion banner) — read only at
@@ -369,6 +384,7 @@ function App() {
           <HeaderNav
             isLeaderboardCurrent={screen === 'leaderboard'}
             isLeaguesCurrent={screen === 'leagues'}
+            isFriendsCurrent={screen === 'friends'}
             isSettingsCurrent={screen === 'settings'}
             isGridCurrent={screen === 'grid'}
             isPathCurrent={screen === 'path'}
@@ -384,6 +400,12 @@ function App() {
               navigateTo('leaderboard');
             }}
             onSelectLeagues={() => navigateTo('leagues')}
+            onSelectFriends={() => navigateTo('friends')}
+            friendsNotificationCount={
+              notificationSummary.pendingFriendRequestCount +
+              notificationSummary.pendingChallengeCount +
+              notificationSummary.matchesAwaitingActionCount
+            }
             onSelectSettings={() => navigateTo('settings')}
             onSelectGrid={() => navigateTo('grid')}
             onSelectPath={() => navigateTo('path')}
@@ -546,7 +568,11 @@ function App() {
               displayName={statsTarget?.displayName ?? currentUser?.displayName ?? ''}
               onAuthError={handleLogout}
               onBack={() => navigateTo(statsReturnScreen)}
+              viewerUserId={currentUser?.id}
+              onOpenFriends={() => navigateTo('friends')}
             />
+          ) : screen === 'friends' ? (
+            <FriendsScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'admin' ? (
             <AdminScreen
               accessToken={accessToken}

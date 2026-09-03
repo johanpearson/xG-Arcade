@@ -13,6 +13,7 @@ import { HeaderNav } from './HeaderNav';
 function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {}) {
   const onSelectLeaderboard = vi.fn();
   const onSelectLeagues = vi.fn();
+  const onSelectFriends = vi.fn();
   const onSelectSettings = vi.fn();
   const onSelectGrid = vi.fn();
   const onSelectPath = vi.fn();
@@ -23,12 +24,15 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
     <HeaderNav
       isLeaderboardCurrent={false}
       isLeaguesCurrent={false}
+      isFriendsCurrent={false}
       isSettingsCurrent={false}
       isGridCurrent={false}
       isPathCurrent={false}
       isPredictCurrent={false}
       onSelectLeaderboard={onSelectLeaderboard}
       onSelectLeagues={onSelectLeagues}
+      onSelectFriends={onSelectFriends}
+      friendsNotificationCount={0}
       onSelectSettings={onSelectSettings}
       onSelectGrid={onSelectGrid}
       onSelectPath={onSelectPath}
@@ -41,6 +45,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
   return {
     onSelectLeaderboard,
     onSelectLeagues,
+    onSelectFriends,
     onSelectSettings,
     onSelectGrid,
     onSelectPath,
@@ -124,6 +129,24 @@ describe('HeaderNav', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+  // REQ-1401/1402/1403 (S-217): same "click, calls its own handler, closes
+  // the menu" shape as every other nav entry.
+  it('REQ-1401/1402/1403: clicking "Friends" calls onSelectFriends and closes the menu (selectAndClose)', async () => {
+    const { onSelectLeaderboard, onSelectLeagues, onSelectFriends, onSelectSettings, onLogout } = renderHeaderNav();
+    const user = userEvent.setup();
+    const toggle = screen.getByTestId('header-nav-toggle');
+
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: 'Friends' }));
+
+    expect(onSelectFriends).toHaveBeenCalledTimes(1);
+    expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
+    expect(onSelectSettings).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('REQ-712/REQ-713: clicking "Settings" calls onSelectSettings and closes the menu (selectAndClose)', async () => {
     const { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } = renderHeaderNav();
     const user = userEvent.setup();
@@ -185,6 +208,35 @@ describe('HeaderNav', () => {
     expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('button', { name: 'Leaderboard' })).not.toHaveAttribute('aria-current');
     expect(screen.getByRole('button', { name: 'Leagues' })).not.toHaveAttribute('aria-current');
+  });
+
+  // REQ-1401/1402/1403: same aria-current wiring as every other nav entry.
+  it('REQ-1401/1402/1403: aria-current="page" is set on "Friends" when isFriendsCurrent is true, and not on "Leaderboard"/"Leagues"/"Settings"', () => {
+    renderHeaderNav({ isFriendsCurrent: true });
+
+    expect(screen.getByRole('button', { name: 'Friends' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Leaderboard' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Leagues' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('aria-current');
+  });
+});
+
+// REQ-1411 (S-217, design-document.md SCREEN-07's 2026-09-03 status note):
+// the "Friends" entry's own notification-count badge — plain "(N)" text,
+// same convention PlayerSuggestionsEntry/UnverifiedDataSection already
+// established, never a colored dot/pill.
+describe('HeaderNav (REQ-1411: "Friends" notification badge)', () => {
+  it('REQ-1411: renders plain "Friends" with no count suffix when friendsNotificationCount is 0', () => {
+    renderHeaderNav({ friendsNotificationCount: 0 });
+
+    expect(screen.getByRole('button', { name: 'Friends' })).toBeInTheDocument();
+    expect(screen.queryByText(/Friends \(/)).not.toBeInTheDocument();
+  });
+
+  it('REQ-1411: renders "Friends (N)" when friendsNotificationCount is greater than 0', () => {
+    renderHeaderNav({ friendsNotificationCount: 5 });
+
+    expect(screen.getByRole('button', { name: 'Friends (5)' })).toBeInTheDocument();
   });
 });
 
@@ -349,12 +401,15 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
       <HeaderNav
         isLeaderboardCurrent={false}
         isLeaguesCurrent={false}
+        isFriendsCurrent={false}
         isSettingsCurrent={false}
         isGridCurrent={false}
         isPathCurrent={false}
         isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
+        onSelectFriends={vi.fn()}
+        friendsNotificationCount={0}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
@@ -370,12 +425,15 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
       <HeaderNav
         isLeaderboardCurrent={false}
         isLeaguesCurrent={false}
+        isFriendsCurrent={false}
         isSettingsCurrent={false}
         isGridCurrent
         isPathCurrent={false}
         isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
+        onSelectFriends={vi.fn()}
+        friendsNotificationCount={0}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
@@ -396,12 +454,15 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
       <HeaderNav
         isLeaderboardCurrent={false}
         isLeaguesCurrent={false}
+        isFriendsCurrent={false}
         isSettingsCurrent={false}
         isGridCurrent={false}
         isPathCurrent={false}
         isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
+        onSelectFriends={vi.fn()}
+        friendsNotificationCount={0}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
@@ -417,12 +478,15 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
       <HeaderNav
         isLeaderboardCurrent={false}
         isLeaguesCurrent={false}
+        isFriendsCurrent={false}
         isSettingsCurrent={false}
         isGridCurrent={false}
         isPathCurrent
         isPredictCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
+        onSelectFriends={vi.fn()}
+        friendsNotificationCount={0}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
