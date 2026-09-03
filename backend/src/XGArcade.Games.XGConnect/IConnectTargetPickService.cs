@@ -12,8 +12,21 @@ public interface IConnectTargetPickService
     // exact step order) — a rejected completing submission never writes
     // anything, so the caller's own prior pick (if any) and the other
     // participant's pick are always left exactly as they were.
+    //
+    // Bug fix (S-218 prep, ADR-0007): takes a raw player NAME, never a
+    // client-supplied Guid — the only player-search UI a client has
+    // (`/players/autocomplete`, COMP-10) returns `PlayerNameIndex.PlayerId`
+    // values, which live in a different, unreconciled id space from
+    // `Player.Id` (see `PlayerNameIndex.PlayerId`'s own doc comment). This
+    // mirrors `ConnectChainStepService.SubmitChainStepAsync`'s own
+    // candidatePlayerName resolution exactly: normalize
+    // (`PlayerNameNormalizer.Normalize`), resolve via
+    // `IPlayerRepository.GetPlayersByNormalizedFullNameAsync` (COMP-06,
+    // never `PlayerNameIndex`), lowest-`Id`-wins on a same-name collision —
+    // a known, deliberate simplification, not a new REQ, same as that
+    // sibling's own comment.
     Task<SubmitTargetPickResult> SubmitTargetPickAsync(
-        Guid matchId, Guid userId, Guid targetPlayerId, CancellationToken cancellationToken = default);
+        Guid matchId, Guid userId, string targetPlayerName, CancellationToken cancellationToken = default);
 }
 
 public enum SubmitTargetPickOutcome
@@ -55,6 +68,13 @@ public enum SubmitTargetPickOutcome
     // rejection of anything the player did. Nothing is persisted, same as
     // TriviallyConnected.
     LiveLookupUnavailable,
+
+    // Bug fix (S-218 prep, ADR-0007): targetPlayerName didn't resolve to
+    // any known Player (COMP-06) via an exact normalized-name match.
+    // Nothing is persisted — ConnectTargetPick.TargetPlayerId is a
+    // required, non-nullable FK, so there is no real player id to store.
+    // Mirrors SubmitChainStepOutcome.CandidateNotFound's own doc comment.
+    TargetPlayerNotFound,
 }
 
 // TargetPick is the CALLER's own resulting row — non-null only for

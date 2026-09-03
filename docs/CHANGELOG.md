@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.56→2.57, REQ-1404 "Bug
+  fix" status note), `docs/backlog.md` (S-218 entry given a backend-fix
+  addendum) — fixed the real cross-boundary id-space bug `test-writer`
+  found and flagged (previous entry below): `POST
+  /matches/{matchId}/target-pick` now takes `{ targetPlayerName: string }`
+  instead of a raw client-supplied `{ targetPlayerId: Guid }`, resolved
+  server-side inside `ConnectTargetPickService.SubmitTargetPickAsync` via
+  `IPlayerRepository.GetPlayersByNormalizedFullNameAsync` (COMP-06, never
+  `PlayerNameIndex`) — the exact pattern
+  `ConnectChainStepService.SubmitChainStepAsync` already used for
+  `candidatePlayerName`, including lowest-`Id`-wins on a same-name
+  collision. New `SubmitTargetPickOutcome.TargetPlayerNotFound` maps to a
+  404 problem-details response. `ConnectTargetPickServiceTests.cs`/
+  `ConnectMatchEndpointTests.cs` updated to seed real `Player` rows and
+  submit names; new tests cover the not-found and collision cases.
+  **Frontend half still outstanding** — `TargetPickPanel.tsx`/
+  `frontend/src/lib/connectMatches.ts` still submit the old
+  `targetPlayerId` shape and will fail every real submission until updated
+  (separate, immediately-following task). No `dotnet` SDK in this sandbox;
+  hand-traced, not run — a `ci.yml` `workflow_dispatch` run is needed to
+  verify. REQ-1404, no ADR (same "straightforward, requirement-mandated
+  implementation of already-accepted REQ text" reasoning as this
+  component's other stories).
+
 - 2026-09-03 — `docs/backlog.md` (S-218 entry given an E2E-coverage
   addendum, `test-writer`) — landed
   `frontend/tests/e2e/play-connect.spec.ts`, S-218's own missing Playwright

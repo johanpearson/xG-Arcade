@@ -10904,3 +10904,28 @@ a reachable Docker daemon (`docker info` fails: no daemon socket) — `tsc -b`
 and `oxlint` are clean and the full Vitest suite (868 tests) still passes;
 a `ci.yml` `workflow_dispatch` run is needed to verify the Playwright spec
 and the two new backend tests for real.
+
+**Backend half of that bug fixed (2026-09-03, `backend-implementer`):**
+`POST /matches/{matchId}/target-pick` now takes `{ targetPlayerName: string }`
+instead of `{ targetPlayerId: Guid }`, resolved server-side inside
+`ConnectTargetPickService.SubmitTargetPickAsync` via
+`IPlayerRepository.GetPlayersByNormalizedFullNameAsync` — the exact
+follow-up this section flagged, mirroring `ConnectChainStepService`'s own
+`candidatePlayerName` resolution (lowest-`Id`-wins on a same-name
+collision, same deliberate simplification). New
+`SubmitTargetPickOutcome.TargetPlayerNotFound` maps to a 404 problem-details
+response. See REQ-1404's own "Bug fix" status note in
+`requirements-document.md` for the full detail.
+`ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs` updated to
+seed real `Player` rows and submit names, plus new tests for
+`TargetPlayerNotFound` and the collision case.
+`InternalConnectTestDataEndpoints.cs`'s own seed endpoint is UNCHANGED for
+now — it still seeds the `PlayerNameIndex`-alignment workaround, because
+**the frontend half is still outstanding**: `TargetPickPanel.tsx`/
+`frontend/src/lib/connectMatches.ts` still submit the autocomplete
+suggestion's `playerId`, which no longer matches this endpoint's new
+request shape at all (it will fail every real submission until updated) —
+that frontend update is the very next task. No `dotnet` SDK in this
+sandbox; hand-traced against the existing service/endpoint tests' own
+assertions rather than run — a `ci.yml` `workflow_dispatch` run is needed
+to confirm.

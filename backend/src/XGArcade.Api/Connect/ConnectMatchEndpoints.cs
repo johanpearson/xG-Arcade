@@ -12,6 +12,15 @@ namespace XGArcade.Api.Connect;
 // IConnectTargetPickService (Games.XGConnect) — this file only resolves the
 // caller and shapes the response, same thin-endpoint/owning-service pattern
 // XGArcade.Api.Social.ChallengeEndpoints already establishes.
+//
+// Bug fix (S-218, found during Playwright E2E test-writing): the request
+// body used to carry a raw client-supplied `TargetPlayerId` (Guid), taken
+// unresolved from the only player-search UI available
+// (`/players/autocomplete`, COMP-10) — but that endpoint returns
+// `PlayerNameIndex.PlayerId` values, a different, unreconciled id space
+// from `Player.Id` (ADR-0007). Selection now takes a player NAME and
+// resolves it via `IPlayerRepository` inside the service, mirroring
+// `ConnectChainStepEndpoints`' own `CandidatePlayerName` precedent exactly.
 public static class ConnectMatchEndpoints
 {
     public static void MapConnectMatchEndpoints(this WebApplication app)
@@ -31,7 +40,7 @@ public static class ConnectMatchEndpoints
                 return Results.Unauthorized();
 
             var result = await connectTargetPickService.SubmitTargetPickAsync(
-                matchId, requestingUser.Id, request.TargetPlayerId, cancellationToken);
+                matchId, requestingUser.Id, request.TargetPlayerName, cancellationToken);
 
             return result.Outcome switch
             {
@@ -42,6 +51,19 @@ public static class ConnectMatchEndpoints
                     title: "Not a participant",
                     detail: "Only the two players in this match may select a target pick for it.",
                     statusCode: StatusCodes.Status403Forbidden),
+                // Bug fix (S-218 prep, ADR-0007): targetPlayerName didn't
+                // resolve to any known player at all — this endpoint's
+                // existing convention (unlike ConnectChainStepEndpoints'
+                // always-200 shape) is a Problem() response for every
+                // rejection, so this follows suit rather than introducing a
+                // one-off 200-with-nulls shape here. 404, not 409/400: the
+                // request referred to a player that doesn't exist, the same
+                // "the thing you asked about isn't there" shape as
+                // MatchNotFound above.
+                SubmitTargetPickOutcome.TargetPlayerNotFound => Results.Problem(
+                    title: "Target player not found",
+                    detail: "No known player matches that name. Check the spelling and try again.",
+                    statusCode: StatusCodes.Status404NotFound),
                 SubmitTargetPickOutcome.AlreadyLocked => Results.Problem(
                     title: "Target pick already locked",
                     detail: "Your target pick is already locked in for this match and can no longer be changed.",
@@ -75,7 +97,13 @@ public static class ConnectMatchEndpoints
         new(targetPick.TargetPlayerId, targetPick.SelectedAt, targetPick.IsLocked);
 }
 
-public record SubmitTargetPickRequest(Guid TargetPlayerId);
+// Bug fix (S-218 prep, ADR-0007): a NAME, never a client-supplied Guid — see
+// IConnectTargetPickService.SubmitTargetPickAsync's own doc comment for why
+// (the only client-side search UI, `/players/autocomplete`, returns ids from
+// a different, unreconciled id space than `Player.Id`). Resolved the same
+// way ConnectChainStepEndpoints.SubmitChainStepRequest.CandidatePlayerName
+// already is.
+public record SubmitTargetPickRequest(string TargetPlayerName);
 
 // Locked (REQ-1404/1405): true only once BOTH players' target picks are
 // fixed (this submission was the completing, non-trivial one) — false

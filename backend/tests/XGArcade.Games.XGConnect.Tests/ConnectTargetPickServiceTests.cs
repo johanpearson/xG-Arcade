@@ -9,18 +9,26 @@ namespace XGArcade.Games.XGConnect.Tests;
 // REQ-1404 (docs/requirements-document.md §4.15): xG Connect's target-pick
 // selection business logic. Same no-mocking-framework, real-InMemory-backed-
 // repository pattern as ChallengeServiceTests/MatchmakingSweepServiceTests —
-// IConnectMatchRepository is exercised through the real ConnectMatchRepository
-// against an InMemory-backed XGArcadeDbContext; IPlayerCareerOverlapService is
+// IConnectMatchRepository/IPlayerRepository are exercised through their real
+// implementations (ConnectMatchRepository/PlayerRepository) against an
+// InMemory-backed XGArcadeDbContext; IPlayerCareerOverlapService is
 // hand-rolled-faked (FakePlayerCareerOverlapService) since its own overlap-
 // detection logic gets dedicated, direct coverage in
 // PlayerCareerOverlapServiceTests.cs — this file is only concerned with
 // SubmitTargetPickAsync's own orchestration around that check's result.
+//
+// Bug fix (S-218 prep, ADR-0007): SubmitTargetPickAsync now takes a player
+// NAME, resolved via IPlayerRepository the same way
+// ConnectChainStepServiceTests already seeds/resolves candidatePlayerName —
+// every test below seeds a real Player row via SeedPlayerAsync and submits
+// its FullName, never a bare Guid.
 public class ConnectTargetPickServiceTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
 
     private XGArcadeDbContext _dbContext = null!;
     private IConnectMatchRepository _connectMatchRepository = null!;
+    private IPlayerRepository _playerRepository = null!;
     private FakePlayerCareerOverlapService _overlapService = null!;
 
     [SetUp]
@@ -31,6 +39,7 @@ public class ConnectTargetPickServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _connectMatchRepository = new ConnectMatchRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _overlapService = new FakePlayerCareerOverlapService();
     }
 
@@ -45,7 +54,7 @@ public class ConnectTargetPickServiceTests
     // under test so the match-start timestamp this test asserts on is
     // deterministic.
     private ConnectTargetPickService BuildService(DateTimeOffset now) =>
-        new(_connectMatchRepository, _overlapService,
+        new(_connectMatchRepository, _overlapService, _playerRepository,
             new ConnectMatchLifecycleService(_connectMatchRepository, new ConnectScoringService(), new FixedTimeProvider(now)),
             new FixedTimeProvider(now));
 
@@ -61,6 +70,9 @@ public class ConnectTargetPickServiceTests
         return await _connectMatchRepository.AddMatchAsync(match);
     }
 
+    private async Task<Player> SeedPlayerAsync(string fullName) =>
+        await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = fullName });
+
     // ---- REQ-1404 GWT#1: a fresh selection is recorded for that player only,
     // ---- not visible to or constraining the other player's own independent
     // ---- selection ----------------------------------------------------------
@@ -71,14 +83,14 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var targetPlayerId = Guid.NewGuid();
+        var targetPlayer = await SeedPlayerAsync("Target Player");
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitTargetPickAsync(match.Id, playerA, targetPlayerId);
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, targetPlayer.FullName);
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
         Assert.That(result.TargetPick, Is.Not.Null);
-        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(targetPlayerId));
+        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(targetPlayer.Id));
         Assert.That(result.TargetPick.IsLocked, Is.False);
         // Not visible to or constraining the other player's own independent
         // selection — no row exists for player B, and no overlap check ran
@@ -96,24 +108,24 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var firstPick = Guid.NewGuid();
-        var secondPick = Guid.NewGuid();
+        var firstPick = await SeedPlayerAsync("First Pick");
+        var secondPick = await SeedPlayerAsync("Second Pick");
         var firstService = BuildService(FixedNow);
-        await firstService.SubmitTargetPickAsync(match.Id, playerA, firstPick);
+        await firstService.SubmitTargetPickAsync(match.Id, playerA, firstPick.FullName);
 
         var laterNow = FixedNow.AddMinutes(5);
         var secondService = BuildService(laterNow);
-        var result = await secondService.SubmitTargetPickAsync(match.Id, playerA, secondPick);
+        var result = await secondService.SubmitTargetPickAsync(match.Id, playerA, secondPick.FullName);
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
-        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(secondPick));
+        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(secondPick.Id));
         Assert.That(result.TargetPick.IsLocked, Is.False);
 
         // No lock, no penalty: exactly one row for player A, now holding the
         // replaced pick — never a second row for the same match/user pair.
         var picks = await _connectMatchRepository.GetTargetPicksForMatchAsync(match.Id);
         Assert.That(picks, Has.Count.EqualTo(1));
-        Assert.That(picks[0].TargetPlayerId, Is.EqualTo(secondPick));
+        Assert.That(picks[0].TargetPlayerId, Is.EqualTo(secondPick.Id));
         Assert.That(picks[0].SelectedAt, Is.EqualTo(laterNow.UtcDateTime));
         Assert.That(picks[0].IsLocked, Is.False);
     }
@@ -127,15 +139,15 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var aTarget = Guid.NewGuid();
-        var bTarget = Guid.NewGuid();
+        var aTarget = await SeedPlayerAsync("A Target");
+        var bTarget = await SeedPlayerAsync("B Target");
         var service = BuildService(FixedNow);
-        await service.SubmitTargetPickAsync(match.Id, playerA, aTarget);
+        await service.SubmitTargetPickAsync(match.Id, playerA, aTarget.FullName);
 
-        await service.SubmitTargetPickAsync(match.Id, playerB, bTarget);
+        await service.SubmitTargetPickAsync(match.Id, playerB, bTarget.FullName);
 
         Assert.That(_overlapService.Calls, Has.Count.EqualTo(1));
-        Assert.That(_overlapService.Calls[0], Is.EqualTo((bTarget, aTarget)),
+        Assert.That(_overlapService.Calls[0], Is.EqualTo((bTarget.Id, aTarget.Id)),
             "the completing submission's own candidate target must be checked against the other participant's already-stored pick");
     }
 
@@ -149,15 +161,15 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var aTarget = Guid.NewGuid();
-        var bTarget = Guid.NewGuid();
+        var aTarget = await SeedPlayerAsync("A Target");
+        var bTarget = await SeedPlayerAsync("B Target");
         var firstService = BuildService(FixedNow);
-        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget);
-        _overlapService.SetOverlap(aTarget, bTarget, overlaps: true);
+        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget.FullName);
+        _overlapService.SetOverlap(aTarget.Id, bTarget.Id, overlaps: true);
 
         var laterNow = FixedNow.AddMinutes(5);
         var secondService = BuildService(laterNow);
-        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget);
+        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget.FullName);
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.TriviallyConnected));
         Assert.That(result.TargetPick, Is.Null);
@@ -167,7 +179,7 @@ public class ConnectTargetPickServiceTests
         // unlocked.
         var playerAPick = await _connectMatchRepository.GetTargetPickAsync(match.Id, playerA);
         Assert.That(playerAPick, Is.Not.Null);
-        Assert.That(playerAPick!.TargetPlayerId, Is.EqualTo(aTarget));
+        Assert.That(playerAPick!.TargetPlayerId, Is.EqualTo(aTarget.Id));
         Assert.That(playerAPick.SelectedAt, Is.EqualTo(FixedNow.UtcDateTime));
         Assert.That(playerAPick.IsLocked, Is.False);
 
@@ -185,14 +197,14 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var aTarget = Guid.NewGuid();
-        var bTarget = Guid.NewGuid();
+        var aTarget = await SeedPlayerAsync("A Target");
+        var bTarget = await SeedPlayerAsync("B Target");
         var service = BuildService(FixedNow);
-        await service.SubmitTargetPickAsync(match.Id, playerA, aTarget);
+        await service.SubmitTargetPickAsync(match.Id, playerA, aTarget.FullName);
         // No SetOverlap call — FakePlayerCareerOverlapService defaults an
         // unconfigured pair to "no overlap."
 
-        var result = await service.SubmitTargetPickAsync(match.Id, playerB, bTarget);
+        var result = await service.SubmitTargetPickAsync(match.Id, playerB, bTarget.FullName);
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAndLocked));
         Assert.That(result.TargetPick!.IsLocked, Is.True);
@@ -214,14 +226,14 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var aTarget = Guid.NewGuid();
-        var bTarget = Guid.NewGuid();
+        var aTarget = await SeedPlayerAsync("A Target");
+        var bTarget = await SeedPlayerAsync("B Target");
         var firstService = BuildService(FixedNow);
-        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget);
+        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget.FullName);
 
         var completingAt = FixedNow.AddMinutes(5);
         var secondService = BuildService(completingAt);
-        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget);
+        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget.FullName);
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAndLocked));
         var storedMatch = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
@@ -240,9 +252,10 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
+        var targetPlayer = await SeedPlayerAsync("Target Player");
         var service = BuildService(FixedNow);
 
-        await service.SubmitTargetPickAsync(match.Id, playerA, Guid.NewGuid());
+        await service.SubmitTargetPickAsync(match.Id, playerA, targetPlayer.FullName);
 
         var storedMatch = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
         Assert.That(storedMatch!.Status, Is.EqualTo(ConnectMatchStatus.AwaitingTargetPicks));
@@ -257,7 +270,7 @@ public class ConnectTargetPickServiceTests
     {
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitTargetPickAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var result = await service.SubmitTargetPickAsync(Guid.NewGuid(), Guid.NewGuid(), "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.MatchNotFound));
         Assert.That(result.TargetPick, Is.Null);
@@ -272,7 +285,7 @@ public class ConnectTargetPickServiceTests
         var outsider = Guid.NewGuid();
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitTargetPickAsync(match.Id, outsider, Guid.NewGuid());
+        var result = await service.SubmitTargetPickAsync(match.Id, outsider, "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.NotAParticipant));
         Assert.That(result.TargetPick, Is.Null);
@@ -285,20 +298,22 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var aTarget = Guid.NewGuid();
-        var bTarget = Guid.NewGuid();
+        var aTarget = await SeedPlayerAsync("A Target");
+        var bTarget = await SeedPlayerAsync("B Target");
         var service = BuildService(FixedNow);
-        await service.SubmitTargetPickAsync(match.Id, playerA, aTarget);
-        await service.SubmitTargetPickAsync(match.Id, playerB, bTarget); // locks both, no overlap configured.
+        await service.SubmitTargetPickAsync(match.Id, playerA, aTarget.FullName);
+        await service.SubmitTargetPickAsync(match.Id, playerB, bTarget.FullName); // locks both, no overlap configured.
 
-        var attemptedReplacement = Guid.NewGuid();
-        var result = await service.SubmitTargetPickAsync(match.Id, playerA, attemptedReplacement);
+        // The already-locked short-circuit runs BEFORE name resolution, so
+        // an unresolvable name here proves that ordering rather than just
+        // being incidental.
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, "Nobody Real");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.AlreadyLocked));
         Assert.That(result.TargetPick, Is.Null);
 
         var playerAPick = await _connectMatchRepository.GetTargetPickAsync(match.Id, playerA);
-        Assert.That(playerAPick!.TargetPlayerId, Is.EqualTo(aTarget), "an already-locked pick can never be replaced");
+        Assert.That(playerAPick!.TargetPlayerId, Is.EqualTo(aTarget.Id), "an already-locked pick can never be replaced");
         // Only the one completing-selection overlap check from setup — the
         // already-locked attempt must short-circuit before ever reaching the
         // overlap check again.
@@ -311,14 +326,14 @@ public class ConnectTargetPickServiceTests
         var playerA = Guid.NewGuid();
         var playerB = Guid.NewGuid();
         var match = await CreateMatchAsync(playerA, playerB);
-        var aTarget = Guid.NewGuid();
-        var bTarget = Guid.NewGuid();
+        var aTarget = await SeedPlayerAsync("A Target");
+        var bTarget = await SeedPlayerAsync("B Target");
         var firstService = BuildService(FixedNow);
-        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget);
-        _overlapService.SetLiveLookupUnavailable(aTarget, bTarget);
+        await firstService.SubmitTargetPickAsync(match.Id, playerA, aTarget.FullName);
+        _overlapService.SetLiveLookupUnavailable(aTarget.Id, bTarget.Id);
 
         var secondService = BuildService(FixedNow.AddMinutes(5));
-        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget);
+        var result = await secondService.SubmitTargetPickAsync(match.Id, playerB, bTarget.FullName);
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.LiveLookupUnavailable));
         Assert.That(result.TargetPick, Is.Null);
@@ -329,7 +344,50 @@ public class ConnectTargetPickServiceTests
         Assert.That(await _connectMatchRepository.GetTargetPickAsync(match.Id, playerB), Is.Null);
         var picks = await _connectMatchRepository.GetTargetPicksForMatchAsync(match.Id);
         Assert.That(picks, Has.Count.EqualTo(1), "only player A's original, untouched pick must exist after a live-lookup-unavailable rejection");
-        Assert.That(picks[0].TargetPlayerId, Is.EqualTo(aTarget));
+        Assert.That(picks[0].TargetPlayerId, Is.EqualTo(aTarget.Id));
         Assert.That(picks[0].IsLocked, Is.False);
+    }
+
+    // ---- Bug fix (S-218 prep, ADR-0007): name resolution branches, mirroring
+    // ---- ConnectChainStepServiceTests' own CandidateNotFound coverage ------
+
+    [Test]
+    public async Task REQ1404_SubmitTargetPickAsync_TargetPlayerNameDoesNotResolveToAnyPlayer_ReturnsTargetPlayerNotFound_PersistsNothing()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, "Nobody Real");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.TargetPlayerNotFound));
+        Assert.That(result.TargetPick, Is.Null);
+        Assert.That(await _connectMatchRepository.GetTargetPicksForMatchAsync(match.Id), Is.Empty);
+        Assert.That(_overlapService.Calls, Is.Empty);
+    }
+
+    // Same "no client-supplied disambiguation id, deterministically pick the
+    // lowest Id" simplification ConnectChainStepService already applies to
+    // candidatePlayerName (see that class's own comment) — proven here via
+    // two same-named Player rows, asserting the LOWER Id wins regardless of
+    // insertion order.
+    [Test]
+    public async Task REQ1404_SubmitTargetPickAsync_NameResolvesToMultiplePlayers_PicksLowestIdDeterministically()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var higherId = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), FullName = "Same Name Player" });
+        var lowerId = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), FullName = "Same Name Player" });
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, "Same Name Player");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
+        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(lowerId.Id));
+        Assert.That(result.TargetPick.TargetPlayerId, Is.Not.EqualTo(higherId.Id));
     }
 }

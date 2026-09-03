@@ -24,15 +24,20 @@ namespace XGArcade.Api.Tests;
 // the real HTTP pipeline proves: auth gating, a full first-pick-then-
 // completing-pick round trip through the real DTOs (proving the endpoint's
 // own response shaping and that both picks really lock in the database, not
-// just in the handler's return value), and one representative rejection
-// (TriviallyConnected) reaching the client as a problem-details 409.
+// just in the handler's return value), one representative rejection
+// (TriviallyConnected) reaching the client as a problem-details 409, and
+// (bug fix, S-218 prep, ADR-0007) the new TargetPlayerNotFound outcome
+// reaching the client as a problem-details 404.
 //
-// Target players' PlayerCareerStint rows are seeded directly (never via a
-// real Wikidata call) — the "fetch once, cache forever" behavior means a
-// player with at least one cached stint row never triggers
-// PlayerCareerOverlapService's live IWikidataClient lookup, so this avoids
-// needing to swap out the real HTTP-backed IWikidataClient registration the
-// way the DbContext is swapped below.
+// Target players are real seeded Player rows (SeedPlayerAsync) — the
+// request body now carries a NAME, resolved server-side via IPlayerRepository
+// (never a client-supplied Guid; see IConnectTargetPickService's own doc
+// comment for why). Each target player's PlayerCareerStint rows are seeded
+// directly (never via a real Wikidata call) — the "fetch once, cache
+// forever" behavior means a player with at least one cached stint row never
+// triggers PlayerCareerOverlapService's live IWikidataClient lookup, so this
+// avoids needing to swap out the real HTTP-backed IWikidataClient
+// registration the way the DbContext is swapped below.
 public class ConnectMatchEndpointTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -100,6 +105,13 @@ public class ConnectMatchEndpointTests
         return match.Id;
     }
 
+    private async Task<Player> SeedPlayerAsync(string fullName)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var playerRepository = scope.ServiceProvider.GetRequiredService<IPlayerRepository>();
+        return await playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = fullName });
+    }
+
     // Seeds a single cached PlayerCareerStint row for targetPlayerId so
     // PlayerCareerOverlapService's "already cached, never call Wikidata live"
     // path applies — see this file's own doc comment.
@@ -133,7 +145,7 @@ public class ConnectMatchEndpointTests
         var client = _factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{Guid.NewGuid()}/target-pick", new SubmitTargetPickRequest(Guid.NewGuid()));
+            $"/matches/{Guid.NewGuid()}/target-pick", new SubmitTargetPickRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
@@ -149,26 +161,26 @@ public class ConnectMatchEndpointTests
         var bAuthProviderUserId = Guid.NewGuid();
         var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
         var matchId = await CreateMatchAsync(userAId, userBId);
-        var aTargetPlayerId = Guid.NewGuid();
-        var bTargetPlayerId = Guid.NewGuid();
+        var aTargetPlayer = await SeedPlayerAsync("Alpha Target");
+        var bTargetPlayer = await SeedPlayerAsync("Bravo Target");
         // Different, non-overlapping clubs — never trivially connected.
-        await SeedCareerStintAsync(aTargetPlayerId, "Arsenal", 1999, 2007);
-        await SeedCareerStintAsync(bTargetPlayerId, "Chelsea", 1999, 2007);
+        await SeedCareerStintAsync(aTargetPlayer.Id, "Arsenal", 1999, 2007);
+        await SeedCareerStintAsync(bTargetPlayer.Id, "Chelsea", 1999, 2007);
         var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
         var clientB = CreateAuthenticatedClient(bAuthProviderUserId);
 
         var firstResponse = await clientA.PostAsJsonAsync(
-            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(aTargetPlayerId));
+            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(aTargetPlayer.FullName));
         Assert.That(firstResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var first = await firstResponse.Content.ReadFromJsonAsync<SubmitTargetPickResponse>();
-        Assert.That(first!.TargetPlayerId, Is.EqualTo(aTargetPlayerId));
+        Assert.That(first!.TargetPlayerId, Is.EqualTo(aTargetPlayer.Id));
         Assert.That(first.Locked, Is.False);
 
         var completingResponse = await clientB.PostAsJsonAsync(
-            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(bTargetPlayerId));
+            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(bTargetPlayer.FullName));
         Assert.That(completingResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var completing = await completingResponse.Content.ReadFromJsonAsync<SubmitTargetPickResponse>();
-        Assert.That(completing!.TargetPlayerId, Is.EqualTo(bTargetPlayerId));
+        Assert.That(completing!.TargetPlayerId, Is.EqualTo(bTargetPlayer.Id));
         Assert.That(completing.Locked, Is.True);
 
         // Proves both rows are really locked in the database, not just in
@@ -190,17 +202,17 @@ public class ConnectMatchEndpointTests
         var bAuthProviderUserId = Guid.NewGuid();
         var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
         var matchId = await CreateMatchAsync(userAId, userBId);
-        var aTargetPlayerId = Guid.NewGuid();
-        var bTargetPlayerId = Guid.NewGuid();
+        var aTargetPlayer = await SeedPlayerAsync("Alpha Target");
+        var bTargetPlayer = await SeedPlayerAsync("Bravo Target");
         // Same club, overlapping years — a direct, trivial connection.
-        await SeedCareerStintAsync(aTargetPlayerId, "Arsenal", 1999, 2007);
-        await SeedCareerStintAsync(bTargetPlayerId, "Arsenal", 2003, 2010);
+        await SeedCareerStintAsync(aTargetPlayer.Id, "Arsenal", 1999, 2007);
+        await SeedCareerStintAsync(bTargetPlayer.Id, "Arsenal", 2003, 2010);
         var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
         var clientB = CreateAuthenticatedClient(bAuthProviderUserId);
-        await clientA.PostAsJsonAsync($"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(aTargetPlayerId));
+        await clientA.PostAsJsonAsync($"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(aTargetPlayer.FullName));
 
         var response = await clientB.PostAsJsonAsync(
-            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(bTargetPlayerId));
+            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest(bTargetPlayer.FullName));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -211,7 +223,32 @@ public class ConnectMatchEndpointTests
         var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
         var playerAPick = await connectMatchRepository.GetTargetPickAsync(matchId, userAId);
         Assert.That(playerAPick, Is.Not.Null);
-        Assert.That(playerAPick!.TargetPlayerId, Is.EqualTo(aTargetPlayerId));
+        Assert.That(playerAPick!.TargetPlayerId, Is.EqualTo(aTargetPlayer.Id));
         Assert.That(playerAPick.IsLocked, Is.False);
+    }
+
+    // ---- Bug fix (S-218 prep, ADR-0007): an unresolvable name reaches the
+    // ---- client as a problem-details 404, never a 5xx --------------------
+
+    [Test]
+    public async Task REQ1404_PostTargetPick_TargetPlayerNameDoesNotResolve_ReturnsNotFoundWithProblemDetailsBody()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await clientA.PostAsJsonAsync(
+            $"/matches/{matchId}/target-pick", new SubmitTargetPickRequest("Nobody Real"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Target player not found"));
+
+        using var scope = _factory.Services.CreateScope();
+        var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+        Assert.That(await connectMatchRepository.GetTargetPicksForMatchAsync(matchId), Is.Empty);
     }
 }

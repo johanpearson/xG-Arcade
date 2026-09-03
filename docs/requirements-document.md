@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.56"
+version: "2.57"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11165,6 +11165,42 @@ trivially-connected 409 shown inline via the server's own detail text,
 clearing the field so a genuinely different target is searched next — no
 refetch is needed to "undo" a rejection, since nothing was persisted for
 it. Full Vitest coverage in `TargetPickPanel.test.tsx`.
+
+**Bug fix (2026-09-03, S-218 — found during Playwright E2E test-writing):**
+the request body above (`TargetPickPanel.tsx`'s `handleSubmit`) submitted
+the `/players/autocomplete` suggestion's own `playerId` as
+`targetPlayerId`, and `ConnectTargetPickService.SubmitTargetPickAsync`
+stored it unresolved. But `/players/autocomplete` (COMP-10) returns
+`PlayerNameIndex.PlayerId` values — a different, unreconciled id space from
+`Player.Id`/`PlayerCareerStint.PlayerId` (COMP-06) that the target-pick
+overlap check actually reads (see `PlayerNameIndex.PlayerId`'s own doc
+comment and ADR-0007: "will practically always differ... nothing today
+reconciles them"). A real player selected through the only search UI a
+client has therefore did not reliably resolve to the intended player's own
+career-stint data. Fixed on the backend the same way
+`ConnectChainStepService.SubmitChainStepAsync` already resolves
+`candidatePlayerName` (REQ-1406): `POST /matches/{matchId}/target-pick`'s
+request body is now `{ targetPlayerName: string }`
+(`SubmitTargetPickRequest.TargetPlayerName`), resolved server-side inside
+`SubmitTargetPickAsync` via
+`IPlayerRepository.GetPlayersByNormalizedFullNameAsync` (COMP-06, never
+`PlayerNameIndex`) with a new `SubmitTargetPickOutcome.TargetPlayerNotFound`
+outcome (mapped to a 404 problem-details response, consistent with this
+endpoint's existing all-`Problem()` convention — unlike
+`ConnectChainStepEndpoints`' own always-200 shape for
+`CandidateNotFound`, since target-pick has no such precedent). Deterministic
+lowest-`Id`-wins on a same-name collision, same known, deliberate
+simplification as `ConnectChainStepService`'s own comment — not a new REQ.
+Full `REQ1404_...`-named coverage for the new outcome and the collision
+case added to `ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs`.
+**The frontend half of this fix (`TargetPickPanel.tsx`/
+`frontend/src/lib/connectMatches.ts` switching to submit a name, not an id)
+is a separate, immediately-following task — not yet done as of this note.**
+`GET /matches`/`GET /matches/{matchId}` (this REQ's own read-side addendum
+above) needed no change: they already resolved `ConnectTargetPick.TargetPlayerId`
+against `Player` via `GetPlayersByIdsAsync` (COMP-06), which is now simply
+correct instead of incidentally reading a (still-real, since
+`AddOrUpdateTargetPickAsync` never validated its input) but wrong id.
 
 - Given a match has just been created (via REQ-1402's accepted challenge or
   REQ-1403's random pairing)
