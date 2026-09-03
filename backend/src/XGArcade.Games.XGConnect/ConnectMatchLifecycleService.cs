@@ -44,38 +44,46 @@ public class ConnectMatchLifecycleService(
             // GetActiveMatchesPastDeadlineAsync, so PlayerATimedOutAt/
             // PlayerBTimedOutAt/PlayerABustedAt/PlayerBBustedAt reflect
             // state as of before this sweep pass; chain completion isn't a
-            // column on this entity at all, so it's checked here the same
-            // way TryResolveMatchIfBothTerminalAsync checks it below — a
-            // ClosesChain=true ConnectChainStep row for that slot's UserId.
-            if (match.PlayerATimedOutAt is null && match.PlayerABustedAt is null)
+            // column on this entity at all, so it's checked here via
+            // ConnectChainStepExtensions.HasClosedChain, the same check
+            // ResolveIfBothTerminalAsync below uses.
+            //
+            // Both slots' chain steps are fetched exactly once each, right
+            // here, and threaded straight into ResolveIfBothTerminalAsync
+            // below — that method used to re-fetch both slots' steps itself
+            // on every call, which meant up to 4 GetChainStepsForMatchAndUserAsync
+            // round trips per swept match where 2 suffice. Reusing what this
+            // loop already loaded removes the redundant pair (quality-architect
+            // review of this diff, ADR-0084's duplicated-shape/duplicated-work
+            // budget).
+            var playerASteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, match.PlayerAUserId, cancellationToken);
+            var playerBSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, match.PlayerBUserId, cancellationToken);
+
+            var playerATimedOutAt = match.PlayerATimedOutAt;
+            if (playerATimedOutAt is null && match.PlayerABustedAt is null && !playerASteps.HasClosedChain())
             {
-                var playerASteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, match.PlayerAUserId, cancellationToken);
-                if (!playerASteps.Any(s => s.IsValid && s.ClosesChain))
-                {
-                    await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, now, cancellationToken);
-                    playersForfeited++;
-                }
+                await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, now, cancellationToken);
+                playerATimedOutAt = now;
+                playersForfeited++;
             }
 
-            if (match.PlayerBTimedOutAt is null && match.PlayerBBustedAt is null)
+            var playerBTimedOutAt = match.PlayerBTimedOutAt;
+            if (playerBTimedOutAt is null && match.PlayerBBustedAt is null && !playerBSteps.HasClosedChain())
             {
-                var playerBSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, match.PlayerBUserId, cancellationToken);
-                if (!playerBSteps.Any(s => s.IsValid && s.ClosesChain))
-                {
-                    await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, now, cancellationToken);
-                    playersForfeited++;
-                }
+                await connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, now, cancellationToken);
+                playerBTimedOutAt = now;
+                playersForfeited++;
             }
 
             // REQ-1405/1409: resolve immediately in this same sweep call,
-            // never deferred to a later pass — TryResolveMatchIfBothTerminalAsync
-            // re-reads the match's full terminal state itself (timeout,
-            // bust, AND chain completion, whichever mix applies) rather
-            // than this loop trying to track it locally, which is what
-            // makes a mixed outcome (one timed out, one already
+            // never deferred to a later pass — ResolveIfBothTerminalAsync
+            // evaluates the match's full terminal state itself (timeout,
+            // bust, AND chain completion, whichever mix applies) from the
+            // steps and timeout values just established above, which is
+            // what makes a mixed outcome (one timed out, one already
             // busted/completed) resolve correctly here too, not just the
             // both-timed-out case this sweep used to special-case inline.
-            if (await TryResolveMatchIfBothTerminalAsync(match.Id, cancellationToken))
+            if (await ResolveIfBothTerminalAsync(match, playerASteps, playerBSteps, playerATimedOutAt, playerBTimedOutAt, cancellationToken))
                 matchesResolved++;
         }
 
@@ -85,7 +93,7 @@ public class ConnectMatchLifecycleService(
     public async Task<bool> TryResolveMatchIfBothTerminalAsync(Guid matchId, CancellationToken cancellationToken = default)
     {
         var match = await connectMatchRepository.GetMatchByIdAsync(matchId, cancellationToken);
-        if (match is null || match.Status == ConnectMatchStatus.Resolved)
+        if (match is null)
             return false;
 
         // REQ-1408: chain completion is detected the same way
@@ -93,15 +101,50 @@ public class ConnectMatchLifecycleService(
         // ConnectChainStep row for that slot's UserId. Queried by slot
         // (match.PlayerAUserId/PlayerBUserId) rather than by an
         // independently-supplied userId, consistent with every other
-        // slot-based read/write in this class.
+        // slot-based read/write in this class. This is the one-off,
+        // externally-triggered call path (from ConnectChainStepService) that
+        // has no already-loaded steps to reuse, unlike RunForfeitSweepAsync
+        // above — so it fetches fresh here and delegates the actual
+        // terminal-state evaluation to the same ResolveIfBothTerminalAsync
+        // helper that loop reuses.
         var playerASteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, match.PlayerAUserId, cancellationToken);
         var playerBSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, match.PlayerBUserId, cancellationToken);
 
-        var playerACompleted = playerASteps.Any(s => s.IsValid && s.ClosesChain);
-        var playerBCompleted = playerBSteps.Any(s => s.IsValid && s.ClosesChain);
+        return await ResolveIfBothTerminalAsync(
+            match, playerASteps, playerBSteps, match.PlayerATimedOutAt, match.PlayerBTimedOutAt, cancellationToken);
+    }
 
-        var playerAForfeited = match.PlayerATimedOutAt is not null || match.PlayerABustedAt is not null;
-        var playerBForfeited = match.PlayerBTimedOutAt is not null || match.PlayerBBustedAt is not null;
+    // REQ-1405/1407/1408/1409/S-214: the single place every one of a
+    // match's three terminal-reaching paths (timeout, bust, chain
+    // completion) converges into a resolution decision — shared by
+    // RunForfeitSweepAsync (which already has this match's current
+    // playerA/playerBSteps and this pass's own timed-out-at values loaded)
+    // and TryResolveMatchIfBothTerminalAsync (which loads them fresh for its
+    // single match). Takes the terminal-relevant state as parameters rather
+    // than loading it itself so neither caller re-fetches what the other
+    // already has — see this class's two callers for why each shape of
+    // input is what it is. playerATimedOutAt/playerBTimedOutAt are passed
+    // separately from `match` (rather than read off match.PlayerATimedOutAt/
+    // PlayerBTimedOutAt directly) because RunForfeitSweepAsync's `match`
+    // came back AsNoTracking from before this sweep pass's own writes — its
+    // caller folds in whatever this pass just wrote locally, the same way
+    // the pre-refactor version of this method used to.
+    private async Task<bool> ResolveIfBothTerminalAsync(
+        ConnectMatch match,
+        IReadOnlyList<ConnectChainStep> playerASteps,
+        IReadOnlyList<ConnectChainStep> playerBSteps,
+        DateTime? playerATimedOutAt,
+        DateTime? playerBTimedOutAt,
+        CancellationToken cancellationToken)
+    {
+        if (match.Status == ConnectMatchStatus.Resolved)
+            return false;
+
+        var playerACompleted = playerASteps.HasClosedChain();
+        var playerBCompleted = playerBSteps.HasClosedChain();
+
+        var playerAForfeited = playerATimedOutAt is not null || match.PlayerABustedAt is not null;
+        var playerBForfeited = playerBTimedOutAt is not null || match.PlayerBBustedAt is not null;
 
         var playerATerminal = playerACompleted || playerAForfeited;
         var playerBTerminal = playerBCompleted || playerBForfeited;
@@ -150,7 +193,7 @@ public class ConnectMatchLifecycleService(
             outcome = ConnectMatchOutcome.Draw;
         }
 
-        await connectMatchRepository.ResolveMatchAsync(matchId, outcome, now, playerAScore, playerBScore, cancellationToken);
+        await connectMatchRepository.ResolveMatchAsync(match.Id, outcome, now, playerAScore, playerBScore, cancellationToken);
         return true;
     }
 }

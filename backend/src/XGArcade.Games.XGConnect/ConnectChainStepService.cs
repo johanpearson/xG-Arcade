@@ -47,7 +47,7 @@ public class ConnectChainStepService(
             return new SubmitChainStepResult(SubmitChainStepOutcome.AlreadyForfeited, null);
 
         var existingSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, userId, cancellationToken);
-        if (existingSteps.Any(s => s.IsValid && s.ClosesChain))
+        if (existingSteps.HasClosedChain())
             return new SubmitChainStepResult(SubmitChainStepOutcome.ChainAlreadyComplete, null);
 
         var validSteps = existingSteps.Where(s => s.IsValid).ToList();
