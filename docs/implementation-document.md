@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.19"
+version: "1.20"
 status: draft
-last_updated: 2026-09-02
+last_updated: 2026-09-03
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -541,6 +541,38 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    requirements-document.md §4.15's REQ-1404
                                    status note and architecture-document.md's
                                    COMP-17 row for the fuller reasoning.
+                                   REQ-1405 (match start + 6h forfeit timer)
+                                   is implemented as a third new service,
+                                   IConnectMatchLifecycleService/
+                                   ConnectMatchLifecycleService (S-212,
+                                   2026-09-03): StartMatchIfBothPicksLockedAsync
+                                   (called from ConnectTargetPickService's
+                                   completing-pick branch) re-confirms both
+                                   ConnectTargetPick rows are locked before
+                                   setting ConnectMatch.Status = Active,
+                                   StartedAt = now, DeadlineUtc = StartedAt +
+                                   6h; RunForfeitSweepAsync (triggered by the
+                                   new bearer-token POST
+                                   /internal/sweep-connect-forfeits,
+                                   XGArcade.Api.Connect.
+                                   InternalConnectForfeitSweepEndpoints,
+                                   hourly cron via sweep-connect-forfeits.yml)
+                                   marks each not-yet-terminal player slot
+                                   timed out independently via two new
+                                   nullable columns, ConnectMatch.
+                                   PlayerATimedOutAt/PlayerBTimedOutAt
+                                   (migration
+                                   20260903120000_AddConnectMatchTimeoutTracking),
+                                   and resolves the match to
+                                   ConnectMatchOutcome.Draw in the same sweep
+                                   pass once both slots are terminal. Only
+                                   the both-timed-out resolution path is
+                                   built — REQ-1409's mixed-outcome
+                                   resolution needs REQ-1406-1408's
+                                   chain-step logic (S-213/S-214) first. See
+                                   requirements-document.md §4.15's REQ-1405
+                                   status note and architecture-document.md's
+                                   COMP-17 row for the fuller reasoning.
                                    NOTE: the COMP-16/17 data model built by
                                    S-208-S-210 (FriendRequest/Friendship/
                                    Challenge/MatchmakingOptIn/ConnectMatch/
@@ -549,8 +581,10 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    entry and was never separately added to
                                    this document's own project-structure/
                                    data-model sections — flagged here as a
-                                   pre-existing gap, not something this
-                                   entry attempts to fully backfill.
+                                   pre-existing gap (now also including
+                                   S-212's ConnectMatch.PlayerATimedOutAt/
+                                   PlayerBTimedOutAt columns), not something
+                                   this entry attempts to fully backfill.
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/football-data.org clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications

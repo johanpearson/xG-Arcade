@@ -10517,6 +10517,45 @@ window once both are reached.
 *Accept:* `REQ1405_...`-named tests per its Given/When/Then.
 *Deps:* S-211.
 
+*Built as (2026-09-03):* `IConnectMatchLifecycleService`/
+`ConnectMatchLifecycleService` (`XGArcade.Games.XGConnect`).
+`StartMatchIfBothPicksLockedAsync` re-confirms via
+`IConnectMatchRepository.GetTargetPicksForMatchAsync` that both target
+picks are locked, then transitions `ConnectMatch.Status` to `Active` with
+`StartedAt = now` and `DeadlineUtc = StartedAt + 6h` — called from
+`ConnectTargetPickService.SubmitTargetPickAsync`'s completing-pick branch,
+right after `LockTargetPicksForMatchAsync`, so the match starts the
+instant the second target pick locks. `RunForfeitSweepAsync` finds
+`Active` matches past `DeadlineUtc`
+(`IConnectMatchRepository.GetActiveMatchesPastDeadlineAsync`), marks each
+not-yet-terminal player slot as timed out independently and idempotently
+via two new nullable `ConnectMatch` columns, `PlayerATimedOutAt`/
+`PlayerBTimedOutAt` (slot-based rather than `UserId`-keyed, since
+`PlayerAUserId`/`PlayerBUserId` go null after REQ-710 anonymization), added
+by a new hand-authored migration
+`20260903120000_AddConnectMatchTimeoutTracking` — and, if both slots are
+terminal after that same pass, resolves the match immediately to
+`ConnectMatchOutcome.Draw` in that same sweep call. Deliberately only
+handles the both-timed-out case; REQ-1409's mixed-outcome resolution (one
+player times out while the other legitimately completes a chain or busts)
+is explicitly out of scope, reserved for S-213/S-214 since none of
+REQ-1406-1409's chain-step submission/bust/scoring logic exists yet. The
+sweep's only trigger is a new bearer-token-gated endpoint, `POST
+/internal/sweep-connect-forfeits`
+(`XGArcade.Api.Connect.InternalConnectForfeitSweepEndpoints`, mirroring
+`InternalMatchmakingSweepEndpoints.cs` exactly), called hourly by a new
+`.github/workflows/sweep-connect-forfeits.yml` (same curl+retry-loop shape
+as `sweep-matchmaking-pairings.yml`; hourly for the same
+"up-to-1h-late has no correctness impact at this granularity" reasoning,
+scaled to a 6h window instead of 12h). Full `REQ1405_...`-named coverage in
+`ConnectMatchRepositoryTests.cs` (extended), a new
+`ConnectMatchLifecycleServiceTests.cs`, `ConnectTargetPickServiceTests.cs`
+(extended), and a new `InternalConnectForfeitSweepEndpointTests.cs`.
+Quality gate found no boundary violations and no ADR needed — both the
+slot-based timeout tracking and the both-timeout-resolves-to-Draw behavior
+are direct, requirement-mandated implementations of already-accepted
+REQ-1405/REQ-1409 text, not new structural decisions.
+
 **S-213 · Incremental chain submission + live per-step validation (REQ-1406)**
 Chain-step submission endpoint reusing S-211's career-overlap helper;
 candidate search wired to the existing broad `PlayerNameIndex` (COMP-10),
