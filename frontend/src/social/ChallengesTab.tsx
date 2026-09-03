@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
 import { acceptChallenge, declineChallenge, fetchPendingChallenges } from '../lib/challenges';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
+import { useSubmitAction } from '../lib/useSubmitAction';
 import type { ChallengeResponse } from '../lib/types';
+import { FetchListSection } from './FetchListSection';
 import { shortUserId } from './shortUserId';
 
 export interface ChallengesTabProps {
@@ -43,31 +44,27 @@ export function ChallengesTab({ accessToken, onAuthError }: ChallengesTabProps) 
           Challenges{pending && pending.length > 0 ? ` (${pending.length})` : ''}
         </h3>
         {matchCreatedMessage && <p className="friends-screen__success">{matchCreatedMessage}</p>}
-        {loadError && (
-          <p className="friends-screen__error" role="alert">
-            {loadError}
-          </p>
-        )}
-        {pending === null && !loadError && <p className="friends-screen__status">Loading…</p>}
-        {pending !== null && pending.length === 0 && (
+        <FetchListSection
+          data={pending}
+          loadError={loadError}
           // Not styled as an "invitation" (design-document.md §5) — there's
           // no single action here that resolves the emptiness, unlike the
           // friends-list empty state.
-          <p className="friends-screen__empty">No pending challenges.</p>
-        )}
-        {pending !== null && pending.length > 0 && (
-          <ul className="friends-screen__list">
-            {pending.map((challenge) => (
-              <PendingChallengeRow
-                key={challenge.id}
-                challenge={challenge}
-                onAuthError={onAuthError}
-                onAccept={() => handleAccept(challenge.id)}
-                onDecline={() => handleDecline(challenge.id)}
-              />
-            ))}
-          </ul>
-        )}
+          emptyMessage="No pending challenges."
+          renderList={(challenges) => (
+            <ul className="friends-screen__list">
+              {challenges.map((challenge) => (
+                <PendingChallengeRow
+                  key={challenge.id}
+                  challenge={challenge}
+                  onAuthError={onAuthError}
+                  onAccept={() => handleAccept(challenge.id)}
+                  onDecline={() => handleDecline(challenge.id)}
+                />
+              ))}
+            </ul>
+          )}
+        />
       </section>
     </div>
   );
@@ -81,23 +78,10 @@ interface PendingChallengeRowProps {
 }
 
 function PendingChallengeRow({ challenge, onAuthError, onAccept, onDecline }: PendingChallengeRowProps) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
 
-  async function resolve(action: () => Promise<void>) {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await action();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      setError(describeError(err));
-    } finally {
-      setSubmitting(false);
-    }
+  function resolve(action: () => Promise<void>) {
+    run(action);
   }
 
   return (

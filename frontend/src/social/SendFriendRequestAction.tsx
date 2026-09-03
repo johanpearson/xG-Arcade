@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
 import { fetchFriends, fetchPendingFriendRequests, sendFriendRequest } from '../lib/friends';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
+import { useSubmitAction } from '../lib/useSubmitAction';
 import './SendFriendRequestAction.css';
 
 export interface SendFriendRequestActionProps {
@@ -44,9 +44,8 @@ export function SendFriendRequestAction({
   const pendingFetchFn = useCallback(() => fetchPendingFriendRequests(accessToken), [accessToken]);
   const { data: pendingRequests, loadError: pendingError } = useAuthedFetch(pendingFetchFn, { onAuthError });
 
-  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const { submitting, error: sendError, run } = useSubmitAction({ onAuthError });
 
   if (viewerUserId === targetUserId) return null;
   // Quiet degrade: a load failure here (other than 401, already escalated
@@ -58,21 +57,8 @@ export function SendFriendRequestAction({
   const isFriend = friends.some((friend) => friend.friendUserId === targetUserId);
   const incomingFromTarget = pendingRequests.find((request) => request.requesterUserId === targetUserId);
 
-  async function handleSend() {
-    setSendError(null);
-    setSubmitting(true);
-    try {
-      await sendFriendRequest(accessToken, targetUserId);
-      setSent(true);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      setSendError(describeError(err));
-    } finally {
-      setSubmitting(false);
-    }
+  function handleSend() {
+    run(() => sendFriendRequest(accessToken, targetUserId), () => setSent(true));
   }
 
   if (isFriend) {

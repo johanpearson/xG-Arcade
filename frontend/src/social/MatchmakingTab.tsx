@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
 import { optInToMatchmaking } from '../lib/matchmaking';
+import type { MatchmakingOptInResponse } from '../lib/types';
+import { useSubmitAction } from '../lib/useSubmitAction';
 
 export interface MatchmakingTabProps {
   accessToken: string;
@@ -14,25 +15,14 @@ export interface MatchmakingTabProps {
 // deliberately session-local-only component state, not fetched — see this
 // component's own render for the disclosure note that says so.
 export function MatchmakingTab({ accessToken, onAuthError }: MatchmakingTabProps) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const { submitting, error, run } = useSubmitAction<MatchmakingOptInResponse>({ onAuthError });
 
-  async function handleOptIn() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const result = await optInToMatchmaking(accessToken);
-      setExpiresAt(result.expiresAt);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      setError(describeError(err));
-    } finally {
-      setSubmitting(false);
-    }
+  function handleOptIn() {
+    run(
+      () => optInToMatchmaking(accessToken),
+      (result) => setExpiresAt(result.expiresAt),
+    );
   }
 
   return (

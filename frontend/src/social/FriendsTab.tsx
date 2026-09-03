@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react';
-import { ApiError, describeError } from '../lib/apiClient';
 import {
   acceptFriendRequest,
   declineFriendRequest,
@@ -8,7 +7,9 @@ import {
 } from '../lib/friends';
 import { sendChallenge } from '../lib/challenges';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
+import { useSubmitAction } from '../lib/useSubmitAction';
 import type { FriendRequestResponse, FriendshipResponse } from '../lib/types';
+import { FetchListSection } from './FetchListSection';
 import { shortUserId } from './shortUserId';
 
 export interface FriendsTabProps {
@@ -47,51 +48,41 @@ export function FriendsTab({ accessToken, onAuthError }: FriendsTabProps) {
           Friend requests
           {pendingRequests && pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ''}
         </h3>
-        {pendingError && (
-          <p className="friends-screen__error" role="alert">
-            {pendingError}
-          </p>
-        )}
-        {pendingRequests === null && !pendingError && <p className="friends-screen__status">Loading…</p>}
-        {pendingRequests !== null && pendingRequests.length === 0 && (
-          <p className="friends-screen__empty">No pending friend requests.</p>
-        )}
-        {pendingRequests !== null && pendingRequests.length > 0 && (
-          <ul className="friends-screen__list">
-            {pendingRequests.map((request) => (
-              <PendingFriendRequestRow
-                key={request.id}
-                accessToken={accessToken}
-                request={request}
-                onAuthError={onAuthError}
-                onResolved={handleRequestResolved}
-              />
-            ))}
-          </ul>
-        )}
+        <FetchListSection
+          data={pendingRequests}
+          loadError={pendingError}
+          emptyMessage="No pending friend requests."
+          renderList={(requests) => (
+            <ul className="friends-screen__list">
+              {requests.map((request) => (
+                <PendingFriendRequestRow
+                  key={request.id}
+                  accessToken={accessToken}
+                  request={request}
+                  onAuthError={onAuthError}
+                  onResolved={handleRequestResolved}
+                />
+              ))}
+            </ul>
+          )}
+        />
       </section>
 
       <section className="friends-screen__section">
         <h3 className="friends-screen__section-title">My friends</h3>
-        {friendsError && (
-          <p className="friends-screen__error" role="alert">
-            {friendsError}
-          </p>
-        )}
-        {friends === null && !friendsError && <p className="friends-screen__status">Loading…</p>}
-        {friends !== null && friends.length === 0 && (
+        <FetchListSection
+          data={friends}
+          loadError={friendsError}
           // design-document.md §5: empty states are invitations.
-          <p className="friends-screen__empty">
-            You don&apos;t have any friends yet. Visit a player&apos;s stats page to send a friend request.
-          </p>
-        )}
-        {friends !== null && friends.length > 0 && (
-          <ul className="friends-screen__list">
-            {friends.map((friend) => (
-              <FriendRow key={friend.id} accessToken={accessToken} friend={friend} onAuthError={onAuthError} />
-            ))}
-          </ul>
-        )}
+          emptyMessage="You don't have any friends yet. Visit a player's stats page to send a friend request."
+          renderList={(friendsList) => (
+            <ul className="friends-screen__list">
+              {friendsList.map((friend) => (
+                <FriendRow key={friend.id} accessToken={accessToken} friend={friend} onAuthError={onAuthError} />
+              ))}
+            </ul>
+          )}
+        />
       </section>
     </div>
   );
@@ -105,24 +96,10 @@ interface PendingFriendRequestRowProps {
 }
 
 function PendingFriendRequestRow({ accessToken, request, onAuthError, onResolved }: PendingFriendRequestRowProps) {
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { submitting, error, run } = useSubmitAction<FriendRequestResponse>({ onAuthError });
 
-  async function resolve(action: (accessToken: string, id: string) => Promise<FriendRequestResponse>) {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await action(accessToken, request.id);
-      await onResolved();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      setError(describeError(err));
-    } finally {
-      setSubmitting(false);
-    }
+  function resolve(action: (accessToken: string, id: string) => Promise<FriendRequestResponse>) {
+    run(() => action(accessToken, request.id), onResolved);
   }
 
   return (
@@ -155,25 +132,11 @@ interface FriendRowProps {
 // — design-document.md SCREEN-15's own framing ("friends list is also
 // where you'd challenge a friend").
 function FriendRow({ accessToken, friend, onAuthError }: FriendRowProps) {
-  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { submitting, error, run } = useSubmitAction({ onAuthError });
 
-  async function handleChallenge() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await sendChallenge(accessToken, friend.friendUserId);
-      setSent(true);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      setError(describeError(err));
-    } finally {
-      setSubmitting(false);
-    }
+  function handleChallenge() {
+    run(() => sendChallenge(accessToken, friend.friendUserId), () => setSent(true));
   }
 
   return (
