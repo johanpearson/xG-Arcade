@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.49→2.50, REQ-1410 Status
+  updated from Proposed to Built), `docs/architecture-document.md`
+  (1.42→1.43, COMP-17 row extended with the S-215 in-match-chat build note,
+  narrowing the "not yet implemented" list to only the S-218 frontend
+  screen), `docs/implementation-document.md` (1.22→1.23,
+  `/XGArcade.Games.XGConnect` project-structure entry extended with the
+  REQ-1410 paragraph and the `PurgeUserDataAsync` anonymization-gap
+  closure, `/XGArcade.Games.XGConnect.Tests` entry noting
+  `XGConnectGameModuleTests.cs`'s constructor-signature update and that
+  `REQ1410_...`-named test coverage is left to a separate test-writer
+  pass), `docs/backlog.md` (S-215 entry annotated as Built) — S-215
+  (REQ-1410): new `IConnectChatService`/`ConnectChatService`
+  (`XGArcade.Games.XGConnect`) implements match-scoped chat send/read on
+  top of the existing S-208 `IConnectChatMessageRepository` and
+  `IConnectMatchRepository` (participant-only check, `MatchNotFound`/
+  `NotAParticipant` outcomes), deliberately without gating on
+  `ConnectMatch.Status` — REQ-1410's Given/When/Then has no such
+  precondition and requires chat to remain readable after a match
+  resolves. Exposed as `POST`/`GET /matches/{matchId}/chat-messages`
+  (`XGArcade.Api.Connect.ConnectChatEndpoints`), registered in
+  `EndpointMapping.cs`/`ServiceRegistration.cs`. Also closed the REQ-710
+  anonymization gap `IConnectMatchRepository.AnonymizeUserDataAsync`'s own
+  doc comment had flagged since S-208: new
+  `IConnectChatMessageRepository.AnonymizeSenderAsync` is now injected
+  into and called from `XGConnectGameModule.PurgeUserDataAsync` alongside
+  the existing `IConnectMatchRepository.AnonymizeUserDataAsync` call, so a
+  deleted user's `ConnectChatMessage.SenderUserId` rows are anonymized
+  too. No schema migration (`ConnectChatMessage` already existed from
+  S-208). No new ADR — same "straightforward, requirement-mandated
+  implementation of already-accepted REQ text" reasoning S-211 through
+  S-214's own entries already used for this component. `REQ1410_...`-named
+  tests were not written by this story — left to a dedicated test-writer
+  pass, and the sandbox has no `dotnet` SDK, so a CI verification run of
+  this diff is still needed before merge. REQ refs: REQ-1410, REQ-710.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.48→2.49, REQ-1407/1408/1409
   Status updated from Proposed to Built, REQ-1405's own status note
   corrected — its "mixed-outcome case not implemented" caveat is now

@@ -277,6 +277,12 @@ public static class ServiceRegistration
         // completion makes this caller terminal) — see
         // ConnectChainStepService's own doc comment.
         builder.Services.AddScoped<IConnectChainStepService, ConnectChainStepService>();
+        // REQ-1410/S-215: in-match chat send/read business logic, layered on
+        // top of IConnectMatchRepository above (participant check only —
+        // deliberately no other business logic) and IConnectChatMessageRepository
+        // above — see ConnectChatService's own doc comment for why this does
+        // not gate on ConnectMatch.Status the way ConnectChainStepService does.
+        builder.Services.AddScoped<IConnectChatService, ConnectChatService>();
         // REQ-1405/S-212, REQ-1407/1408/1409/S-214: match-start/6h-forfeit-
         // timer/bust-and-completion-aware resolution scaffolding, layered on
         // top of IConnectMatchRepository and IConnectScoringService above —

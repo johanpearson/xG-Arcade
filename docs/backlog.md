@@ -10657,6 +10657,29 @@ persists and stays readable after the match ends.
 *Accept:* `REQ1410_...`-named tests.
 *Deps:* S-212 (does not need S-213/S-214's chain-scoring logic).
 
+*Built as (2026-09-03):* New `IConnectChatService`/`ConnectChatService`
+(`XGArcade.Games.XGConnect`) layers send/read on top of the existing S-208
+`IConnectChatMessageRepository` and `IConnectMatchRepository`
+(participant check only). Deliberately does not gate on
+`ConnectMatch.Status` — REQ-1410's Given/When/Then never makes match
+status a precondition for sending or reading, and one clause explicitly
+requires chat to remain readable once a match has resolved. Exposed as
+`POST`/`GET /matches/{matchId}/chat-messages`
+(`XGArcade.Api.Connect.ConnectChatEndpoints`), same thin-endpoint pattern
+as `ConnectChainStepEndpoints`/`ConnectMatchEndpoints` — `MatchNotFound`
+→ 404, `NotAParticipant` → 403 Problem. Also closed the REQ-710
+anonymization gap S-208/S-214's own doc comments had flagged: new
+`IConnectChatMessageRepository.AnonymizeSenderAsync` (load-then-save,
+mirrors `ConnectMatchRepository.AnonymizeUserDataAsync`'s own shape) is
+now injected into and called from `XGConnectGameModule.PurgeUserDataAsync`
+alongside the existing `IConnectMatchRepository.AnonymizeUserDataAsync`
+call, so a deleted user's `ConnectChatMessage.SenderUserId` rows are
+anonymized too, not just `ConnectMatch`/`ConnectTargetPick`/
+`ConnectChainStep`. No schema migration — `ConnectChatMessage` already
+existed (S-208). No new ADR — same "straightforward, requirement-mandated
+implementation of already-accepted REQ text" reasoning S-211 through
+S-214's own entries already used for this component.
+
 **S-216 · Notification indicator, backend (REQ-1411)**
 Aggregate endpoint for the current user: pending friend requests +
 pending challenges + matches awaiting their own next move (no target pick

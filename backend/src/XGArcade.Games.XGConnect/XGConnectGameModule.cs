@@ -39,7 +39,9 @@ namespace XGArcade.Games.XGConnect;
 // and target-pick/chain-step submission will get their own dedicated
 // endpoints (mirroring PredictEndpoints, not GuessEndpoints), not this
 // method.
-public class XGConnectGameModule(IConnectMatchRepository connectMatchRepository) : IGameModule
+public class XGConnectGameModule(
+    IConnectMatchRepository connectMatchRepository,
+    IConnectChatMessageRepository connectChatMessageRepository) : IGameModule
 {
     public const string XGConnectGameKey = "xg-connect";
 
@@ -86,12 +88,13 @@ public class XGConnectGameModule(IConnectMatchRepository connectMatchRepository)
         Guid instanceId, string submittedName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WrongGuessPlayerInfo?>(null);
 
-    // REQ-710/ADR-0101: xG Connect's three per-user tables — ConnectMatch
-    // (PlayerAUserId/PlayerBUserId), ConnectTargetPick.UserId, and
-    // ConnectChainStep.UserId — are this module's OWN persistence (COMP-17),
-    // so AccountDeletionService (Core.Auth) never reaches them directly; it
+    // REQ-710/ADR-0101: xG Connect's four per-user tables — ConnectMatch
+    // (PlayerAUserId/PlayerBUserId), ConnectTargetPick.UserId,
+    // ConnectChainStep.UserId, and (S-215) ConnectChatMessage.SenderUserId —
+    // are this module's OWN persistence (COMP-17), so AccountDeletionService
+    // (Core.Auth) never reaches them directly; it
     // calls this method through IGameModule instead (see that interface's
-    // own doc comment). All three anonymize in place rather than hard-delete
+    // own doc comment). All four anonymize in place rather than hard-delete
     // (every one of those columns is nullable with no FK to User, per each
     // entity's own doc comment) — the other participant's match/chain
     // history depends on these rows surviving, same reasoning as
@@ -100,12 +103,16 @@ public class XGConnectGameModule(IConnectMatchRepository connectMatchRepository)
     // directly from outside Games.XGConnect's own boundary, because this
     // class IS Games.XGConnect/COMP-17, not Core.
     //
-    // Does NOT touch ConnectChatMessage.SenderUserId — REQ-1410's chat
-    // feature is not yet built (S-208 scaffolding only) and its repository,
-    // IConnectChatMessageRepository, is not injected here. Whoever builds
-    // chat (S-215+) must fold that anonymization into this method too — see
-    // IConnectMatchRepository.AnonymizeUserDataAsync's own doc comment for
-    // the same flagged gap.
-    public Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        connectMatchRepository.AnonymizeUserDataAsync(userId, cancellationToken);
+    // S-215/REQ-1410: also anonymizes ConnectChatMessage.SenderUserId via
+    // the separate IConnectChatMessageRepository — chat messages are
+    // COMP-17's own persistence too (a fourth per-user table alongside the
+    // three IConnectMatchRepository.AnonymizeUserDataAsync already covers),
+    // just owned by a different repository (see that interface's own doc
+    // comment for why chat has its own repository). Both calls run
+    // independently; there is no ordering dependency between them.
+    public async Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        await connectMatchRepository.AnonymizeUserDataAsync(userId, cancellationToken);
+        await connectChatMessageRepository.AnonymizeSenderAsync(userId, cancellationToken);
+    }
 }

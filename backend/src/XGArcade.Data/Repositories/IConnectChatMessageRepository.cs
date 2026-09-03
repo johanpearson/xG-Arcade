@@ -16,4 +16,15 @@ public interface IConnectChatMessageRepository
     // Ordered by SentAt — REQ-1410's only read shape, a chronological
     // per-match read.
     Task<IReadOnlyList<ConnectChatMessage>> GetMessagesForMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    // REQ-710/ADR-0101/S-215: anonymizes SenderUserId on every
+    // ConnectChatMessage row this user sent, across every match — same
+    // anonymize-in-place shape as
+    // IConnectMatchRepository.AnonymizeUserDataAsync (SenderUserId is
+    // nullable with no FK to User, per ConnectChatMessage's own doc
+    // comment). Called only from XGConnectGameModule.PurgeUserDataAsync,
+    // alongside that method's own AnonymizeUserDataAsync call — the other
+    // participant's chat history in the same match depends on these rows
+    // surviving, not being hard-deleted.
+    Task AnonymizeSenderAsync(Guid userId, CancellationToken cancellationToken = default);
 }

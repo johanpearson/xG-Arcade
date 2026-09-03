@@ -163,5 +163,9 @@ public static class EndpointMapping
         // chain-step submission surface — its own file/registration, same
         // per-feature split as MapConnectMatchEndpoints immediately above.
         app.MapConnectChainStepEndpoints();
+        // REQ-1410/S-215/ADR-0103: Games.XGConnect (COMP-17)'s own in-match
+        // chat send/read surface — its own file/registration, same per-
+        // feature split as MapConnectChainStepEndpoints immediately above.
+        app.MapConnectChatEndpoints();
     }
 }

@@ -119,10 +119,9 @@ public interface IConnectMatchRepository
     // PurgeUserDataAsync (this is the one place outside Games.XGConnect's
     // own boundary Core.Auth's AccountDeletionService reaches, via
     // IGameModule, never this repository directly — ADR-0003/ADR-0101).
-    // Deliberately does NOT touch ConnectChatMessage.SenderUserId — that
-    // table is owned by the separate IConnectChatMessageRepository and REQ-
-    // 1410's chat feature is not yet built (S-208 scaffolding only); a
-    // future story wiring up chat needs to fold that anonymization in too,
-    // tracked as a gap here rather than guessed at now.
+    // Does NOT touch ConnectChatMessage.SenderUserId — that table is owned
+    // by the separate IConnectChatMessageRepository, which has its own
+    // AnonymizeSenderAsync method (S-215/REQ-1410) that
+    // XGConnectGameModule.PurgeUserDataAsync calls alongside this one.
     Task AnonymizeUserDataAsync(Guid userId, CancellationToken cancellationToken = default);
 }

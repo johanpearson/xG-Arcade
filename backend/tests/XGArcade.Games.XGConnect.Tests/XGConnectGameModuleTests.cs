@@ -20,6 +20,7 @@ public class XGConnectGameModuleTests
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IConnectMatchRepository _repository = null!;
+    private IConnectChatMessageRepository _chatMessageRepository = null!;
     private XGConnectGameModule _module = null!;
 
     [SetUp]
@@ -30,7 +31,8 @@ public class XGConnectGameModuleTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _repository = new ConnectMatchRepository(_dbContext);
-        _module = new XGConnectGameModule(_repository);
+        _chatMessageRepository = new ConnectChatMessageRepository(_dbContext);
+        _module = new XGConnectGameModule(_repository, _chatMessageRepository);
     }
 
     [TearDown]
