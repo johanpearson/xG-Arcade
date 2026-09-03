@@ -10,6 +10,10 @@ namespace XGArcade.Games.XGConnect.Tests;
 // timer, and resolution scaffolding. REQ-1407/1408/1409/S-214: bust-tracking
 // primitives, the mixed-outcome-aware forfeit sweep, and
 // TryResolveMatchIfBothTerminalAsync's own win/draw/forfeit resolution.
+// REQ-1411/S-216: GetMatchesAwaitingActionAsync's own per-slot
+// terminal-state filtering (bust/timeout/ClosesChain), layered on top of
+// IConnectMatchRepository.GetOpenMatchesForUserAsync's coarse candidate set
+// (covered separately in ConnectMatchRepositoryTests.cs).
 // Same real-InMemory-backed-repository, no-mocking-framework pattern as
 // ConnectTargetPickServiceTests — IConnectMatchRepository is exercised
 // through the real ConnectMatchRepository against an InMemory-backed
@@ -426,5 +430,114 @@ public class ConnectMatchLifecycleServiceTests
         Assert.That(resolved, Is.False);
         var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
         Assert.That(stored!.ResolvedAt, Is.EqualTo(FixedNow.UtcDateTime), "an already-resolved match must never be re-resolved");
+    }
+
+    // ---- GetMatchesAwaitingActionAsync (REQ-1411/S-216) -----------------------
+
+    // A caller with no target pick submitted yet for an open match falls
+    // through both the bust/timeout check and the ClosesChain check —
+    // included, per IConnectMatchLifecycleService.GetMatchesAwaitingActionAsync's
+    // own doc comment.
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_NoTargetPickYet_IncludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { match.Id }));
+    }
+
+    // An in-progress chain (a non-closing step submitted, no ClosesChain=true
+    // row yet) is still awaiting the caller's next move — included.
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_ChainInProgressNoClosingStepYet_IncludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await AddStepAsync(match.Id, callerId, position: 1, attemptNumber: 1, isValid: true, closesChain: false, submittedAt: FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { match.Id }));
+    }
+
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_CallerBusted_ExcludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result, Is.Empty, "a caller whose own slot already busted is no longer awaiting their move");
+    }
+
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_CallerTimedOut_ExcludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result, Is.Empty, "a caller whose own slot already timed out is no longer awaiting their move");
+    }
+
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_CallerClosedChain_ExcludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await AddClosingStepAsync(match.Id, callerId, position: 1, submittedAt: FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result, Is.Empty, "a caller who already closed their own chain is no longer awaiting their move");
+    }
+
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_MatchResolved_ExcludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, FixedNow.UtcDateTime, null, null);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result, Is.Empty, "a Resolved match is never awaiting anyone's move");
+    }
+
+    // REQ-1411: this method only cares about the CALLER's own slot — a
+    // match stays "awaiting my move" even though the other participant
+    // already reached a terminal state (busted here) and the match hasn't
+    // been swept/resolved yet.
+    [Test]
+    public async Task REQ1411_GetMatchesAwaitingActionAsync_OtherPlayerAlreadyBustedButCallerStillActive_StillIncludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, otherId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { match.Id }));
     }
 }

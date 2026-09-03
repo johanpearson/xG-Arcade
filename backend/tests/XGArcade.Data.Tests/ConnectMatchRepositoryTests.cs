@@ -8,12 +8,13 @@ namespace XGArcade.Data.Tests;
 // persistence round-trips for ConnectMatch/ConnectTargetPick/
 // ConnectChainStep, plus (S-212/REQ-1405) the match-start/forfeit-timer/
 // resolution primitives StartMatchAsync/MarkPlayerTimedOutAsync/
-// ResolveMatchAsync/GetActiveMatchesPastDeadlineAsync. Pure persistence
-// only — no trivial-pair rejection, live overlap validation, or bust/
-// scoring/chain-completion logic (that's S-211/S-213/S-214; those
-// primitives' own business-logic orchestration is
-// ConnectTargetPickService/ConnectMatchLifecycleService's job, covered by
-// their own test files).
+// ResolveMatchAsync/GetActiveMatchesPastDeadlineAsync, plus (S-216/REQ-1411)
+// GetOpenMatchesForUserAsync's coarse participant/status candidate set. Pure
+// persistence only — no trivial-pair rejection, live overlap validation, or
+// bust/scoring/chain-completion/per-slot-terminal-state logic (that's
+// S-211/S-213/S-214/S-216; those primitives' own business-logic
+// orchestration is ConnectTargetPickService/ConnectMatchLifecycleService's
+// job, covered by their own test files).
 public class ConnectMatchRepositoryTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -228,6 +229,52 @@ public class ConnectMatchRepositoryTests
         var result = await _repository.GetActiveMatchesPastDeadlineAsync(now);
 
         Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { pastDeadlineActive.Id }));
+    }
+
+    // ---- REQ-1411/S-216: GetOpenMatchesForUserAsync ---------------------------
+
+    // REQ-1411: the notification indicator's coarse candidate set — every
+    // non-Resolved match this user participates in, whichever slot, with a
+    // Resolved match and a match the user has no part in both excluded. The
+    // per-slot terminal-state filtering itself
+    // (bust/timeout/ClosesChain) is deliberately NOT this repository's job —
+    // see IConnectMatchRepository.GetOpenMatchesForUserAsync's own doc
+    // comment — so this test only pins the coarse participant/status shape,
+    // not terminal-state filtering (that's
+    // ConnectMatchLifecycleServiceTests.GetMatchesAwaitingActionAsync's job).
+    [Test]
+    public async Task REQ1411_GetOpenMatchesForUserAsync_ReturnsNonResolvedMatchesInEitherSlot_ExcludesResolvedAndUnrelated()
+    {
+        var userId = Guid.NewGuid();
+        var now = new DateTime(2026, 9, 3, 18, 0, 0, DateTimeKind.Utc);
+
+        var asPlayerA = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(), PlayerAUserId = userId, PlayerBUserId = Guid.NewGuid(), CreatedAt = now,
+        });
+        var asPlayerB = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(), PlayerAUserId = Guid.NewGuid(), PlayerBUserId = userId, CreatedAt = now,
+        });
+
+        // Resolved match involving the user — must be excluded even though
+        // the user is a participant.
+        var resolvedMatch = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(), PlayerAUserId = userId, PlayerBUserId = Guid.NewGuid(), CreatedAt = now,
+        });
+        await _repository.StartMatchAsync(resolvedMatch.Id, now, now.AddHours(6));
+        await _repository.ResolveMatchAsync(resolvedMatch.Id, ConnectMatchOutcome.Draw, now, null, null);
+
+        // A match the user has no part in at all — never returned.
+        await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(), PlayerAUserId = Guid.NewGuid(), PlayerBUserId = Guid.NewGuid(), CreatedAt = now,
+        });
+
+        var result = await _repository.GetOpenMatchesForUserAsync(userId);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { asPlayerA.Id, asPlayerB.Id }));
     }
 
     // ---- ConnectTargetPick CRUD (AddOrUpdateTargetPickAsync) ------------
