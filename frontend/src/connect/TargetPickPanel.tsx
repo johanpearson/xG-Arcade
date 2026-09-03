@@ -25,13 +25,13 @@ export interface TargetPickPanelProps {
 // name, if any), never just a static "you picked X" once-only view.
 export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthError, onSubmitted }: TargetPickPanelProps) {
   const [name, setName] = useState('');
-  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
-  // TriviallyConnected (REQ-1404) gets its own, more specific message than
-  // whatever ApiError.detail says, since the server's own wording already
-  // instructs the player to pick someone else — surfaced separately from
-  // `error` so a plain retry-able 503 doesn't get the same "pick again"
-  // framing.
+  // TriviallyConnected (REQ-1404) and TargetPlayerNotFound both get their
+  // own, more specific message than whatever generic ApiError.detail
+  // handling would otherwise apply, since the server's own wording already
+  // instructs the player what to do next — surfaced separately from `error`
+  // so a plain retry-able 503 doesn't get the same "pick again" framing.
   const [rejectionNotice, setRejectionNotice] = useState<string | null>(null);
 
   if (myTargetPick?.locked) {
@@ -47,26 +47,30 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
   }
 
   function handleSelect(suggestion: PlayerAutocompleteSuggestion) {
-    setSelectedPlayerId(suggestion.playerId);
+    setSelectedName(suggestion.name);
     setRejectionNotice(null);
   }
 
   function handleSubmit() {
-    if (!selectedPlayerId) return;
+    if (!selectedName) return;
     setRejectionNotice(null);
     run(
       async () => {
         try {
-          await submitConnectTargetPick(accessToken, matchId, selectedPlayerId);
+          await submitConnectTargetPick(accessToken, matchId, selectedName);
         } catch (err) {
-          if (err instanceof ApiError && err.status === 409 && err.title === 'Target picks are already connected') {
+          if (
+            err instanceof ApiError &&
+            ((err.status === 409 && err.title === 'Target picks are already connected') ||
+              (err.status === 404 && err.title === 'Target player not found'))
+          ) {
             setRejectionNotice(err.detail ?? err.title);
             // REQ-1404: nothing was persisted for this (rejected) selection
             // — the player's own prior pick, if any, is unaffected. Clear
             // the field so they search for a genuinely different target
             // rather than resubmitting the exact same rejected name.
             setName('');
-            setSelectedPlayerId(null);
+            setSelectedName(null);
           }
           // Re-thrown either way — useSubmitAction's `run` must treat this
           // as a failed submission (never calling onSubmitted/refetch,
@@ -100,7 +104,7 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
         value={name}
         onValueChange={(value) => {
           setName(value);
-          setSelectedPlayerId(null);
+          setSelectedName(null);
         }}
         onSelect={handleSelect}
         placeholder="Search for a player…"
@@ -109,7 +113,7 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
       <button
         type="button"
         className="connect-match__button"
-        disabled={submitting || !selectedPlayerId}
+        disabled={submitting || !selectedName}
         onClick={handleSubmit}
       >
         {submitting ? 'Saving…' : 'Set target pick'}

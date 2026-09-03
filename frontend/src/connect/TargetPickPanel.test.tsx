@@ -68,7 +68,32 @@ describe('TargetPickPanel', () => {
 
     await waitFor(() => expect(onSubmitted).toHaveBeenCalledTimes(1));
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
-    expect(JSON.parse(postCall![1].body as string)).toEqual({ targetPlayerId: 'p1' });
+    expect(JSON.parse(postCall![1].body as string)).toEqual({ targetPlayerName: 'Lionel Messi' });
+  });
+
+  it('REQ-1404: a "Target player not found" 404 shows the server\'s own detail text and lets the player pick again', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'p1', name: 'Lionel Messi' }]);
+      if (url.endsWith('/matches/match-1/target-pick')) {
+        return problemResponse(
+          'Target player not found',
+          'No known player matches that name. Check the spelling and try again.',
+          404,
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const user = userEvent.setup();
+    const { onSubmitted } = renderPanel({}, fetchMock);
+
+    await pickSuggestion(user, 'Lionel Messi');
+    await user.click(screen.getByRole('button', { name: 'Set target pick' }));
+
+    expect(await screen.findByText(/Check the spelling and try again/)).toBeInTheDocument();
+    expect(onSubmitted).not.toHaveBeenCalled();
+    // The field is cleared so a genuinely different target must be searched.
+    expect((screen.getByLabelText('Target player name') as HTMLInputElement).value).toBe('');
   });
 
   it('REQ-1404: a trivially-connected rejection shows the server\'s own detail text and lets the player pick again', async () => {

@@ -30,18 +30,23 @@ export async function fetchConnectMatchDetail(accessToken: string, matchId: stri
 
 // REQ-1404: either player selects (or, before the match officially starts,
 // replaces) their own target pick (POST /matches/{matchId}/target-pick).
-// Errors (404 not-found, 403 not-a-participant, 409 already-locked, 409
-// trivially-connected, 503 live-lookup-unavailable) left to throw — see
-// design-document.md SCREEN-16's "Target-pick phase" note for how each is
-// shown.
+// Takes a player NAME, resolved server-side against Player (COMP-06) —
+// never a client-supplied id, since the only search UI available
+// (/players/autocomplete, COMP-10) returns PlayerNameIndex.PlayerId, a
+// different, unreconciled id space (ADR-0007). Mirrors
+// submitConnectChainStep's own candidatePlayerName precedent below.
+// Errors (404 not-found "Target player not found", 403 not-a-participant,
+// 409 already-locked, 409 trivially-connected, 503 live-lookup-unavailable)
+// left to throw — see design-document.md SCREEN-16's "Target-pick phase"
+// note for how each is shown.
 export async function submitConnectTargetPick(
   accessToken: string,
   matchId: string,
-  targetPlayerId: string,
+  targetPlayerName: string,
 ): Promise<ConnectTargetPickSubmitResponse> {
   return apiRequest<ConnectTargetPickSubmitResponse>(accessToken, `/matches/${matchId}/target-pick`, {
     method: 'POST',
-    body: JSON.stringify({ targetPlayerId }),
+    body: JSON.stringify({ targetPlayerName }),
   });
 }
 

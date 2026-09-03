@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.57"
+version: "2.58"
 status: draft
 last_updated: 2026-09-03
 owner: Johan
@@ -11196,6 +11196,13 @@ case added to `ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs`.
 **The frontend half of this fix (`TargetPickPanel.tsx`/
 `frontend/src/lib/connectMatches.ts` switching to submit a name, not an id)
 is a separate, immediately-following task — not yet done as of this note.**
+**Frontend half done (2026-09-03, `ui-implementer`):** `TargetPickPanel.tsx`
+now submits the selected suggestion's `name` (mirroring `ChainBuilder.tsx`'s
+already-correct `candidatePlayerName` precedent), and
+`submitConnectTargetPick` sends `{ targetPlayerName }`. The new 404
+"Target player not found" case is shown inline the same way as the
+existing 409 trivially-connected rejection. See `docs/backlog.md`'s S-218
+entry for the full detail.
 `GET /matches`/`GET /matches/{matchId}` (this REQ's own read-side addendum
 above) needed no change: they already resolved `ConnectTargetPick.TargetPlayerId`
 against `Player` via `GetPlayersByIdsAsync` (COMP-06), which is now simply

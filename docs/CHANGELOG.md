@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `docs/requirements-document.md` (2.57→2.58, REQ-1404 "Bug
+  fix" status note addendum), `docs/backlog.md` (S-218 entry given a
+  frontend-fix addendum) — closed the "frontend half still outstanding" gap
+  from the entry directly below: `TargetPickPanel.tsx` now submits the
+  selected autocomplete suggestion's `name`, not its `playerId` (same
+  precedent `ChainBuilder.tsx`'s candidate search already used correctly),
+  and `submitConnectTargetPick`
+  (`frontend/src/lib/connectMatches.ts`) sends `{ targetPlayerName }`
+  matching the backend's new request shape. New 404 "Target player not
+  found" case handled inline the same way as the existing 409
+  trivially-connected rejection (server's own detail text, field cleared,
+  no refetch). `TargetPickPanel.test.tsx` updated (new request-shape
+  assertion, new not-found test). No control names changed, so
+  `play-connect.spec.ts`'s selectors are unaffected. `tsc -b` clean,
+  `oxlint` clean, Vitest 67 files / 869 tests passed. REQ-1404, no ADR
+  (same reasoning as the backend half).
+
 - 2026-09-03 — `docs/requirements-document.md` (2.56→2.57, REQ-1404 "Bug
   fix" status note), `docs/backlog.md` (S-218 entry given a backend-fix
   addendum) — fixed the real cross-boundary id-space bug `test-writer`

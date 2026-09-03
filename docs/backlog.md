@@ -10929,3 +10929,19 @@ that frontend update is the very next task. No `dotnet` SDK in this
 sandbox; hand-traced against the existing service/endpoint tests' own
 assertions rather than run — a `ci.yml` `workflow_dispatch` run is needed
 to confirm.
+
+**Frontend half fixed (2026-09-03, `ui-implementer`):** `TargetPickPanel.tsx`
+now submits the selected autocomplete suggestion's `name`, not its
+`playerId` — same precedent `ChainBuilder.tsx`'s candidate search already
+used, which never had this bug. `submitConnectTargetPick`
+(`frontend/src/lib/connectMatches.ts`) takes `targetPlayerName` and sends
+`{ targetPlayerName }`; no dedicated frontend request type existed to
+rename (the body was always constructed inline). The panel's new 404
+"Target player not found" case is handled inline exactly like the existing
+409 trivially-connected rejection: shows the server's own detail text,
+clears the field, does not call `onSubmitted`. No control names changed
+("Target player name," "Set target pick") so `test-writer`'s
+`play-connect.spec.ts` selectors are unaffected. `TargetPickPanel.test.tsx`
+updated (new request-shape assertion plus a new not-found test case). Full
+suite green: `tsc -b` clean, `oxlint` clean (same pre-existing unrelated
+warnings only), Vitest 67 files / 869 tests passed.
