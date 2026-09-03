@@ -11001,3 +11001,44 @@ re-verified first-mount behavior. Full suite green: `tsc -b` clean,
 `oxlint` clean (same pre-existing unrelated warnings only), Vitest 67
 files / 870 tests passed (one new regression test added to
 `FriendsScreen.test.tsx`, bringing it from 4 to 5).
+
+**Real bug caught by the E2E spec's second CI run (2026-09-03,
+`test-writer`) — this one is in the spec, not the product:** CI run #2
+(after the Matches-tab staleness fix above) failed at
+`submitTargetPick`'s own internal `expect(page.getByText('Your target:
+${name}')).toBeVisible()` assertion. Diagnosis: that text only exists in
+`TargetPickPanel.tsx`'s `myTargetPick?.locked` branch, but
+`ConnectTargetPickService.SubmitTargetPickAsync` only flips `locked` true
+on BOTH rows atomically, together, on the SECOND (completing) submission —
+never individually for the first submitter. So neither player's browser
+ever actually renders that branch: the first submitter (User A) stays on
+the still-unlocked form (`myTargetPick` set but not locked), which shows
+"Current pick: `<name>` — you can change it until your opponent also
+picks." instead; the second/completing submitter (User B) has their match
+flip to `Active` in the very same request, so their own post-submit
+refetch already swaps `MatchScreen.tsx` over to `ChainBuilder` before
+`TargetPickPanel` would ever re-render into its locked state. The
+`locked` branch's "Your target: ..."/"Waiting for your opponent to lock in
+their target pick…" text is therefore unreachable in the browser for
+either player today — arguably dead code in `TargetPickPanel.tsx`, but
+harmless/unreachable rather than incorrect, and left alone here (a
+`quality-architect`/`ui-implementer` call, not this spec's). **Fixed**:
+removed the shared `submitTargetPick` helper's internal post-submit
+assertion entirely (it can't be correct for both call sites, since the two
+players' post-submit UI genuinely differs) and asserts what each player's
+screen actually shows at its own call site instead — User A now checks for
+`` `Current pick: ${name}` `` (confirmed via `TargetPickPanel.tsx` that
+Playwright's `getByText` concatenates a matched element's own text nodes,
+including ones split across an inline `<strong>`, so a plain substring
+across that boundary matches correctly with no regex needed) plus the
+"you can change it until your opponent also picks." text; User B's
+existing "Build your chain" assertion (already correct) was left
+unchanged. Re-checked every other text assertion in the spec
+(`MatchesTab.tsx`/`MatchResolution.tsx`/`ChainBuilder.tsx`/
+`MatchChat.tsx`) directly against each component's own source rather than
+by inference — no other assertion rides on the same
+locked-branch-is-unreachable misunderstanding. No `dotnet` SDK or
+reachable Docker daemon in this sandbox: `npx playwright test --list` and
+`tsc --noEmit` both clean; the spec was not executed against a real
+backend — a `ci.yml` `workflow_dispatch` run is needed to confirm this
+run #2 failure is actually resolved.

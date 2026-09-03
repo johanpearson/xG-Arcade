@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-03 — `frontend/tests/e2e/play-connect.spec.ts`, `docs/backlog.md`
+  (S-218 entry given a spec-bugfix addendum) — `test-writer` fixed a bug
+  in the E2E spec itself (not the product), caught by CI run #2: the
+  shared `submitTargetPick` helper asserted `getByText('Your target:
+  ${name}')`, but that text only exists in `TargetPickPanel.tsx`'s
+  `locked` branch, which `ConnectTargetPickService.SubmitTargetPickAsync`
+  only reaches for BOTH rows atomically on the second (completing)
+  submission — never for the first submitter alone, and never observable
+  by the completing submitter either, since their own post-submit refetch
+  already swaps to `ChainBuilder` before that branch would render. Removed
+  the helper's internal assertion and asserted each player's own actual
+  post-submit state at its call site instead (User A: "Current pick:
+  `<name>`" / "you can change it until your opponent also picks."; User
+  B: unchanged "Build your chain"). No product code changed. `npx
+  playwright test --list` and `tsc --noEmit` clean; not run against a real
+  backend in this sandbox — a `ci.yml` `workflow_dispatch` run is needed
+  to confirm. No REQ/ADR change.
+
 - 2026-09-03 — `frontend/src/social/FriendsScreen.tsx`,
   `frontend/src/social/FriendsScreen.test.tsx`,
   `docs/design-document.md` (0.88→0.89, SCREEN-16 addendum),

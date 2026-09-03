@@ -212,15 +212,41 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // server-side against Player/COMP-06 (REQ-1404's id-space mismatch fix)
       // — this is now the same real path a genuine, Wikidata-imported player
       // selection would take, not a test-only workaround.
+      // Deliberately no shared post-submit assertion inside this helper: the
+      // UI genuinely diverges after submitting depending on whether this is
+      // the first or the completing (second) target pick (see
+      // ConnectTargetPickService.SubmitTargetPickAsync — both rows only flip
+      // `locked` together, atomically, on the SECOND submission). The first
+      // submitter's own TargetPickPanel re-renders its still-unlocked form
+      // ("Current pick: ... — you can change it..."); the completing
+      // submitter's own match flips to Active in the same request, so their
+      // next refetch (via onSubmitted) already unmounts TargetPickPanel
+      // entirely in favour of ChainBuilder — TargetPickPanel's own `locked`
+      // branch ("Your target: ...") is therefore never reachable in the
+      // browser for either player. Each call site below asserts what its
+      // own player's screen actually shows next; Playwright's own
+      // auto-retrying `expect(...).toBeVisible()` already waits out the
+      // submit/refetch round trip, so no extra assertion is needed here to
+      // "confirm" the submission landed.
       async function submitTargetPick(page: Page, name: string): Promise<void> {
         await page.getByLabel('Target player name').fill(name)
         await page.getByRole('option', { name }).click()
         await page.getByRole('button', { name: 'Set target pick' }).click()
-        await expect(page.getByText(`Your target: ${name}`)).toBeVisible()
       }
 
       await submitTargetPick(pageA, seed.targetPlayerAName)
-      await expect(pageA.getByText('Waiting for your opponent to lock in their target pick…')).toBeVisible()
+      // User A is the FIRST submitter here — their own pick isn't locked yet
+      // (TargetPickPanel.tsx's non-locked branch), so the form re-renders
+      // with "Current pick: <name> — you can change it until your opponent
+      // also picks." (never "Your target: ..."/"Waiting for your
+      // opponent..." — that's the `locked` branch, unreachable for A).
+      // Playwright's getByText concatenates all of a matched element's own
+      // text nodes (including ones split across an inline <strong>), so a
+      // plain substring across that boundary matches correctly without a
+      // regex — same technique this file already used (incorrectly, on the
+      // wrong branch) before this fix.
+      await expect(pageA.getByText(`Current pick: ${seed.targetPlayerAName}`)).toBeVisible()
+      await expect(pageA.getByText('you can change it until your opponent also picks.')).toBeVisible()
 
       // The second (completing) selection both locks User B's own pick AND
       // starts the match immediately (REQ-1405) — asserted directly via
