@@ -116,36 +116,31 @@ remediation path while it's off. Revert by flipping `main.bicep`'s default
 back to `true` (or a per-deploy `--parameters` override) if wrongly-rejected
 correct guesses start appearing.
 
-## Status note (2026-09-04): flag reverted to on
+## Status note (2026-09-04): misdiagnosed revert, reverted back to off
 
-The trigger this ADR's Consequences section and its own second status note
-both named — "wrongly-rejected correct guesses start appearing again" —
-fired: the product owner reported genuine, long-tenured club-category
-guesses (e.g. César Azpilicueta for Chelsea FC) scored incorrect during
-real play. `GridNameMatcher`/`PlayerOverrideRepository`'s
-`PlayerAttribute`/`PlayerOverride` correctness path and name normalization
-(`PlayerNameNormalizer`) were checked and are not the cause — with the
-fallback off, any cache gap for a given cell (proactively swept by S-127's
-`PlayerCareerPrefetchService`, but never guaranteed complete) is
-permanent, exactly this ADR's documented trade-off. `main.bicep`'s
-`gridLiveLookupEnabled` default is reverted from `false` back to `true`,
-matching `backend-container-app.bicep`'s own module-level default —
-REQ-211's guess-time fallback is back on in the dev environment as of the
-next deploy after this change lands. The experiment concluded: S-127's
-proactive cache was not complete enough to retire this fallback safely.
+A same-day session briefly flipped `main.bicep`'s `gridLiveLookupEnabled`
+default back to `true`, reasoning that a product-owner report of genuine
+guesses being scored incorrect (Eden Hazard → César Azpilicueta, both
+Chelsea; a West Bromwich pairing) was this ADR's own documented trigger
+("wrongly-rejected correct guesses start appearing again") firing. **That
+was a misdiagnosis, corrected by the product owner directly: the report
+was about xG Path/xG Connect's chain-builder mechanic ("I had Hazard, I
+set Azpilicueta for Chelsea FC") — pairing two players who share a club —
+not an xG Grid cell guess at all.** xG Grid has no cell that presents
+"Eden Hazard" as the prompt and asks for a teammate by name; that flow is
+xG Path/Connect's, a different game module entirely. This ADR's flag only
+gates `GridGameModule.ScoreSubmissionAsync` (see Decision above) and has
+no bearing on that other module's own correctness logic.
 
-Separately, this session's investigation also surfaced that
-`StaleClubAttributeCleaner`'s `clean-stale-club-attributes --all-clubs` CLI
-verb (built for the earlier, unrelated Tonali/AC Milan `wdt:P54`
-truthy-shortcut bug — see `NOTES.md`) is a manually-triggered one-off, not
-wired into any automatic pipeline, so any cell whose cache was populated
-before that fix with just enough current-squad players to clear
-`GridGenerationOptions.MinValidAnswers` would never be automatically
-re-queried with the corrected query. With the live-lookup fallback back on
-this no longer produces a wrongly-rejected guess (the fallback catches
-it), but the underlying cache rows stay stale until that cleanup verb is
-actually re-run — worth a follow-up backlog story if that turns out to
-matter, not addressed by this status note.
+Reverted back to `false`, restoring the actual state this ADR's second
+status note (2026-08-17) put in place — the experiment is still running,
+not concluded, and nothing in this investigation actually tested whether
+S-127's proactive cache is complete enough on its own. The real bug (if
+any) is in xG Path/Connect's own club-matching logic, tracked separately —
+not in this flag, and not in `GridNameMatcher`/`PlayerOverrideRepository`/
+`PlayerNameNormalizer`, which were checked and found sound for xG Grid's
+own guess path (that finding stands; it just doesn't explain the reported
+symptom, since the symptom wasn't xG Grid's).
 
 ## For AI agents
 

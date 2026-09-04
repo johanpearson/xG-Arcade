@@ -2905,8 +2905,8 @@ public class WikidataClientTests
     }
 
     // Same normalization, but exercised through varied suffix forms and
-    // positions to pin down NormalizeClubName's exact contract, not just
-    // the one screenshot scenario above.
+    // positions to pin down ClubNameNormalizer.StripLegalSuffix's exact
+    // contract (XGArcade.Data), not just the one screenshot scenario above.
     [TestCase("Liverpool FC", "Liverpool")]
     [TestCase("Liverpool A.F.C.", "Liverpool")]
     [TestCase("Bournemouth AFC", "Bournemouth")]

@@ -1,4 +1,5 @@
 using XGArcade.Core.Games;
+using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
@@ -56,13 +57,33 @@ public class PlayerCareerOverlapService(
     // both sides instead of any matching pair of clubs — see this class's
     // own IPlayerCareerOverlapService doc comment for why a chain step needs
     // this narrower check.
+    //
+    // Bug fix (2026-09-04, REQ-1406/1407, product-owner report — Cesar
+    // Azpilicueta genuinely shares Chelsea with Eden Hazard, Jonas Olsson
+    // genuinely shares West Bromwich Albion with a preceding player, both
+    // wrongly rejected): `clubName` here is raw, player-typed text
+    // (ChainBuilder.tsx's free-text "claimed shared club" field), while
+    // `s.ClubName` is whatever got canonicalized/suffix-stripped at Wikidata
+    // ingest time (PlayerCareerStintRefreshService — seeded clubs store
+    // ClubDefinition's own bare name, e.g. "Chelsea", never "Chelsea FC").
+    // A bare OrdinalIgnoreCase equality between an un-normalized player
+    // input and an already-normalized stored value silently fails on any
+    // legal-suffix mismatch. Running both sides through the same
+    // ClubNameNormalizer.StripLegalSuffix the ingest path already uses
+    // fixes this without weakening the match (still an exact match once
+    // both sides are in the same canonical form — never a fuzzy/substring
+    // match, same "don't risk conflating two different clubs" reasoning
+    // ClubNameNormalizer's own doc comment gives).
     public async Task<bool> HaveOverlapAtClubAsync(
         Guid playerAId, Guid playerBId, string clubName, CancellationToken cancellationToken = default)
     {
         var (stintsA, stintsB) = await LoadBothPlayersStintsAsync(playerAId, playerBId, cancellationToken);
 
-        var stintsAAtClub = stintsA.Where(s => string.Equals(s.ClubName, clubName, StringComparison.OrdinalIgnoreCase));
-        var stintsBAtClub = stintsB.Where(s => string.Equals(s.ClubName, clubName, StringComparison.OrdinalIgnoreCase));
+        var normalizedClubName = ClubNameNormalizer.StripLegalSuffix(clubName);
+        var stintsAAtClub = stintsA.Where(s =>
+            string.Equals(ClubNameNormalizer.StripLegalSuffix(s.ClubName), normalizedClubName, StringComparison.OrdinalIgnoreCase));
+        var stintsBAtClub = stintsB.Where(s =>
+            string.Equals(ClubNameNormalizer.StripLegalSuffix(s.ClubName), normalizedClubName, StringComparison.OrdinalIgnoreCase));
 
         return stintsAAtClub.Any(sa => stintsBAtClub.Any(sb =>
             sa.StartYear <= (sb.EndYear ?? int.MaxValue) &&

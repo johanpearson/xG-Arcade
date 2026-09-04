@@ -13,31 +13,56 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `backend/src/XGArcade.Data/ClubNameNormalizer.cs` (new),
+  `backend/src/XGArcade.DataSync/Wikidata/SparqlResponseParsers.cs`,
+  `backend/src/XGArcade.DataSync/Wikidata/WikidataCareerStintEntry.cs`,
+  `backend/src/XGArcade.Games.XGConnect/PlayerCareerOverlapService.cs`,
+  `docs/requirements-document.md` (REQ-1406 bug-fix status note, v2.60 →
+  v2.61), `docs/backlog.md` (S-213 given a bugfix addendum) — the real fix
+  for the product-owner's club-pairing report (the follow-up to the
+  misdiagnosed entry below): xG Connect's chain-builder
+  (`ChainBuilder.tsx`) rejected genuinely correct claims (Azpilicueta
+  sharing Chelsea with Hazard; Olsson sharing West Bromwich Albion).
+  Root cause: the claimed-club field is free text, compared with a bare
+  case-insensitive equality against `PlayerCareerStint.ClubName`, which is
+  already canonicalized/suffix-stripped at Wikidata ingest time (e.g.
+  seeded clubs store `"Chelsea"`, never `"Chelsea FC"`) — no normalization
+  was applied to the player-typed side, so typing the club's full/legal
+  name silently failed the match. Fixed by extracting the ingest-time
+  suffix-stripping normalizer (previously a private
+  `SparqlResponseParsers.NormalizeClubName`) into a shared, standalone
+  `XGArcade.Data.ClubNameNormalizer.StripLegalSuffix` — the same
+  `PlayerNameNormalizer` precedent — and applying it to both sides of
+  `PlayerCareerOverlapService.HaveOverlapAtClubAsync`'s comparison. Still
+  an exact match once normalized, not fuzzy — doesn't weaken
+  correctness-checking. New tests: `ClubNameNormalizerTests.cs`
+  (`XGArcade.Data.Tests`) plus a regression case in
+  `PlayerCareerOverlapServiceTests.cs`. Colloquial/abbreviated club names
+  (e.g. "West Brom") remain unaddressed — same deferred category as
+  REQ-208's player-name alias table — flagged, not built. No new ADR (a
+  targeted bug fix plus a like-for-like utility extraction, not a
+  structural/boundary decision).
+
 - 2026-09-04 — `infra/bicep/main.bicep`,
-  `docs/decisions/0070-grid-live-lookup-flag.md` — direct user feedback
-  (genuine club-category guesses — e.g. César Azpilicueta for Chelsea
-  FC — scored incorrect during real play) traced to ADR-0070's
-  `gridLiveLookupEnabled` deployment param, turned `false` in dev on
-  2026-08-17 as a deliberate, self-documented experiment ("revert if
-  wrongly-rejected correct guesses start appearing again" — exactly what
-  happened). The correctness-checking path itself
-  (`GridNameMatcher`/`PlayerOverrideRepository`, `PlayerNameNormalizer`)
-  was checked and is not the cause; with REQ-211's guess-time live-lookup
-  fallback off, any cache gap for a cell (proactively swept by S-127's
-  `PlayerCareerPrefetchService`, never guaranteed complete) became a
-  permanent wrong rejection with no self-healing — ADR-0070's own
-  documented trade-off. Reverted `gridLiveLookupEnabled`'s default back to
-  `true` (matching `backend-container-app.bicep`'s own module-level
-  default), closing the experiment via ADR-0070's own prescribed
-  remediation (new status note added, not a new ADR — this executes an
-  already-recorded decision, it doesn't make a new one). Separately noted
-  but not fixed here: `StaleClubAttributeCleaner`'s cache-repair CLI verb
-  (built for an earlier, unrelated Wikidata query bug, see `NOTES.md`) is
-  manual/one-off, not automatic — a possible follow-up backlog story, not
-  blocking since the live-lookup fallback now catches any resulting gap.
-  No REQ change; `requirements-document.md`/`architecture-document.md`
-  needed no update (the `GridLiveLookupOptions.Enabled` C# default was
-  already `true` — only the deployed dev environment's override changed).
+  `docs/decisions/0070-grid-live-lookup-flag.md` — **corrects a same-day
+  misdiagnosis.** A product-owner bug report ("I had Eden Hazard, I set
+  Cesar Azpilicueta for Chelsea FC, got incorrect") was read as an xG Grid
+  cell-guess correctness bug and traced to ADR-0070's
+  `gridLiveLookupEnabled` deployment param (flipped `false` → `true`,
+  reverting that ADR's Aug 2026 dev experiment). The product owner
+  corrected this directly: the report describes xG Path/Connect's
+  chain-builder mechanic (pairing two players via a shared club), not an
+  xG Grid cell at all — xG Grid has no prompt/guess shape matching "given
+  Hazard, name a teammate." Reverted `gridLiveLookupEnabled` back to
+  `false`, restoring ADR-0070's actual prior state (that experiment is
+  still running, not concluded — nothing here tested it either way). The
+  `GridNameMatcher`/`PlayerOverrideRepository`/`PlayerNameNormalizer`
+  investigation from the misdiagnosed entry still stands as a finding
+  (xG Grid's own guess path is sound) but doesn't explain the reported
+  symptom, since the symptom isn't xG Grid's. The real bug, if any, is in
+  xG Path/Connect's own club-matching logic — investigation for that
+  starts fresh, not extending this ADR (out of its scope per its own "For
+  AI agents" section).
 
 - 2026-09-04 — `frontend/src/nav/NotificationBadge.tsx`,
   `frontend/src/nav/NotificationBadge.css`, `frontend/src/nav/HeaderNav.tsx`,
