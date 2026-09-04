@@ -899,6 +899,139 @@ export interface NotificationSummaryResponse {
   hasPending: boolean;
 }
 
+// S-218 (design-document.md SCREEN-16): mirrors SubmitTargetPickResponse
+// exactly (backend/src/XGArcade.Api/Connect/ConnectMatchEndpoints.cs).
+// `locked` is true only once this was the completing (second, non-trivial)
+// selection — see that record's own doc comment for the full state machine.
+export interface ConnectTargetPickSubmitResponse {
+  targetPlayerId: string;
+  selectedAt: string;
+  locked: boolean;
+}
+
+// S-218: mirrors SubmitChainStepResponse exactly
+// (backend/src/XGArcade.Api/Connect/ConnectChainStepEndpoints.cs) — always a
+// normal 200 response, never an error, for a wrong or unresolvable guess
+// (REQ-1406's GuessEndpoints-style precedent). `position`/`attemptNumber`/
+// `candidatePlayerId`/`claimedClubName` are null only when
+// `candidatePlayerName` didn't resolve to any known player at all — treat
+// that as "no such player found," not as a real validation failure (it
+// consumes no attempt/strike server-side). `busted: true` means this
+// player's participation in the match just ended (REQ-1407's two-strikes
+// rule).
+export interface ConnectSubmitChainStepResponse {
+  isValid: boolean;
+  chainComplete: boolean;
+  position: number | null;
+  attemptNumber: number | null;
+  candidatePlayerId: string | null;
+  claimedClubName: string | null;
+  busted: boolean;
+}
+
+// S-218: mirrors ChatMessageResponse exactly
+// (backend/src/XGArcade.Api/Connect/ConnectChatEndpoints.cs). `senderUserId`
+// is nullable — goes null once REQ-710 anonymization has run for that
+// sender, same nullable-in-place shape as ConnectMatchListItem/
+// ConnectMatchDetail's own `opponentUserId`. `senderDisplayName` mirrors
+// `senderUserId`'s own nullability exactly — null iff `senderUserId` is
+// null, never a placeholder for that case (render with the same "a deleted
+// user" fallback PendingSuggestion.submittingUserDisplayName's convention
+// establishes); resolved server-side, never derived client-side.
+export interface ConnectChatMessage {
+  id: string;
+  senderUserId: string | null;
+  senderDisplayName: string | null;
+  messageText: string;
+  sentAt: string;
+}
+
+// S-218: mirrors ConnectMatchListItemResponse exactly
+// (backend/src/XGArcade.Api/Connect/ConnectMatchQueryEndpoints.cs, S-218
+// prep). `status`/`outcome` are the backend's enums serialized as their
+// string names — `status`: "AwaitingTargetPicks" | "Active" | "Resolved";
+// `outcome`: "Pending" | "Win" | "Loss" | "Draw", already translated into
+// the CALLER's own perspective server-side (never PlayerA/PlayerB-relative).
+// `opponentUserId` is nullable, same REQ-710-anonymization reasoning as
+// ConnectChatMessage.senderUserId above. `opponentDisplayName` mirrors
+// `opponentUserId`'s own nullability exactly — null iff `opponentUserId` is
+// null, never a placeholder (same "a deleted user" fallback convention as
+// ConnectChatMessage.senderDisplayName above).
+export interface ConnectMatchListItem {
+  matchId: string;
+  opponentUserId: string | null;
+  opponentDisplayName: string | null;
+  status: string;
+  createdAt: string;
+  startedAt: string | null;
+  deadlineUtc: string | null;
+  resolvedAt: string | null;
+  outcome: string;
+  awaitingMyAction: boolean;
+}
+
+// S-218: mirrors ConnectTargetPickResponse exactly (nested inside
+// ConnectMatchDetailResponse) — a resolved target pick, name already joined
+// in server-side.
+export interface ConnectTargetPickView {
+  targetPlayerId: string;
+  targetPlayerName: string;
+  locked: boolean;
+}
+
+// S-218: mirrors ConnectChainStepDetailResponse exactly — one of the
+// caller's OWN chain steps (never an opponent's — see
+// ConnectMatchDetail.opponentTerminalState's own comment below).
+export interface ConnectChainStepView {
+  position: number;
+  attemptNumber: number;
+  candidatePlayerId: string;
+  candidatePlayerName: string;
+  claimedClubName: string;
+  isValid: boolean;
+  closesChain: boolean;
+  submittedAt: string;
+}
+
+// S-218: mirrors ConnectTerminalStateResponse exactly — the three
+// terminal-reaching signals (REQ-1405/1407/1408) bundled for display, kept
+// as three separate booleans (not collapsed to one) so the UI can say
+// *which* terminal state applies ("busted" vs. "timed out" vs. "completed
+// their chain").
+export interface ConnectTerminalState {
+  busted: boolean;
+  timedOut: boolean;
+  completed: boolean;
+}
+
+// S-218: mirrors ConnectMatchDetailResponse exactly — full single-match
+// detail for the gameplay screen (GET /matches/{matchId}). `myTargetPick`/
+// `opponentTargetPick` are both present on the wire but `opponentTargetPick`
+// stays null until `status` leaves "AwaitingTargetPicks" (REQ-1404's
+// mutual-invisibility rule) — never derived from the opponent's own
+// `locked` flag client-side. `myChainSteps` is always the caller's own
+// chain only; only `opponentTerminalState`'s three booleans are ever
+// exposed for the opponent's progress, never their actual steps. `myScore`/
+// `opponentScore` are null until that specific player has completed a valid
+// chain (a forfeiting player never gets a score, REQ-1408).
+export interface ConnectMatchDetail {
+  status: string;
+  createdAt: string;
+  startedAt: string | null;
+  deadlineUtc: string | null;
+  resolvedAt: string | null;
+  outcome: string;
+  opponentUserId: string | null;
+  opponentDisplayName: string | null;
+  myTargetPick: ConnectTargetPickView | null;
+  opponentTargetPick: ConnectTargetPickView | null;
+  myChainSteps: ConnectChainStepView[];
+  myTerminalState: ConnectTerminalState;
+  opponentTerminalState: ConnectTerminalState;
+  myScore: number | null;
+  opponentScore: number | null;
+}
+
 // REQ-517 (S-183): a single pending avatar submission, as returned by
 // GET /admin/avatar-submissions — mirrors PendingAvatarSubmissionResponse
 // (backend/src/XGArcade.Api/Admin/AdminAvatarEndpoints.cs) exactly, oldest

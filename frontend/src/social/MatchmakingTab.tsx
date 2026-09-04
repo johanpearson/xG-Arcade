@@ -6,6 +6,10 @@ import { useSubmitAction } from '../lib/useSubmitAction';
 export interface MatchmakingTabProps {
   accessToken: string;
   onAuthError: () => void;
+  // S-218 (design-document.md SCREEN-16): switches FriendsScreen to the new
+  // "Matches" tab, once a pairing has actually happened — see this file's
+  // own render for where it's offered.
+  onViewMatches: () => void;
 }
 
 // REQ-1403 (S-217, design-document.md SCREEN-15's "Matchmaking tab").
@@ -14,7 +18,7 @@ export interface MatchmakingTabProps {
 // resource, so the "you're in the pool until…" status below is
 // deliberately session-local-only component state, not fetched — see this
 // component's own render for the disclosure note that says so.
-export function MatchmakingTab({ accessToken, onAuthError }: MatchmakingTabProps) {
+export function MatchmakingTab({ accessToken, onAuthError, onViewMatches }: MatchmakingTabProps) {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const { submitting, error, run } = useSubmitAction<MatchmakingOptInResponse>({ onAuthError });
 
@@ -47,6 +51,15 @@ export function MatchmakingTab({ accessToken, onAuthError }: MatchmakingTabProps
                 lifetime of this page — flagged plainly rather than implying
                 it's tracked anywhere durable. */}
             <p className="friends-screen__hint">This won&apos;t be visible after you leave this screen.</p>
+            {/* S-218 (SCREEN-16): pairing itself happens later, in a separate
+                sweep job — this doesn't mean a match exists yet, but once
+                one does (from this opt-in or any other), it'll show up in
+                the Matches tab. */}
+            <p className="friends-screen__hint">
+              <button type="button" className="friends-screen__link-button" onClick={onViewMatches}>
+                View your matches
+              </button>
+            </p>
           </>
         )}
 

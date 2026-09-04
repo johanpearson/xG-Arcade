@@ -17,8 +17,9 @@ function jsonResponse(body: unknown, status = 200) {
 function renderMatchmakingTab(overrides: Partial<Parameters<typeof MatchmakingTab>[0]> = {}, fetchMock = vi.fn()) {
   vi.stubGlobal('fetch', fetchMock);
   const onAuthError = vi.fn();
-  render(<MatchmakingTab accessToken="token" onAuthError={onAuthError} {...overrides} />);
-  return { onAuthError };
+  const onViewMatches = vi.fn();
+  render(<MatchmakingTab accessToken="token" onAuthError={onAuthError} onViewMatches={onViewMatches} {...overrides} />);
+  return { onAuthError, onViewMatches };
 }
 
 describe('MatchmakingTab', () => {
@@ -48,13 +49,16 @@ describe('MatchmakingTab', () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
     const user = userEvent.setup();
-    renderMatchmakingTab({}, fetchMock);
+    const { onViewMatches } = renderMatchmakingTab({}, fetchMock);
 
     await user.click(screen.getByRole('button', { name: 'Opt in' }));
 
     expect(await screen.findByText(/You're in the matchmaking pool until/)).toBeInTheDocument();
     expect(screen.getByText("This won't be visible after you leave this screen.")).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Opt in' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'View your matches' }));
+    expect(onViewMatches).toHaveBeenCalledTimes(1);
   });
 
   it('REQ-1403: a non-401 failure shows the server\'s own error text and leaves the "Opt in" button in place', async () => {

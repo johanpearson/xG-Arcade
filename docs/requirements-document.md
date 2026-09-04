@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.55"
+version: "2.59"
 status: draft
-last_updated: 2026-09-03
+last_updated: 2026-09-04
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -11158,6 +11158,77 @@ live-lookup-unavailable). Full `REQ1404_...`-named test coverage in
 `ConnectMatchEndpointTests.cs`. **Test level below is unchanged from the
 plan and now fully satisfied.**
 
+**Read-side addendum (2026-09-03, S-218 prep):** every xG Connect endpoint
+up to this point was write-only — nothing let a client read a match's
+target-pick state at all, which blocked S-218's frontend gameplay screen.
+`GET /matches/{matchId}` (new `XGArcade.Api.Connect.
+ConnectMatchQueryEndpoints`, backed by `IConnectMatchQueryService`/
+`ConnectMatchQueryService` in `XGArcade.Games.XGConnect`) now exposes
+`myTargetPick`/`opponentTargetPick`, enforcing this REQ's mutual-
+invisibility rule by keeping `opponentTargetPick` null until
+`ConnectMatch.Status` leaves `AwaitingTargetPicks` — never derived from the
+opponent's own `IsLocked` flag, since that could be true for the caller's
+own row before the match has actually started. `GET /matches` (same file)
+lists every match the caller participates in. See REQ-1411's own status
+note for that endpoint's other returned fields. `REQ1404_...`-named
+coverage added in `ConnectMatchQueryServiceTests.cs`/
+`ConnectMatchQueryEndpointTests.cs`.
+
+**Status note (2026-09-03, S-218 — frontend built):** `TargetPickPanel.tsx`
+(`frontend/src/connect/`, design-document.md SCREEN-16) renders every
+branch above: a player-search form (`PlayerSearchField.tsx`, REQ-207's
+autocomplete precedent) posting to `POST /matches/{matchId}/target-pick`
+via `frontend/src/lib/connectMatches.ts`, freely resubmittable (the form
+stays visible with the current pick shown) for as long as `myTargetPick`
+isn't locked, a "waiting for your opponent" state once it is, and the
+trivially-connected 409 shown inline via the server's own detail text,
+clearing the field so a genuinely different target is searched next — no
+refetch is needed to "undo" a rejection, since nothing was persisted for
+it. Full Vitest coverage in `TargetPickPanel.test.tsx`.
+
+**Bug fix (2026-09-03, S-218 — found during Playwright E2E test-writing):**
+the request body above (`TargetPickPanel.tsx`'s `handleSubmit`) submitted
+the `/players/autocomplete` suggestion's own `playerId` as
+`targetPlayerId`, and `ConnectTargetPickService.SubmitTargetPickAsync`
+stored it unresolved. But `/players/autocomplete` (COMP-10) returns
+`PlayerNameIndex.PlayerId` values — a different, unreconciled id space from
+`Player.Id`/`PlayerCareerStint.PlayerId` (COMP-06) that the target-pick
+overlap check actually reads (see `PlayerNameIndex.PlayerId`'s own doc
+comment and ADR-0007: "will practically always differ... nothing today
+reconciles them"). A real player selected through the only search UI a
+client has therefore did not reliably resolve to the intended player's own
+career-stint data. Fixed on the backend the same way
+`ConnectChainStepService.SubmitChainStepAsync` already resolves
+`candidatePlayerName` (REQ-1406): `POST /matches/{matchId}/target-pick`'s
+request body is now `{ targetPlayerName: string }`
+(`SubmitTargetPickRequest.TargetPlayerName`), resolved server-side inside
+`SubmitTargetPickAsync` via
+`IPlayerRepository.GetPlayersByNormalizedFullNameAsync` (COMP-06, never
+`PlayerNameIndex`) with a new `SubmitTargetPickOutcome.TargetPlayerNotFound`
+outcome (mapped to a 404 problem-details response, consistent with this
+endpoint's existing all-`Problem()` convention — unlike
+`ConnectChainStepEndpoints`' own always-200 shape for
+`CandidateNotFound`, since target-pick has no such precedent). Deterministic
+lowest-`Id`-wins on a same-name collision, same known, deliberate
+simplification as `ConnectChainStepService`'s own comment — not a new REQ.
+Full `REQ1404_...`-named coverage for the new outcome and the collision
+case added to `ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs`.
+**The frontend half of this fix (`TargetPickPanel.tsx`/
+`frontend/src/lib/connectMatches.ts` switching to submit a name, not an id)
+is a separate, immediately-following task — not yet done as of this note.**
+**Frontend half done (2026-09-03, `ui-implementer`):** `TargetPickPanel.tsx`
+now submits the selected suggestion's `name` (mirroring `ChainBuilder.tsx`'s
+already-correct `candidatePlayerName` precedent), and
+`submitConnectTargetPick` sends `{ targetPlayerName }`. The new 404
+"Target player not found" case is shown inline the same way as the
+existing 409 trivially-connected rejection. See `docs/backlog.md`'s S-218
+entry for the full detail.
+`GET /matches`/`GET /matches/{matchId}` (this REQ's own read-side addendum
+above) needed no change: they already resolved `ConnectTargetPick.TargetPlayerId`
+against `Player` via `GetPlayersByIdsAsync` (COMP-06), which is now simply
+correct instead of incidentally reading a (still-real, since
+`AddOrUpdateTargetPickAsync` never validated its input) but wrong id.
+
 - Given a match has just been created (via REQ-1402's accepted challenge or
   REQ-1403's random pairing)
 - When either player selects a target-pick player
@@ -11251,6 +11322,12 @@ two new columns. Full `REQ1405_...`-named test coverage in
 `ConnectMatchLifecycleServiceTests.cs`. **Test level below is fully
 satisfied, including the mixed-outcome resolution case.**
 
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches/{matchId}`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now surfaces
+`status`/`startedAt`/`deadlineUtc`/`resolvedAt` directly, and `GET
+/matches` returns the same fields per match in a list — see REQ-1404's own
+read-side addendum for why this pair of endpoints exists at all.
+
 - Given both players have each selected a non-trivially-connected target
   pick (REQ-1404)
 - When the second (later) selection is accepted
@@ -11314,6 +11391,29 @@ checked against a limit here. Full `REQ1406_...`-named test coverage in
 `ConnectChainStepEndpointTests.cs`, and one test in
 `PlayerAutocompleteEndpointTests.cs`. **Test level below is fully
 satisfied.**
+
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches/{matchId}`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now returns
+`myChainSteps` — the caller's OWN steps only, in submission order, with
+`candidatePlayerName` resolved via `IPlayerRepository.
+GetPlayersByIdsAsync` — never the opponent's steps; only whether the
+opponent has reached a terminal state (`opponentTerminalState`, see
+REQ-1409's own read-side addendum) is exposed for them. See REQ-1404's own
+read-side addendum for why this pair of endpoints exists at all.
+
+**Status note (2026-09-03, S-218 — frontend built):** `ChainBuilder.tsx`
+(`frontend/src/connect/`, design-document.md SCREEN-16) renders the
+candidate-name (`PlayerSearchField.tsx`) + claimed-club submission form,
+posting to `POST /matches/{matchId}/chain-steps`
+(`frontend/src/lib/connectMatches.ts`), and shows the caller's own chain so
+far via a shared `ChainStepsList.tsx` (valid steps only, in position order,
+the closing step marked distinctly) — the opponent's own chain is never
+requested or rendered, only their terminal-state text (REQ-1409's own
+status note). A `CandidateNotFound` result (all of `position`/
+`attemptNumber`/`candidatePlayerId`/`claimedClubName` null) renders a
+distinct "No player found matching…" message rather than being treated as
+an ordinary failed claim. Full Vitest coverage in `ChainBuilder.test.tsx`/
+`ChainStepsList.test.tsx`/`PlayerSearchField.test.tsx`.
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
@@ -11422,6 +11522,17 @@ second consecutive failure at the same position busts the player; a
 successful retry keeps the earlier penalty but resets that position's own
 strike count; failures at different positions are tracked independently.
 
+**Status note (2026-09-03, S-218 — frontend built):** `ChainBuilder.tsx`
+(design-document.md SCREEN-16) shows a distinct "Busted — that was a second
+failed attempt at this position. Your participation in this match has
+ended." message (derived from `SubmitChainStepResponse.busted`, never a
+locally-tracked strike counter — the server is the sole source of truth for
+which attempt busted), replacing the submission form with the same
+terminal-state text a completed/timed-out chain uses. An ordinary
+first-attempt failure instead reads "…You have one more attempt at this
+position." and leaves the form open. Full Vitest coverage in
+`ChainBuilder.test.tsx`.
+
 **REQ-1408 – Scoring: connection count plus accumulated penalties**
 > As a player who completes a valid chain, I want my score to reflect both
 > how short my chain was and how many mistakes I made getting there, so a
@@ -11470,6 +11581,12 @@ separate write. Full `REQ1408_...`-named coverage in a new
 a completed chain; the 1-connector, zero-penalty minimum case; a
 busted/timed-out player has no valid score.
 
+**Status note (2026-09-03, S-218 — frontend built):** `MatchResolution.tsx`
+(design-document.md SCREEN-16) shows a `null` score as "Forfeited — no
+valid score" in prose, never as "0" — a real, if implausibly good, score
+value that would misread as an actual result rather than "no valid score
+exists." Full Vitest coverage in `MatchResolution.test.tsx`.
+
 **REQ-1409 – Match resolution: win, draw, and forfeit outcomes**
 > As a player, I want the match's winner to be decided fairly once both of
 > us have finished, timed out, or been knocked out, so the outcome always
@@ -11504,6 +11621,27 @@ forfeit carries no consequence into any other match — resolution only ever
 reads/writes the one `ConnectMatch` row being resolved. Full
 `REQ1409_...`-named coverage in `ConnectMatchLifecycleServiceTests.cs` and
 `ConnectMatchRepositoryTests.cs`. **Test level below is fully satisfied.**
+
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches/{matchId}`
+and `GET /matches` (`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now
+expose `outcome`/`myScore`/`opponentScore`, and `myTerminalState`/
+`opponentTerminalState` (`{busted, timedOut, completed}`, derived from the
+same timeout/bust/`HasClosedChain` signals this REQ's own resolution logic
+already checks — not re-derived independently). `outcome` is translated
+into the CALLER's own perspective (`Win`/`Loss`/`Draw`/`Pending`) by a new
+`ConnectMatchQueryService.TranslateOutcome` helper, so a client never needs
+to know which of `PlayerAWin`/`PlayerBWin` applies to which slot it
+occupies. See REQ-1404's own read-side addendum for why this pair of
+endpoints exists at all.
+
+**Status note (2026-09-03, S-218 — frontend built):** `MatchResolution.tsx`
+renders the already-translated `outcome` directly ("You won!" / "You
+lost." / "It's a draw.") — no client-side `PlayerAWin`/`PlayerBWin`
+inference. `ChainBuilder.tsx`'s own opponent-status text
+(`opponentTerminalState`) is plain, textual, and shows which terminal path
+applies ("busted" / "ran out of time" / "finished their chain") rather than
+a single collapsed boolean — see REQ-1406's own status note. Full Vitest
+coverage in `MatchResolution.test.tsx`/`ChainBuilder.test.tsx`.
 
 - Given both players complete a valid chain (REQ-1408) before the 6-hour
   deadline
@@ -11585,6 +11723,23 @@ the 1000-char boundary.
 other participant in the same match only; a non-participant cannot read or
 send messages; chat remains readable after the match ends.
 
+**Status note (2026-09-03, S-218 — frontend built):** `MatchChat.tsx`
+(`frontend/src/connect/`, design-document.md SCREEN-16) renders unconditionally
+inside `MatchScreen.tsx`, below every phase's own content — never gated on
+`status`, matching this REQ's own "chat remains visible/readable" clause
+for a resolved match. Polled every 15s via the same self-rescheduling
+`setTimeout` pattern `useNotificationSummary.ts` established for REQ-1411,
+since this REQ's own acceptance criteria don't require a live push update.
+Each message's sender renders `ChatMessageResponse.SenderDisplayName`
+directly (batch-resolved server-side, same pattern REQ-1401/1402 already
+established for `Core.Social`); `senderDisplayName === null` (mirrors
+`senderUserId === null`'s own REQ-710-anonymization nullability exactly)
+renders "a deleted user" — updated 2026-09-04 at merge time from the
+earlier `shortUserIdOrDeleted()`-based "Deleted account" placeholder,
+once `main`'s PR #339 deleted `shortUserId.ts` as dead code and this
+screen's own responses gained real display-name fields to match. Full
+Vitest coverage in `MatchChat.test.tsx`.
+
 **REQ-1411 – Visible notification indicator for pending invites,
 challenges, and awaiting-action matches**
 > As a player, I want a visible, persistent indicator I can see anywhere in
@@ -11614,6 +11769,19 @@ extended `ConnectMatchLifecycleServiceTests.cs`/
 same-story follow-up commit not separately doc-synced at the time — this
 note corrects that gap.
 
+**Read-side addendum (2026-09-03, S-218 prep):** `GET /matches`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`) now lists every match
+(open or resolved) the caller participates in, with an `awaitingMyAction`
+flag per match — computed by reusing this REQ's own
+`IConnectMatchLifecycleService.GetMatchesAwaitingActionAsync` membership
+test (a match is a member of the returned set) rather than re-deriving the
+per-slot terminal-state rule a second time, so the two surfaces can never
+quietly disagree about what "awaiting my move" means. This lets the
+frontend gameplay screen (S-218) show a match list beyond just the
+notification-summary counts. See REQ-1404's own read-side addendum for the
+companion `GET /matches/{matchId}` endpoint and why this pair exists at
+all.
+
 **Status note (2026-09-03, S-217 — frontend built; redesigned same day,
 direct user feedback):** `App.tsx` still computes `useNotificationSummary`'s
 three counts (`frontend/src/lib/useNotificationSummary.ts`, a 15-second
@@ -11641,6 +11809,18 @@ screen doesn't exist yet for it to link to. The "Friends" nav entry itself
 reverts to a plain "Friends" label with no count suffix, since the badge
 now carries that information. A transient poll failure never blanks the
 badge, only a real 401 escalates via `onAuthError`.
+
+**Status note (2026-09-03, S-218 — frontend built):** a new "Matches" tab
+(`MatchesTab.tsx`, `frontend/src/connect/`, design-document.md SCREEN-16)
+on `FriendsScreen.tsx` renders `GET /matches`, giving a player somewhere to
+actually act on a `matchesAwaitingActionCount > 0` badge — each row shows
+its own inline "— Your move" text (never color-only, §6) when
+`awaitingMyAction` is true, using this REQ's own membership test, never a
+re-derived one (see the read-side addendum above). `ChallengesTab`'s
+post-accept banner and `MatchmakingTab`'s opted-in status both gained a
+"View your matches" link/button pointing at this tab. Full Vitest coverage
+in `MatchesTab.test.tsx`; `FriendsScreen.test.tsx` covers the tab-switch/
+drill-down container behavior.
 
 - Given a player has at least one item in any of these three states: a
   friend request sent to them and not yet accepted/declined (REQ-1401), a

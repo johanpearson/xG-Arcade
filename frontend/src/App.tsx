@@ -68,7 +68,11 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // (REQ-1411's own notification badge lives on that entry, not this Screen
 // value itself) and, optionally, from UserStatsScreen's "Respond in
 // Friends & Challenges" link (onOpenFriends) when the viewed player already
-// sent the viewer a pending friend request.
+// sent the viewer a pending friend request. S-218 (SCREEN-16) added a
+// fourth "Matches" tab inside FriendsScreen itself (not a new top-level
+// Screen/hash route) — see FriendsScreen.tsx's own comment on why the
+// match/gameplay drill-down is component-local state, not App-level
+// navigation.
 type Screen =
   | 'game-select'
   | 'grid'
@@ -616,6 +620,7 @@ function App() {
           ) : screen === 'friends' ? (
             <FriendsScreen
               accessToken={accessToken}
+              viewerUserId={currentUser?.id}
               onAuthError={handleLogout}
               initialTab={friendsInitialTab ?? undefined}
               onSelectPlayer={(userId, displayName) => handleSelectPlayerStats(userId, displayName, 'friends')}

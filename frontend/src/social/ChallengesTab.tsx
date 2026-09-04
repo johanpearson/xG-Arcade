@@ -8,26 +8,32 @@ import { FetchListSection } from './FetchListSection';
 export interface ChallengesTabProps {
   accessToken: string;
   onAuthError: () => void;
+  // S-218 (design-document.md SCREEN-16): switches FriendsScreen to the new
+  // "Matches" tab — the actual gameplay screen this banner used to have
+  // nowhere to point to (see this file's own S-217-era comment below, now
+  // resolved).
+  onViewMatches: () => void;
 }
 
 // REQ-1402 (S-217, design-document.md SCREEN-15's "Challenges tab"): every
 // Pending challenge where the caller is the challenged party. A successful
 // accept creates a real ConnectMatch server-side (resultingMatchId on the
-// response) — this story stops at acknowledging that, never navigating
-// into any match/gameplay UI (S-218's separate, not-yet-built scope).
-export function ChallengesTab({ accessToken, onAuthError }: ChallengesTabProps) {
+// response). S-218 (SCREEN-16) closed the "never navigating into gameplay"
+// gap S-217 deliberately left open — the banner below now points at the new
+// "Matches" tab (onViewMatches) instead of only acknowledging the match
+// exists.
+export function ChallengesTab({ accessToken, onAuthError, onViewMatches }: ChallengesTabProps) {
   const fetchFn = useCallback(() => fetchPendingChallenges(accessToken), [accessToken]);
   const { data: pending, loadError, refetch } = useAuthedFetch(fetchFn, { onAuthError });
   // REQ-1402: a single, persistent-until-the-next-accept acknowledgment
   // banner, not tied to any one row (a resolved/accepted row disappears
   // from `pending` on refetch, so the row itself can't be where this
-  // lives) — see design-document.md SCREEN-15's own note for why this is
-  // deliberately just an honest acknowledgment, not a link into gameplay.
+  // lives).
   const [matchCreatedMessage, setMatchCreatedMessage] = useState<string | null>(null);
 
   async function handleAccept(id: string) {
     await acceptChallenge(accessToken, id);
-    setMatchCreatedMessage("Match started! You'll be able to play it soon.");
+    setMatchCreatedMessage('Match started!');
     await refetch();
   }
 
@@ -42,7 +48,14 @@ export function ChallengesTab({ accessToken, onAuthError }: ChallengesTabProps) 
         <h3 className="friends-screen__section-title">
           Challenges{pending && pending.length > 0 ? ` (${pending.length})` : ''}
         </h3>
-        {matchCreatedMessage && <p className="friends-screen__success">{matchCreatedMessage}</p>}
+        {matchCreatedMessage && (
+          <p className="friends-screen__success">
+            {matchCreatedMessage}{' '}
+            <button type="button" className="friends-screen__link-button" onClick={onViewMatches}>
+              View your matches
+            </button>
+          </p>
+        )}
         <FetchListSection
           data={pending}
           loadError={loadError}

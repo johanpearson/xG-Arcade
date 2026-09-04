@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.88"
+version: "0.91"
 status: draft
-last_updated: 2026-09-03
+last_updated: 2026-09-04
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -3583,7 +3583,9 @@ above) — see "Friends tab" below for the new click-through to SCREEN-13.
   SCREEN-07's 2026-09-03 badge-redesign update above, already shows the
   combined count and, per category, in its dropdown — a second, per-tab
   count on this screen itself would just restate the same information a
-  third way).
+  third way). **A fourth tab, "Matches," was added by S-218 — see
+  SCREEN-16 for its own content**, kept plain-label for the same
+  "no restated count" reasoning as the three above.
 
 - **Identity gap — resolved 2026-09-03.** REQ-1401/1402's response shapes
   (`FriendRequestResponse`/`ChallengeResponse`/`FriendshipResponse`)
@@ -3663,17 +3665,14 @@ above) — see "Friends tab" below for the new click-through to SCREEN-13.
     (`challengerDisplayName`) plus "Accept"/"Decline". Declining behaves
     exactly like declining a friend request (row disappears on refetch, no
     lingering state).
-  - **Accepting is where S-218's boundary actually shows up.** REQ-1402's
-    accept response now carries a populated `resultingMatchId` — a real
-    `ConnectMatch` was just created server-side — but this story stops
-    short of any match/gameplay UI (S-218's separate, not-yet-built
-    scope). A successful accept shows a single, persistent-until-the-next-
-    accept banner at the top of this tab, `accent-green-text` on
-    `surface-card`: **"Match started! You'll be able to play it soon."** —
-    an honest acknowledgment, not a fake "click to play" link to a screen
-    that doesn't exist yet. No `matchId` is shown or stored anywhere in
-    the UI; S-218 is responsible for however a player later reaches an
-    in-progress match.
+  - **Accepting is where S-218's boundary used to sit — now closed.**
+    REQ-1402's accept response carries a populated `resultingMatchId` — a
+    real `ConnectMatch` was just created server-side. **Updated by S-218
+    (SCREEN-16):** the acknowledgment banner now reads **"Match started!"**
+    plus an inline "View your matches" link/button that switches this
+    screen to its new "Matches" tab (SCREEN-16) — no `matchId` is threaded
+    through directly (the Matches tab does its own `GET /matches` lookup),
+    keeping this tab's own state ignorant of gameplay concerns.
   - Empty state: "No pending challenges." — a plain, calm empty state, not
     styled as an "invitation" the way the friends-list empty state above
     is (§5's "invitation" framing applies where there's a single action
@@ -3703,6 +3702,11 @@ above) — see "Friends tab" below for the new click-through to SCREEN-13.
     status line above) — a UX nicety only, not a substitute for whatever
     duplicate-opt-in handling the backend itself does; this screen has no
     visibility into that either way, per the limitation above.
+  - **Added by S-218 (SCREEN-16):** once opted in, a "View your matches"
+    link/button sits below the session-local status line, switching this
+    screen to its new "Matches" tab — pairing happens later, in a separate
+    sweep job, so this link doesn't claim a match exists yet, only that
+    it's where one will show up once matchmaking pairs the caller.
 
 - **Tokens only** — same card/tab/status shell every other screen in this
   document already uses (`--color-surface-card`, `--color-border-hairline`,
@@ -3710,6 +3714,284 @@ above) — see "Friends tab" below for the new click-through to SCREEN-13.
   for the tab underline/success text, `--color-accent-red` for inline
   errors, existing spacing scale, `--touch-target-min`) — no new color,
   typeface, or animation introduced for this screen.
+
+### SCREEN-16: xG Connect match/gameplay (REQ-1404-1411, S-218)
+
+New for this story. Closes the gap SCREEN-15 deliberately left open ("this
+story stops short of any match/gameplay UI"): target-pick selection,
+incremental chain-building, match resolution, and in-match chat, all driven
+by `GET /matches`/`GET /matches/{matchId}` (S-218's own read-side prep).
+Lives entirely inside `FriendsScreen.tsx` (SCREEN-15) as a fourth tab,
+**"Matches"** — not a new top-level header-nav entry or App-level
+Screen/hash route. A match has no standalone deep-linking requirement in
+REQ-1404-1411, so the simplest thing that works is component-local
+drill-down state (`FriendsScreen`'s own `selectedMatchId`): `null` shows the
+matches list (`MatchesTab.tsx`), a real id shows that one match's detail
+(`MatchScreen.tsx`) with a "Back to matches" control. `ChallengesTab`'s own
+post-accept banner (SCREEN-15's "Match started! You'll be able to play it
+soon.") and `MatchmakingTab`'s opted-in status both gained a "View your
+matches" inline link/button that switches to this tab — see each tab's own
+status note below for the exact wording change.
+
+**Display names — resolved 2026-09-04, at merge time.** This screen
+originally rendered the opponent/sender via `shortUserIdOrDeleted()`
+(SCREEN-15's own placeholder-label wrapper), the same known, flagged gap
+SCREEN-15 recorded for Friends/Challenges before its own 2026-09-03 fix.
+Landed in the same merge that brought that fix's `main`-side commits
+(`087b2e7`/`8a5769c`) into this branch: `ConnectMatchListItemResponse`/
+`ConnectMatchDetailResponse` gained `OpponentDisplayName`, and
+`ChatMessageResponse` gained `SenderDisplayName` — both batch-resolved
+server-side, both mirroring `OpponentUserId`/`SenderUserId`'s own
+nullability exactly (null iff the REQ-710-anonymized user's id is null,
+never a placeholder for that case). `MatchesTab.tsx`/`MatchScreen.tsx`/
+`MatchChat.tsx` now render the real name directly; `shortUserId.ts` and
+`shortUserIdOrDeleted()` were deleted as dead code in the same merge
+(`main` had already deleted the plain `shortUserId()` half once
+Friends/Challenges stopped needing it).
+
+**Deliberate exception to SCREEN-15's "tabs stay mounted" convention
+(S-218 bugfix, caught by `play-connect.spec.ts`'s first CI run).**
+SCREEN-15 documents that switching between Friends/Challenges/Matchmaking
+never unmounts the other tabs (`hidden` div, not conditional rendering),
+so each one's already-loaded data isn't refetched on every switch — safe
+for those three because nothing else on this screen changes their data
+out from under them while hidden. The **Matches** tab does not get this
+treatment: it is conditionally rendered, mounted only while it's the
+active tab, and unmounts (refetching on remount) the rest of the time.
+This is necessary because a match's data changes from an action taken
+*elsewhere on this same screen* — accepting a challenge in Challenges, or
+a matchmaking sweep pairing in Matchmaking — while `MatchesTab` may
+already be sitting mounted-but-hidden with a `GET /matches` response
+fetched once, often before any match existed yet. `MatchesTab` fetches
+via `useAuthedFetch`, which fetches only on mount and has no
+refetch-on-visibility path; kept mounted under `hidden` like the other
+three, it would never notice a match created moments earlier, so
+"View your matches" would land on stale (usually empty) data until an
+unrelated full page reload happened to remount everything. Conditional
+rendering makes it refetch every time the user switches to it, which is
+the correct behavior for this tab specifically — this is not a signal to
+revisit Friends/Challenges/Matchmaking's own mount-once convention, which
+remains correct for them.
+
+```
+┌───────────────────────────────┐
+│ Friends & Challenges              │
+├───────────────────────────────┤
+│ [Friends][Challenges][Matchmaking][Matches] │
+├───────────────────────────────┤
+│ Your xG Connect matches           │
+│ Priya Patel — Active — Your move  │
+│                          [View match] │
+└───────────────────────────────┘
+        │ (View match)
+        ▼
+┌───────────────────────────────┐
+│ ← Back to matches                 │
+│ Opponent: Priya Patel             │
+├───────────────────────────────┤
+│ Build your chain                  │
+│ Connect Messi to Ronaldo          │
+│ Deadline: 9/1/2026, 7:00:00 AM    │
+│ 1. Messi                          │
+│ 2. Suarez (Barcelona)             │
+│ 3. Ronaldo (not yet connected)    │
+│ [Candidate player…] [Claimed club…] │
+│ [Submit connector]                │
+├───────────────────────────────┤
+│ Chat                              │
+│ You: gg          3:00 PM          │
+│ [Say something…]      [Send message] │
+└───────────────────────────────┘
+```
+
+- **Matches tab (`MatchesTab.tsx`)** — every match from `GET /matches`,
+  reusing `FetchListSection`/`friends-screen__list`/`friends-screen__row`
+  verbatim (same card shell every other tab on this screen already uses,
+  since this is simply a fourth tab on it). Each row: the opponent's real
+  display name (`opponentDisplayName`, mirroring SCREEN-15's own
+  `challengerDisplayName`/`friendDisplayName` pattern — batch-resolved
+  server-side, same identity-gap fix), falling back to **"a deleted user"**
+  when `opponentDisplayName` is `null` (goes null iff `opponentUserId` is
+  null, i.e. REQ-710 anonymization has run for that user — the same
+  fallback text `SuggestionsScreen.tsx`/`AvatarModerationSection.tsx`
+  already established for `submittingUserDisplayName`, not a new
+  invention), a plain status label ("Awaiting target picks" / "Active" /
+  "Resolved"), the outcome once resolved ("(You won)" / "(You lost)" /
+  "(Draw)"), and, when `awaitingMyAction` is true, an inline "— Your move"
+  text label in `accent-green-text` — text, not color-only, per §6. Empty
+  state (§5, "invitations"): "You don't have any xG Connect matches yet.
+  Challenge a friend or opt into matchmaking to start one." — pointing at
+  the two tabs that actually create a match.
+
+- **Target-pick phase (`TargetPickPanel.tsx`, REQ-1404).** While `status`
+  is `AwaitingTargetPicks`: a player-search form (`PlayerSearchField.tsx`,
+  see below) submitting to `POST /matches/{matchId}/target-pick`. Freely
+  resubmittable for as long as `myTargetPick` isn't locked — the form stays
+  visible (pre-filled with "Current pick: {name} — you can change it until
+  your opponent also picks") rather than becoming a one-shot, once-only
+  action. Once locked: the form disappears, replaced by "Your target: {name}"
+  plus "Waiting for your opponent to lock in their target pick…" — no
+  `opponentTargetPick` is ever rendered here (it's `null` on the wire until
+  the match leaves this status, REQ-1404's mutual-invisibility rule). A 409
+  "Target picks are already connected" (the trivially-connected rejection)
+  shows the server's own detail text inline in `accent-red`, clears the
+  field, and leaves the form open for a different pick — nothing was
+  persisted for the rejected attempt, so no refetch is needed to "undo"
+  anything. A 503 "Live verification unavailable" shows the server's own
+  retry wording, keeping the current selection in place so a plain re-click
+  of "Set target pick" retries without re-searching.
+
+- **Active/chain-building phase (`ChainBuilder.tsx`, REQ-1406/1407).** Once
+  both picks are locked: both target names ("Connect {mine} to {theirs}"),
+  a static deadline line (`new Date(deadlineUtc).toLocaleString()`,
+  `mono-figure` — see "Known limitations" below for why this is static, not
+  a live countdown), the caller's own chain so far
+  (`ChainStepsList.tsx`, shared with `MatchResolution.tsx` below — renders
+  only the *valid* steps in position order, between the two target names;
+  the closing step is marked "— connects to your target"), the opponent's
+  terminal state as plain text ("Your opponent is still playing." / "...
+  busted..." / "...ran out of time." / "...has finished their chain.") —
+  never their actual chain content, per REQ-1406's own "opponent chain
+  stays private" rule — and, while the caller isn't yet terminal, a
+  candidate-name (`PlayerSearchField.tsx`) + claimed-club (plain text)
+  submission form. Per-submission feedback (REQ-1406/1407, always a normal
+  200, never styled as an error): "Connector accepted." / "Connected! Your
+  chain is complete." (`accent-green-text`) for a valid step; "{name}
+  didn't have an overlapping career spell at {club} with the previous
+  player. You have one more attempt at this position." for an ordinary
+  first-attempt failure (form stays open); "Busted — that was a second
+  failed attempt at this position. Your participation in this match has
+  ended." for REQ-1407's two-strikes bust (form disappears, replaced by the
+  same terminal-state text used for a completed/timed-out chain); "No
+  player found matching "{name}". Check the spelling and try again." for
+  REQ-1406's `CandidateNotFound` case — a distinct message from an ordinary
+  wrong-claim failure, and one that doesn't count as an attempt. All four
+  are `role="status"`/`role="alert"` text, never color-only.
+
+- **Resolved phase (`MatchResolution.tsx`, REQ-1408/1409).** Heading from
+  the caller's own already-translated `outcome` ("You won!" / "You lost." /
+  "It's a draw."), both scores in a plain `<dl>` (`mono-figure` for the
+  numeric value) — a `null` score renders as "Forfeited — no valid score"
+  in prose, **never as "0"**, since a forfeited player has no valid score at
+  all and 0 would misread as an actual (if implausibly good) result — and,
+  for context, the caller's own full completed chain via the same
+  `ChainStepsList.tsx` used by the Active phase above. The opponent's own
+  chain is never shown, even here (nothing in `ConnectMatchDetail` ever
+  carries it). **Added 2026-09-04 (bugfix, see addendum below):** a
+  `connect-match__success`/`role="status"` line, "Connected! Your chain is
+  complete.", shown whenever `myTerminalState.completed` is true — never
+  for a bust/timeout forfeit, which the outcome heading and "Forfeited"
+  score text already cover.
+
+- **Bugfix addendum (2026-09-04) — real product bug, the fourth genuine
+  bug this story's own `play-connect.spec.ts` has caught, not a test-only
+  flake: worth being plain about, since it's the concrete case for why the
+  E2E investment here paid for itself.** The Active phase's per-submission
+  "Connected! Your chain is complete." feedback (above) used to live only
+  in `ChainBuilder.tsx`'s own local `feedback` state, set inside its submit
+  handler with no dependency on the follow-up refetch. That is fragile in
+  exactly one real scenario: when a player's own closing chain-step is
+  ALSO the submission that completes match resolution (their opponent had
+  already reached a terminal state first). `ConnectChainStepService
+  .SubmitChainStepAsync` resolves the match server-side INLINE in that same
+  request, so the very next refetch comes back `status: 'Resolved'` and
+  `MatchScreen.tsx` immediately swaps `ChainBuilder` out for
+  `MatchResolution` — destroying the local `feedback` state, sometimes
+  before it was ever painted. A real player closing the match-completing
+  connector could see the confirmation flash for zero perceptible time, or
+  not at all, before being yanked straight to the resolution screen.
+  **Fixed** on both sides of that swap: `ChainBuilder.tsx` now derives the
+  acknowledgment from `myTerminalState.completed` — a prop, refreshed by
+  the same refetch, durable across any concurrent re-render as long as the
+  component stays mounted — rather than the one-shot local flag, covering
+  the case where the player's own completion doesn't itself resolve the
+  match (their opponent isn't terminal yet). `MatchResolution.tsx` (see
+  above) now shows the identical acknowledgment itself, sourced from the
+  same field in the resolved-match payload, for the case where it does —
+  folding "you completed your chain" into the screen the player actually
+  lands on is the correct UX here (one screen: "you finished, and here's
+  the result"), not a flashed intermediate message immediately swapped
+  away. Shown whenever the viewer's chain is genuinely complete, not only
+  for this specific race, since the statement is equally true for a player
+  who completed earlier and is only now seeing the resolution after their
+  opponent finished. See `docs/backlog.md`'s S-218 entry for the full CI
+  trail and test coverage added.
+
+- **In-match chat (`MatchChat.tsx`, REQ-1410).** Rendered unconditionally by
+  `MatchScreen.tsx` below every phase's own content — never gated on
+  `status`, matching REQ-1410's own "chat remains visible/readable" clause
+  for an ended match. A plain message list (sender label — "You" for the
+  viewer's own messages via a new `viewerUserId` prop threaded down from
+  `App.tsx`'s `currentUser.id`, the sender's real display name
+  (`senderDisplayName`) otherwise, falling back to "a deleted user" when
+  `null` (same REQ-710-anonymization convention as the Matches tab's
+  `opponentDisplayName` above) — message text, and a `mono-figure`
+  timestamp) plus a `<textarea>` + "Send message"
+  button, with a live `{length}/1000` counter (a client-side hint only; the
+  server does the real trim/1000-char enforcement, REQ-1410's own status
+  note). Polled every 15s via the same self-rescheduling `setTimeout`
+  pattern `useNotificationSummary.ts` already established — REQ-1410's own
+  acceptance criteria explicitly says this "does not require a live push
+  update."
+
+- **Shared player search (`PlayerSearchField.tsx`).** The debounced
+  (150ms)/2-character-minimum/keyboard-navigable suggestion list REQ-1406's
+  own "search-pattern precedent" note points at (`GuessInput.tsx`/
+  `PathGuessInput.tsx`), built once and shared between `TargetPickPanel`
+  and `ChainBuilder` rather than duplicated a third time — those two
+  components live in this same new `connect/` feature area, unlike
+  `GuessInput`/`PathGuessInput`'s own two different feature areas (xG
+  Grid/xG Path), which is why *those* two stayed duplicated rather than
+  extracted (this document's own "extract past three, not before" — see
+  `FetchListSection.tsx`'s comment — plus "two different feature areas each
+  keep their own copy" both apply; here neither exception holds, so it's
+  shared from the start). Selecting a suggestion only fills the field
+  (`TargetPickPanel` additionally captures the `playerId` it needs for its
+  own Guid-based endpoint) — seeing a name in the list is never itself
+  confirmation a step or pick will validate (ADR-0007's autocomplete/
+  correctness separation, restated by REQ-1406 for this game specifically).
+
+- **Known limitations, flagged rather than hidden:**
+  - **No live countdown timer.** `deadlineUtc` is shown as a single static,
+    formatted timestamp (`toLocaleString()`), the same treatment
+    `MatchmakingTab.tsx`'s own `expiresAt` already gets — not a ticking
+    countdown. A match's 6-hour window is long enough that a static
+    deadline is a reasonable default; a live countdown is a real, deferred
+    enhancement, not an oversight.
+  - **No live push/opponent-progress indicator beyond a 15s poll.**
+    `MatchScreen.tsx` polls `GET /matches/{matchId}` every 15s (same
+    interval/self-rescheduling shape as chat) while `status !== 'Resolved'`,
+    so a player only learns "opponent locked their target" or "opponent
+    busted" up to 15s late, never instantly. Judgment call, not specified
+    by any REQ-1404-1411 acceptance criterion — mirrors the cadence already
+    established for chat/notifications rather than inventing a different
+    one, and errs toward "eventually correct" over building a live-push
+    mechanism this MVP doesn't otherwise have anywhere.
+  - **No invalid-attempt history in the chain view.** `ChainStepsList.tsx`
+    renders only the *valid* steps that make up the actual chain — a failed
+    first attempt (REQ-1407) is visible only as that submission's own
+    transient inline feedback, not as a permanent row in the list. A
+    "show my failed attempts too" view is a reasonable follow-up, not built
+    here to keep this component's one job (showing the chain) singular.
+  - **Deep-linking a specific match isn't supported.** Reaching a match
+    detail always goes through the Matches tab's own list first (component
+    state, not a URL) — see this section's own opening paragraph for why
+    that was judged sufficient for this story rather than adding a fifth
+    App-level Screen/hash route.
+
+- **Tokens only** — same card/tab/status shell as SCREEN-15
+  (`--color-surface-card`, `--color-border-hairline`, `--color-text-muted`,
+  `--color-accent-green-text` for buttons/success text, `--color-accent-red`
+  for inline errors, `mono-figure` for the deadline/scores/chat timestamps,
+  existing spacing scale, `--touch-target-min`) — no new color, typeface, or
+  animation introduced for this screen. Deliberately does **not** reuse
+  SCREEN-02's/SCREEN-10's rejected-guess shake-and-flash cue for an invalid
+  chain-step submission — text-only feedback instead (see "Active/
+  chain-building phase" above) — since CLAUDE.md's own rule against adding
+  a second bold motion moment without it being specified here first argued
+  for the more conservative choice; a future pass could deliberately extend
+  that existing cue here if wanted, but this story didn't treat that as a
+  given.
 
 ## 4. Responsive strategy
 

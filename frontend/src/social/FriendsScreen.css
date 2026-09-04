@@ -103,6 +103,28 @@
   margin: 0;
 }
 
+/* S-218 (SCREEN-16): an inline text-link-styled button — the "View your
+   matches" entry point from ChallengesTab's acknowledgment banner and
+   MatchmakingTab's opted-in status, both pointing at this same screen's new
+   "Matches" tab. Still a real <button>, min-height'd like every other
+   control on this screen, just visually a link rather than a filled pill —
+   it sits inline inside a sentence, where a filled button would look out
+   of place. */
+.friends-screen__link-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent-green-text);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .friends-screen__list {
   list-style: none;
   margin: 0;

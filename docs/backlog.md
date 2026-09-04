@@ -10823,3 +10823,389 @@ in-match chat UI.
 (challenge → both picks → chain to completion → resolution); manual
 browser check.
 *Deps:* S-214, S-215, S-217.
+
+**Backend read-side prep (2026-09-03):** while preparing this story's
+handoff, found every existing xG Connect endpoint (`ConnectMatchEndpoints`/
+`ConnectChainStepEndpoints`/`ConnectChatEndpoints`) was write-only — there
+was no way for this screen to read a match's current state, or even
+discover which `matchId`s belong to the caller. Closed that gap first, as
+a natural read-side extension of already-built REQ-1404/1405/1406/1409/
+1411 behavior (no new REQ/ADR): `GET /matches` and `GET /matches/{matchId}`
+(`XGArcade.Api.Connect.ConnectMatchQueryEndpoints`, backed by a new
+`IConnectMatchQueryService`/`ConnectMatchQueryService` in
+`XGArcade.Games.XGConnect`). See each of those REQs' own "Read-side
+addendum" status notes in `requirements-document.md` §4.15 for the exact
+shapes.
+
+**Built as (2026-09-03):** new `docs/design-document.md` SCREEN-16 "xG
+Connect match/gameplay" — a fourth "Matches" tab on `FriendsScreen.tsx`
+(SCREEN-15), not a new top-level header-nav entry or App-level Screen/hash
+route (a match has no deep-linking requirement in REQ-1404-1411, so the
+drill-down between the matches list and one match's detail is
+component-local state). New `frontend/src/connect/`: `MatchesTab.tsx`
+(list, from `GET /matches`), `MatchScreen.tsx` (single-match container,
+polling `GET /matches/{matchId}` every 15s while unresolved, driving
+whichever sub-screen matches `status`), `TargetPickPanel.tsx` (REQ-1404,
+including the trivially-connected-rejection retry flow), `ChainBuilder.tsx`
+(REQ-1406/1407, incremental submission with live feedback and the
+two-strikes/bust terminal state), `ChainStepsList.tsx` (shared chain render,
+used by `ChainBuilder` and `MatchResolution.tsx`), `MatchResolution.tsx`
+(REQ-1408/1409), `MatchChat.tsx` (REQ-1410, 15s-polled, gated on nothing),
+and `PlayerSearchField.tsx` (the shared debounced autocomplete input behind
+both the target-pick and chain-step candidate searches, REQ-1406's own
+search-pattern precedent — built shared from the start since, unlike
+`GuessInput.tsx`/`PathGuessInput.tsx`, both call sites live in this same
+new feature area). New `frontend/src/lib/connectMatches.ts` (typed fetch
+wrappers for all six xG Connect endpoints) and six new response types in
+`frontend/src/lib/types.ts`. `shortUserId.ts` gained
+`shortUserIdOrDeleted()`, a nullable-safe wrapper — this screen's
+`opponentUserId`/`senderUserId` fields go null post-REQ-710 anonymization,
+unlike SCREEN-15's own response shapes. `ChallengesTab`'s post-accept
+banner and `MatchmakingTab`'s opted-in status both gained a "View your
+matches" link switching to the new tab, closing the gap S-217's own entry
+explicitly left open. See each affected REQ's own "Status note (S-218 —
+frontend built)" in `requirements-document.md` §4.15 for exact behavior,
+and SCREEN-16 itself for the three deliberately-flagged limitations (no
+live countdown timer, a 15s-polled rather than live-pushed match/opponent
+state, no invalid-attempt history in the chain view — only the current
+valid chain). Vitest: 42 new tests across the eight new `connect/`
+components plus updates to `FriendsScreen.test.tsx`/`ChallengesTab.test.tsx`/
+`MatchmakingTab.test.tsx` for the new tab/links — full suite (868 tests)
+green, `tsc -b` clean, `oxlint` clean (pre-existing, unrelated warnings
+only). Manual browser check (2026-09-03): real Chromium (not jsdom) against
+the Vite dev server with mocked API responses (no local backend available
+in this sandbox — see this doc's own dotnet/Docker-unavailability
+precedent), driving the full golden path — matches list → target-pick
+search/submit → simulated match-start → chain-step submission → chat send
+→ (separately) challenge-accept banner → "View your matches" link →
+resolved-match summary with a completed chain — all rendered correctly
+against the token system, screenshots reviewed. **Playwright E2E against a
+real backend is explicitly NOT included in this pass** — `test-writer` owns
+that per this story's own handoff instructions; the UI was built with
+stable, role/label-queryable controls for that purpose (see each
+component's own accessible labels: "Target player name," "Candidate player
+name," "Claimed shared club," "Chat message," "View match," "Set target
+pick," "Submit connector," "Send message").
+
+**E2E coverage landed (2026-09-03, `test-writer`):**
+`frontend/tests/e2e/play-connect.spec.ts` — one continuous playthrough
+(REQ-1402/1404/1405/1406/1408/1409/1410) covering exactly this story's own
+accept criterion: challenge send/accept -> both target picks -> chain to
+completion (both players) -> resolution, plus bonus in-match chat coverage
+given the same fixture. This is the first spec in this repo needing TWO
+independent, simultaneously authenticated Playwright sessions
+(`browser.newContext()` per player) rather than one — every other spec in
+this directory drives a single-player round. Friending (REQ-1401) is seeded
+directly via the real API (already has its own full FriendServiceTests.cs/
+FriendEndpointTests.cs coverage) rather than driven through the UI's
+stats-page-only entry point, which would need an unrelated round/leaderboard
+detour first; challenge send/accept and everything gameplay-related is
+driven through the real UI. A new environment-gated test-data endpoint,
+`POST /internal/test-data/seed-connect-players`
+(`XGArcade.Api.Connect.InternalConnectTestDataEndpoints`, same
+non-Production-only pattern as `InternalRoundEndpoints`'s three
+seed-guessable-*-round endpoints), seeds two `PlayerCareerStint`-backed
+target players that are NOT trivially connected plus one connector that
+closes either target's one-step chain — deterministic and hermetic, no live
+Wikidata reachability needed.
+
+**Real bug found and flagged, not silently fixed here:** `TargetPickPanel.tsx`
+submits `/players/autocomplete`'s (COMP-10, `PlayerNameIndex`) own
+suggestion `playerId` as `POST /matches/{matchId}/target-pick`'s
+`targetPlayerId`, but `ConnectTargetPickService`/`PlayerCareerOverlapService`
+resolve that id against `PlayerCareerStint`/`Player` (COMP-06) — a different,
+unreconciled id space per `PlayerNameIndex.PlayerId`'s own doc comment
+(ADR-0007). For real, Wikidata-imported players these ids will practically
+always differ, so a target pick selected via the real autocomplete UI does
+not reliably resolve to the intended player's own career data today. The new
+seed endpoint works around this (for its own test-only players only) by
+seeding a `PlayerNameIndex` row with `PlayerId` deliberately set equal to the
+real `Player.Id`, documented prominently in that endpoint's own top-of-file
+comment as a workaround, not a fix. **Needs a real follow-up story** —
+likely resolving the target pick by name server-side, mirroring
+`ConnectChainStepService.SubmitChainStepAsync`'s own
+`IPlayerRepository.GetPlayersByNormalizedFullNameAsync` pattern, rather than
+trusting a client-supplied id from a different component's id space.
+API-level coverage for the new seed endpoint itself lives in
+`InternalConnectTestDataEndpointTests.cs` (`XGArcade.Api.Tests`). Not run
+locally against a live backend — this sandbox has neither a `dotnet` SDK nor
+a reachable Docker daemon (`docker info` fails: no daemon socket) — `tsc -b`
+and `oxlint` are clean and the full Vitest suite (868 tests) still passes;
+a `ci.yml` `workflow_dispatch` run is needed to verify the Playwright spec
+and the two new backend tests for real.
+
+**Backend half of that bug fixed (2026-09-03, `backend-implementer`):**
+`POST /matches/{matchId}/target-pick` now takes `{ targetPlayerName: string }`
+instead of `{ targetPlayerId: Guid }`, resolved server-side inside
+`ConnectTargetPickService.SubmitTargetPickAsync` via
+`IPlayerRepository.GetPlayersByNormalizedFullNameAsync` — the exact
+follow-up this section flagged, mirroring `ConnectChainStepService`'s own
+`candidatePlayerName` resolution (lowest-`Id`-wins on a same-name
+collision, same deliberate simplification). New
+`SubmitTargetPickOutcome.TargetPlayerNotFound` maps to a 404 problem-details
+response. See REQ-1404's own "Bug fix" status note in
+`requirements-document.md` for the full detail.
+`ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs` updated to
+seed real `Player` rows and submit names, plus new tests for
+`TargetPlayerNotFound` and the collision case.
+`InternalConnectTestDataEndpoints.cs`'s own seed endpoint is UNCHANGED for
+now — it still seeds the `PlayerNameIndex`-alignment workaround, because
+**the frontend half is still outstanding**: `TargetPickPanel.tsx`/
+`frontend/src/lib/connectMatches.ts` still submit the autocomplete
+suggestion's `playerId`, which no longer matches this endpoint's new
+request shape at all (it will fail every real submission until updated) —
+that frontend update is the very next task. No `dotnet` SDK in this
+sandbox; hand-traced against the existing service/endpoint tests' own
+assertions rather than run — a `ci.yml` `workflow_dispatch` run is needed
+to confirm.
+
+**Frontend half fixed (2026-09-03, `ui-implementer`):** `TargetPickPanel.tsx`
+now submits the selected autocomplete suggestion's `name`, not its
+`playerId` — same precedent `ChainBuilder.tsx`'s candidate search already
+used, which never had this bug. `submitConnectTargetPick`
+(`frontend/src/lib/connectMatches.ts`) takes `targetPlayerName` and sends
+`{ targetPlayerName }`; no dedicated frontend request type existed to
+rename (the body was always constructed inline). The panel's new 404
+"Target player not found" case is handled inline exactly like the existing
+409 trivially-connected rejection: shows the server's own detail text,
+clears the field, does not call `onSubmitted`. No control names changed
+("Target player name," "Set target pick") so `test-writer`'s
+`play-connect.spec.ts` selectors are unaffected. `TargetPickPanel.test.tsx`
+updated (new request-shape assertion plus a new not-found test case). Full
+suite green: `tsc -b` clean, `oxlint` clean (same pre-existing unrelated
+warnings only), Vitest 67 files / 869 tests passed.
+
+**Re-verified post-fix (2026-09-03, `test-writer`):** confirmed
+`play-connect.spec.ts`'s target-pick step (type into the search field,
+click the matching `role="option"`, click "Set target pick") needed zero
+interaction changes — the fix is internal to what gets submitted (name,
+not id), not how the control is driven, and `PlayerSearchField.tsx`'s
+control roles/labels are unchanged. Only comments needed updating: this
+section's own earlier "workaround, not a fix" language, and matching
+language in `play-connect.spec.ts` and
+`InternalConnectTestDataEndpoints.cs`'s top-of-file/inline comments, no
+longer described a live bug now that both halves are fixed. Updated all
+three to say plainly that `PlayerNameIndex` seeding there is still needed
+(so `/players/autocomplete` has a suggestion for the UI's
+required-selection step to work through) but the `PlayerId` value on those
+rows is no longer load-bearing, since resolution is now by name. Did not
+touch `ConnectTargetPickServiceTests.cs`/`ConnectMatchEndpointTests.cs`/
+`TargetPickPanel.test.tsx` — those already cover the new contract per the
+two entries directly above. No `dotnet` SDK or reachable Docker daemon in
+this sandbox (same precedent as above): `tsc -b` clean, `oxlint` clean, the
+two touched Vitest files (`TargetPickPanel.test.tsx`, 7/7) pass, and
+`npx playwright test play-connect.spec.ts --list` parses/type-checks the
+spec correctly — the spec itself was not executed against a real backend.
+
+**Real bug caught by the E2E spec's first CI run (2026-09-03,
+`ui-implementer`):** `play-connect.spec.ts`'s first actual run against a
+real backend failed at `getByText('Awaiting target picks')` right after
+User B accepts a challenge and clicks "View your matches" — the match
+User B just got paired into wasn't in the list. Root cause:
+`FriendsScreen.tsx` mounted all four tab panels at once, toggling
+visibility with `hidden={activeTab !== value}`, so none of them unmount
+when their tab isn't active — a deliberate, correct convention for
+Friends/Challenges/Matchmaking (their data doesn't change out from under
+them while hidden), but wrong for `MatchesTab`, which uses
+`useAuthedFetch` (fetch-on-mount only, no refetch-on-visibility). Since
+`MatchesTab` mounts the instant `FriendsScreen` first mounts — typically
+before any match exists — its `GET /matches` response was captured once,
+empty, and never refreshed; the later "View your matches" click (just
+`setActiveTab('matches')`) landed on that same stale, already-mounted
+component. **Fixed** by making the Matches tab's content
+(`selectedMatchId ? <MatchScreen> : <MatchesTab>`) truly conditionally
+rendered — mounted only while `activeTab === 'matches'` — instead of kept
+alive under a `hidden` div, so it remounts and refetches every time the
+user switches to it. `handleViewMatches` needed no change: its
+`setSelectedMatchId(null); setActiveTab('matches');` batch into one
+render, and on that render `MatchesTab` mounts fresh and fetches, exactly
+as needed. Friends/Challenges/Matchmaking's own mount-once/`hidden`
+behavior is untouched — this is a deliberate exception for Matches only,
+documented in `design-document.md` SCREEN-16 (version 0.89). New
+regression test in `FriendsScreen.test.tsx` returns a different match
+list on the second `GET /matches` call and asserts the second render
+actually reflects it after switching away and back — the exact case that
+slipped through the first time, since the earlier "Matches tab" test only
+re-verified first-mount behavior. Full suite green: `tsc -b` clean,
+`oxlint` clean (same pre-existing unrelated warnings only), Vitest 67
+files / 870 tests passed (one new regression test added to
+`FriendsScreen.test.tsx`, bringing it from 4 to 5).
+
+**Real bug caught by the E2E spec's second CI run (2026-09-03,
+`test-writer`) — this one is in the spec, not the product:** CI run #2
+(after the Matches-tab staleness fix above) failed at
+`submitTargetPick`'s own internal `expect(page.getByText('Your target:
+${name}')).toBeVisible()` assertion. Diagnosis: that text only exists in
+`TargetPickPanel.tsx`'s `myTargetPick?.locked` branch, but
+`ConnectTargetPickService.SubmitTargetPickAsync` only flips `locked` true
+on BOTH rows atomically, together, on the SECOND (completing) submission —
+never individually for the first submitter. So neither player's browser
+ever actually renders that branch: the first submitter (User A) stays on
+the still-unlocked form (`myTargetPick` set but not locked), which shows
+"Current pick: `<name>` — you can change it until your opponent also
+picks." instead; the second/completing submitter (User B) has their match
+flip to `Active` in the very same request, so their own post-submit
+refetch already swaps `MatchScreen.tsx` over to `ChainBuilder` before
+`TargetPickPanel` would ever re-render into its locked state. The
+`locked` branch's "Your target: ..."/"Waiting for your opponent to lock in
+their target pick…" text is therefore unreachable in the browser for
+either player today — arguably dead code in `TargetPickPanel.tsx`, but
+harmless/unreachable rather than incorrect, and left alone here (a
+`quality-architect`/`ui-implementer` call, not this spec's). **Fixed**:
+removed the shared `submitTargetPick` helper's internal post-submit
+assertion entirely (it can't be correct for both call sites, since the two
+players' post-submit UI genuinely differs) and asserts what each player's
+screen actually shows at its own call site instead — User A now checks for
+`` `Current pick: ${name}` `` (confirmed via `TargetPickPanel.tsx` that
+Playwright's `getByText` concatenates a matched element's own text nodes,
+including ones split across an inline `<strong>`, so a plain substring
+across that boundary matches correctly with no regex needed) plus the
+"you can change it until your opponent also picks." text; User B's
+existing "Build your chain" assertion (already correct) was left
+unchanged. Re-checked every other text assertion in the spec
+(`MatchesTab.tsx`/`MatchResolution.tsx`/`ChainBuilder.tsx`/
+`MatchChat.tsx`) directly against each component's own source rather than
+by inference — no other assertion rides on the same
+locked-branch-is-unreachable misunderstanding. No `dotnet` SDK or
+reachable Docker daemon in this sandbox: `npx playwright test --list` and
+`tsc --noEmit` both clean; the spec was not executed against a real
+backend — a `ci.yml` `workflow_dispatch` run is needed to confirm this
+run #2 failure is actually resolved.
+
+**Third spec-only bug, CI run #3 (2026-09-03, `test-writer`) — same
+category, not the product:** run #3 got through the entire happy path
+(challenge, both target picks, full chain to completion on both sides,
+draw resolution, both scores, both chat sends) and failed only on its own
+last assertion, `pageA.getByText(shortUserId(userIdB))`, with a Playwright
+strict-mode violation (2 elements), not a timeout. Cause: by that point A
+and B are already friends (seeded up top), and `FriendsTab.tsx` renders a
+"My friends" row for B using the exact same `shortUserId()` label, inside
+`FriendsScreen.tsx`'s deliberate mount-once/`hidden` wrapper for the
+Friends/Challenges/Matchmaking tabs (the convention the Matches tab was
+made an exception to in the fix two entries above — Friends/Challenges/
+Matchmaking are supposed to stay this way). `getByText` matches hidden
+elements too, so the bare, page-wide locator matched both that row and the
+intended `<span class="connect-match__chat-sender">` in `MatchChat.tsx`.
+**Fixed** by scoping both of this assertion's locators (User A checking
+for B's id, User B checking for A's id) to `.connect-match__chat-sender`
+specifically — the element the assertion's own comment already said it
+was trying to check — rather than a bare page-wide `getByText`; each side
+has exactly one chat message from the other player in this flow, so the
+scoped locator resolves to exactly one element. Also re-checked, against
+component source rather than by inference, the two other `getByText`
+calls that read a `shortUserId()`-derived string while a
+mounted-but-hidden tab was active (`'Challenge sent.'` at the
+challenge-send step, and `` `${shortUserId(userIdA)} challenged you}` ``
+at the challenge-accept step) — neither collides: both strings are unique
+to a single leaf element (`FriendsTab.tsx`'s success span and
+`ChallengesTab.tsx`'s row-name span respectively) not reproduced anywhere
+else mounted at that point, so no change was needed there. `npx
+playwright test --list` and `tsc --noEmit` clean; not run against a real
+backend in this sandbox — a `ci.yml` `workflow_dispatch` run is needed to
+confirm.
+
+**Quality-gate follow-up (2026-09-03, `quality-architect`) — same-story
+refactor, no behavior change:** the pre-merge review of this story's own
+diff found `MatchChat.tsx` and `MatchScreen.tsx` had each grown a
+byte-for-byte-identical self-rescheduling `setTimeout` poll effect
+(cancelled flag, `timeoutId`, a `scheduleNext` closure re-arming itself
+after each `await refetch()`, cleanup clearing the pending timeout) —
+the second copy of that exact shape to land in this diff, tripping
+`coding-guidelines.md`'s Code Health Budget rule-of-three trigger (ADR-0084),
+the same convention S-217's own `useSubmitAction`/`FetchListSection`
+extractions already established for this kind of same-story follow-up.
+Extracted a new `usePolling(refetch, intervalMs, { enabled? })` hook into
+`frontend/src/lib/usePolling.ts`, alongside `useAuthedFetch.ts`/
+`useSubmitAction.ts`; both components now call it in place of their own
+hand-rolled effect. `MatchScreen.tsx`'s own "stop polling once
+`status === 'Resolved'`" rule now goes through the hook's `enabled` option
+rather than an early-return inside the effect body. Deliberately did NOT
+touch `useNotificationSummary.ts`/`AllTimeLeaderboard.tsx`'s own inline
+poll variant (they own their fetch/state directly rather than delegating
+to a caller-supplied `refetch` — a big enough shape difference that
+folding all four into one hook is `code-health-auditor`'s call for a future
+whole-tree sweep, not this diff's). Pure refactor, no new ADR (same
+reasoning every prior rule-of-three extraction in this codebase has used):
+behavior is unchanged for both call sites — confirmed by leaving
+`MatchChat.test.tsx`/`MatchScreen.test.tsx` untouched and green as-is. New
+`usePolling.test.ts` (6 tests, fake timers, mirroring
+`useSubmitAction.test.ts`'s isolated-hook-coverage style) covers: no
+immediate call, repeated rescheduling, `enabled: false` never polling,
+`enabled` flipping false→true and true→false mid-cycle, cleanup on
+unmount, and no overlapping in-flight `refetch` calls. Full suite green:
+`tsc -b` clean, `oxlint` clean (same pre-existing unrelated warnings only),
+Vitest 68 files / 876 tests passed (870 → 876: the 6 new `usePolling.test.ts`
+cases, `MatchChat.test.tsx`/`MatchScreen.test.tsx` unchanged at 7/6). Also
+closed a small, unrelated doc-drift item found in the same pass while
+editing `MatchScreen.tsx`'s own top-of-file comment: it referenced a
+"Known limitation" note that (unlike `ChainBuilder.tsx`'s own, real one)
+was never actually added to this file — replaced with an accurate
+description of why this is a plain poll, not a live countdown.
+
+**Fourth real bug caught by the E2E spec (2026-09-04, `ui-implementer`) —
+worth being plain about, since this is the fourth genuine bug this one
+story's own E2E spec has found (a stale-tab bug, two spec-only bugs, and
+now a real product bug), each caught before it reached `main`:**
+`submitClosingChainStep`'s `"Connected! Your chain is complete."`
+assertion had failed across multiple CI runs. Diagnostic logging added in
+the prior pass (capturing the chain-step POST's own response body on
+failure) caught a real instance for User B: the POST came back a clean
+`200 {"isValid":true,"chainComplete":true,...}`, yet the UI never showed
+the confirmation. **Confirmed root cause**: `ChainBuilder.tsx`'s
+`handleSubmit` set the "Connected!" text as one-shot local `feedback`
+state, then called `onChanged()` (the parent's refetch) with no
+dependency between the two. When the CLOSING submission is also the one
+that completes match resolution — the opponent had already reached their
+own terminal state first — `ConnectChainStepService.SubmitChainStepAsync`
+resolves the match server-side INLINE in that same request, so the very
+next refetch comes back `status: 'Resolved'` and `MatchScreen.tsx`
+immediately swaps `<ChainBuilder>` out for `<MatchResolution>` —
+destroying the local `feedback` state, sometimes before it was ever
+painted. Real product bug, not a test artifact: a real player closing the
+match-winning connector could see the same zero-perceptible-time flash (or
+nothing) before being yanked straight to the resolution screen. (A second,
+related symptom — four prior CI failures on this same assertion for User
+A's own closing submission, whose completion does NOT resolve the match —
+was investigated but not conclusively tied to the same cause; A's
+`ChainBuilder` never unmounts as a direct result of A's own submission, so
+a plain re-render can't explain a lost local-state flag the way B's
+unmount does. Most likely explanation remains the CI resource-contention
+timing margin already flagged and widened to a 20s explicit timeout in the
+prior pass, not a second distinct logic bug — but the fix below removes
+any dependency on that ephemeral local state for A's case too, so it's no
+longer a live risk either way.)
+
+**Fixed**, on both sides of the swap described above:
+- `ChainBuilder.tsx` now derives the completion acknowledgment from
+  `myTerminalState.completed` (a prop, refreshed by the very same refetch)
+  rather than the one-shot `feedback` flag — durable across any concurrent
+  re-render as long as the component stays mounted, covering the
+  non-resolving case (this spec's User A).
+- `MatchResolution.tsx` now shows the identical acknowledgment itself,
+  derived from the same field in the resolved-match payload, for the
+  resolving case (User B) — folding "you completed your chain" into the
+  screen the player actually lands on, rather than trying to flash a
+  message for one frame before an immediate unmount. Shown whenever the
+  viewer's own chain is genuinely complete (never for a bust/timeout
+  forfeit), not gated to only the race case, since the statement is
+  equally true for a player who completed earlier and is only now seeing
+  the resolution.
+
+See `docs/design-document.md` SCREEN-16's own addendum for the exact
+before/after. `play-connect.spec.ts`'s own `submitClosingChainStep` needed
+no assertion change — the text still appears in both cases, just from a
+different component for the resolving case — only its stale "set from
+local React state the instant the POST response arrives" comment was
+corrected to describe the real, now-fixed mechanism. New/updated Vitest
+coverage: `ChainBuilder.test.tsx`'s former "closing step" test now
+simulates the real two-step lifecycle (submit, then a parent re-render
+with refreshed `myTerminalState`/`myChainSteps` props, matching what
+`MatchScreen.tsx` really does after `onChanged()` resolves) and asserts
+the acknowledgment appears only once those props land, not from any
+ephemeral flag; `MatchResolution.test.tsx` gained two new cases (shows the
+acknowledgment when `myTerminalState.completed`, does not show it for a
+forfeiting player). Full suite green: `tsc -b` clean, `oxlint` clean (same
+pre-existing unrelated warnings only), Vitest 68 files / 887 tests passed.
+No `dotnet`/Docker in this sandbox — a `ci.yml` `workflow_dispatch` run is
+needed to confirm the real E2E spec passes end to end against a live
+backend.

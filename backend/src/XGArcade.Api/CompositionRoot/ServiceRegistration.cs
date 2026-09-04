@@ -291,6 +291,13 @@ public static class ServiceRegistration
         // ConnectChainStepService above (bust/chain-completion resolution),
         // and InternalConnectForfeitSweepEndpoints (the periodic sweep) below.
         builder.Services.AddScoped<IConnectMatchLifecycleService, ConnectMatchLifecycleService>();
+        // S-218 prep (REQ-1404/1405/1406/1409/1411): the read-only
+        // projection layer backing GET /matches + GET /matches/{matchId} —
+        // layered on top of IConnectMatchRepository, IConnectMatchLifecycleService
+        // above (reuses GetMatchesAwaitingActionAsync rather than
+        // re-deriving it), and IPlayerRepository (COMP-06) for batch player
+        // name resolution. See ConnectMatchQueryService's own doc comment.
+        builder.Services.AddScoped<IConnectMatchQueryService, ConnectMatchQueryService>();
         // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
         // (Core.Social) together with IConnectMatchRepository above
         // (Games.XGConnect) for the periodic pairing sweep — lives in

@@ -21,8 +21,9 @@ function problemResponse(title: string, detail: string, status: number) {
 function renderChallengesTab(overrides: Partial<Parameters<typeof ChallengesTab>[0]> = {}, fetchMock = vi.fn()) {
   vi.stubGlobal('fetch', fetchMock);
   const onAuthError = vi.fn();
-  render(<ChallengesTab accessToken="token" onAuthError={onAuthError} {...overrides} />);
-  return { onAuthError };
+  const onViewMatches = vi.fn();
+  render(<ChallengesTab accessToken="token" onAuthError={onAuthError} onViewMatches={onViewMatches} {...overrides} />);
+  return { onAuthError, onViewMatches };
 }
 
 const pendingChallenge = {
@@ -69,13 +70,16 @@ describe('ChallengesTab', () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
     const user = userEvent.setup();
-    renderChallengesTab({}, fetchMock);
+    const { onViewMatches } = renderChallengesTab({}, fetchMock);
 
     await screen.findByText('Alex challenged you');
     await user.click(screen.getByRole('button', { name: 'Accept' }));
 
-    expect(await screen.findByText("Match started! You'll be able to play it soon.")).toBeInTheDocument();
+    expect(await screen.findByText('Match started!')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('No pending challenges.')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'View your matches' }));
+    expect(onViewMatches).toHaveBeenCalledTimes(1);
   });
 
   it('REQ-1402: declining calls POST .../decline and the row disappears once refetched, with no acknowledgment banner', async () => {
@@ -97,7 +101,7 @@ describe('ChallengesTab', () => {
     await user.click(screen.getByRole('button', { name: 'Decline' }));
 
     await waitFor(() => expect(screen.getByText('No pending challenges.')).toBeInTheDocument());
-    expect(screen.queryByText("Match started! You'll be able to play it soon.")).not.toBeInTheDocument();
+    expect(screen.queryByText('Match started!')).not.toBeInTheDocument();
   });
 
   it('REQ-1402: a 409 while accepting shows the server\'s own detail text inline on that row', async () => {

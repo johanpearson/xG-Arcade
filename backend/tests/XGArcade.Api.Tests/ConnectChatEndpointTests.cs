@@ -147,6 +147,7 @@ public class ConnectChatEndpointTests
         var posted = await postResponse.Content.ReadFromJsonAsync<ChatMessageResponse>();
         Assert.That(posted!.MessageText, Is.EqualTo("gl hf"));
         Assert.That(posted.SenderUserId, Is.EqualTo(userAId));
+        Assert.That(posted.SenderDisplayName, Is.EqualTo("Alex"));
 
         var getResponse = await clientB.GetAsync($"/matches/{matchId}/chat-messages");
         Assert.That(getResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
@@ -154,6 +155,32 @@ public class ConnectChatEndpointTests
         Assert.That(messages, Has.Count.EqualTo(1));
         Assert.That(messages![0].Id, Is.EqualTo(posted.Id));
         Assert.That(messages[0].MessageText, Is.EqualTo("gl hf"));
+        Assert.That(messages[0].SenderDisplayName, Is.EqualTo("Alex"));
+    }
+
+    // SCREEN-15 "Identity gap" fix: two messages from two DIFFERENT senders
+    // proves the batch-resolve dictionary is keyed correctly per row, not
+    // just "some name for everyone" — mirrors 087b2e7's own dedicated
+    // multi-row case for FriendEndpoints/ChallengeEndpoints.
+    [Test]
+    public async Task REQ1410_GetChatMessages_MultipleSenders_EachRowGetsItsOwnSenderDisplayName()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+        var clientB = CreateAuthenticatedClient(bAuthProviderUserId);
+        await clientA.PostAsJsonAsync($"/matches/{matchId}/chat-messages", new SendChatMessageRequest("from Alex"));
+        await clientB.PostAsJsonAsync($"/matches/{matchId}/chat-messages", new SendChatMessageRequest("from Blair"));
+
+        var response = await clientA.GetAsync($"/matches/{matchId}/chat-messages");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var messages = await response.Content.ReadFromJsonAsync<List<ChatMessageResponse>>();
+        Assert.That(messages!.Single(m => m.SenderUserId == userAId).SenderDisplayName, Is.EqualTo("Alex"));
+        Assert.That(messages.Single(m => m.SenderUserId == userBId).SenderDisplayName, Is.EqualTo("Blair"));
     }
 
     // ---- Chat remains readable once the match has reached a terminal state --

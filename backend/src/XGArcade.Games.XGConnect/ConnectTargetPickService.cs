@@ -1,4 +1,5 @@
 using XGArcade.Core.Games;
+using XGArcade.Data;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Games.XGConnect;
@@ -14,11 +15,12 @@ namespace XGArcade.Games.XGConnect;
 public class ConnectTargetPickService(
     IConnectMatchRepository connectMatchRepository,
     IPlayerCareerOverlapService playerCareerOverlapService,
+    IPlayerRepository playerRepository,
     IConnectMatchLifecycleService connectMatchLifecycleService,
     TimeProvider timeProvider) : IConnectTargetPickService
 {
     public async Task<SubmitTargetPickResult> SubmitTargetPickAsync(
-        Guid matchId, Guid userId, Guid targetPlayerId, CancellationToken cancellationToken = default)
+        Guid matchId, Guid userId, string targetPlayerName, CancellationToken cancellationToken = default)
     {
         var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
         if (access.Outcome == ConnectMatchAccessOutcome.MatchNotFound)
@@ -30,6 +32,27 @@ public class ConnectTargetPickService(
         var callerExistingPick = await connectMatchRepository.GetTargetPickAsync(matchId, userId, cancellationToken);
         if (callerExistingPick is { IsLocked: true })
             return new SubmitTargetPickResult(SubmitTargetPickOutcome.AlreadyLocked, null);
+
+        // Bug fix (S-218 prep, ADR-0007): resolve the client-supplied NAME
+        // to a real Player.Id the same way
+        // ConnectChainStepService.SubmitChainStepAsync resolves
+        // candidatePlayerName — never trust a client-supplied id, since the
+        // only search UI available to a client (`/players/autocomplete`,
+        // COMP-10) returns ids from a different, unreconciled id space
+        // (PlayerNameIndex.PlayerId). Checked before the otherExistingPick
+        // branch below runs any live overlap lookup, so a name that
+        // resolves to nothing never triggers one.
+        var normalizedName = PlayerNameNormalizer.Normalize(targetPlayerName);
+        var candidates = await playerRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
+        if (candidates.Count == 0)
+            return new SubmitTargetPickResult(SubmitTargetPickOutcome.TargetPlayerNotFound, null);
+
+        // No client-supplied disambiguation id exists for this endpoint,
+        // same as ConnectChainStepService's own candidate resolution —
+        // deterministically pick the lowest Id on a same-name collision. A
+        // known, deliberate simplification, not a new REQ (see that
+        // sibling's own comment for the full rationale).
+        var targetPlayerId = candidates.OrderBy(p => p.Id).First().Id;
 
         var otherUserId = match.PlayerAUserId == userId ? match.PlayerBUserId : match.PlayerAUserId;
         var otherExistingPick = otherUserId is null
