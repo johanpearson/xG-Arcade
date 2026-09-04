@@ -36,7 +36,7 @@ public static class ConnectChainStepEndpoints
                 return Results.Unauthorized();
 
             var result = await connectChainStepService.SubmitChainStepAsync(
-                matchId, requestingUser.Id, request.CandidatePlayerName, request.ClaimedClubName, cancellationToken);
+                matchId, requestingUser.Id, request.CandidatePlayerName, cancellationToken);
 
             return result.Outcome switch
             {
@@ -58,7 +58,7 @@ public static class ConnectChainStepEndpoints
                 // the player mistyped or picked an unknown name, not a
                 // precondition failure about the match/caller/state.
                 SubmitChainStepOutcome.CandidateNotFound => Results.Ok(
-                    new SubmitChainStepResponse(false, false, null, null, null, null)),
+                    new SubmitChainStepResponse(false, false, null, null, null, null, null, null)),
                 SubmitChainStepOutcome.MatchNotFound => Results.NotFound(),
                 SubmitChainStepOutcome.NotAParticipant => Results.Problem(
                     title: "Not a participant",
@@ -93,21 +93,27 @@ public static class ConnectChainStepEndpoints
     }
 
     private static SubmitChainStepResponse ToResponse(ConnectChainStep chainStep, bool chainComplete, bool busted = false) =>
-        new(chainStep.IsValid, chainComplete, chainStep.Position, chainStep.AttemptNumber,
-            chainStep.CandidatePlayerId, chainStep.ClaimedClubName, busted);
+        new(chainStep.IsValid, chainComplete, chainStep.Position, chainStep.AttemptNumber, chainStep.CandidatePlayerId,
+            chainStep.MatchedClubName, chainStep.MatchedOverlapStartYear, chainStep.MatchedOverlapEndYear, busted);
 }
 
-public record SubmitChainStepRequest(string CandidatePlayerName, string ClaimedClubName);
+// Design change (2026-09-04, REQ-1406, ADR-0104): no longer takes a
+// ClaimedClubName — see IConnectChainStepService.SubmitChainStepAsync's own
+// doc comment.
+public record SubmitChainStepRequest(string CandidatePlayerName);
 
 // IsValid/ChainComplete/Position/AttemptNumber/CandidatePlayerId/
-// ClaimedClubName cover what a test needs to assert on for this
-// backend-only story — the frontend chain-builder UI consuming this is
-// S-218, so this DTO is deliberately not over-designed for a UI that
-// doesn't exist yet. CandidatePlayerId/ClaimedClubName/Position/
+// MatchedClubName/MatchedOverlapStartYear/MatchedOverlapEndYear cover what
+// a test needs to assert on for this backend-only story — the frontend
+// chain-builder UI consuming this is S-218, so this DTO is deliberately not
+// over-designed for a UI that doesn't exist yet. CandidatePlayerId/Position/
 // AttemptNumber are null only for CandidateNotFound, where nothing was
-// persisted at all. Busted (REQ-1407/S-214) defaults to false and is true
-// only for the Busted outcome — see SubmitChainStepOutcome.Busted's own doc
-// comment.
+// persisted at all; MatchedClubName/MatchedOverlapStartYear/
+// MatchedOverlapEndYear are additionally null whenever IsValid is false (no
+// club was found at all — see ConnectChainStep's own doc comment). Busted
+// (REQ-1407/S-214) defaults to false and is true only for the Busted
+// outcome — see SubmitChainStepOutcome.Busted's own doc comment.
 public record SubmitChainStepResponse(
-    bool IsValid, bool ChainComplete, int? Position, int? AttemptNumber, Guid? CandidatePlayerId, string? ClaimedClubName,
+    bool IsValid, bool ChainComplete, int? Position, int? AttemptNumber, Guid? CandidatePlayerId,
+    string? MatchedClubName, int? MatchedOverlapStartYear, int? MatchedOverlapEndYear,
     bool Busted = false);

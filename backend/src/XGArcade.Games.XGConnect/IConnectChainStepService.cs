@@ -11,37 +11,45 @@ public interface IConnectChainStepService
 {
     // Check-before-persist, same discipline as
     // ConnectTargetPickService.SubmitTargetPickAsync: every live-overlap
-    // check (both the main claimed-club check and, when it succeeds, the
-    // chain-closing check against the other target pick) is fully resolved
-    // BEFORE anything is written, except for the deliberate exception that a
-    // step that fails its main check IS persisted (InvalidStep) — that
-    // failure outcome is itself the thing this entity exists to record (see
-    // ConnectChainStep's own doc comment).
+    // check (both the main shared-club-overlap check and, when it succeeds,
+    // the chain-closing check against the other target pick) is fully
+    // resolved BEFORE anything is written, except for the deliberate
+    // exception that a step that fails its main check IS persisted
+    // (InvalidStep) — that failure outcome is itself the thing this entity
+    // exists to record (see ConnectChainStep's own doc comment).
+    //
+    // Design change (2026-09-04, REQ-1406, ADR-0104): no longer takes a
+    // claimedClubName — the caller names only a candidate player; which
+    // club(s) connect them is computed server-side
+    // (IPlayerCareerOverlapService.GetSharedClubOverlapsAsync), never
+    // player-typed. See that interface's own doc comment for the false-
+    // rejection bug this supersedes.
     Task<SubmitChainStepResult> SubmitChainStepAsync(
-        Guid matchId, Guid userId, string candidatePlayerName, string claimedClubName,
+        Guid matchId, Guid userId, string candidatePlayerName,
         CancellationToken cancellationToken = default);
 }
 
 public enum SubmitChainStepOutcome
 {
-    // REQ-1406: the claimed overlap checked out, and the candidate does NOT
-    // also close the chain — appended as the chain's next link, and the
-    // player may submit another step or attempt to close the chain.
+    // REQ-1406: the candidate shares a real club overlap with the preceding
+    // chain player, and does NOT also close the chain — appended as the
+    // chain's next link, and the player may submit another step or attempt
+    // to close the chain.
     StepAccepted,
 
-    // REQ-1406: the claimed overlap checked out AND the candidate closes the
-    // chain (a valid, overlapping-time shared-club connection to the
-    // match's OTHER target pick — never the one the chain started from).
-    // The player's chain is complete; no further steps may be submitted by
-    // them for this match.
+    // REQ-1406: the candidate shares a real club overlap with the preceding
+    // chain player AND also closes the chain (a valid, overlapping-time
+    // shared-club connection to the match's OTHER target pick — never the
+    // one the chain started from). The player's chain is complete; no
+    // further steps may be submitted by them for this match.
     ChainClosed,
 
-    // REQ-1406: the claimed candidate/club overlap did NOT check out — the
-    // step is still persisted (IsValid = false, ClosesChain = false) since
-    // recording the outcome of every attempt is this entity's whole
-    // purpose (feeds S-214's future strike-counting). This story does not
-    // enforce any cap on how many invalid attempts may be made at a
-    // position — that is S-214's job.
+    // REQ-1406: the candidate and the preceding chain player never shared
+    // any club overlap — the step is still persisted (IsValid = false,
+    // ClosesChain = false) since recording the outcome of every attempt is
+    // this entity's whole purpose (feeds S-214's future strike-counting).
+    // This story does not enforce any cap on how many invalid attempts may
+    // be made at a position — that is S-214's job.
     InvalidStep,
 
     MatchNotFound,
@@ -58,7 +66,7 @@ public enum SubmitChainStepOutcome
     // for this match."
     ChainAlreadyComplete,
 
-    // REQ-1407/S-214: the claimed overlap did NOT check out on the caller's
+    // REQ-1407/S-214: no shared club overlap was found on the caller's
     // one allowed retry (AttemptNumber 2) at this position — the second,
     // consecutive failure at the same position. The step IS persisted
     // (IsValid = false, same as InvalidStep) but the caller's slot is also

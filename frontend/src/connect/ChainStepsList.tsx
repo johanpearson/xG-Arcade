@@ -1,3 +1,4 @@
+import { formatMatchedClub } from '../lib/connectMatches';
 import type { ConnectChainStepView } from '../lib/types';
 
 export interface ChainStepsListProps {
@@ -24,7 +25,7 @@ export function ChainStepsList({ targetPlayerName, steps, otherTargetPlayerName 
       {validSteps.map((step) => (
         <li key={step.position} className="connect-match__chain-item">
           {step.candidatePlayerName}
-          <span className="connect-match__chain-club"> ({step.claimedClubName})</span>
+          <span className="connect-match__chain-club"> ({formatMatchedClub(step.matchedClubName, step.matchedOverlapStartYear, step.matchedOverlapEndYear)})</span>
           {step.closesChain && <span className="connect-match__chain-closes"> — connects to your target</span>}
         </li>
       ))}

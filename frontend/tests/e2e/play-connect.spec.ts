@@ -266,9 +266,12 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // Equal 1-connector/zero-penalty scores on both sides resolve as a draw
       // (REQ-1409's equal-score branch) — a concrete, assertable outcome on
       // BOTH browser contexts below, not just one.
-      async function submitClosingChainStep(page: Page, claimedClub: string): Promise<void> {
+      // Design change (2026-09-04, REQ-1406, ADR-0104): the player no
+      // longer types a claimed club — only the candidate name — so this
+      // helper no longer takes one either; the server computes which
+      // club(s) actually connect the two players.
+      async function submitClosingChainStep(page: Page): Promise<void> {
         await page.getByLabel('Candidate player name').fill(seed.connectorPlayerName)
-        await page.getByLabel('Claimed shared club').fill(claimedClub)
         // Captured (not awaited) BEFORE the click below, purely for
         // diagnostics on failure — recording the promise doesn't delay or
         // otherwise change the click/assert timing that follows, since
@@ -319,14 +322,14 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
           const response = await chainStepResponsePromise.catch(() => null)
           const bodyText = response ? await response.text().catch(() => '<unreadable body>') : '<no response observed>'
           console.error(
-            `submitClosingChainStep: "Connected!" never appeared for claimedClub="${claimedClub}". ` +
+            `submitClosingChainStep: "Connected!" never appeared for connector="${seed.connectorPlayerName}". ` +
               `POST /chain-steps responded ${response?.status() ?? '<none>'}: ${bodyText}`,
           )
           throw err
         }
       }
 
-      await submitClosingChainStep(pageA, seed.clubOverlappingWithA)
+      await submitClosingChainStep(pageA)
       // User A alone has reached a terminal state so far (their own screen
       // now shows their own "finished their chain" status, replacing the
       // submission form) — but the MATCH itself is not yet resolved
@@ -340,7 +343,7 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       await expect(pageA.getByText('You have finished their chain.')).toBeVisible({ timeout: 20_000 })
       await expect(pageA.getByText("It's a draw.")).not.toBeVisible()
 
-      await submitClosingChainStep(pageB, seed.clubOverlappingWithB)
+      await submitClosingChainStep(pageB)
 
       // ---- Resolution (REQ-1409) ------------------------------------------
       // User B's own closing step was the SECOND of the two terminal-reaching
@@ -367,6 +370,15 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       await expect(myScoreRowA.getByText('1', { exact: true })).toBeVisible()
       const myScoreRowB = pageB.locator('.connect-match__score-row').filter({ hasText: 'Your score' })
       await expect(myScoreRowB.getByText('1', { exact: true })).toBeVisible()
+
+      // REQ-1406 (design change, 2026-09-04, ADR-0104): direct end-to-end
+      // proof the server-computed matched club/years render correctly, now
+      // that the player never types one — InternalConnectTestDataEndpoints.cs
+      // seeds the connector's overlap with each target at an identical
+      // (StartYear, EndYear) pair on both sides, so the intersection is
+      // exactly that range, not a computed subset.
+      await expect(pageA.getByText(`${seed.clubOverlappingWithA}, 2010-2012`)).toBeVisible()
+      await expect(pageB.getByText(`${seed.clubOverlappingWithB}, 2015-2017`)).toBeVisible()
 
       // ---- In-match chat (REQ-1410), bonus coverage given the same fixture -
       // Rendered unconditionally below every phase's own content, including a

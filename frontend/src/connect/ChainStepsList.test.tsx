@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { formatMatchedClub } from '../lib/connectMatches';
 import { ChainStepsList } from './ChainStepsList';
 import type { ConnectChainStepView } from '../lib/types';
 
@@ -9,7 +10,9 @@ function step(overrides: Partial<ConnectChainStepView> = {}): ConnectChainStepVi
     attemptNumber: 1,
     candidatePlayerId: 'p1',
     candidatePlayerName: 'Some Player',
-    claimedClubName: 'Some Club',
+    matchedClubName: 'Some Club',
+    matchedOverlapStartYear: 2010,
+    matchedOverlapEndYear: 2015,
     isValid: true,
     closesChain: false,
     submittedAt: '2026-09-03T00:00:00Z',
@@ -22,9 +25,12 @@ function step(overrides: Partial<ConnectChainStepView> = {}): ConnectChainStepVi
 describe('ChainStepsList', () => {
   it('REQ-1406: renders only the valid steps, in position order, between the two target players', () => {
     const steps = [
-      step({ position: 2, candidatePlayerName: 'Second Link', claimedClubName: 'Club B' }),
-      step({ position: 1, candidatePlayerName: 'First Link', claimedClubName: 'Club A' }),
-      step({ position: 1, attemptNumber: 2, isValid: false, candidatePlayerName: 'Failed Guess' }),
+      step({ position: 2, candidatePlayerName: 'Second Link', matchedClubName: 'Club B' }),
+      step({ position: 1, candidatePlayerName: 'First Link', matchedClubName: 'Club A' }),
+      step({
+        position: 1, attemptNumber: 2, isValid: false, candidatePlayerName: 'Failed Guess',
+        matchedClubName: null, matchedOverlapStartYear: null, matchedOverlapEndYear: null,
+      }),
     ];
 
     render(
@@ -51,5 +57,10 @@ describe('ChainStepsList', () => {
     const items = screen.getAllByRole('listitem').map((item) => item.textContent);
     expect(items[items.length - 1]).toBe('Cristiano Ronaldo');
     expect(items[items.length - 1]).not.toContain('not yet connected');
+  });
+
+  it('REQ-1406: shows a bounded overlap as a year range, and an ongoing overlap as ending "present"', () => {
+    expect(formatMatchedClub('Chelsea', 2012, 2019)).toBe('Chelsea, 2012-2019');
+    expect(formatMatchedClub('Chelsea', 2012, null)).toBe('Chelsea, 2012-present');
   });
 });

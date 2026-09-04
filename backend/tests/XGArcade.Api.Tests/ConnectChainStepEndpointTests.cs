@@ -146,7 +146,7 @@ public class ConnectChainStepEndpointTests
         var client = _factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{Guid.NewGuid()}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+            $"/matches/{Guid.NewGuid()}/chain-steps", new SubmitChainStepRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
@@ -171,7 +171,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Middle Link Player", "Arsenal"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Middle Link Player"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
@@ -200,7 +200,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Closing Link Player", "Arsenal"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Closing Link Player"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
@@ -226,7 +226,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Middle Link Player", "Arsenal"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Middle Link Player"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
@@ -251,10 +251,10 @@ public class ConnectChainStepEndpointTests
         // club — both attempts fail the live overlap check.
         var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
-        await client.PostAsJsonAsync($"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("First Attempt Player", "Wrong Club"));
+        await client.PostAsJsonAsync($"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("First Attempt Player"));
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Retry Attempt Player", "Also Wrong Club"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Retry Attempt Player"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
@@ -284,7 +284,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -305,7 +305,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Nobody Real", "Arsenal"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Nobody Real"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
@@ -323,7 +323,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(authProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{Guid.NewGuid()}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+            $"/matches/{Guid.NewGuid()}/chain-steps", new SubmitChainStepRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
@@ -341,7 +341,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(outsiderAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -375,7 +375,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -403,7 +403,8 @@ public class ConnectChainStepEndpointTests
                 Position = 1,
                 AttemptNumber = 1,
                 CandidatePlayerId = bTargetPlayerId,
-                ClaimedClubName = "Chelsea",
+                MatchedClubName = "Chelsea",
+                MatchedOverlapStartYear = 2000,
                 IsValid = true,
                 ClosesChain = true,
                 SubmittedAt = DateTime.UtcNow,
@@ -413,7 +414,7 @@ public class ConnectChainStepEndpointTests
         var client = CreateAuthenticatedClient(aAuthProviderUserId);
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone", "Anywhere"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Anyone"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -490,7 +491,7 @@ public class ConnectChainStepEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(aAuthProviderUserId));
 
         var response = await client.PostAsJsonAsync(
-            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Middle Link Player", "Arsenal"));
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Middle Link Player"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();

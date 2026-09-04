@@ -913,19 +913,27 @@ export interface ConnectTargetPickSubmitResponse {
 // (backend/src/XGArcade.Api/Connect/ConnectChainStepEndpoints.cs) — always a
 // normal 200 response, never an error, for a wrong or unresolvable guess
 // (REQ-1406's GuessEndpoints-style precedent). `position`/`attemptNumber`/
-// `candidatePlayerId`/`claimedClubName` are null only when
-// `candidatePlayerName` didn't resolve to any known player at all — treat
-// that as "no such player found," not as a real validation failure (it
-// consumes no attempt/strike server-side). `busted: true` means this
-// player's participation in the match just ended (REQ-1407's two-strikes
-// rule).
+// `candidatePlayerId` are null only when `candidatePlayerName` didn't
+// resolve to any known player at all — treat that as "no such player
+// found," not as a real validation failure (it consumes no attempt/strike
+// server-side). `busted: true` means this player's participation in the
+// match just ended (REQ-1407's two-strikes rule).
+//
+// Design change (2026-09-04, REQ-1406, ADR-0104): the request no longer
+// carries a claimed club — the player names only a candidate, and the
+// server computes which club(s) actually connect them.
+// `matchedClubName`/`matchedOverlapStartYear`/`matchedOverlapEndYear` are
+// additionally null whenever `isValid` is false (no shared club was found
+// at all).
 export interface ConnectSubmitChainStepResponse {
   isValid: boolean;
   chainComplete: boolean;
   position: number | null;
   attemptNumber: number | null;
   candidatePlayerId: string | null;
-  claimedClubName: string | null;
+  matchedClubName: string | null;
+  matchedOverlapStartYear: number | null;
+  matchedOverlapEndYear: number | null;
   busted: boolean;
 }
 
@@ -982,12 +990,19 @@ export interface ConnectTargetPickView {
 // S-218: mirrors ConnectChainStepDetailResponse exactly — one of the
 // caller's OWN chain steps (never an opponent's — see
 // ConnectMatchDetail.opponentTerminalState's own comment below).
+//
+// matchedClubName/matchedOverlapStartYear/matchedOverlapEndYear (design
+// change, 2026-09-04, REQ-1406, ADR-0104): the club(s) the candidate and
+// the preceding chain player actually share, computed server-side — never
+// a player-typed claim. Null together only when isValid is false.
 export interface ConnectChainStepView {
   position: number;
   attemptNumber: number;
   candidatePlayerId: string;
   candidatePlayerName: string;
-  claimedClubName: string;
+  matchedClubName: string | null;
+  matchedOverlapStartYear: number | null;
+  matchedOverlapEndYear: number | null;
   isValid: boolean;
   closesChain: boolean;
   submittedAt: string;

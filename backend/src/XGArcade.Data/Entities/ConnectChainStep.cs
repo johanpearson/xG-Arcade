@@ -23,20 +23,32 @@ namespace XGArcade.Data.Entities;
 // same PathPuzzle-style precedent as ConnectTargetPick.TargetPlayerId
 // above.
 //
-// ClaimedClubName is free-text, NOT an FK to ClubDefinition — mirrors
-// PlayerCareerStint.ClubName's own free-text shape, since REQ-1406
-// explicitly requires candidates from the platform's broad player search,
-// "not restricted to the curated club/country reference tables." The live
-// overlap check this schema supports will validate against
-// PlayerCareerStint data, not ClubDefinition.
+// MatchedClubName/MatchedOverlapStartYear/MatchedOverlapEndYear (design
+// change, 2026-09-04, REQ-1406, product-owner direction — see ADR-0104):
+// replace the original ClaimedClubName, a free-text field the PLAYER typed
+// to claim a specific club. That design asked the player to correctly
+// recall and spell a club name that had to exactly match an
+// already-canonicalized stored value — the direct cause of a real
+// false-rejection bug (a genuinely correct step scored invalid because
+// "Chelsea FC" as typed didn't string-match the stored "Chelsea"). The
+// player no longer names a club at all: IPlayerCareerOverlapService
+// .GetSharedClubOverlapsAsync computes every club (and overlapping year
+// range) the candidate and the preceding chain player actually share, and
+// ConnectChainStepService picks and persists ONE representative overlap
+// (deterministically, the one with the latest OverlapStartYear, same
+// "pick deterministically rather than invent new disambiguation" precedent
+// this file's own candidate-name-collision handling already uses) when a
+// pair shared more than one club (e.g. Maxwell and Zlatan Ibrahimović —
+// Inter, Barcelona, PSG all valid). All three are null together, only for
+// an invalid step (IsValid false — no club was found at all, nothing to
+// record) — never independently null.
 //
-// IsValid is the outcome of the live overlapping-time-period check
-// (computed by a later story, not this one).
+// IsValid is the outcome of the live overlapping-time-period check.
 //
 // ClosesChain (S-213/REQ-1406): true only on a step that is ALSO IsValid,
 // where the candidate additionally has a valid overlapping-time shared-club
 // connection (checked via IPlayerCareerOverlapService.HaveSharedClubOverlapAsync
-// — any shared club, not restricted to this step's own ClaimedClubName) to
+// — any shared club, not restricted to this step's own MatchedClubName) to
 // the match's OTHER target pick — never the one this player's chain started
 // from. Never true when IsValid is false. Once a step with ClosesChain=true
 // exists for a (ConnectMatchId, UserId) pair, that player's chain is
@@ -55,7 +67,9 @@ public class ConnectChainStep
     public required int Position { get; set; }
     public required int AttemptNumber { get; set; }
     public required Guid CandidatePlayerId { get; set; }
-    public required string ClaimedClubName { get; set; }
+    public string? MatchedClubName { get; set; }
+    public int? MatchedOverlapStartYear { get; set; }
+    public int? MatchedOverlapEndYear { get; set; }
     public required bool IsValid { get; set; }
     public required bool ClosesChain { get; set; }
     public required DateTime SubmittedAt { get; set; }

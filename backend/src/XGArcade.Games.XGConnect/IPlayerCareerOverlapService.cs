@@ -35,14 +35,29 @@ public interface IPlayerCareerOverlapService
     // REQ-211's guess-time fallback.
     Task<bool> HaveSharedClubOverlapAsync(Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default);
 
-    // S-213/REQ-1406: the same "fetch once, cache forever, throw
-    // LiveLookupUnavailableException on a genuine technical failure" contract
-    // as HaveSharedClubOverlapAsync above, but the overlap predicate is
-    // narrowed to one specific claimed club rather than any shared club —
-    // this is what REQ-1406's per-step "did the candidate genuinely play for
-    // the claimed club during a period overlapping the preceding chain
-    // player's own time there" check needs, since a chain step names one
-    // specific club, not "any club in common."
-    Task<bool> HaveOverlapAtClubAsync(
-        Guid playerAId, Guid playerBId, string clubName, CancellationToken cancellationToken = default);
+    // Bug fix/design change (2026-09-04, REQ-1406, product-owner direction):
+    // supersedes the former HaveOverlapAtClubAsync(playerAId, playerBId,
+    // clubName), which required the CALLER to already know and type the
+    // specific club name — the exact source of a real false-rejection bug
+    // (a player typing "Chelsea FC" against a stored, canonicalized
+    // "Chelsea" — see ClubNameNormalizer's own doc comment for that
+    // incident). The chain-builder no longer asks the player to name a
+    // club at all: this returns every club (with its overlapping year
+    // range) the two players actually share, so the caller can both decide
+    // validity (empty = never played together) AND display the real
+    // answer, never a player-typed string that has to match anything.
+    // Same "fetch once, cache forever, throw LiveLookupUnavailableException
+    // on a genuine technical failure" contract as HaveSharedClubOverlapAsync
+    // above (both share the same underlying fetch).
+    Task<IReadOnlyList<SharedClubOverlap>> GetSharedClubOverlapsAsync(
+        Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default);
 }
+
+// One club both players share, with the overlapping window of their two
+// stints there (not each player's own full stint — the intersection).
+// OverlapEndYear is null only when BOTH players' stints at this club are
+// still ongoing (both EndYear null) — mirrors PlayerCareerStint.EndYear's
+// own "null = ongoing" convention. A pair of players who shared more than
+// one club (e.g. Maxwell and Zlatan Ibrahimović — Inter, Barcelona, PSG)
+// gets one entry per club here, not just the first found.
+public record SharedClubOverlap(string ClubName, int OverlapStartYear, int? OverlapEndYear);
