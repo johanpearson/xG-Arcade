@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `backend/src/XGArcade.Games.XGConnect/PlayerCareerOverlapService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/IPlayerCareerOverlapService.cs`,
+  `backend/tests/XGArcade.Games.XGConnect.Tests/PlayerCareerOverlapServiceTests.cs`,
+  `docs/decisions/0105-connect-career-overlap-always-refreshes-both-players.md`
+  (new), `docs/requirements-document.md` (REQ-1404/1406 status notes, v2.62
+  → v2.63), `docs/architecture-document.md` (COMP-17 row, v1.48 → v1.49),
+  `docs/backlog.md` (S-211 given a bugfix addendum) — direct product-owner
+  report, live-tested the same day the club-auto-detect design (ADR-0104)
+  shipped: a genuinely correct chain step (Reece James → Jonas Olsson,
+  sharing a real 2019 Wigan Athletic loan) was rejected right after an
+  earlier step in the same chain (Azpilicueta → James, Chelsea) had worked
+  correctly. Root cause: `PlayerCareerOverlapService
+  .LoadBothPlayersStintsAsync` trusted a player's `PlayerCareerStint` rows
+  as complete once ANY row existed and skipped refreshing them again —
+  James already had a Chelsea-only row from the earlier step, so his real
+  Wigan Athletic loan (never fetched) stayed permanently hidden. Identical
+  bug shape to a real, already-fixed xG Path incident (ADR-0054, Timothy
+  Weah missing Juventus/Marseille stints) — `PlayerCareerStint` is a
+  shared table other features can write narrow, single-club byproduct rows
+  into, so "has any row" was never "has a full career fetched." Fixed by
+  following ADR-0054's own precedent exactly: always refresh both players
+  unconditionally on every call, matching
+  `XGPathGameModule.GenerateInstanceAsync`'s own unconditional refresh to
+  the same shared service, rather than gating on existing rows — safe and
+  cheap since `RefreshCareerStintsAsync`'s own reconciliation dedupes
+  against existing rows and persists only genuinely new ones. See
+  ADR-0105 for the full decision, including the trade-off knowingly
+  accepted (one additional live Wikidata call per chain-step submission).
+  New test coverage in `PlayerCareerOverlapServiceTests.cs` reproducing
+  the exact incident shape. No `dotnet` SDK in this sandbox — verified via
+  CI on the branch/PR.
+
 - 2026-09-04 — `backend/src/XGArcade.Games.XGConnect/IPlayerCareerOverlapService.cs`,
   `backend/src/XGArcade.Games.XGConnect/PlayerCareerOverlapService.cs`,
   `backend/src/XGArcade.Games.XGConnect/IConnectChainStepService.cs`,

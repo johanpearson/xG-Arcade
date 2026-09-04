@@ -111,10 +111,19 @@ public class PlayerCareerOverlapServiceTests
         Assert.That(overlaps, Is.True);
     }
 
-    // ---- "Fetch once, cache forever" behavior ------------------------------
+    // ---- Bug fix (2026-09-04, ADR-0105): always refresh both players,
+    // ---- never skip based on "already has some cached rows" ---------------
+    // Real, reported incident this closes: Reece James already had a
+    // Chelsea-only PlayerCareerStint row from an earlier chain step (a
+    // narrow, single-club result), so the old "any rows = trusted" gate
+    // permanently hid his genuinely real Wigan Athletic loan — shared with
+    // Jonas Olsson — from ever being discovered. Same bug shape ADR-0054
+    // already found and fixed once for xG Path (Timothy Weah missing real
+    // Juventus/Marseille stints); this class now follows that same
+    // "always refresh unconditionally" precedent.
 
     [Test]
-    public async Task REQ1404_HaveSharedClubOverlapAsync_BothPlayersHaveCachedStints_DoesNotCallRefreshService()
+    public async Task REQ1404_HaveSharedClubOverlapAsync_AlwaysRefreshesBothPlayers_EvenWhenBothAlreadyHaveCachedStints()
     {
         var playerA = await SeedPlayerAsync("Q1");
         var playerB = await SeedPlayerAsync("Q2");
@@ -122,36 +131,39 @@ public class PlayerCareerOverlapServiceTests
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
         await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Chelsea", StartYear = 1999, EndYear = 2007 }]);
-        // Configured on the fake but must never be reached — proves the
-        // "already cached" short-circuit skips the live refresh entirely.
-        _careerStintRefreshService.SetCareerStints(playerA.Id,
-            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Should Never Be Reached", StartYear = 2000, EndYear = 2001 });
 
         await BuildService().HaveSharedClubOverlapAsync(playerA.Id, playerB.Id);
 
-        Assert.That(_careerStintRefreshService.Calls, Is.Empty,
-            "a player who already has cached PlayerCareerStint rows must never trigger a live refresh");
+        Assert.That(_careerStintRefreshService.Calls, Has.Count.EqualTo(1));
+        Assert.That(_careerStintRefreshService.Calls[0], Is.EquivalentTo(new[] { playerA.Id, playerB.Id }),
+            "both players are always refreshed in one batched call, never skipped just because they already have some cached rows");
     }
 
     [Test]
-    public async Task REQ1404_HaveSharedClubOverlapAsync_OnePlayerHasNoCachedStints_TriggersExactlyOneBatchedCallCoveringOnlyThatPlayer()
+    public async Task REQ1404_HaveSharedClubOverlapAsync_ExistingCacheIsNarrow_RefreshDiscoversTheGenuinelySharedClub()
     {
-        var playerA = await SeedPlayerAsync("Q1"); // Already cached.
-        var playerB = await SeedPlayerAsync("Q2"); // Zero cached rows — needs a refresh.
+        var playerA = await SeedPlayerAsync("Q1");
+        var playerB = await SeedPlayerAsync("Q2");
+        // Both players already have SOME cached data (mirrors the real
+        // incident: a narrow, single-club row from an earlier, unrelated
+        // lookup) — under the old "any rows = trusted" behavior, this alone
+        // would have permanently hidden the real shared club below.
         await _playerCareerStintRepository.AddCareerStintsAsync(playerA.Id,
-            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Chelsea", StartYear = 2012, EndYear = 2019 }]);
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Chelsea", StartYear = 2018, EndYear = 2023 }]);
+        // The genuinely shared club a fresh refresh discovers — the
+        // Azpilicueta/James-shaped "already matched at Chelsea" case,
+        // followed by the real Wigan Athletic loan overlap this bug hid.
+        _careerStintRefreshService.SetCareerStints(playerA.Id,
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Wigan Athletic", StartYear = 2019, EndYear = 2019 });
         _careerStintRefreshService.SetCareerStints(playerB.Id,
-            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Arsenal", StartYear = 2003, EndYear = 2010, AppearanceCount = 100 });
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Wigan Athletic", StartYear = 2019, EndYear = 2019 });
 
-        var overlaps = await BuildService().HaveSharedClubOverlapAsync(playerA.Id, playerB.Id);
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
 
-        Assert.That(overlaps, Is.True, "the freshly-fetched stint must be persisted and used in the same call");
-        Assert.That(_careerStintRefreshService.Calls, Has.Count.EqualTo(1),
-            "exactly one batched refresh call, even though only one of the two players needed a refresh");
-        Assert.That(_careerStintRefreshService.Calls[0], Is.EquivalentTo(new[] { playerB.Id }),
-            "the batch must cover only the player that actually needs a refresh, not the already-cached one");
-        var persisted = await _playerCareerStintRepository.GetCareerStintsAsync(playerB.Id);
-        Assert.That(persisted.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Arsenal" }));
+        Assert.That(overlaps.Select(o => o.ClubName), Does.Contain("Wigan Athletic"),
+            "existing narrow cached data must never block discovering a real, additional shared club via refresh");
     }
 
     [Test]
