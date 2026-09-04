@@ -10595,6 +10595,19 @@ existing broad search with zero `ClubDefinition`/`CountryDefinition` rows
 seeded. No new ADR — same `Games.XGPath`-precedent reasoning S-211's own
 entry already covers for `PlayerCareerOverlapService`'s placement.
 
+**S-213 bugfix addendum (2026-09-04):** direct product-owner report — a
+genuinely correct step (Azpilicueta/Chelsea; Olsson/West Bromwich Albion)
+scored `IsValid: false`. Root cause: `HaveOverlapAtClubAsync`'s claimed-club
+comparison was a bare `OrdinalIgnoreCase` equality between the player-typed
+free-text club (`ChainBuilder.tsx`) and the already-canonicalized/
+suffix-stripped stored `PlayerCareerStint.ClubName` — no normalization on
+the typed side. Extracted the ingest-time suffix normalizer (formerly a
+private `SparqlResponseParsers.NormalizeClubName`) into a shared, public
+`XGArcade.Data.ClubNameNormalizer.StripLegalSuffix`, applied to both sides
+of the comparison. See REQ-1406's own bug-fix status note for the full
+detail. No new ADR — same category as this story's own original "no new
+ADR" note.
+
 **S-214 · Penalty/bust rule, scoring, match resolution (REQ-1407/1408/1409)**
 Two-strikes-per-step tracking (independent per chain position), scoring
 formula (connections + accumulated penalties, min 1), win/draw/forfeit

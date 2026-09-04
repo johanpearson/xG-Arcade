@@ -20,8 +20,8 @@ namespace XGArcade.DataSync.Wikidata;
 // existing caller/test untouched" shape this codebase already uses
 // elsewhere (see IWikidataClient's onTechnicalFailure/timeoutTier params
 // for the same pattern). ClubName alone is only ever a best-effort,
-// Wikidata-raw-label-derived string (run through WikidataClient's
-// NormalizeClubName suffix stripper, nothing more) — it is NOT guaranteed
+// Wikidata-raw-label-derived string (run through XGArcade.Data
+// .ClubNameNormalizer.StripLegalSuffix, nothing more) — it is NOT guaranteed
 // to match the hand-seeded ClubDefinition.Name for the same real club,
 // since Wikidata's own preferred label for a QID can differ from this
 // codebase's seed data by more than a legal-suffix token (e.g. "Lyon" vs.

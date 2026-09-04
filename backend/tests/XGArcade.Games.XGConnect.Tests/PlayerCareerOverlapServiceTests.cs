@@ -217,4 +217,28 @@ public class PlayerCareerOverlapServiceTests
 
         Assert.That(overlaps, Is.False, "neither player has any stint at the claimed club at all");
     }
+
+    // Bug fix (2026-09-04, REQ-1406/1407, product-owner report): stored
+    // ClubName is already canonicalized/suffix-stripped at Wikidata ingest
+    // time (e.g. seeded clubs store "Chelsea", never "Chelsea FC"), but a
+    // player types the claimed club free-text (ChainBuilder.tsx) and has no
+    // reason to know that. A genuinely correct claim like "Chelsea FC" was
+    // wrongly rejected by a bare exact-string comparison.
+    [TestCase("Chelsea FC")]
+    [TestCase("chelsea fc")]
+    [TestCase("Chelsea A.F.C.")]
+    public async Task REQ1406_HaveOverlapAtClubAsync_ClaimedClubHasLegalSuffixPlayerDidNotType_StillMatchesCanonicalStoredName(string claimedClubName)
+    {
+        var playerA = await SeedPlayerAsync();
+        var playerB = await SeedPlayerAsync();
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerA.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Chelsea", StartYear = 2012, EndYear = 2019 }]);
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Chelsea", StartYear = 2012, EndYear = 2021 }]);
+
+        var overlaps = await BuildService().HaveOverlapAtClubAsync(playerA.Id, playerB.Id, claimedClubName);
+
+        Assert.That(overlaps, Is.True,
+            $"'{claimedClubName}' must normalize to match the canonically-stored 'Chelsea'");
+    }
 }

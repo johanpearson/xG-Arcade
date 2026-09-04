@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using XGArcade.Data;
 
 namespace XGArcade.DataSync.Wikidata;
 
@@ -16,10 +17,14 @@ namespace XGArcade.DataSync.Wikidata;
 // file: WikidataClient.cs's Run* drivers (SparqlResponse, to deserialize
 // into) and thin wrapper methods (each Parse* delegate) reach these from a
 // different class in the same namespace/assembly; nothing outside
-// XGArcade.DataSync needs them. MergeCareerStintEntries/NormalizeClubName/
-// ClubNameLegalSuffixes/TryParseXsdDateTimeYear stay private — used only
-// internally by the Parse* methods in this same class, never called from
-// WikidataClient.cs directly.
+// XGArcade.DataSync needs them. MergeCareerStintEntries/
+// TryParseXsdDateTimeYear stay private — used only internally by the
+// Parse* methods in this same class, never called from WikidataClient.cs
+// directly. Club-name suffix-stripping was extracted to
+// XGArcade.Data.ClubNameNormalizer (2026-09-04) — xG Connect's chain-step
+// validation (Games.XGConnect) needs the identical normalization applied
+// to a player-typed club name at query time, not just here at ingest time;
+// see that class's own doc comment.
 internal static class SparqlResponseParsers
 {
     // Bug fix (2026-08-03, user-tester report): a real report showed the
@@ -187,8 +192,9 @@ internal static class SparqlResponseParsers
     // own statements carry two label variants for what is presumably one
     // underlying ?club (or two ?club items both resolving to "the same"
     // real club) isn't diagnosable from this sandbox without a live SPARQL
-    // query against wikidata.org — see NormalizeClubName's own comment for
-    // the (deliberately narrow) fix applied to the observed symptom.
+    // query against wikidata.org — see ClubNameNormalizer.StripLegalSuffix's
+    // own comment (XGArcade.Data) for the (deliberately narrow) fix applied
+    // to the observed symptom.
     //
     // Formerly-ACCEPTED limitation of the above fix (quality-gate finding,
     // 2026-08-03; partially fixed 2026-08-10, bug-bundle): dedup used to be
@@ -264,17 +270,17 @@ internal static class SparqlResponseParsers
 
             // Normalize BEFORE MergeCareerStintEntries sees it: this is the
             // club name that both merging and every downstream persistence
-            // use — see WikidataCareerStintEntry's own doc comment and this
-            // class's NormalizeClubName for why the canonical (not raw)
-            // form is what gets stored. NormalizeClubName's suffix-strip is
-            // still applied here as the best-effort fallback label (used
+            // use — see WikidataCareerStintEntry's own doc comment and
+            // XGArcade.Data.ClubNameNormalizer.StripLegalSuffix for why the
+            // canonical (not raw) form is what gets stored. Its suffix-strip
+            // is still applied here as the best-effort fallback label (used
             // when ClubQid doesn't resolve to a seeded ClubDefinition) —
             // QID-based canonicalization happens one layer up, not in this
             // client, per this class's own "no ClubDefinition dependency"
             // layering convention within COMP-07 (not a documented
             // cross-component boundary rule — see architecture-document.md's
             // numbered boundary list, which has no entry for this).
-            entries.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount, clubQid));
+            entries.Add(new WikidataCareerStintEntry(ClubNameNormalizer.StripLegalSuffix(clubLabelValue.Value), startYear, endYear, appearanceCount, clubQid));
         }
 
         return rawEntriesByQid.ToDictionary(kv => kv.Key, kv => MergeCareerStintEntries(kv.Value));
@@ -399,57 +405,6 @@ internal static class SparqlResponseParsers
         var stintsByQid = rawEntriesByQid.ToDictionary(
             kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)MergeCareerStintEntries(kv.Value));
         return new RecentClubTransferParseResult(stintsByQid, playerNamesByQid);
-    }
-
-    // Legal-suffix variants Wikidata is observed to use interchangeably for
-    // what is the same real club (e.g. "Liverpool" vs "Liverpool F.C.",
-    // both attested as ?clubLabel values for the same P54 statement shape —
-    // see ParseCareerStintBindings' own comment for the exact bug this
-    // fixes). Ordered longest-first so a longer variant (e.g. "A.F.C.")
-    // is matched whole rather than partially matching a shorter entry
-    // later in the list ("F.C.") first.
-    //
-    // Deliberately a small, explicit list, not a fuzzy/generic name
-    // matcher: a generic matcher risks merging two DIFFERENT clubs that
-    // happen to share a prefix (e.g. stripping too aggressively could
-    // conflate "Real Madrid" and "Real Sociedad"-style near-collisions).
-    // This only ever strips one of these four exact, well-known football
-    // legal-suffix tokens, and only when it is the trailing token of the
-    // name (preceded by whitespace) — never a substring inside an
-    // unrelated word, and never a PREFIX (e.g. "AFC Bournemouth" is a
-    // different, legitimate naming convention and is left untouched).
-    //
-    // Single-pass, not recursive: only ONE trailing suffix is ever
-    // stripped, so a hypothetical stacked label like "Club FC A.F.C."
-    // would only lose the first match ("A.F.C.") and come back as
-    // "Club FC", not "Club". Judged acceptable given this is a narrow,
-    // 4-entry list of real football legal suffixes -- a doubly-suffixed
-    // label has not been observed and is not expected in practice.
-    private static readonly string[] ClubNameLegalSuffixes = ["A.F.C.", "F.C.", "AFC", "FC"];
-
-    private static string NormalizeClubName(string rawClubName)
-    {
-        var trimmed = rawClubName.Trim();
-
-        foreach (var suffix in ClubNameLegalSuffixes)
-        {
-            if (trimmed.Length <= suffix.Length)
-                continue;
-
-            if (!trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Must be a distinct trailing TOKEN — the character right
-            // before the suffix must be whitespace, or this would also
-            // strip "FC" out of the middle/end of an unrelated single
-            // word.
-            if (!char.IsWhiteSpace(trimmed[trimmed.Length - suffix.Length - 1]))
-                continue;
-
-            return trimmed[..^suffix.Length].TrimEnd();
-        }
-
-        return trimmed;
     }
 
     // Keyed by QID, same "one row per batch entry, absent means none" shape

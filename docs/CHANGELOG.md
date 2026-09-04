@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `backend/src/XGArcade.Data/ClubNameNormalizer.cs` (new),
+  `backend/src/XGArcade.DataSync/Wikidata/SparqlResponseParsers.cs`,
+  `backend/src/XGArcade.DataSync/Wikidata/WikidataCareerStintEntry.cs`,
+  `backend/src/XGArcade.Games.XGConnect/PlayerCareerOverlapService.cs`,
+  `docs/requirements-document.md` (REQ-1406 bug-fix status note, v2.60 →
+  v2.61), `docs/backlog.md` (S-213 given a bugfix addendum) — the real fix
+  for the product-owner's club-pairing report (the follow-up to the
+  misdiagnosed entry below): xG Connect's chain-builder
+  (`ChainBuilder.tsx`) rejected genuinely correct claims (Azpilicueta
+  sharing Chelsea with Hazard; Olsson sharing West Bromwich Albion).
+  Root cause: the claimed-club field is free text, compared with a bare
+  case-insensitive equality against `PlayerCareerStint.ClubName`, which is
+  already canonicalized/suffix-stripped at Wikidata ingest time (e.g.
+  seeded clubs store `"Chelsea"`, never `"Chelsea FC"`) — no normalization
+  was applied to the player-typed side, so typing the club's full/legal
+  name silently failed the match. Fixed by extracting the ingest-time
+  suffix-stripping normalizer (previously a private
+  `SparqlResponseParsers.NormalizeClubName`) into a shared, standalone
+  `XGArcade.Data.ClubNameNormalizer.StripLegalSuffix` — the same
+  `PlayerNameNormalizer` precedent — and applying it to both sides of
+  `PlayerCareerOverlapService.HaveOverlapAtClubAsync`'s comparison. Still
+  an exact match once normalized, not fuzzy — doesn't weaken
+  correctness-checking. New tests: `ClubNameNormalizerTests.cs`
+  (`XGArcade.Data.Tests`) plus a regression case in
+  `PlayerCareerOverlapServiceTests.cs`. Colloquial/abbreviated club names
+  (e.g. "West Brom") remain unaddressed — same deferred category as
+  REQ-208's player-name alias table — flagged, not built. No new ADR (a
+  targeted bug fix plus a like-for-like utility extraction, not a
+  structural/boundary decision).
+
 - 2026-09-04 — `infra/bicep/main.bicep`,
   `docs/decisions/0070-grid-live-lookup-flag.md` — **corrects a same-day
   misdiagnosis.** A product-owner bug report ("I had Eden Hazard, I set

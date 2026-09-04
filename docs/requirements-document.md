@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.60"
+version: "2.61"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -11400,6 +11400,36 @@ GetPlayersByIdsAsync` — never the opponent's steps; only whether the
 opponent has reached a terminal state (`opponentTerminalState`, see
 REQ-1409's own read-side addendum) is exposed for them. See REQ-1404's own
 read-side addendum for why this pair of endpoints exists at all.
+
+**Bug fix status note (2026-09-04):** direct product-owner report — a
+genuinely correct step (Cesar Azpilicueta sharing Chelsea with a preceding
+player; separately, Jonas Olsson sharing West Bromwich Albion) was scored
+`IsValid: false`. Root cause: `ChainBuilder.tsx`'s "Claimed shared club"
+field is free text (`frontend/src/connect/ChainBuilder.tsx:177-185`), but
+`PlayerCareerOverlapService.HaveOverlapAtClubAsync`
+(`XGArcade.Games.XGConnect`) compared it against `PlayerCareerStint
+.ClubName` with a bare `OrdinalIgnoreCase` equality — no normalization on
+the player-typed side, even though the stored side is already
+canonicalized/suffix-stripped at Wikidata ingest time (seeded clubs store
+`ClubDefinition`'s bare name, e.g. `"Chelsea"`, never `"Chelsea FC"`).
+Typing the club's full/legal name (a natural thing to do, and how
+Wikidata's own labels often read) silently failed the match. Fixed by
+extracting the ingest-time suffix-stripping normalizer (previously a
+private `SparqlResponseParsers.NormalizeClubName`,
+`XGArcade.DataSync`) into a shared, standalone `XGArcade.Data
+.ClubNameNormalizer.StripLegalSuffix` — the same "shared normalization
+function used wherever a name needs comparing" precedent
+`PlayerNameNormalizer` already establishes — and applying it to both
+sides of `HaveOverlapAtClubAsync`'s comparison, not just at ingest. Still
+an exact match once normalized (never fuzzy/substring), so this doesn't
+weaken correctness-checking, only fixes a legal-suffix mismatch. New
+direct unit coverage in `ClubNameNormalizerTests.cs`
+(`XGArcade.Data.Tests`) plus a regression case in
+`PlayerCareerOverlapServiceTests.cs`. Not fixed here, and worth a future
+story if it recurs: colloquial/abbreviated club names (e.g. "West Brom"
+for "West Bromwich Albion") aren't suffix mismatches and this fix doesn't
+address them — same category of gap REQ-208 already defers for player
+names (alias table, fuzzy typo tolerance).
 
 **Status note (2026-09-03, S-218 — frontend built):** `ChainBuilder.tsx`
 (`frontend/src/connect/`, design-document.md SCREEN-16) renders the
