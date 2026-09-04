@@ -56,6 +56,33 @@ export function ChainBuilder({
   const opponentTerminalLabel = terminalStateLabel(opponentTerminalState, 'opponent') ?? 'Your opponent is still playing.';
   const stillPlaying = myTerminalLabel === null;
 
+  // S-218 bugfix (real product bug, not a test-only flake — see
+  // ChainBuilder.tsx's git history / docs/design-document.md SCREEN-16's
+  // own addendum for the CI trail that found it): the "Connected! Your
+  // chain is complete." acknowledgment used to live ONLY in the local
+  // `feedback` state set inside handleSubmit's async callback below. That
+  // is fragile in exactly one real scenario — the submission that closes
+  // MY chain, when my opponent had already reached their own terminal
+  // state first. In that case, `ConnectChainStepService.SubmitChainStepAsync`
+  // resolves the match server-side INLINE in the same request, so the very
+  // next `onChanged()`-triggered refetch comes back `status: 'Resolved'`,
+  // and `MatchScreen.tsx` immediately swaps this whole component out for
+  // `MatchResolution` — destroying the local `feedback` state before the
+  // player ever perceived it (see MatchResolution.tsx's own matching
+  // acknowledgment for that case).
+  //
+  // `myTerminalState.completed` is itself derived from props, not local
+  // state — it survives any concurrent re-render (a poll tick landing at
+  // an awkward moment, React batching a parent update, etc.) as long as
+  // this component stays mounted, unlike the one-shot `feedback` flag.
+  // Using it directly here (rather than only the ephemeral `feedback`
+  // value) makes the acknowledgment durable for the case where MY own
+  // submission completed my chain but the match itself is still Active
+  // (my opponent hasn't finished yet) — handleSubmit below deliberately
+  // stops setting local `feedback` text for that specific outcome and
+  // leaves this to take over instead.
+  const myChainJustCompleted = myTerminalState.completed;
+
   function handleSelect(suggestion: PlayerAutocompleteSuggestion) {
     // The chain-step endpoint takes a plain name (resolved server-side) —
     // ADR-0007's autocomplete/correctness separation means seeing a
@@ -98,12 +125,16 @@ export function ChainBuilder({
         return;
       }
 
-      setFeedback({
-        tone: 'success',
-        text: result.chainComplete ? 'Connected! Your chain is complete.' : 'Connector accepted.',
-      });
       setCandidateName('');
       setClaimedClubName('');
+      if (result.chainComplete) {
+        // Deliberately NOT set here — see `myChainJustCompleted` above for
+        // why the completion acknowledgment is derived from props instead
+        // of this ephemeral local state.
+        setFeedback(null);
+      } else {
+        setFeedback({ tone: 'success', text: 'Connector accepted.' });
+      }
       onChanged();
     });
   }
@@ -163,6 +194,11 @@ export function ChainBuilder({
         </div>
       )}
 
+      {myChainJustCompleted && (
+        <p className="connect-match__success" role="status">
+          Connected! Your chain is complete.
+        </p>
+      )}
       {feedback && (
         <p className={feedback.tone === 'error' ? 'connect-match__error' : 'connect-match__success'} role="status">
           {feedback.text}

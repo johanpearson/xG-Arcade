@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChainBuilder } from './ChainBuilder';
+import type { ChainBuilderProps } from './ChainBuilder';
 import type { ConnectTerminalState } from '../lib/types';
 
 function jsonResponse(body: unknown, status = 200) {
@@ -14,26 +15,35 @@ function jsonResponse(body: unknown, status = 200) {
 
 const NOT_TERMINAL: ConnectTerminalState = { busted: false, timedOut: false, completed: false };
 
-function renderBuilder(overrides: Partial<Parameters<typeof ChainBuilder>[0]> = {}, fetchMock = vi.fn()) {
+function buildProps(overrides: Partial<ChainBuilderProps> = {}, onAuthError = vi.fn(), onChanged = vi.fn()): ChainBuilderProps {
+  return {
+    matchId: 'match-1',
+    accessToken: 'token',
+    myTargetPick: { targetPlayerId: 't1', targetPlayerName: 'Lionel Messi', locked: true },
+    opponentTargetPick: { targetPlayerId: 't2', targetPlayerName: 'Cristiano Ronaldo', locked: true },
+    myChainSteps: [],
+    myTerminalState: NOT_TERMINAL,
+    opponentTerminalState: NOT_TERMINAL,
+    deadlineUtc: '2026-09-03T12:00:00Z',
+    onAuthError,
+    onChanged,
+    ...overrides,
+  };
+}
+
+function renderBuilder(overrides: Partial<ChainBuilderProps> = {}, fetchMock = vi.fn()) {
   vi.stubGlobal('fetch', fetchMock);
   const onAuthError = vi.fn();
   const onChanged = vi.fn();
-  render(
-    <ChainBuilder
-      matchId="match-1"
-      accessToken="token"
-      myTargetPick={{ targetPlayerId: 't1', targetPlayerName: 'Lionel Messi', locked: true }}
-      opponentTargetPick={{ targetPlayerId: 't2', targetPlayerName: 'Cristiano Ronaldo', locked: true }}
-      myChainSteps={[]}
-      myTerminalState={NOT_TERMINAL}
-      opponentTerminalState={NOT_TERMINAL}
-      deadlineUtc="2026-09-03T12:00:00Z"
-      onAuthError={onAuthError}
-      onChanged={onChanged}
-      {...overrides}
-    />,
-  );
-  return { onAuthError, onChanged };
+  const props = buildProps(overrides, onAuthError, onChanged);
+  const { rerender } = render(<ChainBuilder {...props} />);
+  // Simulates what MatchScreen.tsx really does after onChanged() resolves —
+  // pass fresh props down (a new `GET /matches/{matchId}` response) without
+  // unmounting ChainBuilder, the same way React itself would for a parent
+  // re-render that doesn't change this component's position in the tree.
+  const rerenderWith = (nextOverrides: Partial<ChainBuilderProps>) =>
+    rerender(<ChainBuilder {...buildProps({ ...overrides, ...nextOverrides }, onAuthError, onChanged)} />);
+  return { onAuthError, onChanged, rerenderWith };
 }
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, candidate: string, club: string) {
@@ -84,7 +94,16 @@ describe('ChainBuilder', () => {
     expect((screen.getByLabelText('Candidate player name') as HTMLInputElement).value).toBe('');
   });
 
-  it('REQ-1406: a closing step shows the "chain complete" confirmation', async () => {
+  it('REQ-1406/S-218: a closing step notifies the parent to refetch, and the "chain complete" confirmation is derived from the refreshed myTerminalState rather than one-shot local state', async () => {
+    // S-218 bugfix regression test. The confirmed production bug: the
+    // "Connected!" acknowledgment used to be set as local state inside the
+    // submit handler, which a concurrent parent re-render (in the real bug,
+    // an immediate unmount when the same submission also resolved the
+    // match) could wipe before it was ever observed. This test proves the
+    // fix's core property: ChainBuilder itself never needs its own local
+    // "I just completed my chain" flag to show the acknowledgment — it only
+    // needs `myTerminalState.completed` to be true in its props, exactly as
+    // a real `onChanged()`-triggered refetch would deliver moments later.
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/players/autocomplete')) return jsonResponse([]);
@@ -102,11 +121,41 @@ describe('ChainBuilder', () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
     const user = userEvent.setup();
-    renderBuilder({}, fetchMock);
+    const { onChanged, rerenderWith } = renderBuilder({}, fetchMock);
 
     await fillAndSubmit(user, 'Some Player', 'Barcelona');
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
 
-    expect(await screen.findByText('Connected! Your chain is complete.')).toBeInTheDocument();
+    // Before the parent's refetch has delivered new props, nothing claims
+    // completion yet — there is deliberately no ephemeral local flag racing
+    // to show it early only to have it possibly wiped a moment later.
+    expect(screen.queryByText('Connected! Your chain is complete.')).not.toBeInTheDocument();
+
+    // Simulate MatchScreen.tsx's post-refetch re-render (still `Active` —
+    // this player's own chain is complete, but their opponent hasn't
+    // finished, so the match hasn't resolved and ChainBuilder stays
+    // mounted): the acknowledgment now appears, sourced entirely from the
+    // refreshed `myTerminalState` prop.
+    rerenderWith({
+      myTerminalState: { busted: false, timedOut: false, completed: true },
+      myChainSteps: [
+        {
+          position: 1,
+          attemptNumber: 1,
+          candidatePlayerId: 'p1',
+          candidatePlayerName: 'Some Player',
+          claimedClubName: 'Barcelona',
+          isValid: true,
+          closesChain: true,
+          submittedAt: '2026-09-04T00:00:00Z',
+        },
+      ],
+    });
+
+    expect(screen.getByText('Connected! Your chain is complete.')).toBeInTheDocument();
+    // And the terminal-state text (a separate, pre-existing signal) shows
+    // alongside it, not instead of it — both are true simultaneously.
+    expect(screen.getByText(/finished their chain/)).toBeInTheDocument();
   });
 
   it('REQ-1407: a first invalid attempt allows a retry, without ending participation', async () => {

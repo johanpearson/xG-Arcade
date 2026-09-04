@@ -34,6 +34,27 @@ export function MatchResolution({ detail }: MatchResolutionProps) {
   return (
     <section className="connect-match__section">
       <h3 className="connect-match__section-title">{outcomeHeading(detail.outcome)}</h3>
+      {/* S-218 bugfix: when the viewer's OWN closing chain-step is also the
+          one that completes match resolution (their opponent had already
+          reached a terminal state first), ConnectChainStepService resolves
+          the match inline in that same request — MatchScreen.tsx swaps
+          ChainBuilder straight out for this component, so a player never
+          sees ChainBuilder's own "Connected! Your chain is complete."
+          feedback at all in that case. Rather than trying to flash that
+          message for one frame before an immediate unmount, this
+          acknowledgment is folded into the screen the player actually
+          lands on — correct UX is "you completed your chain, and here's
+          the final result" as one screen, not two. Shown whenever the
+          viewer's own chain reached a genuine completion (never for a bust
+          or timeout, which report through the score/outcome text instead),
+          not only for the specific race above — the statement is equally
+          true for a player who completed their chain earlier and is only
+          now seeing the resolution after their opponent finished. */}
+      {detail.myTerminalState.completed && (
+        <p className="connect-match__success" role="status">
+          Connected! Your chain is complete.
+        </p>
+      )}
       <dl className="connect-match__score-list">
         <div className="connect-match__score-row">
           <dt>Your score</dt>

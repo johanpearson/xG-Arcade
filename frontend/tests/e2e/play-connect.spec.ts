@@ -278,37 +278,41 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
           (response) => response.url().includes('/chain-steps') && response.request().method() === 'POST',
         )
         await page.getByRole('button', { name: 'Submit connector' }).click()
-        // "Connected!" is set from local React state the instant the POST
-        // response arrives (ChainBuilder.tsx's own handleSubmit) — not
-        // gated on any poll — but the request itself is a real network
-        // round trip (POST /matches/{matchId}/chain-steps, including a
-        // PlayerCareerOverlapService check) that this CI environment's two
-        // parallel Playwright workers have observed exceeding Playwright's
-        // default 5000ms expect timeout under load (two independent CI
-        // runs failed here, one on this exact commit) even though the same
-        // step reliably completes on a re-run seconds later — a resource-
-        // contention flake, not a logic bug (verified: no code path
-        // connects the merge that landed alongside this failure to
-        // ChainBuilder's local `feedback` state or its mount lifecycle).
-        // Same generous explicit timeout this spec already uses below for
-        // other round-trip-sensitive assertions (the chat-attribution
-        // check), rather than relying on Playwright's tight default.
+        // 2026-09-04 CONFIRMED root cause and fix (this assertion's own CI
+        // trail — four failures across this spec's history, the fourth
+        // genuine bug this E2E spec has caught): "Connected!" was
+        // ORIGINALLY set from local React state the instant the POST
+        // response arrived (ChainBuilder.tsx's own handleSubmit), with no
+        // dependency on the follow-up refetch. That was fragile in exactly
+        // one real scenario, caught with diagnostic logging on a real CI
+        // run: when THIS submission is also the one that completes match
+        // resolution (the submitter's opponent had already reached their
+        // own terminal state first), `ConnectChainStepService
+        // .SubmitChainStepAsync` resolves the match server-side INLINE in
+        // the same request, so the very next `onChanged()`-triggered
+        // refetch comes back `status: 'Resolved'` — MatchScreen.tsx
+        // immediately swaps ChainBuilder out for MatchResolution, wiping
+        // ChainBuilder's local `feedback` state, sometimes before that
+        // state was ever painted at all. Real product bug, not a test
+        // artifact: a real player closing the completing connector could
+        // see the same zero-perceptible-time flash (or nothing).
         //
-        // 2026-09-04 root-cause follow-up (this failure recurred across 4
-        // CI runs/3 commits, including one that timed out at this same
-        // 20s wait — ruling out a plain timing-margin explanation on its
-        // own): a full trace of the seed -> validate path
-        // (InternalConnectTestDataEndpoints/ConnectChainStepService/
-        // PlayerCareerOverlapService) found no read-after-write, caching,
-        // or DbContext-sharing gap — every repository here is
-        // request-scoped, every write commits via SaveChangesAsync before
-        // its endpoint returns, and ClaimedClubName/candidatePlayerName
-        // comparisons are exact/deterministic round-trips of this spec's
-        // own seed response. That leaves "the POST genuinely came back
-        // IsValid:false/an error, for a reason this trace didn't surface"
-        // as a live possibility alongside pure infra contention — so, on
-        // failure only, capture the actual response instead of leaving the
-        // next occurrence to be re-diagnosed from scratch.
+        // Fixed on both sides of that swap: ChainBuilder.tsx now derives
+        // this acknowledgment from `myTerminalState.completed` (refreshed
+        // props, durable across re-renders) instead of one-shot local
+        // state, for the non-resolving case (this spec's User A, whose own
+        // completion doesn't resolve the match since their opponent isn't
+        // terminal yet); MatchResolution.tsx now shows the same
+        // acknowledgment itself, derived from the same field in the
+        // resolved-match payload, for the resolving case (User B below) —
+        // see both components' own S-218 comments. Either way, this
+        // assertion now depends on a real `GET /matches/{matchId}` round
+        // trip completing (the POST's own follow-up refetch), not an
+        // instantaneous local-state flip — the generous 20s timeout below
+        // (this spec's existing precedent for other round-trip-sensitive
+        // assertions, e.g. the chat-attribution check) covers that
+        // legitimately, on top of covering the plain CI resource-
+        // contention flake this wait was originally widened for.
         try {
           await expect(page.getByText('Connected! Your chain is complete.')).toBeVisible({ timeout: 20_000 })
         } catch (err) {

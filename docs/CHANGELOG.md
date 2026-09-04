@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `frontend/src/connect/ChainBuilder.tsx`,
+  `frontend/src/connect/MatchResolution.tsx`,
+  `frontend/src/connect/ChainBuilder.test.tsx`,
+  `frontend/src/connect/MatchResolution.test.tsx`,
+  `frontend/tests/e2e/play-connect.spec.ts` (comment only, no assertion
+  change), `docs/design-document.md` (SCREEN-16, v0.90 → v0.91),
+  `docs/backlog.md` (S-218 entry given a fourth bugfix addendum) —
+  `ui-implementer` fixed a real product bug (not a test-only flake, the
+  fourth genuine bug this story's own E2E spec has caught): the "Connected!
+  Your chain is complete." acknowledgment lived only in `ChainBuilder.tsx`'s
+  one-shot local `feedback` state, which a same-request match resolution
+  (when the player's own closing chain-step also completes their opponent's
+  already-terminal match) destroys via an immediate `MatchScreen.tsx`
+  unmount before the player ever perceives it. Fixed by deriving the
+  acknowledgment from `myTerminalState.completed` (a prop, durable across
+  re-renders) in `ChainBuilder.tsx` for the non-resolving case, and folding
+  the identical acknowledgment into `MatchResolution.tsx` (derived from the
+  same field) for the resolving case. No REQ/ADR change (a copy/robustness
+  fix within REQ-1406/1408's existing acceptance criteria); SCREEN-16
+  updated with a bugfix addendum describing the confirmed root cause and
+  fix.
+
 - 2026-09-03 — `docs/architecture-document.md` (COMP-17 row, v1.46 → v1.47) —
   `quality-architect` closed a doc-drift gap `architecture-reviewer`
   flagged: the row hadn't been updated for S-218's read-side addition

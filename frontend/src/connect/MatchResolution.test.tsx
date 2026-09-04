@@ -48,6 +48,36 @@ describe('MatchResolution', () => {
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
 
+  it('S-218 bugfix: acknowledges the viewer\'s own completed chain on the resolution screen', () => {
+    // Real production bug (not test-only): when the viewer's OWN closing
+    // chain-step is also the submission that completes match resolution
+    // (their opponent had already reached a terminal state), the backend
+    // resolves inline in that same request and MatchScreen.tsx swaps
+    // ChainBuilder straight out for this component — ChainBuilder's own
+    // "Connected! Your chain is complete." local-state feedback never gets
+    // a chance to render. This proves the fold-in fix: MatchResolution
+    // itself carries the acknowledgment, derived from `myTerminalState`
+    // (part of the very same resolved-match payload), so it survives that
+    // unmount rather than depending on anything ChainBuilder ever rendered.
+    render(<MatchResolution detail={detail({ myTerminalState: { busted: false, timedOut: false, completed: true } })} />);
+
+    expect(screen.getByText('Connected! Your chain is complete.')).toBeInTheDocument();
+  });
+
+  it('S-218 bugfix: does not show the chain-complete acknowledgment for a forfeiting player (bust/timeout)', () => {
+    render(
+      <MatchResolution
+        detail={detail({
+          outcome: 'Loss',
+          myScore: null,
+          myTerminalState: { busted: true, timedOut: false, completed: false },
+        })}
+      />,
+    );
+
+    expect(screen.queryByText('Connected! Your chain is complete.')).not.toBeInTheDocument();
+  });
+
   it('REQ-1408: shows the caller\'s own completed chain for context', () => {
     render(
       <MatchResolution

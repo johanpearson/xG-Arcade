@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.90"
+version: "0.91"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -3877,7 +3877,45 @@ remains correct for them.
   for context, the caller's own full completed chain via the same
   `ChainStepsList.tsx` used by the Active phase above. The opponent's own
   chain is never shown, even here (nothing in `ConnectMatchDetail` ever
-  carries it).
+  carries it). **Added 2026-09-04 (bugfix, see addendum below):** a
+  `connect-match__success`/`role="status"` line, "Connected! Your chain is
+  complete.", shown whenever `myTerminalState.completed` is true — never
+  for a bust/timeout forfeit, which the outcome heading and "Forfeited"
+  score text already cover.
+
+- **Bugfix addendum (2026-09-04) — real product bug, the fourth genuine
+  bug this story's own `play-connect.spec.ts` has caught, not a test-only
+  flake: worth being plain about, since it's the concrete case for why the
+  E2E investment here paid for itself.** The Active phase's per-submission
+  "Connected! Your chain is complete." feedback (above) used to live only
+  in `ChainBuilder.tsx`'s own local `feedback` state, set inside its submit
+  handler with no dependency on the follow-up refetch. That is fragile in
+  exactly one real scenario: when a player's own closing chain-step is
+  ALSO the submission that completes match resolution (their opponent had
+  already reached a terminal state first). `ConnectChainStepService
+  .SubmitChainStepAsync` resolves the match server-side INLINE in that same
+  request, so the very next refetch comes back `status: 'Resolved'` and
+  `MatchScreen.tsx` immediately swaps `ChainBuilder` out for
+  `MatchResolution` — destroying the local `feedback` state, sometimes
+  before it was ever painted. A real player closing the match-completing
+  connector could see the confirmation flash for zero perceptible time, or
+  not at all, before being yanked straight to the resolution screen.
+  **Fixed** on both sides of that swap: `ChainBuilder.tsx` now derives the
+  acknowledgment from `myTerminalState.completed` — a prop, refreshed by
+  the same refetch, durable across any concurrent re-render as long as the
+  component stays mounted — rather than the one-shot local flag, covering
+  the case where the player's own completion doesn't itself resolve the
+  match (their opponent isn't terminal yet). `MatchResolution.tsx` (see
+  above) now shows the identical acknowledgment itself, sourced from the
+  same field in the resolved-match payload, for the case where it does —
+  folding "you completed your chain" into the screen the player actually
+  lands on is the correct UX here (one screen: "you finished, and here's
+  the result"), not a flashed intermediate message immediately swapped
+  away. Shown whenever the viewer's chain is genuinely complete, not only
+  for this specific race, since the statement is equally true for a player
+  who completed earlier and is only now seeing the resolution after their
+  opponent finished. See `docs/backlog.md`'s S-218 entry for the full CI
+  trail and test coverage added.
 
 - **In-match chat (`MatchChat.tsx`, REQ-1410).** Rendered unconditionally by
   `MatchScreen.tsx` below every phase's own content — never gated on

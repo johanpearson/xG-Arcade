@@ -11141,3 +11141,71 @@ editing `MatchScreen.tsx`'s own top-of-file comment: it referenced a
 "Known limitation" note that (unlike `ChainBuilder.tsx`'s own, real one)
 was never actually added to this file — replaced with an accurate
 description of why this is a plain poll, not a live countdown.
+
+**Fourth real bug caught by the E2E spec (2026-09-04, `ui-implementer`) —
+worth being plain about, since this is the fourth genuine bug this one
+story's own E2E spec has found (a stale-tab bug, two spec-only bugs, and
+now a real product bug), each caught before it reached `main`:**
+`submitClosingChainStep`'s `"Connected! Your chain is complete."`
+assertion had failed across multiple CI runs. Diagnostic logging added in
+the prior pass (capturing the chain-step POST's own response body on
+failure) caught a real instance for User B: the POST came back a clean
+`200 {"isValid":true,"chainComplete":true,...}`, yet the UI never showed
+the confirmation. **Confirmed root cause**: `ChainBuilder.tsx`'s
+`handleSubmit` set the "Connected!" text as one-shot local `feedback`
+state, then called `onChanged()` (the parent's refetch) with no
+dependency between the two. When the CLOSING submission is also the one
+that completes match resolution — the opponent had already reached their
+own terminal state first — `ConnectChainStepService.SubmitChainStepAsync`
+resolves the match server-side INLINE in that same request, so the very
+next refetch comes back `status: 'Resolved'` and `MatchScreen.tsx`
+immediately swaps `<ChainBuilder>` out for `<MatchResolution>` —
+destroying the local `feedback` state, sometimes before it was ever
+painted. Real product bug, not a test artifact: a real player closing the
+match-winning connector could see the same zero-perceptible-time flash (or
+nothing) before being yanked straight to the resolution screen. (A second,
+related symptom — four prior CI failures on this same assertion for User
+A's own closing submission, whose completion does NOT resolve the match —
+was investigated but not conclusively tied to the same cause; A's
+`ChainBuilder` never unmounts as a direct result of A's own submission, so
+a plain re-render can't explain a lost local-state flag the way B's
+unmount does. Most likely explanation remains the CI resource-contention
+timing margin already flagged and widened to a 20s explicit timeout in the
+prior pass, not a second distinct logic bug — but the fix below removes
+any dependency on that ephemeral local state for A's case too, so it's no
+longer a live risk either way.)
+
+**Fixed**, on both sides of the swap described above:
+- `ChainBuilder.tsx` now derives the completion acknowledgment from
+  `myTerminalState.completed` (a prop, refreshed by the very same refetch)
+  rather than the one-shot `feedback` flag — durable across any concurrent
+  re-render as long as the component stays mounted, covering the
+  non-resolving case (this spec's User A).
+- `MatchResolution.tsx` now shows the identical acknowledgment itself,
+  derived from the same field in the resolved-match payload, for the
+  resolving case (User B) — folding "you completed your chain" into the
+  screen the player actually lands on, rather than trying to flash a
+  message for one frame before an immediate unmount. Shown whenever the
+  viewer's own chain is genuinely complete (never for a bust/timeout
+  forfeit), not gated to only the race case, since the statement is
+  equally true for a player who completed earlier and is only now seeing
+  the resolution.
+
+See `docs/design-document.md` SCREEN-16's own addendum for the exact
+before/after. `play-connect.spec.ts`'s own `submitClosingChainStep` needed
+no assertion change — the text still appears in both cases, just from a
+different component for the resolving case — only its stale "set from
+local React state the instant the POST response arrives" comment was
+corrected to describe the real, now-fixed mechanism. New/updated Vitest
+coverage: `ChainBuilder.test.tsx`'s former "closing step" test now
+simulates the real two-step lifecycle (submit, then a parent re-render
+with refreshed `myTerminalState`/`myChainSteps` props, matching what
+`MatchScreen.tsx` really does after `onChanged()` resolves) and asserts
+the acknowledgment appears only once those props land, not from any
+ephemeral flag; `MatchResolution.test.tsx` gained two new cases (shows the
+acknowledgment when `myTerminalState.completed`, does not show it for a
+forfeiting player). Full suite green: `tsc -b` clean, `oxlint` clean (same
+pre-existing unrelated warnings only), Vitest 68 files / 887 tests passed.
+No `dotnet`/Docker in this sandbox — a `ci.yml` `workflow_dispatch` run is
+needed to confirm the real E2E spec passes end to end against a live
+backend.
