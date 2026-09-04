@@ -11209,3 +11209,25 @@ pre-existing unrelated warnings only), Vitest 68 files / 887 tests passed.
 No `dotnet`/Docker in this sandbox — a `ci.yml` `workflow_dispatch` run is
 needed to confirm the real E2E spec passes end to end against a live
 backend.
+
+**S-219 bugfix addendum (2026-09-04): "Matches awaiting your move" is now
+clickable, closing the gap S-219 itself flagged.** Direct user feedback:
+"I want every notification to be possible to click and get redirected to
+where it is, if its a match or whatever." S-219's `NotificationBadge.tsx`
+left this one category as plain, non-interactive text because S-218's
+match screen didn't exist yet at the time — S-218 has since shipped
+`FriendsScreen.tsx`'s "Matches" tab/drill-down, so the reason for the gap
+no longer holds. Fixed: `NotificationBadge.tsx`'s matches line is now a
+real `role="menuitem"` button calling `onOpenFriendsTab('matches')`, same
+as the other two categories; `onOpenFriendsTab`'s prop type widened from
+`'friends' | 'challenges'` to `'friends' | 'challenges' | 'matches'` in
+both `NotificationBadge.tsx` and `HeaderNav.tsx` (`App.tsx`'s
+`handleOpenFriendsTab` needed no change — already typed against
+`FriendsTabKey`, which already included `'matches'`). Removed the now-dead
+`.notification-badge__item--static` CSS rule. `NotificationBadge.test.tsx`
+updated: the old "is plain, non-interactive text" test replaced with a
+"clicking calls onOpenFriendsTab('matches')" test, mirroring the existing
+friend-requests/challenges cases exactly. `docs/design-document.md`
+(SCREEN-07) and `docs/requirements-document.md` (REQ-1411) updated in the
+same iteration. No REQ/ADR change — this closes an already-flagged,
+temporary gap in an already-Built feature, not a new decision.

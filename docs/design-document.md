@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.91"
+version: "0.92"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -2295,17 +2295,16 @@ reveal.
   below), not always landing on the default "Friends" tab. This is the
   direct fix for gap (2) above: clicking the badge now shows *where* the
   notification is, not just how many.
-- **"Matches awaiting your move (N)"** is deliberately plain,
-  non-interactive text, not a link — S-218 (the match/gameplay screen)
-  doesn't exist yet, so there is nowhere for this category to navigate to.
-  Rendering a broken/dead link here would be worse than an honest
-  non-interactive line. **This is a temporary, flagged gap, not a
-  permanent design decision** — the same "flag it plainly, mirror the
-  house style for a known temporary limitation" approach SCREEN-15's own
-  now-resolved "Identity gap" note and its still-open "Matchmaking tab"
-  session-local-status note both use. Once S-218 ships a real match
-  screen, this category should become a third clickable link, matching the
-  other two.
+- **"Matches awaiting your move (N)"** is now a real `role="menuitem"`
+  link too, matching the other two categories — closed 2026-09-04, direct
+  user feedback ("I want every notification to be possible to click and
+  get redirected to where it is"). It opens SCREEN-15 with `initialTab:
+  'matches'`, landing on the same "Matches" tab/drill-down S-218 shipped
+  (`FriendsScreen.tsx`'s `selectedMatchId` state shows the matches list,
+  not a specific match — REQ-1411's aggregate count has no single match id
+  to deep-link into, only a category). This was flagged as a temporary gap
+  when SCREEN-07's badge-redesign shipped, ahead of S-218's match screen
+  existing; now that it exists, the gap is closed.
 
 *Known, accepted limitation, not a new one this redesign introduces:* the
 category links seed `FriendsScreen`'s `initialTab` the same "read once at

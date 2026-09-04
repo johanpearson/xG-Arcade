@@ -36,10 +36,9 @@ export interface HeaderNavProps {
   pendingChallengeCount: number;
   matchesAwaitingActionCount: number;
   // Opens SCREEN-15 already on the matching tab — NotificationBadge's own
-  // "Friend requests"/"Challenges" category links call this. Never called
-  // for the third category (matches awaiting a move) — see
-  // NotificationBadge's own doc comment for why.
-  onOpenFriendsTab: (tab: 'friends' | 'challenges') => void;
+  // "Friend requests"/"Challenges"/"Matches awaiting your move" category
+  // links all call this.
+  onOpenFriendsTab: (tab: 'friends' | 'challenges' | 'matches') => void;
   // REQ-720: selecting "xG Grid" from the "Games" list — same destination
   // GameSelectScreen's own "xG Grid" tile already triggers.
   onSelectGrid: () => void;

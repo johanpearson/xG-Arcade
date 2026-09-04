@@ -39,6 +39,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   needed no update (the `GridLiveLookupOptions.Enabled` C# default was
   already `true` — only the deployed dev environment's override changed).
 
+- 2026-09-04 — `frontend/src/nav/NotificationBadge.tsx`,
+  `frontend/src/nav/NotificationBadge.css`, `frontend/src/nav/HeaderNav.tsx`,
+  `frontend/src/nav/NotificationBadge.test.tsx`,
+  `docs/design-document.md` (SCREEN-07, v0.91 → v0.92),
+  `docs/requirements-document.md` (REQ-1411 status note, v2.59 → v2.60),
+  `docs/backlog.md` (S-219 given a bugfix addendum) — direct user feedback
+  ("I want every notification to be possible to click and get redirected
+  to where it is, if its a match or whatever"): "Matches awaiting your
+  move (N)" in the header notification-badge dropdown was left as plain,
+  non-interactive text when S-219 shipped it, because S-218's match screen
+  didn't exist yet — S-218 has since shipped `FriendsScreen.tsx`'s
+  "Matches" tab, so the reason for the gap no longer holds. It's now a
+  real `role="menuitem"` link, same as "Friend requests"/"Challenges",
+  opening SCREEN-15 via `initialTab: 'matches'`. `onOpenFriendsTab`'s prop
+  type widened to include `'matches'` in both components; `App.tsx` needed
+  no change. No REQ/ADR change — closes an already-flagged temporary gap
+  in an already-Built feature.
+
 - 2026-09-04 — `frontend/src/connect/ChainBuilder.tsx`,
   `frontend/src/connect/MatchResolution.tsx`,
   `frontend/src/connect/ChainBuilder.test.tsx`,

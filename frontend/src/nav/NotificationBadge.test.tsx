@@ -104,15 +104,16 @@ describe('NotificationBadge', () => {
     expect(onOpenFriendsTab).toHaveBeenCalledWith('challenges');
   });
 
-  it('"Matches awaiting your move (N)" is plain, non-interactive text — no S-218 match screen exists yet to link to', async () => {
+  it('clicking "Matches awaiting your move (N)" calls onOpenFriendsTab("matches") and closes the dropdown', async () => {
     const { onOpenFriendsTab } = renderBadge({ matchesAwaitingActionCount: 1 });
     const user = userEvent.setup();
+    const toggle = screen.getByTestId('notification-badge-toggle');
 
-    await user.click(screen.getByTestId('notification-badge-toggle'));
+    await user.click(toggle);
+    await user.click(screen.getByRole('menuitem', { name: 'Matches awaiting your move (1)' }));
 
-    const line = screen.getByText('Matches awaiting your move (1)');
-    expect(line.tagName).not.toBe('BUTTON');
-    expect(line.closest('button')).toBeNull();
-    expect(onOpenFriendsTab).not.toHaveBeenCalled();
+    expect(onOpenFriendsTab).toHaveBeenCalledTimes(1);
+    expect(onOpenFriendsTab).toHaveBeenCalledWith('matches');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 });
