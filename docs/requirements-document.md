@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.61"
+version: "2.62"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -11362,14 +11362,18 @@ both are reached, rather than always waiting out the full 6 hours.
 > always know right away whether my chain is still valid, rather than
 > finding out only at the end.
 
-**Status: Built, 2026-09-03 (S-213).** `IConnectChainStepService`/
-`ConnectChainStepService` (`XGArcade.Games.XGConnect`) implements the
-per-step live validation: `IPlayerCareerOverlapService` gained a new
-`HaveOverlapAtClubAsync(playerAId, playerBId, clubName)` method (shares
-its fetch-once/live-refresh plumbing with the existing
-`HaveSharedClubOverlapAsync`, extracted into a private
-`LoadBothPlayersStintsAsync` helper) for the per-step claimed-club check,
-while chain-closing detection reuses the existing, unmodified
+**Status: Built, 2026-09-03 (S-213); the "claimed club" shape described in
+this paragraph was replaced 2026-09-04 — see the design-change status note
+below for the current shape (`GetSharedClubOverlapsAsync`), kept here only
+as accurate history of what S-213 originally shipped.**
+`IConnectChainStepService`/`ConnectChainStepService`
+(`XGArcade.Games.XGConnect`) implements the per-step live validation:
+`IPlayerCareerOverlapService` gained a new `HaveOverlapAtClubAsync
+(playerAId, playerBId, clubName)` method (shares its fetch-once/
+live-refresh plumbing with the existing `HaveSharedClubOverlapAsync`,
+extracted into a private `LoadBothPlayersStintsAsync` helper) for the
+per-step claimed-club check, while chain-closing detection reuses the
+existing, unmodified
 `HaveSharedClubOverlapAsync` against the match's OTHER target pick.
 `ConnectChainStep` gained a `ClosesChain` column (migration
 `20260903130000_AddConnectChainStepClosesChain`) — true only on a step
@@ -11443,19 +11447,62 @@ status note). A `CandidateNotFound` result (all of `position`/
 `attemptNumber`/`candidatePlayerId`/`claimedClubName` null) renders a
 distinct "No player found matching…" message rather than being treated as
 an ordinary failed claim. Full Vitest coverage in `ChainBuilder.test.tsx`/
-`ChainStepsList.test.tsx`/`PlayerSearchField.test.tsx`.
+`ChainStepsList.test.tsx`/`PlayerSearchField.test.tsx`. **The claimed-club
+field this note describes was removed the same day — see the design-change
+status note below; this note is kept for historical accuracy about what
+S-218 originally shipped.**
+
+**Design-change status note (2026-09-04, ADR-0104) — supersedes the
+"claimed club" shape described above and in the immediately preceding bug
+fix note.** Discussing that same-day bug fix, the product owner judged
+recurring club-name string-matching risk not worth preserving "the player
+names the specific club" as part of the challenge, and decided directly:
+the player now submits ONLY a candidate name.
+`IPlayerCareerOverlapService.GetSharedClubOverlapsAsync(playerAId,
+playerBId)` replaces `HaveOverlapAtClubAsync`, returning every club (and
+overlapping year range) the candidate and the preceding chain player
+actually share — an empty list is the rejection case, no player-typed
+value is ever compared against anything. When a pair shares more than one
+club (e.g. Maxwell and Zlatan Ibrahimović — Inter, Barcelona, PSG),
+`ConnectChainStepService` persists one representative overlap
+deterministically (the most recent, by `OverlapStartYear`) — same
+"deterministic, not a new disambiguation mechanism" precedent this
+service's candidate-name-collision handling already uses.
+`ConnectChainStep.ClaimedClubName` (required `string`) is replaced by
+`MatchedClubName`/`MatchedOverlapStartYear`/`MatchedOverlapEndYear` (all
+nullable, migration
+`20260904090000_ReplaceConnectChainStepClaimedClubWithMatchedOverlap`).
+`ChainBuilder.tsx`'s free-text "Claimed shared club" input is removed;
+`ChainStepsList.tsx`'s per-step render and `ChainBuilder.tsx`'s own
+accepted-step feedback both now show the server-computed club and year
+range (`formatMatchedClub`, `frontend/src/lib/connectMatches.ts`) instead
+of a player-typed claim. See ADR-0104 for the full decision, including the
+alternatives considered and the trade-off knowingly accepted (recalling
+*where* two players overlapped is no longer part of the challenge, only
+*whether* a valid connection exists). New/updated test coverage:
+`ClubNameNormalizerTests`'s legal-suffix cases remain valid (still used at
+Wikidata ingest time) but are no longer exercised via this REQ's own path;
+`PlayerCareerOverlapServiceTests.cs` gained direct
+`GetSharedClubOverlapsAsync` coverage (including the multi-club case);
+`ConnectChainStepServiceTests.cs`/`ConnectChainStepEndpointTests.cs`/
+`ConnectMatchRepositoryTests.cs`/`ConnectMatchQueryServiceTests.cs`/
+`ConnectMatchLifecycleServiceTests.cs`/`ConnectScoringServiceTests.cs`/
+`XGConnectGameModuleTests.cs` updated for the new entity/DTO shape;
+`ChainBuilder.test.tsx`/`ChainStepsList.test.tsx`/`MatchResolution.test.tsx`
+updated for the removed field and new display format;
+`play-connect.spec.ts` (E2E) updated to submit only a candidate name and
+asserts the server-computed club/years render correctly post-resolution.
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
-- When the player submits a candidate player name plus the specific club
-  they claim as the shared, overlapping-time-period club between that
-  candidate and the immediately preceding player in the chain (the
-  relevant target pick, for the first step)
+- When the player submits a candidate player name (no club — see the
+  2026-09-04 design-change status note above)
 - Then the system checks, against real, verifiable career data, whether
-  the candidate genuinely played for the claimed club during a period
-  that overlaps with the preceding chain player's own time at that same
-  club
-- Given that check succeeds
+  the candidate genuinely shares ANY club with the immediately preceding
+  chain player (the relevant target pick, for the first step) during an
+  overlapping time period, and if so, which club(s) and years — never a
+  player-submitted claim to verify
+- Given that check finds at least one shared, overlapping-time club
 - When the step is accepted
 - Then the candidate is appended to the player's chain as its next link,
   and the player may submit the next step, or close the chain (see below)

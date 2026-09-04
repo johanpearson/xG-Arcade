@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `backend/src/XGArcade.Games.XGConnect/IPlayerCareerOverlapService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/PlayerCareerOverlapService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/IConnectChainStepService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/ConnectChainStepService.cs`,
+  `backend/src/XGArcade.Api/Connect/ConnectChainStepEndpoints.cs`,
+  `backend/src/XGArcade.Api/Connect/ConnectMatchQueryEndpoints.cs`,
+  `backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs`,
+  `backend/src/XGArcade.Data/Entities/ConnectChainStep.cs`,
+  `backend/src/XGArcade.Data/Migrations/20260904090000_ReplaceConnectChainStepClaimedClubWithMatchedOverlap*`
+  (new), `frontend/src/connect/ChainBuilder.tsx`,
+  `frontend/src/connect/ChainStepsList.tsx`, `frontend/src/lib/connectMatches.ts`,
+  `frontend/src/lib/types.ts`, `frontend/tests/e2e/play-connect.spec.ts`,
+  `docs/decisions/0104-connect-chain-step-club-auto-detected-not-claimed.md`
+  (new), `docs/requirements-document.md` (REQ-1406 design-change status
+  note, v2.61 → v2.62), `docs/architecture-document.md` (COMP-17 row, v1.47
+  → v1.48), `docs/design-document.md` (SCREEN-16, v0.92 → v0.93),
+  `docs/backlog.md` (S-213 given a design-change addendum, superseding the
+  bugfix addendum immediately below) — **supersedes the entry immediately
+  below, same day.** Discussing that bugfix, the product owner judged
+  ongoing club-name string-matching risk not worth preserving "the player
+  names the specific club" as part of xG Connect's chain-builder challenge,
+  and decided directly: a chain step now submits only a candidate player
+  name. `IPlayerCareerOverlapService.GetSharedClubOverlapsAsync` replaces
+  `HaveOverlapAtClubAsync`, returning every club (and overlapping year
+  range) the candidate and the preceding chain player actually share — an
+  empty list is the rejection case, no player-typed value is ever compared
+  against anything, so the entire class of string-matching false-rejection
+  bugs (not just the legal-suffix one just fixed) is now structurally
+  impossible. When a pair shares more than one club (e.g. Maxwell and
+  Zlatan Ibrahimović — Inter, Barcelona, PSG), one representative overlap
+  is picked deterministically (the most recent). `ConnectChainStep
+  .ClaimedClubName` (required) is replaced by nullable
+  `MatchedClubName`/`MatchedOverlapStartYear`/`MatchedOverlapEndYear`;
+  `ChainBuilder.tsx`'s free-text club input is removed, and both the
+  accepted-step feedback and the persisted chain's own display now show
+  the server-computed club/years instead. See ADR-0104 for the full
+  decision, alternatives considered, and the trade-off knowingly accepted
+  (recalling *where* two players overlapped is no longer part of the
+  challenge). Verified: frontend `npx tsc -b` clean, `npx oxlint` clean
+  (same pre-existing unrelated warnings only), `npx vitest run` 888/888
+  passing, `npx playwright test --list` clean. No `dotnet` SDK in this
+  sandbox for the backend — verification is via CI on the branch/PR.
+
 - 2026-09-04 — `backend/src/XGArcade.Data/ClubNameNormalizer.cs` (new),
   `backend/src/XGArcade.DataSync/Wikidata/SparqlResponseParsers.cs`,
   `backend/src/XGArcade.DataSync/Wikidata/WikidataCareerStintEntry.cs`,

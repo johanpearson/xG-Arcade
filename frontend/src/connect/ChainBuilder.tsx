@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { submitConnectChainStep } from '../lib/connectMatches';
+import { formatMatchedClub, submitConnectChainStep } from '../lib/connectMatches';
 import { useSubmitAction } from '../lib/useSubmitAction';
 import type { ConnectChainStepView, ConnectTargetPickView, ConnectTerminalState, PlayerAutocompleteSuggestion } from '../lib/types';
 import { ChainStepsList } from './ChainStepsList';
@@ -48,7 +48,6 @@ export function ChainBuilder({
   onChanged,
 }: ChainBuilderProps) {
   const [candidateName, setCandidateName] = useState('');
-  const [claimedClubName, setClaimedClubName] = useState('');
   const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
@@ -93,16 +92,15 @@ export function ChainBuilder({
 
   function handleSubmit() {
     const trimmedName = candidateName.trim();
-    const trimmedClub = claimedClubName.trim();
-    if (!trimmedName || !trimmedClub) return;
+    if (!trimmedName) return;
     setFeedback(null);
     run(async () => {
-      const result = await submitConnectChainStep(accessToken, matchId, trimmedName, trimmedClub);
+      const result = await submitConnectChainStep(accessToken, matchId, trimmedName);
 
       if (result.position === null) {
         // REQ-1406: candidatePlayerName didn't resolve to any known player
         // at all — nothing was persisted, this consumes no attempt/strike.
-        // Keep the fields as typed so a misspelling is easy to fix.
+        // Keep the field as typed so a misspelling is easy to fix.
         setFeedback({ tone: 'error', text: `No player found matching "${trimmedName}". Check the spelling and try again.` });
         return;
       }
@@ -110,7 +108,6 @@ export function ChainBuilder({
       if (result.busted) {
         setFeedback({ tone: 'error', text: 'Busted — that was a second failed attempt at this position. Your participation in this match has ended.' });
         setCandidateName('');
-        setClaimedClubName('');
         onChanged();
         return;
       }
@@ -118,22 +115,24 @@ export function ChainBuilder({
       if (!result.isValid) {
         setFeedback({
           tone: 'error',
-          text: `${trimmedName} didn't have an overlapping career spell at ${trimmedClub} with the previous player. You have one more attempt at this position.`,
+          text: `${trimmedName} never shared a club with the previous player at an overlapping time. You have one more attempt at this position.`,
         });
         setCandidateName('');
-        setClaimedClubName('');
         return;
       }
 
       setCandidateName('');
-      setClaimedClubName('');
       if (result.chainComplete) {
         // Deliberately NOT set here — see `myChainJustCompleted` above for
         // why the completion acknowledgment is derived from props instead
         // of this ephemeral local state.
         setFeedback(null);
       } else {
-        setFeedback({ tone: 'success', text: 'Connector accepted.' });
+        // Design change (2026-09-04, REQ-1406, ADR-0104): the player no
+        // longer claims a club, so confirm which one the server matched —
+        // same wording ChainStepsList.tsx's own historical render uses.
+        const matched = formatMatchedClub(result.matchedClubName, result.matchedOverlapStartYear, result.matchedOverlapEndYear);
+        setFeedback({ tone: 'success', text: `Connector accepted — ${matched}.` });
       }
       onChanged();
     });
@@ -174,19 +173,10 @@ export function ChainBuilder({
             placeholder="Candidate player…"
             disabled={submitting}
           />
-          <input
-            type="text"
-            className="connect-match__search-input"
-            placeholder="Claimed shared club…"
-            aria-label="Claimed shared club"
-            value={claimedClubName}
-            onChange={(event) => setClaimedClubName(event.target.value)}
-            disabled={submitting}
-          />
           <button
             type="button"
             className="connect-match__button"
-            disabled={submitting || !candidateName.trim() || !claimedClubName.trim()}
+            disabled={submitting || !candidateName.trim()}
             onClick={handleSubmit}
           >
             {submitting ? 'Checking…' : 'Submit connector'}

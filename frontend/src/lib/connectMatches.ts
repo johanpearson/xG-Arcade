@@ -14,6 +14,24 @@ import { apiRequest } from './apiClient';
 // caller shows the server's own detail text inline, same convention every
 // other domain file in this directory already uses.
 
+// Design change (2026-09-04, REQ-1406, ADR-0104): the club a chain step
+// connects through is now a server-computed fact, not a player-typed claim
+// — this formats it alongside the overlapping years, e.g.
+// "Chelsea, 2012-2019" or "Chelsea, 2012-present" when the overlap is
+// still ongoing (a null matchedOverlapEndYear — see ConnectChainStep's own
+// doc comment, backend/src/XGArcade.Data/Entities/ConnectChainStep.cs).
+// Lives here (a lib file), not in ChainStepsList.tsx (a component file),
+// purely so both ChainStepsList.tsx and ChainBuilder.tsx's own post-submit
+// feedback can share identical wording without one importing a named
+// export from the other's component file.
+export function formatMatchedClub(
+  matchedClubName: string | null, matchedOverlapStartYear: number | null, matchedOverlapEndYear: number | null,
+): string {
+  if (matchedClubName === null || matchedOverlapStartYear === null) return '';
+  const endLabel = matchedOverlapEndYear === null ? 'present' : String(matchedOverlapEndYear);
+  return `${matchedClubName}, ${matchedOverlapStartYear}-${endLabel}`;
+}
+
 // REQ-1411/S-218-prep: every match (open or resolved) the caller
 // participates in, in the caller's own perspective (GET /matches). This is
 // the only way a client discovers which matchIds belong to it — see
@@ -50,22 +68,25 @@ export async function submitConnectTargetPick(
   });
 }
 
-// REQ-1406/1407: submits one incremental chain-connector claim (POST
+// REQ-1406/1407: submits one incremental chain-connector step (POST
 // /matches/{matchId}/chain-steps). Always resolves to a normal 200 body —
 // a wrong or unresolvable guess is never an ApiError, mirroring
 // GuessEndpoints'/rounds.ts's own "wrong guess is not an error" precedent.
 // Only genuine precondition failures (404/403/409 not-active/409
 // chain-complete/409 already-forfeited) or a technical 503 live-lookup
 // failure are left to throw.
+//
+// Design change (2026-09-04, REQ-1406, ADR-0104): no longer takes a
+// claimedClubName — the caller names only a candidate player; the server
+// computes which club(s) actually connect them.
 export async function submitConnectChainStep(
   accessToken: string,
   matchId: string,
   candidatePlayerName: string,
-  claimedClubName: string,
 ): Promise<ConnectSubmitChainStepResponse> {
   return apiRequest<ConnectSubmitChainStepResponse>(accessToken, `/matches/${matchId}/chain-steps`, {
     method: 'POST',
-    body: JSON.stringify({ candidatePlayerName, claimedClubName }),
+    body: JSON.stringify({ candidatePlayerName }),
   });
 }
 

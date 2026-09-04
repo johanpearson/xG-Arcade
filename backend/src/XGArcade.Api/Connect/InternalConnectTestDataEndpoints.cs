@@ -149,9 +149,11 @@ public static class InternalConnectTestDataEndpoints
 // TargetPickPanel.tsx's real UI. ConnectorPlayerName: typed directly into
 // ChainBuilder.tsx's candidate field (resolved server-side by exact
 // normalized name, no PlayerNameIndex/autocomplete-suggestion selection
-// needed — see ConnectChainStepService.SubmitChainStepAsync). Club*: the
-// exact "Claimed shared club" text a caller must submit for a step starting
-// from that target to validate.
+// needed — see ConnectChainStepService.SubmitChainStepAsync). Club*
+// (design change, 2026-09-04, REQ-1406, ADR-0104): the player no longer
+// types a club at all — these are exposed purely so an E2E spec can assert
+// the SERVER-computed matched club/years it should see rendered back,
+// never something a caller submits.
 public record SeedConnectPlayersResponse(
     string TargetPlayerAName,
     string TargetPlayerBName,

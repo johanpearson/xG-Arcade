@@ -358,7 +358,8 @@ public class ConnectMatchRepositoryTests
             Position = 1,
             AttemptNumber = 1,
             CandidatePlayerId = candidatePlayerId,
-            ClaimedClubName = "Arsenal",
+            MatchedClubName = "Arsenal",
+            MatchedOverlapStartYear = 2000,
             IsValid = true,
             ClosesChain = false,
             SubmittedAt = submittedAt,
@@ -370,7 +371,7 @@ public class ConnectMatchRepositoryTests
         var result = await _repository.GetChainStepsForMatchAndUserAsync(matchId, userId);
         Assert.That(result, Has.Count.EqualTo(1));
         Assert.That(result[0].CandidatePlayerId, Is.EqualTo(candidatePlayerId));
-        Assert.That(result[0].ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(result[0].MatchedClubName, Is.EqualTo("Arsenal"));
         Assert.That(result[0].IsValid, Is.True);
     }
 
@@ -384,12 +385,12 @@ public class ConnectMatchRepositoryTests
         var failedAttempt = new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 1,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Wrong Club", IsValid = false, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         };
         var retryAttempt = new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 2,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Right Club", IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), MatchedClubName = "Right Club", MatchedOverlapStartYear = 2000, IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         };
 
         await _repository.AddChainStepAsync(failedAttempt);
@@ -409,12 +410,12 @@ public class ConnectMatchRepositoryTests
         await _repository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = 1, AttemptNumber = 1,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), MatchedClubName = "Club", MatchedOverlapStartYear = 2000, IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         });
         await _repository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = otherUserId, Position = 1, AttemptNumber = 1,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
+            CandidatePlayerId = Guid.NewGuid(), MatchedClubName = "Club", MatchedOverlapStartYear = 2000, IsValid = true, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
         });
 
         var result = await _repository.GetChainStepsForMatchAndUserAsync(matchId, userId);

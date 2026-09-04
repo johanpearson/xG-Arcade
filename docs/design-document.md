@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.92"
+version: "0.93"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -3792,9 +3792,9 @@ remains correct for them.
 │ Connect Messi to Ronaldo          │
 │ Deadline: 9/1/2026, 7:00:00 AM    │
 │ 1. Messi                          │
-│ 2. Suarez (Barcelona)             │
+│ 2. Suarez (Barcelona, 2014-2017)  │
 │ 3. Ronaldo (not yet connected)    │
-│ [Candidate player…] [Claimed club…] │
+│ [Candidate player…]               │
 │ [Submit connector]                │
 ├───────────────────────────────┤
 │ Chat                              │
@@ -3846,26 +3846,33 @@ remains correct for them.
   `mono-figure` — see "Known limitations" below for why this is static, not
   a live countdown), the caller's own chain so far
   (`ChainStepsList.tsx`, shared with `MatchResolution.tsx` below — renders
-  only the *valid* steps in position order, between the two target names;
-  the closing step is marked "— connects to your target"), the opponent's
-  terminal state as plain text ("Your opponent is still playing." / "...
-  busted..." / "...ran out of time." / "...has finished their chain.") —
-  never their actual chain content, per REQ-1406's own "opponent chain
-  stays private" rule — and, while the caller isn't yet terminal, a
-  candidate-name (`PlayerSearchField.tsx`) + claimed-club (plain text)
-  submission form. Per-submission feedback (REQ-1406/1407, always a normal
-  200, never styled as an error): "Connector accepted." / "Connected! Your
-  chain is complete." (`accent-green-text`) for a valid step; "{name}
-  didn't have an overlapping career spell at {club} with the previous
-  player. You have one more attempt at this position." for an ordinary
-  first-attempt failure (form stays open); "Busted — that was a second
-  failed attempt at this position. Your participation in this match has
-  ended." for REQ-1407's two-strikes bust (form disappears, replaced by the
-  same terminal-state text used for a completed/timed-out chain); "No
-  player found matching "{name}". Check the spelling and try again." for
-  REQ-1406's `CandidateNotFound` case — a distinct message from an ordinary
-  wrong-claim failure, and one that doesn't count as an attempt. All four
-  are `role="status"`/`role="alert"` text, never color-only.
+  only the *valid* steps in position order, between the two target names,
+  each with its server-matched club and overlap years (e.g. "Suarez
+  (Barcelona, 2014-2017)"); the closing step is marked "— connects to your
+  target"), the opponent's terminal state as plain text ("Your opponent is
+  still playing." / "... busted..." / "...ran out of time." / "...has
+  finished their chain.") — never their actual chain content, per
+  REQ-1406's own "opponent chain stays private" rule — and, while the
+  caller isn't yet terminal, a candidate-name-only (`PlayerSearchField.tsx`)
+  submission form. **Design change, 2026-09-04 (REQ-1406, ADR-0104):** the
+  form no longer has a second, free-text "claimed club" field — the player
+  names only a candidate; the server computes which club(s) actually
+  connect them (see this REQ's own requirements-document.md status note for
+  the false-rejection bug that motivated this and the product-owner
+  decision behind it). Per-submission feedback (REQ-1406/1407, always a
+  normal 200, never styled as an error): "Connector accepted — {club},
+  {startYear}-{endYear}." / "Connected! Your chain is complete."
+  (`accent-green-text`) for a valid step; "{name} never shared a club with
+  the previous player at an overlapping time. You have one more attempt at
+  this position." for an ordinary first-attempt failure (form stays open);
+  "Busted — that was a second failed attempt at this position. Your
+  participation in this match has ended." for REQ-1407's two-strikes bust
+  (form disappears, replaced by the same terminal-state text used for a
+  completed/timed-out chain); "No player found matching "{name}". Check the
+  spelling and try again." for REQ-1406's `CandidateNotFound` case — a
+  distinct message from an ordinary no-overlap failure, and one that
+  doesn't count as an attempt. All four are `role="status"`/`role="alert"`
+  text, never color-only.
 
 - **Resolved phase (`MatchResolution.tsx`, REQ-1408/1409).** Heading from
   the caller's own already-translated `outcome` ("You won!" / "You lost." /

@@ -10608,6 +10608,30 @@ of the comparison. See REQ-1406's own bug-fix status note for the full
 detail. No new ADR — same category as this story's own original "no new
 ADR" note.
 
+**S-213 design-change addendum (2026-09-04, ADR-0104) — supersedes the
+bugfix addendum immediately above.** Discussing that fix, the product
+owner judged ongoing club-name string-matching risk not worth preserving
+"the player names the specific club" as part of the challenge, and decided
+directly: the player now submits only a candidate name.
+`IPlayerCareerOverlapService.GetSharedClubOverlapsAsync` replaces
+`HaveOverlapAtClubAsync`, returning every shared, overlapping-time club
+(and its year range) instead of checking one player-typed name;
+`HaveSharedClubOverlapAsync` becomes a thin wrapper over it.
+`ConnectChainStepService` picks one representative overlap deterministically
+(latest `OverlapStartYear`) when a pair shares more than one club (e.g.
+Maxwell/Ibrahimović — Inter, Barcelona, PSG). `ConnectChainStep
+.ClaimedClubName` (required) is replaced by nullable
+`MatchedClubName`/`MatchedOverlapStartYear`/`MatchedOverlapEndYear`
+(migration
+`20260904090000_ReplaceConnectChainStepClaimedClubWithMatchedOverlap`).
+`ChainBuilder.tsx`'s free-text "Claimed shared club" input is removed;
+`ChainStepsList.tsx`/`ChainBuilder.tsx`'s own feedback now show the
+server-computed club/years (`formatMatchedClub`,
+`frontend/src/lib/connectMatches.ts`). See ADR-0104 for the full decision
+and REQ-1406's own design-change status note for acceptance-criteria
+detail. New ADR this time (unlike the bugfix addendum above) — this is a
+genuine product/behavior decision, not a straightforward bug fix.
+
 **S-214 · Penalty/bust rule, scoring, match resolution (REQ-1407/1408/1409)**
 Two-strikes-per-step tracking (independent per chain position), scoring
 formula (connections + accumulated penalties, min 1), win/draw/forfeit

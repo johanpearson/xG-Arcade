@@ -19,7 +19,7 @@ public class ConnectChainStepService(
     TimeProvider timeProvider) : IConnectChainStepService
 {
     public async Task<SubmitChainStepResult> SubmitChainStepAsync(
-        Guid matchId, Guid userId, string candidatePlayerName, string claimedClubName,
+        Guid matchId, Guid userId, string candidatePlayerName,
         CancellationToken cancellationToken = default)
     {
         var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
@@ -85,24 +85,32 @@ public class ConnectChainStepService(
         // for this story. A known, deliberate simplification, not a new
         // REQ: a same-name collision here just means the live overlap check
         // below runs against whichever of the same-named players sorts
-        // first, which may occasionally reject a claim that would have
+        // first, which may occasionally reject a step that would have
         // validated against the OTHER same-named player.
         var candidate = candidates.OrderBy(p => p.Id).First();
 
         var submittedAt = timeProvider.GetUtcNow().UtcDateTime;
 
-        bool overlapsAtClaimedClub;
+        // Design change (2026-09-04, REQ-1406, product-owner direction —
+        // ADR-0104): the player no longer names a club at all — see
+        // IPlayerCareerOverlapService.GetSharedClubOverlapsAsync's own doc
+        // comment for why (the former claimed-club design's exact-string
+        // match against an already-canonicalized stored value was the
+        // direct cause of a real false-rejection bug). Every shared club is
+        // returned; an empty list means the candidate and the preceding
+        // chain player never played together anywhere.
+        IReadOnlyList<SharedClubOverlap> overlaps;
         try
         {
-            overlapsAtClaimedClub = await playerCareerOverlapService.HaveOverlapAtClubAsync(
-                candidate.Id, precedingPlayerId, claimedClubName, cancellationToken);
+            overlaps = await playerCareerOverlapService.GetSharedClubOverlapsAsync(
+                candidate.Id, precedingPlayerId, cancellationToken);
         }
         catch (LiveLookupUnavailableException)
         {
             return new SubmitChainStepResult(SubmitChainStepOutcome.LiveLookupUnavailable, null);
         }
 
-        if (!overlapsAtClaimedClub)
+        if (overlaps.Count == 0)
         {
             var invalidStep = new ConnectChainStep
             {
@@ -112,7 +120,9 @@ public class ConnectChainStepService(
                 Position = nextPosition,
                 AttemptNumber = attemptNumber,
                 CandidatePlayerId = candidate.Id,
-                ClaimedClubName = claimedClubName,
+                MatchedClubName = null,
+                MatchedOverlapStartYear = null,
+                MatchedOverlapEndYear = null,
                 IsValid = false,
                 ClosesChain = false,
                 SubmittedAt = submittedAt,
@@ -138,11 +148,20 @@ public class ConnectChainStepService(
             return new SubmitChainStepResult(SubmitChainStepOutcome.InvalidStep, persistedInvalidStep);
         }
 
+        // Deterministically pick ONE representative overlap to persist/
+        // display when the pair shared more than one club (e.g. Maxwell and
+        // Zlatan Ibrahimović — Inter, Barcelona, PSG all valid) — the most
+        // recent one (latest OverlapStartYear). Same "pick deterministically
+        // rather than invent a new disambiguation mechanism" precedent this
+        // method's own candidate-name-collision handling above already
+        // uses; ConnectChainStep has one MatchedClubName column, not a list.
+        var matchedOverlap = overlaps.OrderByDescending(o => o.OverlapStartYear).First();
+
         // REQ-1406: chain-closing is checked against the OTHER participant's
         // target pick — never the one this chain started from — and against
         // ANY shared overlapping club (the existing, unmodified
         // HaveSharedClubOverlapAsync), not restricted to this step's own
-        // claimedClubName.
+        // matched club.
         var otherUserId = match.PlayerAUserId == userId ? match.PlayerBUserId : match.PlayerAUserId;
         var otherTargetPick = await connectMatchRepository.GetTargetPickAsync(matchId, otherUserId, cancellationToken);
 
@@ -169,7 +188,9 @@ public class ConnectChainStepService(
             Position = nextPosition,
             AttemptNumber = attemptNumber,
             CandidatePlayerId = candidate.Id,
-            ClaimedClubName = claimedClubName,
+            MatchedClubName = matchedOverlap.ClubName,
+            MatchedOverlapStartYear = matchedOverlap.OverlapStartYear,
+            MatchedOverlapEndYear = matchedOverlap.OverlapEndYear,
             IsValid = true,
             ClosesChain = closesChain,
             SubmittedAt = submittedAt,

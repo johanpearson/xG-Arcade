@@ -9,60 +9,54 @@ namespace XGArcade.Games.XGConnect.Tests;
 // without needing to drive PlayerCareerOverlapService's own Wikidata/
 // PlayerCareerStint machinery — that machinery gets its own dedicated,
 // direct unit tests in PlayerCareerOverlapServiceTests.cs. Defaults every
-// unconfigured pair to "no overlap" (false), matching the real service's own
-// "genuinely no shared/overlapping club" outcome for two players with no
-// configured relationship, so tests that don't care about the overlap
-// outcome (e.g. the free pre-lock resubmission case) don't need to
-// configure anything.
+// unconfigured pair to "no overlap" (false/empty), matching the real
+// service's own "genuinely no shared/overlapping club" outcome for two
+// players with no configured relationship, so tests that don't care about
+// the overlap outcome (e.g. the free pre-lock resubmission case) don't need
+// to configure anything.
 public class FakePlayerCareerOverlapService : IPlayerCareerOverlapService
 {
-    private readonly Dictionary<(Guid, Guid), bool> _overlapByPair = new();
+    private readonly Dictionary<(Guid, Guid), List<SharedClubOverlap>> _overlapsByPair = new();
     private readonly HashSet<(Guid, Guid)> _liveLookupUnavailablePairs = new();
 
-    // S-213/REQ-1406: per-pair-per-club configuration for
-    // HaveOverlapAtClubAsync — separate from _overlapByPair above since a
-    // pair can genuinely overlap at one club but not another. Club names
-    // are compared case-insensitively, mirroring the real service's own
-    // ClubName comparison.
-    private readonly Dictionary<(Guid, Guid, string), bool> _overlapByPairAndClub =
-        new(new PairAndClubComparer());
-    private readonly HashSet<(Guid, Guid, string)> _liveLookupUnavailablePairsAndClubs =
-        new(new PairAndClubComparer());
+    // A single, arbitrary, non-empty overlap — enough to make
+    // HaveSharedClubOverlapAsync/GetSharedClubOverlapsAsync report "yes,
+    // they overlap" for a test that only cares about the boolean outcome
+    // (SetOverlap below), not the specific club/years.
+    private static readonly SharedClubOverlap DefaultOverlap = new("Configured Club", 2000, 2010);
 
-    // Every call this fake received, in call order, exactly as
-    // (playerAId, playerBId) was passed — lets a test assert both that the
-    // check ran at all and which two player IDs it was asked to compare.
+    // Every HaveSharedClubOverlapAsync call this fake received, in call
+    // order, exactly as (playerAId, playerBId) was passed — lets a test
+    // assert both that the check ran at all and which two player IDs it was
+    // asked to compare.
     public List<(Guid PlayerAId, Guid PlayerBId)> Calls { get; } = [];
 
-    // Every HaveOverlapAtClubAsync call this fake received, in call order.
-    public List<(Guid PlayerAId, Guid PlayerBId, string ClubName)> ClubCalls { get; } = [];
+    // Every GetSharedClubOverlapsAsync call this fake received, in call
+    // order.
+    public List<(Guid PlayerAId, Guid PlayerBId)> OverlapCalls { get; } = [];
 
     // Order-independent — a real overlap relationship between two players
     // doesn't care which one is "A" and which is "B" for a given test's
-    // setup, so this configures both orderings at once.
-    public void SetOverlap(Guid playerAId, Guid playerBId, bool overlaps)
+    // setup, so this configures both orderings at once. A convenience for
+    // tests that only care about true/false, not the specific club/years —
+    // see SetSharedClubOverlaps below for tests that do.
+    public void SetOverlap(Guid playerAId, Guid playerBId, bool overlaps) =>
+        SetSharedClubOverlaps(playerAId, playerBId, overlaps ? [DefaultOverlap] : []);
+
+    // Order-independent, same reasoning as SetOverlap above. Configures the
+    // exact list GetSharedClubOverlapsAsync returns for this pair — an
+    // empty list (the default for any unconfigured pair) means "never
+    // played together."
+    public void SetSharedClubOverlaps(Guid playerAId, Guid playerBId, params SharedClubOverlap[] overlaps)
     {
-        _overlapByPair[(playerAId, playerBId)] = overlaps;
-        _overlapByPair[(playerBId, playerAId)] = overlaps;
+        _overlapsByPair[(playerAId, playerBId)] = overlaps.ToList();
+        _overlapsByPair[(playerBId, playerAId)] = overlaps.ToList();
     }
 
     public void SetLiveLookupUnavailable(Guid playerAId, Guid playerBId)
     {
         _liveLookupUnavailablePairs.Add((playerAId, playerBId));
         _liveLookupUnavailablePairs.Add((playerBId, playerAId));
-    }
-
-    // Order-independent, same reasoning as SetOverlap above.
-    public void SetOverlapAtClub(Guid playerAId, Guid playerBId, string clubName, bool overlaps)
-    {
-        _overlapByPairAndClub[(playerAId, playerBId, clubName)] = overlaps;
-        _overlapByPairAndClub[(playerBId, playerAId, clubName)] = overlaps;
-    }
-
-    public void SetLiveLookupUnavailableAtClub(Guid playerAId, Guid playerBId, string clubName)
-    {
-        _liveLookupUnavailablePairsAndClubs.Add((playerAId, playerBId, clubName));
-        _liveLookupUnavailablePairsAndClubs.Add((playerBId, playerAId, clubName));
     }
 
     public Task<bool> HaveSharedClubOverlapAsync(
@@ -74,30 +68,22 @@ public class FakePlayerCareerOverlapService : IPlayerCareerOverlapService
             throw new LiveLookupUnavailableException(
                 $"simulated live-lookup failure for player pair ({playerAId}, {playerBId})");
 
-        var overlaps = _overlapByPair.TryGetValue((playerAId, playerBId), out var configured) && configured;
+        var overlaps = _overlapsByPair.TryGetValue((playerAId, playerBId), out var configured) && configured.Count > 0;
         return Task.FromResult(overlaps);
     }
 
-    public Task<bool> HaveOverlapAtClubAsync(
-        Guid playerAId, Guid playerBId, string clubName, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<SharedClubOverlap>> GetSharedClubOverlapsAsync(
+        Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default)
     {
-        ClubCalls.Add((playerAId, playerBId, clubName));
+        OverlapCalls.Add((playerAId, playerBId));
 
-        if (_liveLookupUnavailablePairsAndClubs.Contains((playerAId, playerBId, clubName)))
+        if (_liveLookupUnavailablePairs.Contains((playerAId, playerBId)))
             throw new LiveLookupUnavailableException(
-                $"simulated live-lookup failure for player pair ({playerAId}, {playerBId}) at club {clubName}");
+                $"simulated live-lookup failure for player pair ({playerAId}, {playerBId})");
 
-        var overlaps = _overlapByPairAndClub.TryGetValue((playerAId, playerBId, clubName), out var configured) && configured;
+        IReadOnlyList<SharedClubOverlap> overlaps = _overlapsByPair.TryGetValue((playerAId, playerBId), out var configured)
+            ? configured
+            : [];
         return Task.FromResult(overlaps);
-    }
-
-    private class PairAndClubComparer : IEqualityComparer<(Guid, Guid, string)>
-    {
-        public bool Equals((Guid, Guid, string) x, (Guid, Guid, string) y) =>
-            x.Item1 == y.Item1 && x.Item2 == y.Item2 &&
-            string.Equals(x.Item3, y.Item3, StringComparison.OrdinalIgnoreCase);
-
-        public int GetHashCode((Guid, Guid, string) obj) =>
-            HashCode.Combine(obj.Item1, obj.Item2, obj.Item3.ToUpperInvariant());
     }
 }

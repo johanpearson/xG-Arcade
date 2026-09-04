@@ -46,9 +46,8 @@ function renderBuilder(overrides: Partial<ChainBuilderProps> = {}, fetchMock = v
   return { onAuthError, onChanged, rerenderWith };
 }
 
-async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, candidate: string, club: string) {
+async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, candidate: string) {
   await user.type(screen.getByLabelText('Candidate player name'), candidate);
-  await user.type(screen.getByLabelText('Claimed shared club'), club);
   await user.click(screen.getByRole('button', { name: 'Submit connector' }));
 }
 
@@ -78,7 +77,9 @@ describe('ChainBuilder', () => {
           position: 1,
           attemptNumber: 1,
           candidatePlayerId: 'p1',
-          claimedClubName: 'Barcelona',
+          matchedClubName: 'Barcelona',
+          matchedOverlapStartYear: 2010,
+          matchedOverlapEndYear: 2015,
           busted: false,
         });
       }
@@ -87,9 +88,9 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player', 'Barcelona');
+    await fillAndSubmit(user, 'Some Player');
 
-    expect(await screen.findByText('Connector accepted.')).toBeInTheDocument();
+    expect(await screen.findByText('Connector accepted — Barcelona, 2010-2015.')).toBeInTheDocument();
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
     expect((screen.getByLabelText('Candidate player name') as HTMLInputElement).value).toBe('');
   });
@@ -114,7 +115,9 @@ describe('ChainBuilder', () => {
           position: 1,
           attemptNumber: 1,
           candidatePlayerId: 'p1',
-          claimedClubName: 'Barcelona',
+          matchedClubName: 'Barcelona',
+          matchedOverlapStartYear: 2010,
+          matchedOverlapEndYear: 2015,
           busted: false,
         });
       }
@@ -123,7 +126,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged, rerenderWith } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player', 'Barcelona');
+    await fillAndSubmit(user, 'Some Player');
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
 
     // Before the parent's refetch has delivered new props, nothing claims
@@ -144,7 +147,9 @@ describe('ChainBuilder', () => {
           attemptNumber: 1,
           candidatePlayerId: 'p1',
           candidatePlayerName: 'Some Player',
-          claimedClubName: 'Barcelona',
+          matchedClubName: 'Barcelona',
+          matchedOverlapStartYear: 2010,
+          matchedOverlapEndYear: 2015,
           isValid: true,
           closesChain: true,
           submittedAt: '2026-09-04T00:00:00Z',
@@ -169,7 +174,9 @@ describe('ChainBuilder', () => {
           position: 1,
           attemptNumber: 1,
           candidatePlayerId: 'p1',
-          claimedClubName: 'Wrong Club',
+          matchedClubName: null,
+          matchedOverlapStartYear: null,
+          matchedOverlapEndYear: null,
           busted: false,
         });
       }
@@ -178,7 +185,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player', 'Wrong Club');
+    await fillAndSubmit(user, 'Some Player');
 
     expect(await screen.findByText(/one more attempt at this position/)).toBeInTheDocument();
     // Nothing persisted differently for the caller to see yet — this
@@ -198,7 +205,9 @@ describe('ChainBuilder', () => {
           position: 1,
           attemptNumber: 2,
           candidatePlayerId: 'p1',
-          claimedClubName: 'Wrong Club Again',
+          matchedClubName: null,
+          matchedOverlapStartYear: null,
+          matchedOverlapEndYear: null,
           busted: true,
         });
       }
@@ -207,7 +216,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player', 'Wrong Club Again');
+    await fillAndSubmit(user, 'Some Player');
 
     expect(await screen.findByText(/Busted — that was a second failed attempt/)).toBeInTheDocument();
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
@@ -224,7 +233,9 @@ describe('ChainBuilder', () => {
           position: null,
           attemptNumber: null,
           candidatePlayerId: null,
-          claimedClubName: null,
+          matchedClubName: null,
+          matchedOverlapStartYear: null,
+          matchedOverlapEndYear: null,
           busted: false,
         });
       }
@@ -233,7 +244,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Nobody Real', 'Some Club');
+    await fillAndSubmit(user, 'Nobody Real');
 
     expect(await screen.findByText(/No player found matching "Nobody Real"/)).toBeInTheDocument();
     expect(onChanged).not.toHaveBeenCalled();

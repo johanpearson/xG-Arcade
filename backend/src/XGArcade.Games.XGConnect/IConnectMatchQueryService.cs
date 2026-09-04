@@ -92,12 +92,20 @@ public record ConnectTargetPickView(Guid TargetPlayerId, string TargetPlayerName
 // One of the caller's OWN chain steps, in submission order. Never used for
 // an opponent's steps — see ConnectMatchDetail.OpponentTerminalState's own
 // comment for why the opponent's actual steps are never returned.
+//
+// MatchedClubName/MatchedOverlapStartYear/MatchedOverlapEndYear (design
+// change, 2026-09-04, REQ-1406, ADR-0104): the club(s) the candidate and
+// the preceding chain player actually share, computed server-side — never
+// a player-typed claim. Null together only when IsValid is false (no club
+// was found at all).
 public record ConnectChainStepView(
     int Position,
     int AttemptNumber,
     Guid CandidatePlayerId,
     string CandidatePlayerName,
-    string ClaimedClubName,
+    string? MatchedClubName,
+    int? MatchedOverlapStartYear,
+    int? MatchedOverlapEndYear,
     bool IsValid,
     bool ClosesChain,
     DateTime SubmittedAt);

@@ -1,5 +1,4 @@
 using XGArcade.Core.Games;
-using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
@@ -29,73 +28,70 @@ public class PlayerCareerOverlapService(
     public async Task<bool> HaveSharedClubOverlapAsync(
         Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default)
     {
-        var (stintsA, stintsB) = await LoadBothPlayersStintsAsync(playerAId, playerBId, cancellationToken);
-
-        // Exact, case-insensitive ClubName match + a true two-range interval
-        // overlap test — EndYear == null means "ongoing," treated as
-        // unbounded/open going forward, mirroring
-        // PathCareerStintFilter.IsInferredLoan's own null-handling
-        // convention for this codebase's StartYear/EndYear fields (adapted
-        // here into a genuine two-range intersection, not a single-player
-        // containment check).
-        //
-        // ClubName here is whatever PlayerCareerStintRefreshService (or xG
-        // Grid's own byproduct writer, WikidataLookupService
-        // .PersistCareerStintsAsync) already persisted — including that
-        // service's own ClubName canonicalization against seeded
-        // ClubDefinition.Name (ADR-0059), now inherited for free since this
-        // class delegates its refresh to that shared service rather than
-        // forking it (see this class's own doc comment above).
-        return stintsA.Any(sa => stintsB.Any(sb =>
-            string.Equals(sa.ClubName, sb.ClubName, StringComparison.OrdinalIgnoreCase) &&
-            sa.StartYear <= (sb.EndYear ?? int.MaxValue) &&
-            sb.StartYear <= (sa.EndYear ?? int.MaxValue)));
+        var overlaps = await GetSharedClubOverlapsAsync(playerAId, playerBId, cancellationToken);
+        return overlaps.Count > 0;
     }
 
-    // S-213/REQ-1406: identical interval-overlap math to
-    // HaveSharedClubOverlapAsync above, filtered to the one claimed club on
-    // both sides instead of any matching pair of clubs — see this class's
-    // own IPlayerCareerOverlapService doc comment for why a chain step needs
-    // this narrower check.
+    // Bug fix/design change (2026-09-04, REQ-1406): supersedes the former
+    // HaveOverlapAtClubAsync(playerAId, playerBId, clubName) — see this
+    // method's own interface doc comment (IPlayerCareerOverlapService) for
+    // the full "why" (a real false-rejection bug from asking the player to
+    // type a club name that had to exactly match an already-canonicalized
+    // stored value). This is now the one place interval-overlap math is
+    // computed — HaveSharedClubOverlapAsync above is a thin wrapper over
+    // this, not a separate implementation, so the two can never drift.
     //
-    // Bug fix (2026-09-04, REQ-1406/1407, product-owner report — Cesar
-    // Azpilicueta genuinely shares Chelsea with Eden Hazard, Jonas Olsson
-    // genuinely shares West Bromwich Albion with a preceding player, both
-    // wrongly rejected): `clubName` here is raw, player-typed text
-    // (ChainBuilder.tsx's free-text "claimed shared club" field), while
-    // `s.ClubName` is whatever got canonicalized/suffix-stripped at Wikidata
-    // ingest time (PlayerCareerStintRefreshService — seeded clubs store
-    // ClubDefinition's own bare name, e.g. "Chelsea", never "Chelsea FC").
-    // A bare OrdinalIgnoreCase equality between an un-normalized player
-    // input and an already-normalized stored value silently fails on any
-    // legal-suffix mismatch. Running both sides through the same
-    // ClubNameNormalizer.StripLegalSuffix the ingest path already uses
-    // fixes this without weakening the match (still an exact match once
-    // both sides are in the same canonical form — never a fuzzy/substring
-    // match, same "don't risk conflating two different clubs" reasoning
-    // ClubNameNormalizer's own doc comment gives).
-    public async Task<bool> HaveOverlapAtClubAsync(
-        Guid playerAId, Guid playerBId, string clubName, CancellationToken cancellationToken = default)
+    // Exact, case-insensitive ClubName match + a true two-range interval
+    // overlap test — EndYear == null means "ongoing," treated as
+    // unbounded/open going forward, mirroring
+    // PathCareerStintFilter.IsInferredLoan's own null-handling convention
+    // for this codebase's StartYear/EndYear fields (adapted here into a
+    // genuine two-range intersection, not a single-player containment
+    // check). No club-name normalization is needed here — unlike a
+    // player-typed value, both sides are already-persisted
+    // PlayerCareerStint rows, canonicalized identically at ingest time by
+    // the same writer (PlayerCareerStintRefreshService /
+    // WikidataLookupService.PersistCareerStintsAsync), so an exact
+    // OrdinalIgnoreCase match is correct and sufficient — same reasoning
+    // this method's predecessor already relied on.
+    public async Task<IReadOnlyList<SharedClubOverlap>> GetSharedClubOverlapsAsync(
+        Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default)
     {
         var (stintsA, stintsB) = await LoadBothPlayersStintsAsync(playerAId, playerBId, cancellationToken);
 
-        var normalizedClubName = ClubNameNormalizer.StripLegalSuffix(clubName);
-        var stintsAAtClub = stintsA.Where(s =>
-            string.Equals(ClubNameNormalizer.StripLegalSuffix(s.ClubName), normalizedClubName, StringComparison.OrdinalIgnoreCase));
-        var stintsBAtClub = stintsB.Where(s =>
-            string.Equals(ClubNameNormalizer.StripLegalSuffix(s.ClubName), normalizedClubName, StringComparison.OrdinalIgnoreCase));
+        var overlaps = new List<SharedClubOverlap>();
+        foreach (var sa in stintsA)
+        {
+            foreach (var sb in stintsB)
+            {
+                if (!string.Equals(sa.ClubName, sb.ClubName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (sa.StartYear > (sb.EndYear ?? int.MaxValue) || sb.StartYear > (sa.EndYear ?? int.MaxValue))
+                    continue;
 
-        return stintsAAtClub.Any(sa => stintsBAtClub.Any(sb =>
-            sa.StartYear <= (sb.EndYear ?? int.MaxValue) &&
-            sb.StartYear <= (sa.EndYear ?? int.MaxValue)));
+                var overlapStartYear = Math.Max(sa.StartYear, sb.StartYear);
+                int? overlapEndYear = (sa.EndYear, sb.EndYear) switch
+                {
+                    (null, null) => null,
+                    (null, { } endB) => endB,
+                    ({ } endA, null) => endA,
+                    ({ } endA, { } endB) => Math.Min(endA, endB),
+                };
+
+                overlaps.Add(new SharedClubOverlap(sa.ClubName, overlapStartYear, overlapEndYear));
+            }
+        }
+
+        return overlaps;
     }
 
     // Shared "ensure both players' stints are loaded, refreshing from
     // Wikidata if either has zero cached rows" logic — extracted (S-213) so
-    // HaveSharedClubOverlapAsync and HaveOverlapAtClubAsync don't each
-    // duplicate the fetch-once/live-refresh/re-read plumbing. Behavior is
-    // byte-for-byte what HaveSharedClubOverlapAsync did before this
-    // extraction.
+    // HaveSharedClubOverlapAsync and GetSharedClubOverlapsAsync (2026-09-04:
+    // originally HaveOverlapAtClubAsync, see that method's own doc comment
+    // for the design change) don't each duplicate the fetch-once/
+    // live-refresh/re-read plumbing. Behavior is byte-for-byte what
+    // HaveSharedClubOverlapAsync did before this extraction.
     private async Task<(IReadOnlyList<PlayerCareerStint> StintsA, IReadOnlyList<PlayerCareerStint> StintsB)> LoadBothPlayersStintsAsync(
         Guid playerAId, Guid playerBId, CancellationToken cancellationToken)
     {

@@ -131,7 +131,9 @@ public class ConnectMatchQueryService(
                 s.AttemptNumber,
                 s.CandidatePlayerId,
                 ResolvePlayerName(players, s.CandidatePlayerId),
-                s.ClaimedClubName,
+                s.MatchedClubName,
+                s.MatchedOverlapStartYear,
+                s.MatchedOverlapEndYear,
                 s.IsValid,
                 s.ClosesChain,
                 s.SubmittedAt))

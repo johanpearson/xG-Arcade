@@ -85,7 +85,8 @@ public static class ConnectMatchQueryEndpoints
 
     private static ConnectChainStepDetailResponse ToResponse(ConnectChainStepView view) =>
         new(view.Position, view.AttemptNumber, view.CandidatePlayerId, view.CandidatePlayerName,
-            view.ClaimedClubName, view.IsValid, view.ClosesChain, view.SubmittedAt);
+            view.MatchedClubName, view.MatchedOverlapStartYear, view.MatchedOverlapEndYear,
+            view.IsValid, view.ClosesChain, view.SubmittedAt);
 
     private static ConnectTerminalStateResponse ToResponse(ConnectTerminalState state) =>
         new(state.Busted, state.TimedOut, state.Completed);
@@ -135,7 +136,9 @@ public record ConnectChainStepDetailResponse(
     int AttemptNumber,
     Guid CandidatePlayerId,
     string CandidatePlayerName,
-    string ClaimedClubName,
+    string? MatchedClubName,
+    int? MatchedOverlapStartYear,
+    int? MatchedOverlapEndYear,
     bool IsValid,
     bool ClosesChain,
     DateTime SubmittedAt);

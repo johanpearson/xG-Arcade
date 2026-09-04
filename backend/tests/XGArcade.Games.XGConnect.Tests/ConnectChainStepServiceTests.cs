@@ -22,6 +22,13 @@ namespace XGArcade.Games.XGConnect.Tests;
 // TryResolveMatchIfBothTerminalAsync's real resolution effect — this file
 // is only concerned with SubmitChainStepAsync's own orchestration around
 // each check's result.
+//
+// Design change (2026-09-04, REQ-1406, ADR-0104): SubmitChainStepAsync no
+// longer takes a claimedClubName — see IConnectChainStepService's own doc
+// comment for the false-rejection bug this supersedes. Every test below
+// that used to configure/assert a specific claimed club now configures/
+// asserts a SharedClubOverlap via FakePlayerCareerOverlapService
+// .SetSharedClubOverlaps instead.
 public class ConnectChainStepServiceTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
@@ -81,17 +88,17 @@ public class ConnectChainStepServiceTests
     }
 
     // ---- REQ-1406 GWT#1/#2: a valid overlapping-time step is accepted and
-    // ---- appended --------------------------------------------------------
+    // ---- appended, and the matched club/years are surfaced ----------------
 
     [Test]
     public async Task REQ1406_SubmitChainStepAsync_ValidOverlappingTimeStep_AcceptsAndAppendsStep()
     {
         var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
         var candidate = await SeedPlayerAsync("Middle Link Player");
-        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
         Assert.That(result.ChainStep, Is.Not.Null);
@@ -100,7 +107,9 @@ public class ConnectChainStepServiceTests
         Assert.That(result.ChainStep.Position, Is.EqualTo(1));
         Assert.That(result.ChainStep.AttemptNumber, Is.EqualTo(1));
         Assert.That(result.ChainStep.CandidatePlayerId, Is.EqualTo(candidate.Id));
-        Assert.That(result.ChainStep.ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(result.ChainStep.MatchedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(result.ChainStep.MatchedOverlapStartYear, Is.EqualTo(1999));
+        Assert.That(result.ChainStep.MatchedOverlapEndYear, Is.EqualTo(2007));
 
         var persisted = await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId);
         Assert.That(persisted, Has.Count.EqualTo(1));
@@ -108,46 +117,62 @@ public class ConnectChainStepServiceTests
         Assert.That(persisted[0].ClosesChain, Is.False);
     }
 
-    // ---- REQ-1406 GWT#3: a non-overlapping-period claim is rejected -------
+    // A pair that shares more than one club (e.g. the real Maxwell/
+    // Ibrahimović case that motivated this design) must still be accepted,
+    // picking one representative overlap deterministically (the most
+    // recent, by OverlapStartYear) rather than requiring the player to
+    // disambiguate — see ConnectChainStepService's own comment.
+    [Test]
+    public async Task REQ1406_SubmitChainStepAsync_CandidateSharesMultipleClubs_AcceptsAndPersistsMostRecentOverlap()
+    {
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Multi-Club Link Player");
+        _overlapService.SetSharedClubOverlaps(
+            candidate.Id, aTargetPlayerId,
+            new SharedClubOverlap("Inter", 2009, 2010),
+            new SharedClubOverlap("Barcelona", 2010, 2011),
+            new SharedClubOverlap("Paris Saint-Germain", 2012, 2016));
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Multi-Club Link Player");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
+        Assert.That(result.ChainStep!.MatchedClubName, Is.EqualTo("Paris Saint-Germain"),
+            "the latest-starting overlap wins deterministically");
+        Assert.That(result.ChainStep.MatchedOverlapStartYear, Is.EqualTo(2012));
+        Assert.That(result.ChainStep.MatchedOverlapEndYear, Is.EqualTo(2016));
+    }
+
+    // ---- REQ-1406 GWT#3: no shared club overlap at all is rejected --------
+    // (period-vs-club-specific distinctions are PlayerCareerOverlapService's
+    // own concern, covered directly in PlayerCareerOverlapServiceTests.cs —
+    // GetSharedClubOverlapsAsync collapses both "never played together" and
+    // "played, but never at overlapping times" to the same empty result, so
+    // there is nothing further to distinguish at this layer.)
 
     [Test]
-    public async Task REQ1406_SubmitChainStepAsync_NonOverlappingPeriodClaim_RejectsAsInvalidStep_AndPersistsIt()
+    public async Task REQ1406_SubmitChainStepAsync_NoSharedClubOverlap_RejectsAsInvalidStep_AndPersistsIt()
     {
         var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
         var candidate = await SeedPlayerAsync("Middle Link Player");
-        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: false);
+        // Never configured on the fake — defaults to "no overlap."
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep));
         Assert.That(result.ChainStep, Is.Not.Null);
         Assert.That(result.ChainStep!.IsValid, Is.False);
         Assert.That(result.ChainStep.ClosesChain, Is.False);
+        Assert.That(result.ChainStep.MatchedClubName, Is.Null);
+        Assert.That(result.ChainStep.MatchedOverlapStartYear, Is.Null);
+        Assert.That(result.ChainStep.MatchedOverlapEndYear, Is.Null);
+        Assert.That(_overlapService.OverlapCalls, Has.Count.EqualTo(1));
+        Assert.That(_overlapService.OverlapCalls[0], Is.EqualTo((candidate.Id, aTargetPlayerId)));
 
         var persisted = await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId);
         Assert.That(persisted, Has.Count.EqualTo(1), "a failed attempt is still persisted — it IS the outcome this entity records");
         Assert.That(persisted[0].IsValid, Is.False);
-    }
-
-    // ---- REQ-1406 GWT#3 variant: a club the candidate never played for
-    // ---- at all is rejected the same way -----------------------------------
-
-    [Test]
-    public async Task REQ1406_SubmitChainStepAsync_ClubCandidateNeverPlayedFor_RejectsAsInvalidStep()
-    {
-        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
-        var candidate = await SeedPlayerAsync("Middle Link Player");
-        // Never configured on the fake — defaults to "no overlap," matching
-        // "candidate never played for this club at all."
-        var service = BuildService(FixedNow);
-
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Some Unrelated Club");
-
-        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep));
-        Assert.That(result.ChainStep!.IsValid, Is.False);
-        Assert.That(_overlapService.ClubCalls, Has.Count.EqualTo(1));
-        Assert.That(_overlapService.ClubCalls[0], Is.EqualTo((candidate.Id, aTargetPlayerId, "Some Unrelated Club")));
     }
 
     // ---- REQ-1406 GWT#4: a closing step is detected against the OTHER
@@ -158,14 +183,14 @@ public class ConnectChainStepServiceTests
     {
         var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
         var candidate = await SeedPlayerAsync("Closing Link Player");
-        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         // Closes against the OTHER target (B's), not the one the chain
         // started from (A's) — HaveSharedClubOverlapAsync is the "any shared
         // club" check, called against candidate vs. bTargetPlayerId.
         _overlapService.SetOverlap(candidate.Id, bTargetPlayerId, overlaps: true);
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainClosed));
         Assert.That(result.ChainStep!.IsValid, Is.True);
@@ -188,14 +213,14 @@ public class ConnectChainStepServiceTests
     {
         var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
         var candidate = await SeedPlayerAsync("Non-Closing Link Player");
-        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         // Deliberately NOT configuring an overlap against bTargetPlayerId —
         // defaults to false. Even though the fake WOULD also happily report
         // an overlap against aTargetPlayerId if asked, the service must only
         // ever check the OTHER (B) target for closing.
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Non-Closing Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Non-Closing Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
         Assert.That(result.ChainStep!.ClosesChain, Is.False);
@@ -210,15 +235,15 @@ public class ConnectChainStepServiceTests
     {
         var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
         var closingCandidate = await SeedPlayerAsync("Closing Link Player");
-        _overlapService.SetOverlapAtClub(closingCandidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(closingCandidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         _overlapService.SetOverlap(closingCandidate.Id, bTargetPlayerId, overlaps: true);
         var firstService = BuildService(FixedNow);
-        await firstService.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player", "Arsenal");
+        await firstService.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player");
 
         // Deliberately an unknown name — proves ChainAlreadyComplete
         // short-circuits before candidate resolution ever runs.
         var secondService = BuildService(FixedNow.AddMinutes(5));
-        var result = await secondService.SubmitChainStepAsync(match.Id, aUserId, "Should Never Be Reached", "Anywhere");
+        var result = await secondService.SubmitChainStepAsync(match.Id, aUserId, "Should Never Be Reached");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainAlreadyComplete));
         Assert.That(result.ChainStep, Is.Null);
@@ -234,7 +259,7 @@ public class ConnectChainStepServiceTests
     {
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(Guid.NewGuid(), Guid.NewGuid(), "Anyone", "Anywhere");
+        var result = await service.SubmitChainStepAsync(Guid.NewGuid(), Guid.NewGuid(), "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.MatchNotFound));
         Assert.That(result.ChainStep, Is.Null);
@@ -247,7 +272,7 @@ public class ConnectChainStepServiceTests
         var outsider = Guid.NewGuid();
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, outsider, "Anyone", "Anywhere");
+        var result = await service.SubmitChainStepAsync(match.Id, outsider, "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.NotAParticipant));
         Assert.That(result.ChainStep, Is.Null);
@@ -268,7 +293,7 @@ public class ConnectChainStepServiceTests
         });
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Anyone", "Anywhere");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.MatchNotActive));
         Assert.That(result.ChainStep, Is.Null);
@@ -280,7 +305,7 @@ public class ConnectChainStepServiceTests
         var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Nobody Real", "Anywhere");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Nobody Real");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.CandidateNotFound));
         Assert.That(result.ChainStep, Is.Null);
@@ -292,10 +317,10 @@ public class ConnectChainStepServiceTests
     {
         var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
         var candidate = await SeedPlayerAsync("Middle Link Player");
-        _overlapService.SetLiveLookupUnavailableAtClub(candidate.Id, aTargetPlayerId, "Arsenal");
+        _overlapService.SetLiveLookupUnavailable(candidate.Id, aTargetPlayerId);
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.LiveLookupUnavailable));
         Assert.That(result.ChainStep, Is.Null);
@@ -308,12 +333,12 @@ public class ConnectChainStepServiceTests
         var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
         var candidate = await SeedPlayerAsync("Middle Link Player");
         // Main check passes...
-        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         // ...but the closing check against B's target fails technically.
         _overlapService.SetLiveLookupUnavailable(candidate.Id, bTargetPlayerId);
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.LiveLookupUnavailable));
         Assert.That(result.ChainStep, Is.Null);
@@ -331,7 +356,7 @@ public class ConnectChainStepServiceTests
         // Never configured on the fake — defaults to "no overlap."
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", "Wrong Club");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep),
             "a first failure at a position is an ordinary invalid step, not a bust");
@@ -349,10 +374,10 @@ public class ConnectChainStepServiceTests
         await SeedPlayerAsync("Retry Attempt Player");
         // Neither candidate is configured to overlap — both attempts fail.
         var service = BuildService(FixedNow);
-        var firstResult = await service.SubmitChainStepAsync(match.Id, aUserId, "First Attempt Player", "Wrong Club");
+        var firstResult = await service.SubmitChainStepAsync(match.Id, aUserId, "First Attempt Player");
         Assert.That(firstResult.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep));
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Retry Attempt Player", "Also Wrong Club");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Retry Attempt Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.Busted));
         Assert.That(result.ChainStep, Is.Not.Null, "the failed retry attempt is still persisted, same as any InvalidStep");
@@ -373,11 +398,11 @@ public class ConnectChainStepServiceTests
         var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
         await SeedPlayerAsync("Failed First Attempt");
         var retryCandidate = await SeedPlayerAsync("Successful Retry");
-        _overlapService.SetOverlapAtClub(retryCandidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(retryCandidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         var service = BuildService(FixedNow);
-        await service.SubmitChainStepAsync(match.Id, aUserId, "Failed First Attempt", "Wrong Club");
+        await service.SubmitChainStepAsync(match.Id, aUserId, "Failed First Attempt");
 
-        var retryResult = await service.SubmitChainStepAsync(match.Id, aUserId, "Successful Retry", "Arsenal");
+        var retryResult = await service.SubmitChainStepAsync(match.Id, aUserId, "Successful Retry");
 
         Assert.That(retryResult.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
         Assert.That(retryResult.ChainStep!.AttemptNumber, Is.EqualTo(2));
@@ -387,7 +412,7 @@ public class ConnectChainStepServiceTests
         // A later failure at the NEXT position gets its own independent
         // first attempt — never combined with the earlier position's strike.
         await SeedPlayerAsync("Next Position Failure");
-        var nextResult = await service.SubmitChainStepAsync(match.Id, aUserId, "Next Position Failure", "Unrelated Club");
+        var nextResult = await service.SubmitChainStepAsync(match.Id, aUserId, "Next Position Failure");
 
         Assert.That(nextResult.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep),
             "a fresh position starts its own independent strike count, not a bust");
@@ -402,7 +427,7 @@ public class ConnectChainStepServiceTests
         await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Anyone", "Anywhere");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.AlreadyForfeited));
         Assert.That(result.ChainStep, Is.Null);
@@ -420,7 +445,7 @@ public class ConnectChainStepServiceTests
         await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, bUserId, "Anyone", "Anywhere");
+        var result = await service.SubmitChainStepAsync(match.Id, bUserId, "Anyone");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.AlreadyForfeited));
         var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
@@ -438,9 +463,9 @@ public class ConnectChainStepServiceTests
         await SeedPlayerAsync("First Attempt Player");
         await SeedPlayerAsync("Retry Attempt Player");
         var service = BuildService(FixedNow);
-        await service.SubmitChainStepAsync(match.Id, aUserId, "First Attempt Player", "Wrong Club");
+        await service.SubmitChainStepAsync(match.Id, aUserId, "First Attempt Player");
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Retry Attempt Player", "Also Wrong Club");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Retry Attempt Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.Busted));
         var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
@@ -454,11 +479,11 @@ public class ConnectChainStepServiceTests
         var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
         await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
         var candidate = await SeedPlayerAsync("Closing Link Player");
-        _overlapService.SetOverlapAtClub(candidate.Id, aTargetPlayerId, "Arsenal", overlaps: true);
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         _overlapService.SetOverlap(candidate.Id, bTargetPlayerId, overlaps: true);
         var service = BuildService(FixedNow);
 
-        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player", "Arsenal");
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player");
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainClosed));
         var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);

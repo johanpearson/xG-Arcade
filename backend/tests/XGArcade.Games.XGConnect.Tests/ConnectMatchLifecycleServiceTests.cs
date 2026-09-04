@@ -54,7 +54,7 @@ public class ConnectMatchLifecycleServiceTests
         await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = position, AttemptNumber = attemptNumber,
-            CandidatePlayerId = Guid.NewGuid(), ClaimedClubName = "Club", IsValid = isValid, ClosesChain = closesChain, SubmittedAt = submittedAt,
+            CandidatePlayerId = Guid.NewGuid(), MatchedClubName = "Club", MatchedOverlapStartYear = 2000, IsValid = isValid, ClosesChain = closesChain, SubmittedAt = submittedAt,
         });
 
     // The minimal "this player completed a 1-connector, zero-penalty chain"

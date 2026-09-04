@@ -166,12 +166,20 @@ public class PlayerCareerOverlapServiceTests
             "a Wikidata technical failure must surface as LiveLookupUnavailableException — genuinely unknown, never swallowed to false/true");
     }
 
-    // ---- S-213/REQ-1406: HaveOverlapAtClubAsync — same interval-overlap
-    // ---- math as HaveSharedClubOverlapAsync above, filtered to one
-    // ---- specific claimed club on both sides ------------------------------
+    // ---- REQ-1406 (design change, 2026-09-04, ADR-0104): GetSharedClubOverlapsAsync
+    // ---- — same interval-overlap math as HaveSharedClubOverlapAsync above
+    // ---- (that method is now a thin wrapper over this one), but returns
+    // ---- every shared club with its actual intersected year range instead
+    // ---- of a single boolean. Supersedes the former HaveOverlapAtClubAsync
+    // ---- (playerAId, playerBId, clubName), which required the CALLER to
+    // ---- already know and type a specific club name — the direct cause of
+    // ---- a real false-rejection bug (a genuinely correct "Chelsea FC" claim
+    // ---- string-mismatched the canonically-stored "Chelsea"). With no
+    // ---- player-typed club name reaching this service at all anymore, that
+    // ---- entire bug class no longer applies here. ---------------------------
 
     [Test]
-    public async Task REQ1406_HaveOverlapAtClubAsync_OverlappingTimeAtClaimedClub_ReturnsTrue()
+    public async Task REQ1406_GetSharedClubOverlapsAsync_OverlappingTimeAtSharedClub_ReturnsThatClubWithIntersectedYears()
     {
         var playerA = await SeedPlayerAsync();
         var playerB = await SeedPlayerAsync();
@@ -180,13 +188,49 @@ public class PlayerCareerOverlapServiceTests
         await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Arsenal", StartYear = 2003, EndYear = 2010 }]);
 
-        var overlaps = await BuildService().HaveOverlapAtClubAsync(playerA.Id, playerB.Id, "Arsenal");
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
 
-        Assert.That(overlaps, Is.True);
+        Assert.That(overlaps, Has.Count.EqualTo(1));
+        Assert.That(overlaps[0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(overlaps[0].OverlapStartYear, Is.EqualTo(2003), "the later of the two start years");
+        Assert.That(overlaps[0].OverlapEndYear, Is.EqualTo(2007), "the earlier of the two end years");
     }
 
     [Test]
-    public async Task REQ1406_HaveOverlapAtClubAsync_NonOverlappingPeriodAtClaimedClub_ReturnsFalse()
+    public async Task REQ1406_GetSharedClubOverlapsAsync_BothStintsOngoing_ReturnsNullOverlapEndYear()
+    {
+        var playerA = await SeedPlayerAsync();
+        var playerB = await SeedPlayerAsync();
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerA.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 2015, EndYear = null }]);
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Arsenal", StartYear = 2018, EndYear = null }]);
+
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
+
+        Assert.That(overlaps, Has.Count.EqualTo(1));
+        Assert.That(overlaps[0].OverlapStartYear, Is.EqualTo(2018));
+        Assert.That(overlaps[0].OverlapEndYear, Is.Null, "both stints are still ongoing — the overlap has no known end yet");
+    }
+
+    [Test]
+    public async Task REQ1406_GetSharedClubOverlapsAsync_OneStintOngoing_UsesTheOtherStintsEndYear()
+    {
+        var playerA = await SeedPlayerAsync();
+        var playerB = await SeedPlayerAsync();
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerA.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 2015, EndYear = null }]);
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Arsenal", StartYear = 2018, EndYear = 2020 }]);
+
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
+
+        Assert.That(overlaps, Has.Count.EqualTo(1));
+        Assert.That(overlaps[0].OverlapEndYear, Is.EqualTo(2020), "the bounded stint's own end year, since the other side is still ongoing");
+    }
+
+    [Test]
+    public async Task REQ1406_GetSharedClubOverlapsAsync_NonOverlappingPeriodAtSameClub_ReturnsEmpty()
     {
         var playerA = await SeedPlayerAsync();
         var playerB = await SeedPlayerAsync();
@@ -195,50 +239,51 @@ public class PlayerCareerOverlapServiceTests
         await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Arsenal", StartYear = 2010, EndYear = 2015 }]);
 
-        var overlaps = await BuildService().HaveOverlapAtClubAsync(playerA.Id, playerB.Id, "Arsenal");
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
 
-        Assert.That(overlaps, Is.False);
+        Assert.That(overlaps, Is.Empty);
     }
 
     [Test]
-    public async Task REQ1406_HaveOverlapAtClubAsync_CandidateNeverPlayedForClaimedClub_ReturnsFalse()
+    public async Task REQ1406_GetSharedClubOverlapsAsync_DifferentClubsOnly_ReturnsEmpty()
     {
         var playerA = await SeedPlayerAsync();
         var playerB = await SeedPlayerAsync();
-        // Both players DO overlap at Chelsea — proves the claimed-club
-        // filter narrows to Arsenal only, rather than falling back to any
-        // shared club the way HaveSharedClubOverlapAsync would.
         await _playerCareerStintRepository.AddCareerStintsAsync(playerA.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Chelsea", StartYear = 1999, EndYear = 2007 }]);
         await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
-            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Chelsea", StartYear = 2003, EndYear = 2010 }]);
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Arsenal", StartYear = 2003, EndYear = 2010 }]);
 
-        var overlaps = await BuildService().HaveOverlapAtClubAsync(playerA.Id, playerB.Id, "Arsenal");
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
 
-        Assert.That(overlaps, Is.False, "neither player has any stint at the claimed club at all");
+        Assert.That(overlaps, Is.Empty, "neither player has any stint at a shared club at all");
     }
 
-    // Bug fix (2026-09-04, REQ-1406/1407, product-owner report): stored
-    // ClubName is already canonicalized/suffix-stripped at Wikidata ingest
-    // time (e.g. seeded clubs store "Chelsea", never "Chelsea FC"), but a
-    // player types the claimed club free-text (ChainBuilder.tsx) and has no
-    // reason to know that. A genuinely correct claim like "Chelsea FC" was
-    // wrongly rejected by a bare exact-string comparison.
-    [TestCase("Chelsea FC")]
-    [TestCase("chelsea fc")]
-    [TestCase("Chelsea A.F.C.")]
-    public async Task REQ1406_HaveOverlapAtClubAsync_ClaimedClubHasLegalSuffixPlayerDidNotType_StillMatchesCanonicalStoredName(string claimedClubName)
+    // The real scenario that motivated this design: two players who shared
+    // more than one club (e.g. Maxwell and Zlatan Ibrahimović — Inter,
+    // Barcelona, PSG) must get an entry for EACH genuinely-overlapping
+    // club, not just the first one found.
+    [Test]
+    public async Task REQ1406_GetSharedClubOverlapsAsync_MultipleSharedClubs_ReturnsOneEntryPerGenuinelyOverlappingClub()
     {
         var playerA = await SeedPlayerAsync();
         var playerB = await SeedPlayerAsync();
         await _playerCareerStintRepository.AddCareerStintsAsync(playerA.Id,
-            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Chelsea", StartYear = 2012, EndYear = 2019 }]);
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Inter", StartYear = 2009, EndYear = 2011 },
+            // Deliberately non-overlapping at Barcelona (A: 2011-2012, B: 2008-2010) — proves this club is correctly excluded, not just "any stint at a shared club name."
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Barcelona", StartYear = 2011, EndYear = 2012 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Paris Saint-Germain", StartYear = 2012, EndYear = 2017 },
+        ]);
         await _playerCareerStintRepository.AddCareerStintsAsync(playerB.Id,
-            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Chelsea", StartYear = 2012, EndYear = 2021 }]);
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Inter", StartYear = 2009, EndYear = 2010 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Barcelona", StartYear = 2008, EndYear = 2010 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Paris Saint-Germain", StartYear = 2012, EndYear = 2016 },
+        ]);
 
-        var overlaps = await BuildService().HaveOverlapAtClubAsync(playerA.Id, playerB.Id, claimedClubName);
+        var overlaps = await BuildService().GetSharedClubOverlapsAsync(playerA.Id, playerB.Id);
 
-        Assert.That(overlaps, Is.True,
-            $"'{claimedClubName}' must normalize to match the canonically-stored 'Chelsea'");
+        Assert.That(overlaps.Select(o => o.ClubName), Is.EquivalentTo(new[] { "Inter", "Paris Saint-Germain" }));
     }
 }

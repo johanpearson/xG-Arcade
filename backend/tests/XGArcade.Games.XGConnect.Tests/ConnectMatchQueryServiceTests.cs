@@ -86,7 +86,7 @@ public class ConnectMatchQueryServiceTests
 
     private Task AddStepAsync(
         Guid matchId, Guid? userId, int position, int attemptNumber, Guid candidatePlayerId,
-        string claimedClubName, bool isValid, bool closesChain, DateTime submittedAt) =>
+        string matchedClubName, bool isValid, bool closesChain, DateTime submittedAt) =>
         _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(),
@@ -95,7 +95,8 @@ public class ConnectMatchQueryServiceTests
             Position = position,
             AttemptNumber = attemptNumber,
             CandidatePlayerId = candidatePlayerId,
-            ClaimedClubName = claimedClubName,
+            MatchedClubName = matchedClubName,
+            MatchedOverlapStartYear = 2000,
             IsValid = isValid,
             ClosesChain = closesChain,
             SubmittedAt = submittedAt,
