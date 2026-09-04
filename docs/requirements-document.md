@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.59"
+version: "2.60"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -11821,6 +11821,19 @@ post-accept banner and `MatchmakingTab`'s opted-in status both gained a
 "View your matches" link/button pointing at this tab. Full Vitest coverage
 in `MatchesTab.test.tsx`; `FriendsScreen.test.tsx` covers the tab-switch/
 drill-down container behavior.
+
+**Status note (2026-09-04 — closes the S-217 "Matches" gap):** direct user
+feedback ("I want every notification to be possible to click and get
+redirected to where it is") — with S-218's "Matches" tab now built (status
+note above), "Matches awaiting your move (N)" is no longer plain text: it
+is a real `role="menuitem"` link, exactly like "Friend requests"/
+"Challenges", opening `FriendsScreen`/SCREEN-15 via `initialTab: 'matches'`
+(landing on the matches list, not a specific match — this REQ's aggregate
+count carries no single match id to deep-link into). `NotificationBadge`'s
+`onOpenFriendsTab` prop type widened from `'friends' | 'challenges'` to
+include `'matches'`; `HeaderNav`'s matching prop type widened to match.
+`App.tsx`'s `handleOpenFriendsTab` needed no change (already typed against
+`FriendsTabKey`, which already included `'matches'`).
 
 - Given a player has at least one item in any of these three states: a
   friend request sent to them and not yet accepted/declined (REQ-1401), a

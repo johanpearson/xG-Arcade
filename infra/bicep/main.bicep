@@ -67,7 +67,13 @@ param minReplicas int = 0
 param roundDurationHours int = 48
 
 @description('GridLiveLookupOptions.Enabled — REQ-211\'s guess-time live-lookup fallback (ADR-0070). See modules/backend-container-app.bicep for guidance.')
-param gridLiveLookupEnabled bool = false
+// ADR-0070's status note turned this off (2026-08-17) as a deliberate
+// experiment, on the explicit condition it would be reverted "if
+// wrongly-rejected correct guesses start appearing again." That happened
+// (2026-09-04: genuine club-category guesses — e.g. Azpilicueta for
+// Chelsea — scored incorrect with no self-healing) — reverted to the
+// module's own conservative default per that ADR's prescribed remediation.
+param gridLiveLookupEnabled bool = true
 
 module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
   name: 'containerAppsEnvironment'

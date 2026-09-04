@@ -74,12 +74,6 @@
   cursor: pointer;
 }
 
-.notification-badge__item--static {
-  display: flex;
-  align-items: center;
-  color: var(--color-text-muted);
-}
-
 /* Below the mobile breakpoint, anchor the panel to the right edge instead
    of the left — the same "flip toward the header's own edge below 480px"
    treatment HeaderNav.css's own outer menu already uses, so the panel never

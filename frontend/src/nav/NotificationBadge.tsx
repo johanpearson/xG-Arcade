@@ -6,12 +6,13 @@ export interface NotificationBadgeProps {
   pendingChallengeCount: number;
   matchesAwaitingActionCount: number;
   // REQ-1411 (design-document.md SCREEN-07's 2026-09-03 badge-redesign
-  // status note): opens SCREEN-15 already on the matching tab — "Friend
-  // requests" and "Challenges" are real navigation targets. There is no
-  // third destination yet (S-218's match/gameplay screen doesn't exist),
-  // so "Matches awaiting your move" has no matching callback — see the
-  // plain, non-interactive line rendered for it below.
-  onOpenFriendsTab: (tab: 'friends' | 'challenges') => void;
+  // status note): opens SCREEN-15 already on the matching tab. "Matches
+  // awaiting your move" used to render as plain, non-interactive text
+  // because S-218's match/gameplay screen didn't exist yet — S-218 has
+  // since shipped SCREEN-15's "Matches" tab (with its own drill-down into
+  // a single match, `FriendsScreen.tsx`), so all three categories are now
+  // real navigation targets.
+  onOpenFriendsTab: (tab: 'friends' | 'challenges' | 'matches') => void;
 }
 
 // design-document.md SCREEN-07 (2026-09-03 badge-redesign, direct user
@@ -42,7 +43,7 @@ export function NotificationBadge({
     setOpen((current) => !current);
   }
 
-  function handleSelect(tab: 'friends' | 'challenges') {
+  function handleSelect(tab: 'friends' | 'challenges' | 'matches') {
     setOpen(false);
     onOpenFriendsTab(tab);
   }
@@ -92,14 +93,15 @@ export function NotificationBadge({
               Challenges ({pendingChallengeCount})
             </button>
           )}
-          {/* S-218 (the match/gameplay screen) doesn't exist yet — there is
-              nowhere for this category to navigate to, so it's a plain
-              count line, not a broken link. See SCREEN-07's own status
-              note for this temporary gap. */}
           {matchesAwaitingActionCount > 0 && (
-            <span className="notification-badge__item notification-badge__item--static">
+            <button
+              type="button"
+              role="menuitem"
+              className="notification-badge__item notification-badge__item--link"
+              onClick={() => handleSelect('matches')}
+            >
               Matches awaiting your move ({matchesAwaitingActionCount})
-            </span>
+            </button>
           )}
         </div>
       )}

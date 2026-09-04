@@ -13,6 +13,50 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `infra/bicep/main.bicep`,
+  `docs/decisions/0070-grid-live-lookup-flag.md` — direct user feedback
+  (genuine club-category guesses — e.g. César Azpilicueta for Chelsea
+  FC — scored incorrect during real play) traced to ADR-0070's
+  `gridLiveLookupEnabled` deployment param, turned `false` in dev on
+  2026-08-17 as a deliberate, self-documented experiment ("revert if
+  wrongly-rejected correct guesses start appearing again" — exactly what
+  happened). The correctness-checking path itself
+  (`GridNameMatcher`/`PlayerOverrideRepository`, `PlayerNameNormalizer`)
+  was checked and is not the cause; with REQ-211's guess-time live-lookup
+  fallback off, any cache gap for a cell (proactively swept by S-127's
+  `PlayerCareerPrefetchService`, never guaranteed complete) became a
+  permanent wrong rejection with no self-healing — ADR-0070's own
+  documented trade-off. Reverted `gridLiveLookupEnabled`'s default back to
+  `true` (matching `backend-container-app.bicep`'s own module-level
+  default), closing the experiment via ADR-0070's own prescribed
+  remediation (new status note added, not a new ADR — this executes an
+  already-recorded decision, it doesn't make a new one). Separately noted
+  but not fixed here: `StaleClubAttributeCleaner`'s cache-repair CLI verb
+  (built for an earlier, unrelated Wikidata query bug, see `NOTES.md`) is
+  manual/one-off, not automatic — a possible follow-up backlog story, not
+  blocking since the live-lookup fallback now catches any resulting gap.
+  No REQ change; `requirements-document.md`/`architecture-document.md`
+  needed no update (the `GridLiveLookupOptions.Enabled` C# default was
+  already `true` — only the deployed dev environment's override changed).
+
+- 2026-09-04 — `frontend/src/nav/NotificationBadge.tsx`,
+  `frontend/src/nav/NotificationBadge.css`, `frontend/src/nav/HeaderNav.tsx`,
+  `frontend/src/nav/NotificationBadge.test.tsx`,
+  `docs/design-document.md` (SCREEN-07, v0.91 → v0.92),
+  `docs/requirements-document.md` (REQ-1411 status note, v2.59 → v2.60),
+  `docs/backlog.md` (S-219 given a bugfix addendum) — direct user feedback
+  ("I want every notification to be possible to click and get redirected
+  to where it is, if its a match or whatever"): "Matches awaiting your
+  move (N)" in the header notification-badge dropdown was left as plain,
+  non-interactive text when S-219 shipped it, because S-218's match screen
+  didn't exist yet — S-218 has since shipped `FriendsScreen.tsx`'s
+  "Matches" tab, so the reason for the gap no longer holds. It's now a
+  real `role="menuitem"` link, same as "Friend requests"/"Challenges",
+  opening SCREEN-15 via `initialTab: 'matches'`. `onOpenFriendsTab`'s prop
+  type widened to include `'matches'` in both components; `App.tsx` needed
+  no change. No REQ/ADR change — closes an already-flagged temporary gap
+  in an already-Built feature.
+
 - 2026-09-04 — `frontend/src/connect/ChainBuilder.tsx`,
   `frontend/src/connect/MatchResolution.tsx`,
   `frontend/src/connect/ChainBuilder.test.tsx`,
