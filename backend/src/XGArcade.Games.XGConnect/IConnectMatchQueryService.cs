@@ -62,6 +62,12 @@ public enum ConnectMatchPerspectiveOutcome
 // REQ-710 anonymization has run for that participant, same nullable shape
 // every other xG Connect response already uses for a UserId-shaped field
 // (e.g. ConnectChatMessage.SenderUserId via ChatMessageResponse).
+// OpponentDisplayName mirrors OpponentUserId's own nullability exactly — null
+// whenever OpponentUserId is null, never a placeholder — resolved via a
+// single batch IUserRepository.GetByIdsAsync call across every row rather
+// than one lookup per row (SCREEN-15 "Identity gap" fix already applied to
+// Core.Social's FriendshipResponse/ChallengeResponse; same
+// batch-then-map shape LeaderboardService established for REQ-404).
 // AwaitingMyAction is exactly IConnectMatchLifecycleService.
 // GetMatchesAwaitingActionAsync's own membership test for this match — see
 // ConnectMatchQueryService.GetMatchesForUserAsync's own comment for why a
@@ -69,6 +75,7 @@ public enum ConnectMatchPerspectiveOutcome
 public record ConnectMatchSummary(
     Guid MatchId,
     Guid? OpponentUserId,
+    string? OpponentDisplayName,
     ConnectMatchStatus Status,
     DateTime CreatedAt,
     DateTime? StartedAt,
@@ -119,6 +126,10 @@ public record ConnectTerminalState(bool Busted, bool TimedOut, bool Completed);
 // live visibility into an opponent's in-progress chain; keeping the actual
 // steps private is a minimal, reasonable default, not a new structural
 // decision.
+// OpponentDisplayName mirrors OpponentUserId's own nullability exactly —
+// see ConnectMatchSummary.OpponentDisplayName's own doc comment for the
+// same rule/batch-resolve rationale (a single-id resolve here, since this
+// is a single-match read).
 public record ConnectMatchDetail(
     ConnectMatchStatus Status,
     DateTime CreatedAt,
@@ -127,6 +138,7 @@ public record ConnectMatchDetail(
     DateTime? ResolvedAt,
     ConnectMatchPerspectiveOutcome Outcome,
     Guid? OpponentUserId,
+    string? OpponentDisplayName,
     ConnectTargetPickView? MyTargetPick,
     ConnectTargetPickView? OpponentTargetPick,
     IReadOnlyList<ConnectChainStepView> MyChainSteps,

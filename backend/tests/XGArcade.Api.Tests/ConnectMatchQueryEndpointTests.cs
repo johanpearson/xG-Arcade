@@ -162,12 +162,39 @@ public class ConnectMatchQueryEndpointTests
         Assert.That(resolved.Status, Is.EqualTo("Resolved"));
         Assert.That(resolved.Outcome, Is.EqualTo("Win"), "caller is PlayerA and Outcome is PlayerAWin");
         Assert.That(resolved.OpponentUserId, Is.EqualTo(userBId));
+        Assert.That(resolved.OpponentDisplayName, Is.EqualTo("Blair"));
         Assert.That(resolved.AwaitingMyAction, Is.False);
 
         var open = body.Single(m => m.MatchId == openMatchId);
         Assert.That(open.Status, Is.EqualTo("AwaitingTargetPicks"));
         Assert.That(open.Outcome, Is.EqualTo("Pending"));
+        Assert.That(open.OpponentDisplayName, Is.EqualTo("Blair"));
         Assert.That(open.AwaitingMyAction, Is.True);
+    }
+
+    // SCREEN-15 "Identity gap" fix: a THIRD match against a different
+    // opponent proves the batch-resolve is keyed correctly per row over the
+    // real HTTP pipeline, not just "some name for everyone" — mirrors
+    // 087b2e7's own dedicated multi-row case for FriendEndpoints/
+    // ChallengeEndpoints.
+    [Test]
+    public async Task REQ1411_GetMatches_MultipleOpponents_EachRowGetsItsOwnOpponentDisplayName()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var userCId = await SeedUserAsync(Guid.NewGuid(), "Casey");
+        var matchWithB = await CreateMatchAsync(userAId, userBId);
+        var matchWithC = await CreateMatchAsync(userCId, userAId);
+
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await client.GetAsync("/matches");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<List<ConnectMatchListItemResponse>>();
+        Assert.That(body!.Single(m => m.MatchId == matchWithB).OpponentDisplayName, Is.EqualTo("Blair"));
+        Assert.That(body.Single(m => m.MatchId == matchWithC).OpponentDisplayName, Is.EqualTo("Casey"));
     }
 
     // ---- GET /matches/{matchId} ------------------------------------------------
@@ -234,6 +261,7 @@ public class ConnectMatchQueryEndpointTests
         Assert.That(body.OpponentTargetPick!.TargetPlayerId, Is.EqualTo(bTargetPlayerId));
         Assert.That(body.OpponentTargetPick.TargetPlayerName, Is.EqualTo("B Target"));
         Assert.That(body.OpponentUserId, Is.EqualTo(userBId));
+        Assert.That(body.OpponentDisplayName, Is.EqualTo("Blair"));
         Assert.That(body.MyTerminalState, Is.EqualTo(new ConnectTerminalStateResponse(false, false, false)));
         Assert.That(body.OpponentTerminalState, Is.EqualTo(new ConnectTerminalStateResponse(false, false, false)));
     }

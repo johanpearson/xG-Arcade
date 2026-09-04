@@ -8,7 +8,8 @@ namespace XGArcade.Games.XGConnect;
 public class ConnectMatchQueryService(
     IConnectMatchRepository connectMatchRepository,
     IConnectMatchLifecycleService connectMatchLifecycleService,
-    IPlayerRepository playerRepository) : IConnectMatchQueryService
+    IPlayerRepository playerRepository,
+    IUserRepository userRepository) : IConnectMatchQueryService
 {
     public async Task<IReadOnlyList<ConnectMatchSummary>> GetMatchesForUserAsync(
         Guid userId, CancellationToken cancellationToken = default)
@@ -29,6 +30,18 @@ public class ConnectMatchQueryService(
             .Select(m => m.Id)
             .ToHashSet();
 
+        // SCREEN-15 "Identity gap" fix (mirrors Core.Social's
+        // FriendEndpoints/ChallengeEndpoints): every distinct opponent id
+        // across the whole page, resolved in one IUserRepository.
+        // GetByIdsAsync call rather than one round-trip per row. Null
+        // opponent ids (REQ-710 anonymization) are excluded before the
+        // call — GetByIdsAsync only accepts non-null ids.
+        var opponentUserIds = matches
+            .Select(match => match.PlayerAUserId == userId ? match.PlayerBUserId : match.PlayerAUserId)
+            .Where(opponentUserId => opponentUserId.HasValue)
+            .Select(opponentUserId => opponentUserId!.Value);
+        var opponentDisplayNamesById = await ResolveDisplayNamesAsync(opponentUserIds, cancellationToken);
+
         return matches
             .Select(match =>
             {
@@ -38,6 +51,7 @@ public class ConnectMatchQueryService(
                 return new ConnectMatchSummary(
                     match.Id,
                     opponentUserId,
+                    ResolveOpponentDisplayName(opponentUserId, opponentDisplayNamesById),
                     match.Status,
                     match.CreatedAt,
                     match.StartedAt,
@@ -64,6 +78,15 @@ public class ConnectMatchQueryService(
 
         var isPlayerA = match.PlayerAUserId == userId;
         var opponentUserId = isPlayerA ? match.PlayerBUserId : match.PlayerAUserId;
+
+        // SCREEN-15 "Identity gap" fix: single-id resolve, same
+        // ResolveDisplayNamesAsync helper GetMatchesForUserAsync above
+        // batches across a whole page — this is a single-match read, so
+        // there's only ever one opponent id to resolve (or none, per REQ-710
+        // anonymization).
+        var opponentDisplayNamesById = await ResolveDisplayNamesAsync(
+            opponentUserId.HasValue ? [opponentUserId.Value] : [], cancellationToken);
+        var opponentDisplayName = ResolveOpponentDisplayName(opponentUserId, opponentDisplayNamesById);
 
         var myPick = await connectMatchRepository.GetTargetPickAsync(matchId, userId, cancellationToken);
 
@@ -135,6 +158,7 @@ public class ConnectMatchQueryService(
             match.ResolvedAt,
             TranslateOutcome(match.Outcome, isPlayerA),
             opponentUserId,
+            opponentDisplayName,
             myTargetPickView,
             opponentTargetPickView,
             myChainStepViews,
@@ -148,6 +172,37 @@ public class ConnectMatchQueryService(
 
     private static string ResolvePlayerName(IReadOnlyDictionary<Guid, Player> players, Guid playerId) =>
         players.TryGetValue(playerId, out var player) ? player.FullName : "Unknown player";
+
+    // SCREEN-15 "Identity gap" fix: resolves every distinct user id's
+    // DisplayName in one IUserRepository.GetByIdsAsync call — same
+    // batch-then-map shape LeaderboardService (REQ-404) and
+    // FriendEndpoints/ChallengeEndpoints (Core.Social) already established
+    // for this exact repository method.
+    private async Task<IReadOnlyDictionary<Guid, string>> ResolveDisplayNamesAsync(
+        IEnumerable<Guid> userIds, CancellationToken cancellationToken)
+    {
+        var distinctIds = userIds.Distinct().ToList();
+        if (distinctIds.Count == 0)
+            return new Dictionary<Guid, string>();
+
+        var users = await userRepository.GetByIdsAsync(distinctIds, cancellationToken);
+        return users.ToDictionary(u => u.Id, u => u.DisplayName);
+    }
+
+    // OpponentDisplayName must mirror OpponentUserId's own nullability
+    // exactly — null whenever OpponentUserId is null (REQ-710
+    // anonymization), never a placeholder for that case. A non-null
+    // opponentUserId with no matching row is defensive-only (same "should
+    // never actually happen" caveat as ResolvePlayerName's own "Unknown
+    // player" fallback above — every ConnectMatch row is created between two
+    // users that existed at creation time, and REQ-710 anonymizes the
+    // UserId column itself rather than deleting the User row it once
+    // pointed to).
+    private static string? ResolveOpponentDisplayName(
+        Guid? opponentUserId, IReadOnlyDictionary<Guid, string> opponentDisplayNamesById) =>
+        opponentUserId is null
+            ? null
+            : opponentDisplayNamesById.TryGetValue(opponentUserId.Value, out var displayName) ? displayName : "Unknown player";
 
     // REQ-1409: the single place this match/perspective translation is
     // computed — see ConnectMatchPerspectiveOutcome's own doc comment.

@@ -25,6 +25,7 @@ public class ConnectMatchQueryServiceTests
     private XGArcadeDbContext _dbContext = null!;
     private IConnectMatchRepository _connectMatchRepository = null!;
     private IPlayerRepository _playerRepository = null!;
+    private IUserRepository _userRepository = null!;
 
     [SetUp]
     public void SetUp()
@@ -35,6 +36,7 @@ public class ConnectMatchQueryServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _connectMatchRepository = new ConnectMatchRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
+        _userRepository = new UserRepository(_dbContext);
     }
 
     [TearDown]
@@ -43,7 +45,27 @@ public class ConnectMatchQueryServiceTests
     private ConnectMatchQueryService BuildService(DateTimeOffset now) =>
         new(_connectMatchRepository,
             new ConnectMatchLifecycleService(_connectMatchRepository, new ConnectScoringService(), new FixedTimeProvider(now)),
-            _playerRepository);
+            _playerRepository,
+            _userRepository);
+
+    // SCREEN-15 "Identity gap" fix: seeds a real User row so
+    // IUserRepository.GetByIdsAsync's batch-resolve has something to find —
+    // same shape AddPlayerAsync below already uses for Player rows.
+    private async Task<Guid> AddUserAsync(string displayName)
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = $"{Guid.NewGuid()}@example.com",
+            DisplayName = displayName,
+            EmailConfirmed = true,
+            CreatedAt = FixedNow.UtcDateTime,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+        return user.Id;
+    }
 
     private async Task<ConnectMatch> CreateMatchAsync(Guid playerAUserId, Guid playerBUserId, DateTime createdAt) =>
         await _connectMatchRepository.AddMatchAsync(new ConnectMatch
@@ -112,6 +134,51 @@ public class ConnectMatchQueryServiceTests
 
         Assert.That(result.Single().Outcome, Is.EqualTo(ConnectMatchPerspectiveOutcome.Loss));
         Assert.That(result.Single().OpponentUserId, Is.EqualTo(otherId));
+    }
+
+    // SCREEN-15 "Identity gap" fix: two matches against two DIFFERENT
+    // opponents proves the batch-resolve dictionary is keyed correctly per
+    // row, not just "some name for everyone" — mirrors 087b2e7's own
+    // dedicated multi-row case for FriendEndpoints/ChallengeEndpoints.
+    [Test]
+    public async Task REQ1411_GetMatchesForUserAsync_MultipleOpponents_ResolvesEachRowsOwnDisplayNameCorrectly()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentOneId = await AddUserAsync("Opponent One");
+        var opponentTwoId = await AddUserAsync("Opponent Two");
+        var matchOne = await CreateMatchAsync(callerId, opponentOneId, FixedNow.UtcDateTime);
+        var matchTwo = await CreateMatchAsync(opponentTwoId, callerId, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesForUserAsync(callerId);
+
+        Assert.That(result.Single(m => m.MatchId == matchOne.Id).OpponentDisplayName, Is.EqualTo("Opponent One"));
+        Assert.That(result.Single(m => m.MatchId == matchTwo.Id).OpponentDisplayName, Is.EqualTo("Opponent Two"));
+    }
+
+    // REQ-710: an anonymized opponent (OpponentUserId already null) must
+    // never resolve to a placeholder DisplayName — OpponentDisplayName
+    // mirrors OpponentUserId's own nullability exactly.
+    [Test]
+    public async Task REQ1411_GetMatchesForUserAsync_OpponentUserIdIsNull_OpponentDisplayNameIsAlsoNull()
+    {
+        var callerId = Guid.NewGuid();
+        // PlayerBUserId is null here (REQ-710 anonymization already ran for
+        // that slot) — CreateMatchAsync's own Guid (non-nullable) parameters
+        // can't express that, so this constructs the match directly.
+        await _connectMatchRepository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            PlayerAUserId = callerId,
+            PlayerBUserId = null,
+            CreatedAt = FixedNow.UtcDateTime,
+        });
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesForUserAsync(callerId);
+
+        Assert.That(result.Single().OpponentUserId, Is.Null);
+        Assert.That(result.Single().OpponentDisplayName, Is.Null);
     }
 
     [Test]
@@ -291,6 +358,44 @@ public class ConnectMatchQueryServiceTests
         Assert.That(result.Detail!.MyScore, Is.EqualTo(1));
         Assert.That(result.Detail.OpponentScore, Is.EqualTo(3));
         Assert.That(result.Detail.Outcome, Is.EqualTo(ConnectMatchPerspectiveOutcome.Win));
+    }
+
+    // SCREEN-15 "Identity gap" fix: GetMatchDetailAsync's own single-id
+    // resolve, exercised independently of GetMatchesForUserAsync's
+    // batch-across-a-page version above.
+    [Test]
+    public async Task REQ1404_GetMatchDetailAsync_ResolvesOpponentDisplayName()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentId = await AddUserAsync("Opponent Name");
+        var match = await CreateMatchAsync(callerId, opponentId, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        Assert.That(result.Detail!.OpponentUserId, Is.EqualTo(opponentId));
+        Assert.That(result.Detail.OpponentDisplayName, Is.EqualTo("Opponent Name"));
+    }
+
+    // REQ-710: same anonymization rule as GetMatchesForUserAsync's own
+    // null-opponent test above, exercised here for GetMatchDetailAsync too.
+    [Test]
+    public async Task REQ1404_GetMatchDetailAsync_OpponentUserIdIsNull_OpponentDisplayNameIsAlsoNull()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await _connectMatchRepository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            PlayerAUserId = callerId,
+            PlayerBUserId = null,
+            CreatedAt = FixedNow.UtcDateTime,
+        });
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        Assert.That(result.Detail!.OpponentUserId, Is.Null);
+        Assert.That(result.Detail.OpponentDisplayName, Is.Null);
     }
 
     // A candidate/target player id with no corresponding Player row (should

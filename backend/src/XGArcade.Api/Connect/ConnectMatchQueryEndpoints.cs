@@ -71,6 +71,7 @@ public static class ConnectMatchQueryEndpoints
         new(
             summary.MatchId,
             summary.OpponentUserId,
+            summary.OpponentDisplayName,
             summary.Status.ToString(),
             summary.CreatedAt,
             summary.StartedAt,
@@ -98,6 +99,7 @@ public static class ConnectMatchQueryEndpoints
             detail.ResolvedAt,
             detail.Outcome.ToString(),
             detail.OpponentUserId,
+            detail.OpponentDisplayName,
             detail.MyTargetPick is null ? null : ToResponse(detail.MyTargetPick),
             detail.OpponentTargetPick is null ? null : ToResponse(detail.OpponentTargetPick),
             detail.MyChainSteps.Select(ToResponse).ToList(),
@@ -110,9 +112,14 @@ public static class ConnectMatchQueryEndpoints
 // Status/Outcome are strings (Enum.ToString()) — same convention
 // ChallengeEndpoints.ChallengeResponse already uses for its own Status
 // field, rather than exposing the raw enum's numeric JSON value.
+// OpponentDisplayName mirrors OpponentUserId's own nullability exactly —
+// null whenever OpponentUserId is null (REQ-710 anonymization), never a
+// placeholder — see ConnectMatchSummary.OpponentDisplayName's own doc
+// comment (Games.XGConnect) for the batch-resolve this is a pass-through of.
 public record ConnectMatchListItemResponse(
     Guid MatchId,
     Guid? OpponentUserId,
+    string? OpponentDisplayName,
     string Status,
     DateTime CreatedAt,
     DateTime? StartedAt,
@@ -149,6 +156,7 @@ public record ConnectMatchDetailResponse(
     DateTime? ResolvedAt,
     string Outcome,
     Guid? OpponentUserId,
+    string? OpponentDisplayName,
     ConnectTargetPickResponse? MyTargetPick,
     ConnectTargetPickResponse? OpponentTargetPick,
     IReadOnlyList<ConnectChainStepDetailResponse> MyChainSteps,
