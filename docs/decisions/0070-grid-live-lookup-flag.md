@@ -116,6 +116,37 @@ remediation path while it's off. Revert by flipping `main.bicep`'s default
 back to `true` (or a per-deploy `--parameters` override) if wrongly-rejected
 correct guesses start appearing.
 
+## Status note (2026-09-04): flag reverted to on
+
+The trigger this ADR's Consequences section and its own second status note
+both named — "wrongly-rejected correct guesses start appearing again" —
+fired: the product owner reported genuine, long-tenured club-category
+guesses (e.g. César Azpilicueta for Chelsea FC) scored incorrect during
+real play. `GridNameMatcher`/`PlayerOverrideRepository`'s
+`PlayerAttribute`/`PlayerOverride` correctness path and name normalization
+(`PlayerNameNormalizer`) were checked and are not the cause — with the
+fallback off, any cache gap for a given cell (proactively swept by S-127's
+`PlayerCareerPrefetchService`, but never guaranteed complete) is
+permanent, exactly this ADR's documented trade-off. `main.bicep`'s
+`gridLiveLookupEnabled` default is reverted from `false` back to `true`,
+matching `backend-container-app.bicep`'s own module-level default —
+REQ-211's guess-time fallback is back on in the dev environment as of the
+next deploy after this change lands. The experiment concluded: S-127's
+proactive cache was not complete enough to retire this fallback safely.
+
+Separately, this session's investigation also surfaced that
+`StaleClubAttributeCleaner`'s `clean-stale-club-attributes --all-clubs` CLI
+verb (built for the earlier, unrelated Tonali/AC Milan `wdt:P54`
+truthy-shortcut bug — see `NOTES.md`) is a manually-triggered one-off, not
+wired into any automatic pipeline, so any cell whose cache was populated
+before that fix with just enough current-squad players to clear
+`GridGenerationOptions.MinValidAnswers` would never be automatically
+re-queried with the corrected query. With the live-lookup fallback back on
+this no longer produces a wrongly-rejected guess (the fallback catches
+it), but the underlying cache rows stay stale until that cleanup verb is
+actually re-run — worth a follow-up backlog story if that turns out to
+matter, not addressed by this status note.
+
 ## For AI agents
 
 Do not extend this flag to gate `GridGenerationService.GetMatchCountAsync`
