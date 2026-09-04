@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.62"
+version: "2.63"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -11136,14 +11136,20 @@ that runs the trivial-pair check first and only writes/locks anything if
 it comes back false, so a rejected completing pick never touches either
 player's row. The direct-connection check itself is delegated to a new
 shared, player-ID-generic service, `IPlayerCareerOverlapService`/
-`PlayerCareerOverlapService` (also `XGArcade.Games.XGConnect`), which
-trusts cached `PlayerCareerStint` rows once at least one exists per player
-and otherwise triggers a live Wikidata refresh via the shared
-`IPlayerCareerStintRefreshService` (`XGArcade.DataSync`, ADR-0054),
-following ADR-0010/0011's fetch-once-cache-forever discipline; a technical
-Wikidata failure surfaces as `LiveLookupUnavailableException` (never
-silently treated as connected or not connected) and maps to the new
-`SubmitTargetPickOutcome.LiveLookupUnavailable` outcome. This service is
+`PlayerCareerOverlapService` (also `XGArcade.Games.XGConnect`), which (at
+the time this story shipped) trusted cached `PlayerCareerStint` rows once
+at least one existed per player and otherwise triggered a live Wikidata
+refresh via the shared `IPlayerCareerStintRefreshService`
+(`XGArcade.DataSync`, ADR-0054), following ADR-0010/0011's
+fetch-once-cache-forever discipline; a technical Wikidata failure surfaces
+as `LiveLookupUnavailableException` (never silently treated as connected
+or not connected) and maps to the new
+`SubmitTargetPickOutcome.LiveLookupUnavailable` outcome. **The "trusts
+cached rows once at least one exists" behavior described in this paragraph
+was a real bug, fixed 2026-09-04 (ADR-0105) — see REQ-1406's own bug-fix
+status note for the full detail; this paragraph is kept for historical
+accuracy about what S-211 originally shipped, not a claim of current
+behavior.** This service is
 deliberately built generic on two bare player IDs, not
 `ConnectTargetPick`-shaped, so S-213's chain-step validation (REQ-1406)
 can reuse it unchanged. `ConnectTargetPick.IsLocked` is this story's own
@@ -11492,6 +11498,34 @@ Wikidata ingest time) but are no longer exercised via this REQ's own path;
 updated for the removed field and new display format;
 `play-connect.spec.ts` (E2E) updated to submit only a candidate name and
 asserts the server-computed club/years render correctly post-resolution.
+
+**Bug fix status note (2026-09-04, ADR-0105).** Direct product-owner
+report, live-tested the same day the design change above shipped: a
+genuinely correct chain step (Reece James → Jonas Olsson, sharing a real
+2019 loan spell at Wigan Athletic) was rejected — right after an earlier
+step in the SAME chain (Azpilicueta → James, matched at Chelsea) had
+worked correctly. Root cause: `PlayerCareerOverlapService
+.LoadBothPlayersStintsAsync` trusted a player's `PlayerCareerStint` rows as
+complete once ANY row existed, and skipped refreshing them again. James
+already had a Chelsea-only row from the earlier, successful step, so his
+real Wigan Athletic loan — never previously fetched — stayed permanently
+hidden. This is the identical bug shape ADR-0054 already found and fixed
+once before, in xG Path (a real Timothy Weah report, missing Juventus/
+Marseille stints, for the same underlying reason: `PlayerCareerStint` is a
+shared table other features can write narrow, single-club byproduct rows
+into). Fixed by following that same precedent: `LoadBothPlayersStintsAsync`
+now refreshes both players unconditionally on every call, never gated on
+whether they already have some cached rows — matching
+`XGPathGameModule.GenerateInstanceAsync`'s own unconditional refresh call
+to the same shared service. Safe and cheap to call every time since
+`RefreshCareerStintsAsync`'s own reconciliation dedupes against existing
+rows and persists only genuinely new stints. See ADR-0105 for the full
+decision, including the trade-off knowingly accepted (one additional live
+Wikidata call per chain-step submission, for both players, every time).
+New test coverage in `PlayerCareerOverlapServiceTests.cs`: a test proving
+both players are always refreshed even when both already have cached data,
+and a test reproducing the exact incident shape (existing narrow cache,
+refresh discovers the real additional shared club).
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players

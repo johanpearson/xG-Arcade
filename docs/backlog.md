@@ -10509,6 +10509,25 @@ fetch/persist logic; a quality-review pass extracted a third verbatim
 straightforward application of `Games.XGPath`'s existing
 `DataSync`-dependency precedent, not a new structural decision.
 
+**S-211 bugfix addendum (2026-09-04, ADR-0105):** direct product-owner
+report, live-tested — a genuinely correct chain step (Reece James → Jonas
+Olsson, a real 2019 Wigan Athletic loan) was rejected right after an
+earlier step in the same chain worked correctly. Root cause:
+`PlayerCareerOverlapService.LoadBothPlayersStintsAsync` trusted a player's
+`PlayerCareerStint` rows as complete once ANY row existed — James already
+had a Chelsea-only row from the earlier step, so his real Wigan Athletic
+loan (never fetched) stayed permanently hidden. Identical bug shape to a
+real, already-fixed xG Path incident (ADR-0054, Timothy Weah missing
+Juventus/Marseille stints) — `PlayerCareerStint` is a shared table other
+features can write narrow, single-club rows into, so "has any row" is
+never "has a full career fetched." Fixed by following ADR-0054's own
+precedent: always refresh both players unconditionally, matching
+`XGPathGameModule.GenerateInstanceAsync`'s own unconditional refresh call
+to the same shared service, rather than gating on existing rows. New test
+coverage in `PlayerCareerOverlapServiceTests.cs` reproducing the exact
+incident shape. See ADR-0105 for the full decision and REQ-1406's own
+bug-fix status note for detail.
+
 **S-212 · Match start, 6-hour timer, resolution scaffolding (REQ-1405)**
 Match officially starts once both picks are locked; independent per-player
 6-hour deadline; forfeit-on-timeout sweep job; resolution waits for both

@@ -46,9 +46,12 @@ public interface IPlayerCareerOverlapService
     // range) the two players actually share, so the caller can both decide
     // validity (empty = never played together) AND display the real
     // answer, never a player-typed string that has to match anything.
-    // Same "fetch once, cache forever, throw LiveLookupUnavailableException
-    // on a genuine technical failure" contract as HaveSharedClubOverlapAsync
-    // above (both share the same underlying fetch).
+    // Same "always refresh both players before answering, throw
+    // LiveLookupUnavailableException on a genuine technical failure"
+    // contract as HaveSharedClubOverlapAsync above (both share the same
+    // underlying fetch) — see the implementation's own doc comment
+    // (ADR-0105) for why this is always a refresh, never conditional on
+    // whether either player already has some cached data.
     Task<IReadOnlyList<SharedClubOverlap>> GetSharedClubOverlapsAsync(
         Guid playerAId, Guid playerBId, CancellationToken cancellationToken = default);
 }
