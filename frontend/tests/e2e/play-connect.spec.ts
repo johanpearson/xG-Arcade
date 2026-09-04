@@ -270,7 +270,22 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
         await page.getByLabel('Candidate player name').fill(seed.connectorPlayerName)
         await page.getByLabel('Claimed shared club').fill(claimedClub)
         await page.getByRole('button', { name: 'Submit connector' }).click()
-        await expect(page.getByText('Connected! Your chain is complete.')).toBeVisible()
+        // "Connected!" is set from local React state the instant the POST
+        // response arrives (ChainBuilder.tsx's own handleSubmit) — not
+        // gated on any poll — but the request itself is a real network
+        // round trip (POST /matches/{matchId}/chain-steps, including a
+        // PlayerCareerOverlapService check) that this CI environment's two
+        // parallel Playwright workers have observed exceeding Playwright's
+        // default 5000ms expect timeout under load (two independent CI
+        // runs failed here, one on this exact commit) even though the same
+        // step reliably completes on a re-run seconds later — a resource-
+        // contention flake, not a logic bug (verified: no code path
+        // connects the merge that landed alongside this failure to
+        // ChainBuilder's local `feedback` state or its mount lifecycle).
+        // Same generous explicit timeout this spec already uses below for
+        // other round-trip-sensitive assertions (the chat-attribution
+        // check), rather than relying on Playwright's tight default.
+        await expect(page.getByText('Connected! Your chain is complete.')).toBeVisible({ timeout: 20_000 })
       }
 
       await submitClosingChainStep(pageA, seed.clubOverlappingWithA)
@@ -280,7 +295,11 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // (REQ-1405's "resolution waits for both terminal states" rule) until
       // User B also reaches one; User A's screen must not show a resolution
       // outcome yet.
-      await expect(pageA.getByText('You have finished their chain.')).toBeVisible()
+      // Depends on ChainBuilder.tsx's own onChanged() refetch (a second,
+      // separate GET /matches/{matchId} round trip after the closing
+      // step's own POST) — same round-trip-under-load risk as
+      // submitClosingChainStep's own "Connected!" check above.
+      await expect(pageA.getByText('You have finished their chain.')).toBeVisible({ timeout: 20_000 })
       await expect(pageA.getByText("It's a draw.")).not.toBeVisible()
 
       await submitClosingChainStep(pageB, seed.clubOverlappingWithB)
