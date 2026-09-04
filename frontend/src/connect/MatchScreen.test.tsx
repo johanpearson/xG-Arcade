@@ -20,6 +20,7 @@ function detail(overrides: Partial<ConnectMatchDetail> = {}): ConnectMatchDetail
     resolvedAt: null,
     outcome: 'Pending',
     opponentUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+    opponentDisplayName: 'Opponent Olivia',
     myTargetPick: null,
     opponentTargetPick: null,
     myChainSteps: [],
@@ -66,7 +67,7 @@ describe('MatchScreen', () => {
     stubDetailAndChat(detail());
     renderScreen();
 
-    expect(await screen.findByText('Opponent: Player B2C3D4E5')).toBeInTheDocument();
+    expect(await screen.findByText('Opponent: Opponent Olivia')).toBeInTheDocument();
     expect(screen.getByText('Pick your target player')).toBeInTheDocument();
   });
 
@@ -110,7 +111,7 @@ describe('MatchScreen', () => {
   it('clicking "Back to matches" calls onBack', async () => {
     stubDetailAndChat(detail());
     const { onBack } = renderScreen();
-    await screen.findByText('Opponent: Player B2C3D4E5');
+    await screen.findByText('Opponent: Opponent Olivia');
 
     screen.getByRole('button', { name: /Back to matches/ }).click();
 

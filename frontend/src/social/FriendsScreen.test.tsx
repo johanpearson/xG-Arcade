@@ -18,10 +18,13 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response);
 }
 
-function renderFriendsScreen(fetchMock = vi.fn().mockImplementation(() => jsonResponse([]))) {
+function renderFriendsScreen(
+  fetchMock = vi.fn().mockImplementation(() => jsonResponse([])),
+  overrides: Partial<Parameters<typeof FriendsScreen>[0]> = {},
+) {
   vi.stubGlobal('fetch', fetchMock);
   const onAuthError = vi.fn();
-  render(<FriendsScreen accessToken="token" onAuthError={onAuthError} />);
+  render(<FriendsScreen accessToken="token" onAuthError={onAuthError} {...overrides} />);
   return { onAuthError };
 }
 
@@ -30,7 +33,7 @@ describe('FriendsScreen', () => {
     vi.unstubAllGlobals();
   });
 
-  it('REQ-1401/1402/1403: renders a "Friends & Challenges" heading and three tabs, defaulting to the "Friends" tab', async () => {
+  it('REQ-1401/1402/1403: renders a "Friends & Challenges" heading and four tabs, defaulting to the "Friends" tab', async () => {
     renderFriendsScreen();
 
     expect(screen.getByRole('heading', { name: 'Friends & Challenges' })).toBeInTheDocument();
@@ -66,6 +69,17 @@ describe('FriendsScreen', () => {
     expect(screen.getByRole('button', { name: 'Opt in' })).toBeVisible();
   });
 
+  // REQ-1411 (design-document.md SCREEN-07's badge-redesign status note,
+  // 2026-09-03): the notification badge's category links open this screen
+  // already on the matching tab, not always "Friends".
+  it('REQ-1411: initialTab="challenges" opens directly on the "Challenges" tab instead of the default "Friends" tab', async () => {
+    renderFriendsScreen(vi.fn().mockImplementation(() => jsonResponse([])), { initialTab: 'challenges' });
+
+    expect(screen.getByRole('tab', { name: 'Challenges' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Friends' })).toHaveAttribute('aria-selected', 'false');
+    expect(await screen.findByText('No pending challenges.')).toBeVisible();
+  });
+
   // S-218 (design-document.md SCREEN-16): the "Matches" tab is this
   // screen's own drill-down entry point — MatchesTab.test.tsx/
   // MatchScreen.test.tsx cover each sub-screen's own fetch/action behavior
@@ -75,6 +89,7 @@ describe('FriendsScreen', () => {
     const match = {
       matchId: 'match-1',
       opponentUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+      opponentDisplayName: 'Opponent Olivia',
       status: 'AwaitingTargetPicks',
       createdAt: '2026-09-01T00:00:00Z',
       startedAt: null,
@@ -91,6 +106,7 @@ describe('FriendsScreen', () => {
       resolvedAt: null,
       outcome: 'Pending',
       opponentUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+      opponentDisplayName: 'Opponent Olivia',
       myTargetPick: null,
       opponentTargetPick: null,
       myChainSteps: [],
@@ -111,14 +127,14 @@ describe('FriendsScreen', () => {
     await screen.findByText('No pending friend requests.');
 
     await user.click(screen.getByRole('tab', { name: 'Matches' }));
-    expect(await screen.findByText(/Player B2C3D4E5/)).toBeVisible();
+    expect(await screen.findByText(/Opponent Olivia/)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'View match' }));
-    expect(await screen.findByText('Opponent: Player B2C3D4E5')).toBeVisible();
+    expect(await screen.findByText('Opponent: Opponent Olivia')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: /Back to matches/ }));
-    expect(await screen.findByText(/Player B2C3D4E5/)).toBeVisible();
-    expect(screen.queryByText('Opponent: Player B2C3D4E5')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Opponent Olivia/)).toBeVisible();
+    expect(screen.queryByText('Opponent: Opponent Olivia')).not.toBeInTheDocument();
   });
 
   // S-218 regression (design-document.md SCREEN-16's "deliberate exception"
@@ -135,6 +151,7 @@ describe('FriendsScreen', () => {
     const matchV1 = {
       matchId: 'match-1',
       opponentUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+      opponentDisplayName: 'Opponent Olivia',
       status: 'AwaitingTargetPicks',
       createdAt: '2026-09-01T00:00:00Z',
       startedAt: null,
@@ -146,6 +163,7 @@ describe('FriendsScreen', () => {
     const matchV2 = {
       matchId: 'match-2',
       opponentUserId: 'c3d4e5f6-0000-0000-0000-000000000000',
+      opponentDisplayName: 'Opponent Priya',
       status: 'Active',
       createdAt: '2026-09-02T00:00:00Z',
       startedAt: '2026-09-02T00:00:01Z',
@@ -168,20 +186,20 @@ describe('FriendsScreen', () => {
     await screen.findByText('No pending friend requests.');
 
     await user.click(screen.getByRole('tab', { name: 'Matches' }));
-    expect(await screen.findByText(/Player B2C3D4E5/)).toBeVisible();
+    expect(await screen.findByText(/Opponent Olivia/)).toBeVisible();
     expect(matchesCallCount).toBe(1);
 
     // Switching to another tab unmounts the Matches panel (unlike the other
     // three, which stay mounted under `hidden`).
     await user.click(screen.getByRole('tab', { name: 'Friends' }));
-    expect(screen.queryByText(/Player B2C3D4E5/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Opponent Olivia/)).not.toBeInTheDocument();
 
     // Switching back must remount MatchesTab and issue a fresh GET
     // /matches — the second (now-current) match should appear, and the
     // first call's now-stale match should not.
     await user.click(screen.getByRole('tab', { name: 'Matches' }));
-    expect(await screen.findByText(/Player C3D4E5F6/)).toBeVisible();
-    expect(screen.queryByText(/Player B2C3D4E5/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Opponent Priya/)).toBeVisible();
+    expect(screen.queryByText(/Opponent Olivia/)).not.toBeInTheDocument();
     expect(matchesCallCount).toBe(2);
   });
 });

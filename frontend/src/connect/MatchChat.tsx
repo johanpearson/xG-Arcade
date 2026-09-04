@@ -3,7 +3,6 @@ import { fetchConnectChatMessages, sendConnectChatMessage } from '../lib/connect
 import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { usePolling } from '../lib/usePolling';
 import { useSubmitAction } from '../lib/useSubmitAction';
-import { shortUserIdOrDeleted } from '../social/shortUserId';
 
 export interface MatchChatProps {
   matchId: string;
@@ -66,7 +65,7 @@ export function MatchChat({ matchId, accessToken, viewerUserId, onAuthError }: M
           {messages.map((message) => (
             <li key={message.id} className="connect-match__chat-message">
               <span className="connect-match__chat-sender">
-                {message.senderUserId === viewerUserId ? 'You' : shortUserIdOrDeleted(message.senderUserId)}
+                {message.senderUserId === viewerUserId ? 'You' : message.senderDisplayName ?? 'a deleted user'}
               </span>
               <span className="connect-match__chat-text">{message.messageText}</span>
               <span className="connect-match__chat-time mono-figure">{new Date(message.sentAt).toLocaleTimeString()}</span>

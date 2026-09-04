@@ -49,7 +49,7 @@ describe('FriendsTab', () => {
     expect(screen.getByRole('heading', { name: 'Friend requests' })).toBeInTheDocument();
   });
 
-  it('REQ-1401: renders each pending friend request with a shortUserId label and an inline "(N)" heading count', async () => {
+  it('REQ-1401: renders each pending friend request with its requesterDisplayName label and an inline "(N)" heading count', async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/friends/requests/pending')) {
@@ -57,7 +57,9 @@ describe('FriendsTab', () => {
           {
             id: 'req-1',
             requesterUserId: 'a1b2c3d4-0000-0000-0000-000000000000',
+            requesterDisplayName: 'Alex',
             recipientUserId: 'me',
+            recipientDisplayName: 'Me',
             status: 'Pending',
             createdAt: '2026-01-01T00:00:00Z',
             resolvedAt: null,
@@ -70,7 +72,7 @@ describe('FriendsTab', () => {
     renderFriendsTab({}, fetchMock);
 
     expect(await screen.findByRole('heading', { name: 'Friend requests (1)' })).toBeInTheDocument();
-    expect(screen.getByText('Player A1B2C3D4')).toBeInTheDocument();
+    expect(screen.getByText('Alex')).toBeInTheDocument();
   });
 
   it('REQ-1401: accepting a pending request calls POST .../accept and the row disappears once refetched', async () => {
@@ -78,7 +80,9 @@ describe('FriendsTab', () => {
       {
         id: 'req-1',
         requesterUserId: 'a1b2c3d4-0000-0000-0000-000000000000',
+        requesterDisplayName: 'Alex',
         recipientUserId: 'me',
+        recipientDisplayName: 'Me',
         status: 'Pending',
         createdAt: '2026-01-01T00:00:00Z',
         resolvedAt: null,
@@ -104,7 +108,7 @@ describe('FriendsTab', () => {
     const user = userEvent.setup();
     renderFriendsTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4');
+    await screen.findByText('Alex');
     await user.click(screen.getByRole('button', { name: 'Accept' }));
 
     await waitFor(() => expect(screen.getByText('No pending friend requests.')).toBeInTheDocument());
@@ -123,7 +127,9 @@ describe('FriendsTab', () => {
           {
             id: 'req-1',
             requesterUserId: 'a1b2c3d4-0000-0000-0000-000000000000',
+            requesterDisplayName: 'Alex',
             recipientUserId: 'me',
+            recipientDisplayName: 'Me',
             status: 'Pending',
             createdAt: '2026-01-01T00:00:00Z',
             resolvedAt: null,
@@ -139,7 +145,7 @@ describe('FriendsTab', () => {
     const user = userEvent.setup();
     renderFriendsTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4');
+    await screen.findByText('Alex');
     await user.click(screen.getByRole('button', { name: 'Decline' }));
 
     expect(
@@ -154,7 +160,12 @@ describe('FriendsTab', () => {
       if (url.includes('/friends/requests/pending')) return jsonResponse([]);
       if (url.endsWith('/friends') && method === 'GET') {
         return jsonResponse([
-          { id: 'friendship-1', friendUserId: '11223344-0000-0000-0000-000000000000', createdAt: '2026-01-01T00:00:00Z' },
+          {
+            id: 'friendship-1',
+            friendUserId: '11223344-0000-0000-0000-000000000000',
+            friendDisplayName: 'Robin',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
         ]);
       }
       if (url.endsWith('/challenges') && method === 'POST') {
@@ -162,7 +173,9 @@ describe('FriendsTab', () => {
         return jsonResponse({
           id: 'challenge-1',
           challengerUserId: 'me',
+          challengerDisplayName: 'Me',
           challengedUserId: body.challengedUserId,
+          challengedDisplayName: 'Robin',
           status: 'Pending',
           createdAt: '2026-01-01T00:00:00Z',
           resolvedAt: null,
@@ -174,7 +187,7 @@ describe('FriendsTab', () => {
     const user = userEvent.setup();
     renderFriendsTab({}, fetchMock);
 
-    expect(await screen.findByText('Player 11223344')).toBeInTheDocument();
+    expect(await screen.findByText('Robin')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Challenge' }));
 
     expect(await screen.findByText('Challenge sent.')).toBeInTheDocument();
@@ -196,7 +209,9 @@ describe('FriendsTab', () => {
           {
             id: 'req-1',
             requesterUserId: 'a1b2c3d4-0000-0000-0000-000000000000',
+            requesterDisplayName: 'Alex',
             recipientUserId: 'me',
+            recipientDisplayName: 'Me',
             status: 'Pending',
             createdAt: '2026-01-01T00:00:00Z',
             resolvedAt: null,
@@ -212,9 +227,58 @@ describe('FriendsTab', () => {
     const user = userEvent.setup();
     const { onAuthError } = renderFriendsTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4');
+    await screen.findByText('Alex');
     await user.click(screen.getByRole('button', { name: 'Accept' }));
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+});
+
+// Direct user feedback (2026-09-03): "should also be possible to click a
+// friend in the list to go to their profile." Mirrors
+// LeaderboardRowsList.test.tsx's own "onSelectPlayer" coverage shape.
+describe('FriendsTab (friend row click-through to SCREEN-13)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function friendsBackend() {
+    return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/friends/requests/pending')) return jsonResponse([]);
+      if (url.endsWith('/friends')) {
+        return jsonResponse([
+          {
+            id: 'friendship-1',
+            friendUserId: '11223344-0000-0000-0000-000000000000',
+            friendDisplayName: 'Robin',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ]);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it('renders the friend\'s name as a plain (non-clickable) span when onSelectPlayer is not supplied', async () => {
+    renderFriendsTab({}, friendsBackend());
+
+    expect(await screen.findByText('Robin')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Robin' })).not.toBeInTheDocument();
+  });
+
+  it('renders the friend\'s name as a button and calls onSelectPlayer(friendUserId, friendDisplayName) on click, without also triggering "Challenge"', async () => {
+    const onSelectPlayer = vi.fn();
+    const user = userEvent.setup();
+    renderFriendsTab({ onSelectPlayer }, friendsBackend());
+
+    const nameButton = await screen.findByRole('button', { name: 'Robin' });
+    await user.click(nameButton);
+
+    expect(onSelectPlayer).toHaveBeenCalledTimes(1);
+    expect(onSelectPlayer).toHaveBeenCalledWith('11223344-0000-0000-0000-000000000000', 'Robin');
+    // The "Challenge" button is a separate control on the same row — never
+    // triggered by clicking the name.
+    expect(screen.getByRole('button', { name: 'Challenge' })).toBeInTheDocument();
   });
 });

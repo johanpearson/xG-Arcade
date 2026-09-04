@@ -13,9 +13,20 @@ export interface FriendsScreenProps {
   // other tab on this screen has no use for it.
   viewerUserId?: string;
   onAuthError: () => void;
+  // REQ-1411 (design-document.md SCREEN-07's badge-redesign status note,
+  // 2026-09-03): lets a caller open this screen with a specific tab already
+  // active — the header nav's own notification-badge dropdown uses this to
+  // jump straight to "Friend requests"/"Challenges" instead of always
+  // landing on the default "Friends" tab. Optional and defaults to
+  // `activeTab`'s own useState initializer ('friends') when omitted, so
+  // every existing caller (the plain "Friends" nav entry) is unaffected.
+  initialTab?: FriendsTabKey;
+  // Direct user feedback (2026-09-03): threaded straight through to
+  // FriendsTab's own `onSelectPlayer` — see that prop's doc comment.
+  onSelectPlayer?: (userId: string, displayName: string) => void;
 }
 
-type FriendsTabKey = 'friends' | 'challenges' | 'matchmaking' | 'matches';
+export type FriendsTabKey = 'friends' | 'challenges' | 'matchmaking' | 'matches';
 
 const TABS: Array<{ value: FriendsTabKey; label: string }> = [
   { value: 'friends', label: 'Friends' },
@@ -49,8 +60,20 @@ const TABS: Array<{ value: FriendsTabKey; label: string }> = [
 // makes it refetch each time, which is the correct behavior specifically
 // for this tab. Do not apply this pattern to the other three tabs without
 // a reason as concrete as this one.
-export function FriendsScreen({ accessToken, viewerUserId, onAuthError }: FriendsScreenProps) {
-  const [activeTab, setActiveTab] = useState<FriendsTabKey>('friends');
+//
+// `initialTab` (REQ-1411) and the S-218 "matches" tab/drill-down are
+// independent additions that landed in parallel (S-217's notification-
+// badge dropdown vs. S-218's gameplay screen) — both apply together here:
+// the badge dropdown can deep-link into any of the four tabs, "matches"
+// included, exactly like the other three.
+export function FriendsScreen({
+  accessToken,
+  viewerUserId,
+  onAuthError,
+  initialTab,
+  onSelectPlayer,
+}: FriendsScreenProps) {
+  const [activeTab, setActiveTab] = useState<FriendsTabKey>(initialTab ?? 'friends');
   // S-218 (design-document.md SCREEN-16's "Matches tab" placement note):
   // drill-down state lives here, at the tab-container level, rather than
   // as a fifth App.tsx-level Screen/hash route (ADR-0039) — a match has no
@@ -87,7 +110,7 @@ export function FriendsScreen({ accessToken, viewerUserId, onAuthError }: Friend
       </div>
 
       <div hidden={activeTab !== 'friends'}>
-        <FriendsTab accessToken={accessToken} onAuthError={onAuthError} />
+        <FriendsTab accessToken={accessToken} onAuthError={onAuthError} onSelectPlayer={onSelectPlayer} />
       </div>
       <div hidden={activeTab !== 'challenges'}>
         <ChallengesTab accessToken={accessToken} onAuthError={onAuthError} onViewMatches={handleViewMatches} />

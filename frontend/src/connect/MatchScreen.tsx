@@ -2,7 +2,6 @@ import { useCallback } from 'react';
 import { fetchConnectMatchDetail } from '../lib/connectMatches';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { usePolling } from '../lib/usePolling';
-import { shortUserIdOrDeleted } from '../social/shortUserId';
 import { ChainBuilder } from './ChainBuilder';
 import { MatchChat } from './MatchChat';
 import { MatchResolution } from './MatchResolution';
@@ -58,7 +57,7 @@ export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, o
 
       {detail && (
         <>
-          <p className="connect-match__opponent">Opponent: {shortUserIdOrDeleted(detail.opponentUserId)}</p>
+          <p className="connect-match__opponent">Opponent: {detail.opponentDisplayName ?? 'a deleted user'}</p>
 
           {detail.status === 'AwaitingTargetPicks' && (
             <TargetPickPanel

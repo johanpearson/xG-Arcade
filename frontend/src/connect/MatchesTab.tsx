@@ -3,7 +3,6 @@ import { fetchConnectMatches } from '../lib/connectMatches';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
 import type { ConnectMatchListItem } from '../lib/types';
 import { FetchListSection } from '../social/FetchListSection';
-import { shortUserIdOrDeleted } from '../social/shortUserId';
 
 export interface MatchesTabProps {
   accessToken: string;
@@ -60,7 +59,7 @@ export function MatchesTab({ accessToken, onAuthError, onOpenMatch }: MatchesTab
               {list.map((match) => (
                 <li key={match.matchId} className="friends-screen__row">
                   <span className="friends-screen__row-name">
-                    {shortUserIdOrDeleted(match.opponentUserId)}
+                    {match.opponentDisplayName ?? 'a deleted user'}
                     {' — '}
                     {statusLabel(match.status)}
                     {match.status === 'Resolved' && outcomeLabel(match.outcome) && ` (${outcomeLabel(match.outcome)})`}

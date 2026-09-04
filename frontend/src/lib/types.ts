@@ -807,45 +807,58 @@ export interface CustomLeague {
   inviteCode: string;
 }
 
-// REQ-1401 (S-217): mirrors FriendRequestResponse exactly
+// REQ-1401 (S-217, extended 2026-09-03 REQ-1401/1402 display-name follow-up):
+// mirrors FriendRequestResponse exactly
 // (backend/src/XGArcade.Api/Social/FriendEndpoints.cs) — `status` is the
 // backend's FriendRequestStatus enum serialized as its string name
 // ("Pending" | "Accepted" | "Declined"). `resolvedAt` is null exactly while
-// `status` is "Pending". Neither `requesterUserId` nor `recipientUserId`
-// carries a display name — see design-document.md SCREEN-15's own
-// "Identity gap" note for why every list built from this shape renders
-// `shortUserId()` instead of a real name.
+// `status` is "Pending". `requesterDisplayName`/`recipientDisplayName` were
+// added alongside the raw ids (batch-resolved server-side via
+// IUserRepository.GetByIdsAsync, never null/optional) — this closes
+// design-document.md SCREEN-15's former "Identity gap" note; every list
+// built from this shape now renders a real display name instead of
+// `shortUserId()`'s truncated-id stand-in.
 export interface FriendRequestResponse {
   id: string;
   requesterUserId: string;
+  requesterDisplayName: string;
   recipientUserId: string;
+  recipientDisplayName: string;
   status: string;
   createdAt: string;
   resolvedAt: string | null;
 }
 
-// REQ-1401 (S-217): mirrors FriendshipResponse exactly. `friendUserId` is
-// always the *other* user relative to the caller (never a raw
-// UserAId/UserBId pair) — the backend already normalizes this, so the
+// REQ-1401 (S-217, extended 2026-09-03): mirrors FriendshipResponse exactly.
+// `friendUserId` is always the *other* user relative to the caller (never a
+// raw UserAId/UserBId pair) — the backend already normalizes this, so the
 // frontend never needs to know which side of the pair the caller was.
+// `friendDisplayName` is that same other user's display name (never null/
+// optional) — see FriendRequestResponse's own comment above for the same
+// closed "Identity gap" note.
 export interface FriendshipResponse {
   id: string;
   friendUserId: string;
+  friendDisplayName: string;
   createdAt: string;
 }
 
-// REQ-1402 (S-217): mirrors ChallengeResponse exactly
+// REQ-1402 (S-217, extended 2026-09-03): mirrors ChallengeResponse exactly
 // (backend/src/XGArcade.Api/Social/ChallengeEndpoints.cs) — `status` is the
 // backend's ChallengeStatus enum serialized as its string name ("Pending" |
 // "Accepted" | "Declined"). `resultingMatchId` is null until a successful
 // accept creates the real `ConnectMatch` row server-side (S-218's separate,
 // not-yet-built scope owns whatever happens with that id next — this
 // story never navigates anywhere with it, see SCREEN-15's own "Challenges
-// tab" note).
+// tab" note). `challengerDisplayName`/`challengedDisplayName` were added
+// alongside the raw ids (never null/optional) — same closed "Identity gap"
+// note as FriendRequestResponse/FriendshipResponse above.
 export interface ChallengeResponse {
   id: string;
   challengerUserId: string;
+  challengerDisplayName: string;
   challengedUserId: string;
+  challengedDisplayName: string;
   status: string;
   createdAt: string;
   resolvedAt: string | null;
@@ -920,10 +933,15 @@ export interface ConnectSubmitChainStepResponse {
 // (backend/src/XGArcade.Api/Connect/ConnectChatEndpoints.cs). `senderUserId`
 // is nullable — goes null once REQ-710 anonymization has run for that
 // sender, same nullable-in-place shape as ConnectMatchListItem/
-// ConnectMatchDetail's own `opponentUserId`.
+// ConnectMatchDetail's own `opponentUserId`. `senderDisplayName` mirrors
+// `senderUserId`'s own nullability exactly — null iff `senderUserId` is
+// null, never a placeholder for that case (render with the same "a deleted
+// user" fallback PendingSuggestion.submittingUserDisplayName's convention
+// establishes); resolved server-side, never derived client-side.
 export interface ConnectChatMessage {
   id: string;
   senderUserId: string | null;
+  senderDisplayName: string | null;
   messageText: string;
   sentAt: string;
 }
@@ -935,10 +953,14 @@ export interface ConnectChatMessage {
 // `outcome`: "Pending" | "Win" | "Loss" | "Draw", already translated into
 // the CALLER's own perspective server-side (never PlayerA/PlayerB-relative).
 // `opponentUserId` is nullable, same REQ-710-anonymization reasoning as
-// ConnectChatMessage.senderUserId above.
+// ConnectChatMessage.senderUserId above. `opponentDisplayName` mirrors
+// `opponentUserId`'s own nullability exactly — null iff `opponentUserId` is
+// null, never a placeholder (same "a deleted user" fallback convention as
+// ConnectChatMessage.senderDisplayName above).
 export interface ConnectMatchListItem {
   matchId: string;
   opponentUserId: string | null;
+  opponentDisplayName: string | null;
   status: string;
   createdAt: string;
   startedAt: string | null;
@@ -1000,6 +1022,7 @@ export interface ConnectMatchDetail {
   resolvedAt: string | null;
   outcome: string;
   opponentUserId: string | null;
+  opponentDisplayName: string | null;
   myTargetPick: ConnectTargetPickView | null;
   opponentTargetPick: ConnectTargetPickView | null;
   myChainSteps: ConnectChainStepView[];

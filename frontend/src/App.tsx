@@ -16,7 +16,7 @@ import { PathScreen } from './path/PathScreen';
 import { PredictScreen } from './predict/PredictScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
-import { FriendsScreen } from './social/FriendsScreen';
+import { FriendsScreen, type FriendsTabKey } from './social/FriendsScreen';
 import { UserStatsScreen } from './users/UserStatsScreen';
 import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 import { useThemePreference } from './lib/theme';
@@ -232,6 +232,17 @@ function App() {
   // once, i.e. it's never actually read while `screen === 'stats'`.
   const [statsTarget, setStatsTarget] = useState<{ userId: string; displayName: string } | null>(null);
   const [statsReturnScreen, setStatsReturnScreen] = useState<Screen>('game-select');
+  // REQ-1411 (design-document.md SCREEN-07's 2026-09-03 badge-redesign
+  // status note): which tab 'friends' should open on — same in-memory,
+  // read-once-at-mount seed pattern `leaderboardInitial`/`statsTarget` above
+  // already establish (FriendsScreen's own `activeTab` useState initializer
+  // is what actually reads this, once, per REQ-1411's own handler below).
+  // `null` means "default to FriendsScreen's own 'friends' tab" — the plain
+  // "Friends" nav entry (onSelectFriends below) always clears this back to
+  // null first, the same "a plain manual visit never silently re-jumps to a
+  // stale target" discipline `onSelectLeaderboard`'s own
+  // `setLeaderboardInitial(null)` already follows.
+  const [friendsInitialTab, setFriendsInitialTab] = useState<FriendsTabKey | null>(null);
 
   // REQ-721/ADR-0039: keeps location.hash matching `screen` from the very
   // first render, not only from the next explicit navigateTo() call —
@@ -312,13 +323,37 @@ function App() {
     navigateTo('stats');
   }
 
-  // REQ-411 (S-179): a leaderboard row's display name — seeds `statsTarget`
-  // with whichever player's row was selected and remembers 'leaderboard' as
-  // where "Back" should return to.
-  function handleSelectPlayerStats(userId: string, displayName: string) {
+  // REQ-411 (S-179, generalized 2026-09-03 for direct user feedback: "click
+  // a friend in the list to go to their profile"): a leaderboard row's (or,
+  // now, a friend row's) display name — seeds `statsTarget` with whichever
+  // player was selected and remembers `returnScreen` as where "Back" should
+  // return to. `returnScreen` defaults to 'leaderboard', preserving every
+  // existing call site's behavior unchanged (LeaderboardScreen's own
+  // `onSelectPlayer` below still calls this with no third argument);
+  // FriendsScreen's `onSelectPlayer` is the one new caller that passes
+  // 'friends' explicitly.
+  function handleSelectPlayerStats(userId: string, displayName: string, returnScreen: Screen = 'leaderboard') {
     setStatsTarget({ userId, displayName });
-    setStatsReturnScreen('leaderboard');
+    setStatsReturnScreen(returnScreen);
     navigateTo('stats');
+  }
+
+  // REQ-1411 (design-document.md SCREEN-07's 2026-09-03 badge-redesign
+  // status note): NotificationBadge's own "Friend requests"/"Challenges"
+  // category links call this — seeds `friendsInitialTab` and navigates in
+  // the same update, so a freshly-mounted FriendsScreen reads the target on
+  // its own first render (FriendsScreen's `activeTab` useState initializer
+  // is what actually reads `initialTab`, same "read once at mount" shape
+  // `leaderboardInitial`/LeaderboardScreen already establish — see that
+  // seed's own comment). Known, accepted limitation shared with that same
+  // precedent, not a new gap: clicking a category link while FriendsScreen
+  // is *already* the showing screen doesn't re-seed an already-mounted
+  // instance's tab (`navigateTo('friends')` is a no-op when `screen` is
+  // already `'friends'`) — exactly as true today of `onSelectLeaderboard`'s
+  // completion-banner-seeded target while already on the leaderboard.
+  function handleOpenFriendsTab(tab: FriendsTabKey) {
+    setFriendsInitialTab(tab);
+    navigateTo('friends');
   }
 
   // REQ-718 UI addendum (rule 4, 2026-08-01): the actual onClick handler
@@ -404,12 +439,19 @@ function App() {
               navigateTo('leaderboard');
             }}
             onSelectLeagues={() => navigateTo('leagues')}
-            onSelectFriends={() => navigateTo('friends')}
-            friendsNotificationCount={
-              notificationSummary.pendingFriendRequestCount +
-              notificationSummary.pendingChallengeCount +
-              notificationSummary.matchesAwaitingActionCount
-            }
+            onSelectFriends={() => {
+              // REQ-1411: same "a plain manual visit always clears a
+              // previously-seeded target" discipline as
+              // onSelectLeaderboard's setLeaderboardInitial(null) above —
+              // otherwise a later ordinary visit via this nav entry could
+              // silently re-jump to a stale badge-seeded tab.
+              setFriendsInitialTab(null);
+              navigateTo('friends');
+            }}
+            pendingFriendRequestCount={notificationSummary.pendingFriendRequestCount}
+            pendingChallengeCount={notificationSummary.pendingChallengeCount}
+            matchesAwaitingActionCount={notificationSummary.matchesAwaitingActionCount}
+            onOpenFriendsTab={handleOpenFriendsTab}
             onSelectSettings={() => navigateTo('settings')}
             onSelectGrid={() => navigateTo('grid')}
             onSelectPath={() => navigateTo('path')}
@@ -576,7 +618,13 @@ function App() {
               onOpenFriends={() => navigateTo('friends')}
             />
           ) : screen === 'friends' ? (
-            <FriendsScreen accessToken={accessToken} viewerUserId={currentUser?.id} onAuthError={handleLogout} />
+            <FriendsScreen
+              accessToken={accessToken}
+              viewerUserId={currentUser?.id}
+              onAuthError={handleLogout}
+              initialTab={friendsInitialTab ?? undefined}
+              onSelectPlayer={(userId, displayName) => handleSelectPlayerStats(userId, displayName, 'friends')}
+            />
           ) : screen === 'admin' ? (
             <AdminScreen
               accessToken={accessToken}

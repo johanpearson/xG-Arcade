@@ -29,7 +29,9 @@ function renderChallengesTab(overrides: Partial<Parameters<typeof ChallengesTab>
 const pendingChallenge = {
   id: 'challenge-1',
   challengerUserId: 'a1b2c3d4-0000-0000-0000-000000000000',
+  challengerDisplayName: 'Alex',
   challengedUserId: 'me',
+  challengedDisplayName: 'Me',
   status: 'Pending',
   createdAt: '2026-01-01T00:00:00Z',
   resolvedAt: null,
@@ -48,11 +50,11 @@ describe('ChallengesTab', () => {
     expect(screen.getByRole('heading', { name: 'Challenges' })).toBeInTheDocument();
   });
 
-  it('REQ-1402: renders each pending challenge with a shortUserId label and an inline "(N)" heading count', async () => {
+  it('REQ-1402: renders each pending challenge with its challengerDisplayName label and an inline "(N)" heading count', async () => {
     renderChallengesTab({}, vi.fn().mockImplementation(() => jsonResponse([pendingChallenge])));
 
     expect(await screen.findByRole('heading', { name: 'Challenges (1)' })).toBeInTheDocument();
-    expect(screen.getByText('Player A1B2C3D4 challenged you')).toBeInTheDocument();
+    expect(screen.getByText('Alex challenged you')).toBeInTheDocument();
   });
 
   it('REQ-1402: accepting shows the "Match started!" acknowledgment and the row disappears once refetched', async () => {
@@ -70,7 +72,7 @@ describe('ChallengesTab', () => {
     const user = userEvent.setup();
     const { onViewMatches } = renderChallengesTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4 challenged you');
+    await screen.findByText('Alex challenged you');
     await user.click(screen.getByRole('button', { name: 'Accept' }));
 
     expect(await screen.findByText('Match started!')).toBeInTheDocument();
@@ -95,7 +97,7 @@ describe('ChallengesTab', () => {
     const user = userEvent.setup();
     renderChallengesTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4 challenged you');
+    await screen.findByText('Alex challenged you');
     await user.click(screen.getByRole('button', { name: 'Decline' }));
 
     await waitFor(() => expect(screen.getByText('No pending challenges.')).toBeInTheDocument());
@@ -115,7 +117,7 @@ describe('ChallengesTab', () => {
     const user = userEvent.setup();
     renderChallengesTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4 challenged you');
+    await screen.findByText('Alex challenged you');
     await user.click(screen.getByRole('button', { name: 'Accept' }));
 
     expect(await screen.findByText('This challenge has already been accepted or declined.')).toBeInTheDocument();
@@ -134,7 +136,7 @@ describe('ChallengesTab', () => {
     const user = userEvent.setup();
     const { onAuthError } = renderChallengesTab({}, fetchMock);
 
-    await screen.findByText('Player A1B2C3D4 challenged you');
+    await screen.findByText('Alex challenged you');
     await user.click(screen.getByRole('button', { name: 'Decline' }));
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));

@@ -86,14 +86,6 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
     return me.id
   }
 
-  // shortUserId.ts's own deterministic "Player " + first-8-chars-uppercased
-  // label (REQ-1401's identity-gap note, design-document.md SCREEN-15) —
-  // reproduced here so this spec can assert on the opponent's row/label text
-  // without a real displayName-resolving endpoint to read it back from.
-  function shortUserId(userId: string): string {
-    return `Player ${userId.slice(0, 8).toUpperCase()}`
-  }
-
   test('REQ-1402/1404/1405/1406/1408/1409/1410: challenge, both target picks, chain to completion, resolution, chat', async ({
     browser,
     request,
@@ -135,7 +127,6 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // doc comment for the same reasoning applied to xG Grid/xG Path).
       const accessTokenA = await loginForApi(request, emailA)
       const accessTokenB = await loginForApi(request, emailB)
-      const userIdA = await fetchOwnUserId(request, accessTokenA)
       const userIdB = await fetchOwnUserId(request, accessTokenB)
 
       const sendFriendRequestResponse = await request.post(`${API_BASE_URL}/friends/requests`, {
@@ -170,10 +161,10 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       const seed = (await seedResponse.json()) as SeedConnectPlayersResponse
 
       // ---- Challenge send (REQ-1402), via the real UI ---------------------
-      // The "Friends" nav entry's own accessible name carries REQ-1411's
-      // combined pending-count suffix ("Friends (N)") whenever N > 0 — User A
-      // has nothing pending yet at this point, but a regex keeps this robust
-      // either way rather than assuming the exact count.
+      // The "Friends" nav entry is a plain, unchanging "Friends" label
+      // (REQ-1411's combined pending count moved to the header's own
+      // NotificationBadge, not this button, in the 2026-09-03 redesign) — a
+      // regex still works fine here and costs nothing extra.
       await pageA.getByRole('button', { name: /^Friends/ }).click()
       // FriendsScreen.tsx defaults to its "Friends" tab on mount — User B is
       // the only row in "My friends" (just-accepted above), so no need to
@@ -184,7 +175,7 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // ---- Challenge accept (REQ-1402), via the real UI -------------------
       await pageB.getByRole('button', { name: /^Friends/ }).click()
       await pageB.getByRole('tab', { name: 'Challenges' }).click()
-      await expect(pageB.getByText(`${shortUserId(userIdA)} challenged you`)).toBeVisible()
+      await expect(pageB.getByText(`${nameA} challenged you`)).toBeVisible()
       await pageB.getByRole('button', { name: 'Accept' }).click()
       await expect(pageB.getByText('Match started!')).toBeVisible()
       await pageB.getByRole('button', { name: 'View your matches' }).click()
@@ -332,19 +323,20 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       await pageB.getByRole('button', { name: 'Send message' }).click()
       await expect(pageB.getByText('gg to you too')).toBeVisible()
 
-      // Each side sees the OTHER's message attributed to their own short id
-      // (MatchChat.tsx's own viewerUserId-based split — their own message
-      // shows as "You" instead, already implicitly covered by the plain text
-      // assertions above). The receiving side only learns of the other's
-      // message via its own next 15s poll tick, not instantly — a generous
-      // explicit timeout lets Playwright's auto-waiting retry this assertion
-      // across that poll instead of racing it.
+      // Each side sees the OTHER's message attributed to their own real
+      // display name (MatchChat.tsx renders ChatMessageResponse's
+      // `senderDisplayName` directly, viewerUserId-based split — their own
+      // message shows as "You" instead, already implicitly covered by the
+      // plain text assertions above). The receiving side only learns of the
+      // other's message via its own next 15s poll tick, not instantly — a
+      // generous explicit timeout lets Playwright's auto-waiting retry this
+      // assertion across that poll instead of racing it.
       //
       // Scoped to MatchChat.tsx's own sender span (.connect-match__chat-sender),
       // not a bare page-wide getByText: by this point in the test, A and B are
       // already friends (seeded above), and FriendsTab.tsx renders a "My
-      // friends" row for the other player using this exact same shortUserId()
-      // label, mounted-but-hidden under FriendsScreen.tsx's deliberate
+      // friends" row for the other player using this exact same display-name
+      // text, mounted-but-hidden under FriendsScreen.tsx's deliberate
       // "Friends/Challenges/Matchmaking stay mounted" convention (see that
       // file's own top-of-file comment) rather than removed from the DOM — a
       // bare getByText matches hidden elements too, so it resolves to both
@@ -353,10 +345,10 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // flow (one message sent per side), so this scoped locator resolves to
       // exactly one element.
       await expect(
-        pageA.locator('.connect-match__chat-sender').getByText(shortUserId(userIdB)),
+        pageA.locator('.connect-match__chat-sender').getByText(nameB),
       ).toBeVisible({ timeout: 20_000 })
       await expect(
-        pageB.locator('.connect-match__chat-sender').getByText(shortUserId(userIdA)),
+        pageB.locator('.connect-match__chat-sender').getByText(nameA),
       ).toBeVisible({ timeout: 20_000 })
     } finally {
       await contextA.close()

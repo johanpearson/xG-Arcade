@@ -10786,6 +10786,35 @@ badge decision and the no-user-search "start from a player's stats page"
 decision are both correctly scoped as `design-document.md`-level
 decisions, not structural ones.
 
+**S-219 · Friends/challenges: real display names + notification badge
+redesign (direct user feedback follow-up to S-217)**
+
+*Built as (2026-09-03):* Two commits landed the same day as S-217, in
+direct response to user feedback on the just-shipped screens rather than a
+planned story. `087b2e7` (backend): `FriendRequestResponse` gained
+`requesterDisplayName`/`recipientDisplayName`, `FriendshipResponse` gained
+`friendDisplayName`, and `ChallengeResponse` gained
+`challengerDisplayName`/`challengedDisplayName` — batch-resolved via the
+existing `IUserRepository.GetByIdsAsync` (never one lookup per row),
+closing SCREEN-15's "Identity gap" (REQ-1401/1402). `8a5769c` (frontend):
+replaced the header-nav's inline "Friends (N)" label with a new
+`NotificationBadge.tsx` — an always-visible `accent-red` pill next to the
+"☰ Menu" toggle with a click-to-expand dropdown breaking the count down by
+category ("Friend requests"/"Challenges" as real links into the matching
+`FriendsScreen` tab via a new `initialTab` prop; "Matches awaiting your
+move" as non-interactive text since S-218 doesn't exist yet), resolving
+REQ-1411's own feedback that the previous label was buried in the
+collapsed mobile menu and didn't say *where* the notification was; wired
+the new display-name fields into `FriendsTab`/`ChallengesTab` (deleting
+the now-dead `shortUserId.ts`); made "My friends" rows' names clickable to
+that friend's `UserStatsScreen`, mirroring `LeaderboardRowsList.tsx`'s
+`onSelectPlayer` prop exactly. `docs/design-document.md` (SCREEN-07,
+SCREEN-15) was updated in the same commit. No new ADR — additive DTO
+fields plus a client-side visual redesign of an already-Built REQ-1411
+feature, not a new structural decision, confirmed by an
+`architecture-reviewer` pass against this diff.
+*Deps:* S-217.
+
 **S-218 · Frontend: match/gameplay screen**
 Target-pick selection UI, chain-builder UI (candidate search, club claim,
 live validation feedback, penalty/bust states), match resolution screen,

@@ -25,6 +25,7 @@ function renderChat(overrides: Partial<Parameters<typeof MatchChat>[0]> = {}, fe
 const message = {
   id: 'msg-1',
   senderUserId: 'opponent-1',
+  senderDisplayName: 'Opponent Olivia',
   messageText: 'gg',
   sentAt: '2026-09-03T00:00:00Z',
 };
@@ -43,23 +44,28 @@ describe('MatchChat', () => {
     expect(await screen.findByText('No messages yet — say hello.')).toBeInTheDocument();
   });
 
-  it('REQ-1410: renders each message, labeling the viewer\'s own messages "You" and the opponent by shortUserId', async () => {
+  it('REQ-1410: renders each message, labeling the viewer\'s own messages "You" and the opponent by display name', async () => {
     const fetchMock = vi.fn().mockImplementation(() =>
-      jsonResponse([message, { ...message, id: 'msg-2', senderUserId: 'me-1', messageText: 'gg to you too' }]),
+      jsonResponse([
+        message,
+        { ...message, id: 'msg-2', senderUserId: 'me-1', senderDisplayName: 'Me', messageText: 'gg to you too' },
+      ]),
     );
     renderChat({}, fetchMock);
 
     expect(await screen.findByText('gg')).toBeInTheDocument();
-    expect(screen.getByText('Player OPPONENT')).toBeInTheDocument();
+    expect(screen.getByText('Opponent Olivia')).toBeInTheDocument();
     expect(screen.getByText('gg to you too')).toBeInTheDocument();
     expect(screen.getByText('You')).toBeInTheDocument();
   });
 
-  it('REQ-1410: a null senderUserId (REQ-710 anonymization) renders "Deleted account"', async () => {
-    const fetchMock = vi.fn().mockImplementation(() => jsonResponse([{ ...message, senderUserId: null }]));
+  it('REQ-1410: a null senderUserId/senderDisplayName (REQ-710 anonymization) renders "a deleted user"', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse([{ ...message, senderUserId: null, senderDisplayName: null }]),
+    );
     renderChat({}, fetchMock);
 
-    expect(await screen.findByText('Deleted account')).toBeInTheDocument();
+    expect(await screen.findByText('a deleted user')).toBeInTheDocument();
   });
 
   it('REQ-1410: sending a message posts it and refetches the list', async () => {

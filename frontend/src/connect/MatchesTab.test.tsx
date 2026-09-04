@@ -22,6 +22,7 @@ function renderTab(fetchMock = vi.fn().mockImplementation(() => jsonResponse([])
 const match = {
   matchId: 'match-1',
   opponentUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+  opponentDisplayName: 'Opponent Olivia',
   status: 'Active',
   createdAt: '2026-09-01T00:00:00Z',
   startedAt: '2026-09-01T01:00:00Z',
@@ -48,10 +49,10 @@ describe('MatchesTab', () => {
     ).toBeInTheDocument();
   });
 
-  it('REQ-1404/1411: renders each match with the opponent\'s shortUserId, status, and an "awaiting my move" indicator', async () => {
+  it('REQ-1404/1411: renders each match with the opponent\'s display name, status, and an "awaiting my move" indicator', async () => {
     renderTab(vi.fn().mockImplementation(() => jsonResponse([match])));
 
-    expect(await screen.findByText(/Player B2C3D4E5/)).toBeInTheDocument();
+    expect(await screen.findByText(/Opponent Olivia/)).toBeInTheDocument();
     expect(screen.getByText(/Active/)).toBeInTheDocument();
     expect(screen.getByText(/Your move/)).toBeInTheDocument();
   });
@@ -73,15 +74,21 @@ describe('MatchesTab', () => {
     const user = userEvent.setup();
     const { onOpenMatch } = renderTab(vi.fn().mockImplementation(() => jsonResponse([match])));
 
-    await screen.findByText(/Player B2C3D4E5/);
+    await screen.findByText(/Opponent Olivia/);
     await user.click(screen.getByRole('button', { name: 'View match' }));
 
     expect(onOpenMatch).toHaveBeenCalledWith('match-1');
   });
 
-  it('S-218: a null opponentUserId (REQ-710 anonymization) renders "Deleted account"', async () => {
-    renderTab(vi.fn().mockImplementation(() => jsonResponse([{ ...match, opponentUserId: null }])));
+  it('S-218: a null opponentDisplayName (REQ-710 anonymization) renders "a deleted user"', async () => {
+    renderTab(
+      vi
+        .fn()
+        .mockImplementation(() =>
+          jsonResponse([{ ...match, opponentUserId: null, opponentDisplayName: null }]),
+        ),
+    );
 
-    expect(await screen.findByText(/Deleted account/)).toBeInTheDocument();
+    expect(await screen.findByText(/a deleted user/)).toBeInTheDocument();
   });
 });

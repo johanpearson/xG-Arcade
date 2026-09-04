@@ -15,6 +15,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
   const onSelectLeagues = vi.fn();
   const onSelectFriends = vi.fn();
   const onSelectSettings = vi.fn();
+  const onOpenFriendsTab = vi.fn();
   const onSelectGrid = vi.fn();
   const onSelectPath = vi.fn();
   const onSelectPredict = vi.fn();
@@ -32,7 +33,10 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       onSelectLeaderboard={onSelectLeaderboard}
       onSelectLeagues={onSelectLeagues}
       onSelectFriends={onSelectFriends}
-      friendsNotificationCount={0}
+      pendingFriendRequestCount={0}
+      pendingChallengeCount={0}
+      matchesAwaitingActionCount={0}
+      onOpenFriendsTab={onOpenFriendsTab}
       onSelectSettings={onSelectSettings}
       onSelectGrid={onSelectGrid}
       onSelectPath={onSelectPath}
@@ -46,6 +50,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
     onSelectLeaderboard,
     onSelectLeagues,
     onSelectFriends,
+    onOpenFriendsTab,
     onSelectSettings,
     onSelectGrid,
     onSelectPath,
@@ -221,22 +226,42 @@ describe('HeaderNav', () => {
   });
 });
 
-// REQ-1411 (S-217, design-document.md SCREEN-07's 2026-09-03 status note):
-// the "Friends" entry's own notification-count badge — plain "(N)" text,
-// same convention PlayerSuggestionsEntry/UnverifiedDataSection already
-// established, never a colored dot/pill.
-describe('HeaderNav (REQ-1411: "Friends" notification badge)', () => {
-  it('REQ-1411: renders plain "Friends" with no count suffix when friendsNotificationCount is 0', () => {
-    renderHeaderNav({ friendsNotificationCount: 0 });
+// REQ-1411 (S-217, design-document.md SCREEN-07's 2026-09-03 badge-redesign
+// status note): the "Friends" entry's own label is now always plain text —
+// the notification count moved to the always-visible NotificationBadge
+// rendered beside the "☰ Menu" toggle. NotificationBadge's own dropdown/
+// zero-count/category-link behavior is covered in its own
+// NotificationBadge.test.tsx; this describe block is just HeaderNav's own
+// wiring (props flow through, badge renders in the right place).
+describe('HeaderNav (REQ-1411: "Friends" label and notification badge wiring)', () => {
+  it('REQ-1411: "Friends" is always a plain label, regardless of pending counts', () => {
+    renderHeaderNav({ pendingFriendRequestCount: 5 });
 
     expect(screen.getByRole('button', { name: 'Friends' })).toBeInTheDocument();
     expect(screen.queryByText(/Friends \(/)).not.toBeInTheDocument();
   });
 
-  it('REQ-1411: renders "Friends (N)" when friendsNotificationCount is greater than 0', () => {
-    renderHeaderNav({ friendsNotificationCount: 5 });
+  it('REQ-1411: renders no notification badge toggle when every count is 0', () => {
+    renderHeaderNav();
 
-    expect(screen.getByRole('button', { name: 'Friends (5)' })).toBeInTheDocument();
+    expect(screen.queryByTestId('notification-badge-toggle')).not.toBeInTheDocument();
+  });
+
+  it('REQ-1411: renders the notification badge toggle with the combined count when any count is greater than 0', () => {
+    renderHeaderNav({ pendingFriendRequestCount: 2, pendingChallengeCount: 3, matchesAwaitingActionCount: 0 });
+
+    expect(screen.getByTestId('notification-badge-toggle')).toHaveAccessibleName('5 notifications — view details');
+  });
+
+  it('REQ-1411: selecting a category from the notification badge dropdown calls onOpenFriendsTab with the matching tab', async () => {
+    const { onOpenFriendsTab } = renderHeaderNav({ pendingFriendRequestCount: 1, pendingChallengeCount: 2 });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId('notification-badge-toggle'));
+    await user.click(screen.getByRole('menuitem', { name: 'Challenges (2)' }));
+
+    expect(onOpenFriendsTab).toHaveBeenCalledTimes(1);
+    expect(onOpenFriendsTab).toHaveBeenCalledWith('challenges');
   });
 });
 
@@ -409,7 +434,10 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
-        friendsNotificationCount={0}
+        pendingFriendRequestCount={0}
+        pendingChallengeCount={0}
+        matchesAwaitingActionCount={0}
+        onOpenFriendsTab={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
@@ -433,7 +461,10 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
-        friendsNotificationCount={0}
+        pendingFriendRequestCount={0}
+        pendingChallengeCount={0}
+        matchesAwaitingActionCount={0}
+        onOpenFriendsTab={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
@@ -462,7 +493,10 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
-        friendsNotificationCount={0}
+        pendingFriendRequestCount={0}
+        pendingChallengeCount={0}
+        matchesAwaitingActionCount={0}
+        onOpenFriendsTab={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
@@ -486,7 +520,10 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
-        friendsNotificationCount={0}
+        pendingFriendRequestCount={0}
+        pendingChallengeCount={0}
+        matchesAwaitingActionCount={0}
+        onOpenFriendsTab={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}

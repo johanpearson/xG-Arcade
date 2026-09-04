@@ -231,6 +231,64 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `ConnectMatchQueryServiceTests.cs` (`XGArcade.Games.XGConnect.Tests`),
   `ConnectMatchQueryEndpointTests.cs` (`XGArcade.Api.Tests`); not run
   locally (no `dotnet` SDK in this sandbox) — CI verification pending.
+
+- 2026-09-04 — merged `main` (PR #339, commits `087b2e7`/`8a5769c`) into
+  S-218's branch and resolved the resulting conflict: `main` added
+  `OpponentDisplayName`/`SenderDisplayName` (batch-resolved, mirroring
+  `Core.Social`'s own display-name pattern) to xG Connect's
+  `ConnectMatchListItemResponse`/`ConnectMatchDetailResponse`/
+  `ChatMessageResponse` in parallel with this branch's own gameplay-screen
+  work, and deleted `frontend/src/social/shortUserId.ts` (and its test) as
+  dead code now that Friends/Challenges no longer need a truncated-id
+  stand-in. `MatchesTab.tsx`/`MatchScreen.tsx`/`MatchChat.tsx` now render
+  the real `opponentDisplayName`/`senderDisplayName` fields directly,
+  falling back to `'a deleted user'` when null (post-REQ-710
+  anonymization) — the same fallback text `SuggestionsScreen.tsx`/
+  `AvatarModerationSection.tsx` already established for
+  `submittingUserDisplayName`, not the old `shortUserIdOrDeleted()`'s
+  "Deleted account" text. `FriendsScreen.tsx`/`App.tsx` reconciled by
+  hand: this branch's fourth "Matches" tab, `selectedMatchId` drill-down,
+  and `viewerUserId` prop now coexist with `main`'s `initialTab` prop and
+  `onSelectPlayer`/`returnScreen` threading — both apply together (the
+  notification-badge dropdown can deep-link into any of the four tabs).
+  Updated every affected Vitest fixture/assertion
+  (`MatchesTab.test.tsx`/`MatchScreen.test.tsx`/`MatchChat.test.tsx`/
+  `FriendsScreen.test.tsx`) and `frontend/tests/e2e/play-connect.spec.ts`
+  (replaced its local `shortUserId()` helper with the spec's own real
+  `nameA`/`nameB` display names, matching what `FriendsTab`/
+  `ChallengesTab` now render post-PR-339). No REQ/ADR text changed —
+  additive response fields plus a merge-time consistency fix.
+  REQ-1401/1402/1404/1410/1411.
+
+- 2026-09-03 — `docs/requirements-document.md` (2.54→2.55, REQ-1411's
+  status note rewritten — it still described the pre-redesign
+  `friendsNotificationCount` prop and inline "Friends (N)" label as current
+  fact; now describes the actual shipped `NotificationBadge.tsx` badge and
+  its category-breakdown dropdown — plus short status-note addenda on
+  REQ-1401/1402 for the new `*DisplayName` response fields and the
+  friend-row-click-to-profile behavior), `docs/implementation-document.md`
+  (1.26→1.27, project-structure §4: `/nav` entry updated for
+  `NotificationBadge.tsx` replacing the old inline-count description,
+  `/social` entry updated to remove the now-dead `shortUserId.ts` and add
+  the display-name/clickable-row follow-up), `docs/backlog.md` (new S-219
+  entry, Epic 27, recording this follow-up as its own numbered story since
+  it's real shipped work distinct from S-217's own entry) — doc-sync for
+  two commits (`087b2e7`, `8a5769c`) landed on top of already-merged S-217,
+  responding to direct user feedback: backend added
+  `RequesterDisplayName`/`RecipientDisplayName`/`FriendDisplayName`/
+  `ChallengerDisplayName`/`ChallengedDisplayName` to the friend/challenge
+  response DTOs (batch-resolved, no N+1), and the frontend replaced the
+  header-nav's inline "Friends (N)" label with a real notification badge
+  plus a category-breakdown dropdown, and made friend-list rows clickable
+  to a profile. `docs/design-document.md` was already updated in the same
+  commit (SCREEN-07, SCREEN-15), not touched again here.
+  `docs/architecture-document.md` checked, no change needed — COMP-16's row
+  already covers the endpoints touched; the new fields are additive DTO
+  changes, not a boundary/responsibility change, confirmed by an
+  `architecture-reviewer` pass. No new ADR — additive response fields plus
+  a client-side visual redesign of an already-Built REQ-1411 feature.
+  REQ-1401, REQ-1402, REQ-1411.
+
 - 2026-09-03 — `docs/requirements-document.md` (2.53→2.54, status notes
   added to REQ-1401/1402/1403 for the S-217 frontend and REQ-1411's status
   block corrected to "Built" — backend S-216, frontend S-217 — including a
