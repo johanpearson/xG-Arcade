@@ -98,7 +98,15 @@ public record ConnectTargetPickView(Guid TargetPlayerId, string TargetPlayerName
 // the preceding chain player actually share, computed server-side — never
 // a player-typed claim. Null together only when IsValid is false (no club
 // was found at all).
+//
+// ChainStepId (REQ-1412/1413): the id a client needs to call
+// POST /matches/{matchId}/chain-steps/{chainStepId}/dispute against this
+// exact step — added alongside this REQ, since no prior xG Connect read
+// surface ever needed to expose a chain step's own id (only the caller's
+// own steps are ever returned here, never an opponent's, so there is no
+// cross-player id-leakage concern).
 public record ConnectChainStepView(
+    Guid ChainStepId,
     int Position,
     int AttemptNumber,
     Guid CandidatePlayerId,

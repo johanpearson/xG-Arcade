@@ -84,7 +84,7 @@ public static class ConnectMatchQueryEndpoints
         new(view.TargetPlayerId, view.TargetPlayerName, view.Locked);
 
     private static ConnectChainStepDetailResponse ToResponse(ConnectChainStepView view) =>
-        new(view.Position, view.AttemptNumber, view.CandidatePlayerId, view.CandidatePlayerName,
+        new(view.ChainStepId, view.Position, view.AttemptNumber, view.CandidatePlayerId, view.CandidatePlayerName,
             view.MatchedClubName, view.MatchedOverlapStartYear, view.MatchedOverlapEndYear,
             view.IsValid, view.ClosesChain, view.SubmittedAt);
 
@@ -132,6 +132,7 @@ public record ConnectMatchListItemResponse(
 public record ConnectTargetPickResponse(Guid TargetPlayerId, string TargetPlayerName, bool Locked);
 
 public record ConnectChainStepDetailResponse(
+    Guid ChainStepId,
     int Position,
     int AttemptNumber,
     Guid CandidatePlayerId,

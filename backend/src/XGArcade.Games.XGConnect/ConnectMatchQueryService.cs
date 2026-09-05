@@ -127,6 +127,7 @@ public class ConnectMatchQueryService(
             .OrderBy(s => s.Position)
             .ThenBy(s => s.AttemptNumber)
             .Select(s => new ConnectChainStepView(
+                s.Id,
                 s.Position,
                 s.AttemptNumber,
                 s.CandidatePlayerId,
