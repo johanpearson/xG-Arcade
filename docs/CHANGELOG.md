@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-05 — `docs/requirements-document.md` (new REQ-1412/1413/1414,
+  v2.68), `docs/decisions/0109-connect-dispute-reintroduces-claimed-club-narrowly.md`
+  (new), `docs/decisions/0104-connect-chain-step-club-auto-detected-not-claimed.md`
+  (addendum note, no content change), `docs/architecture-document.md`
+  (§10 ADR table: added missing ADR-0104–0108 rows plus new ADR-0109 row,
+  v1.52 → v1.53) — drafted a new xG Connect feature, product-owner
+  requested: a player may dispute a rejected chain-step failure (either
+  the first failure, instead of retrying, or the bust-causing second
+  failure, instead of forfeiting) by naming a claimed club; only the
+  match's own opponent can approve or deny it; an approved dispute scores
+  per REQ-1407/1408's existing rules, a denied one is always an immediate
+  bust (disputing consumes the retry the moment it's raised); an approved
+  dispute also produces a lightweight, non-retroactive admin
+  data-correction suggestion (REQ-1414). ADR-0109 reopens ADR-0104's
+  removed player-typed club field, narrowly scoped to this one dispute
+  path only — ADR-0104 itself is unchanged, not superseded. Docs-only;
+  REQ-1412/1413/1414 are "Not yet built," implementation to follow.
+
 - 2026-09-05 — `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`,
   `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`,
   `docs/decisions/0108-wikidata-json-sanitizes-raw-control-characters.md`
