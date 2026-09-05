@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-05 — `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`,
+  `docs/decisions/0108-wikidata-json-sanitizes-raw-control-characters.md`
+  (new), `docs/requirements-document.md` (REQ-207 status note, v2.65 →
+  v2.66), `docs/architecture-document.md` (COMP-07 row, v1.51 → v1.52),
+  `docs/backlog.md` (S-032 bugfix addendum) — discovered while
+  operationalizing the ADR-0107 fix: `import-player-name-index` (needed to
+  backfill the `WikidataQid` data that fix depends on) has been failing,
+  twice on schedule plus once manually triggered, on the exact birth-year
+  slice (1983) needed for the real "Jonas Olsson" incident. Root cause: a
+  genuine Wikidata data peculiarity, reproduced identically on two separate
+  runs a week apart — a raw, unescaped control character (a line feed)
+  embedded directly inside a `?countryLabel` JSON string value, invalid per
+  RFC 8259, correctly rejected by `System.Text.Json`. Fixed by sanitizing
+  every raw ASCII control character in a Wikidata response to a plain space
+  before parsing, in `WikidataClient`'s two shared HTTP/JSON drivers
+  (`RunIntersectionQueryAsync`/`RunThrowingQueryAsync`) — closes the same
+  defect for every Wikidata query this client makes, not only the one job
+  that surfaced it loudly (the intersection queries were silently
+  swallowing the identical failure to an empty "no match" before now). See
+  ADR-0108 for the full decision and its accepted trade-off. New test
+  coverage reproducing the exact malformed-response shape end to end, plus
+  direct unit tests on the new `WikidataClient.SanitizeControlCharacters`
+  helper. No `dotnet` SDK in this sandbox — verified via CI on the
+  branch/PR.
+- 2026-09-05 — `docs/requirements-document.md` (REQ-103 status note, v2.66
+  → v2.67) — doc-sync follow-up flagged by `architecture-reviewer` on the
+  ADR-0108 PR: REQ-103's live-fetch path also runs through
+  `RunIntersectionQueryAsync`, one of the two drivers ADR-0108 fixed, so it
+  was silently exposed to the same malformed-response defect class. No
+  behavior change; note added for traceability alongside REQ-207's.
+- 2026-09-05 — `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`,
+  `docs/decisions/0108-wikidata-json-sanitizes-raw-control-characters.md` —
+  `quality-architect` review follow-up on ADR-0108: extracted the
+  duplicated read/sanitize/deserialize sequence out of
+  `RunIntersectionQueryAsync`/`RunThrowingQueryAsync` into one shared
+  `ReadSanitizedSparqlResponseAsync` helper, added a direct reproduction
+  test for the intersection-query path (previously only the "throwing"
+  path had one), and added the `ADR0108_` naming prefix the guidelines call
+  for on tests covering a structural mechanism an ADR introduces. No
+  behavior change.
+
 - 2026-09-05 — `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
   `backend/src/XGArcade.Data/Migrations/20260905100000_AddPlayerNameIndexWikidataQid.{cs,Designer.cs}`,
   `backend/src/XGArcade.Data/Migrations/XGArcadeDbContextModelSnapshot.cs`,

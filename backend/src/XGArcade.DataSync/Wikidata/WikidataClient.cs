@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -326,8 +327,7 @@ public class WikidataClient(
             using var response = await httpClient.SendAsync(request, linkedCts.Token);
             response.EnsureSuccessStatusCode();
 
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponseParsers.SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+            var parsed = await ReadSanitizedSparqlResponseAsync(response, linkedCts.Token);
 
             return SparqlResponseParsers.ParseBindings(parsed);
         }
@@ -489,8 +489,7 @@ public class WikidataClient(
             using var response = await httpClient.SendAsync(request, linkedCts.Token);
             response.EnsureSuccessStatusCode();
 
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponseParsers.SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+            var parsed = await ReadSanitizedSparqlResponseAsync(response, linkedCts.Token);
 
             return parseResponse(parsed);
         }
@@ -510,6 +509,78 @@ public class WikidataClient(
         {
             throw new WikidataQueryException($"{description} failed: {ex.Message}", ex);
         }
+    }
+
+    // ADR-0108: shared by both RunIntersectionQueryAsync and
+    // RunThrowingQueryAsync so the read-body/sanitize/deserialize sequence
+    // (and the fix below) exists in exactly one place — quality-architect
+    // flagged the pre-refactor version of this fix as duplicated verbatim
+    // across both drivers, which also meant only one of them had a direct
+    // reproduction test. Deliberately typed to the shared SparqlResponse
+    // DTO (not generic) since every one of this client's query methods
+    // parses that same response shape; RunThrowingQueryAsync's own
+    // genericness lives in its parseResponse callback, not in how the body
+    // is read.
+    private static async Task<SparqlResponseParsers.SparqlResponse?> ReadSanitizedSparqlResponseAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SparqlResponseParsers.SparqlResponse>(SanitizeControlCharacters(rawJson), JsonOptions);
+    }
+
+    // Bug fix (2026-09-05, real reported incident): WDQS's own JSON
+    // serializer has been observed to emit a raw, unescaped ASCII control
+    // character (confirmed: 0x0A "line feed," inside a ?countryLabel
+    // binding value) directly inside a JSON string — RFC 8259 requires
+    // control characters inside a string to be escaped (e.g. \n), and
+    // System.Text.Json's Utf8JsonReader correctly rejects the malformed
+    // response outright rather than silently tolerating it, throwing a
+    // JsonException. This surfaced as a real, reproducible failure:
+    // import-player-name-index's birth-year-1983 slice failed identically,
+    // twice, on two separate runs a week apart, and (less visibly) as a
+    // swallowed-to-[] "no match" for any other Wikidata query hitting the
+    // same underlying data. Confirmed NOT a transient WDQS issue — the same
+    // birth year, the same malformed field, on both occasions.
+    //
+    // Fixed by sanitizing the raw response text before it ever reaches
+    // JsonSerializer, rather than trying to configure Utf8JsonReader into
+    // tolerating this (no such leniency option exists for a raw control
+    // character inside a string — unlike, say, JsonReaderOptions
+    // .AllowTrailingCommas for a different class of leniency). Every raw
+    // ASCII control character (0x00-0x1F) in the WHOLE response body is
+    // replaced with a single space, without distinguishing "inside a JSON
+    // string" from "insignificant whitespace between tokens" — this is
+    // deliberately simpler than writing a real JSON-aware scanner, and is
+    // safe either way: a control character between tokens (legitimate
+    // formatting whitespace — tab/LF/CR are themselves control characters)
+    // becomes a different, equally-insignificant whitespace character, and
+    // one erroneously embedded inside a string value becomes a plain space,
+    // fixing the malformed JSON. This app never depends on preserving an
+    // embedded literal newline/control character within any label/name
+    // field it reads from Wikidata (they're display strings, never parsed
+    // further), so this is lossless for every field this client actually
+    // uses. Applied unconditionally to every response (not only after a
+    // first parse attempt fails) — a single lazy-allocating pass over the
+    // string is negligible next to the network round trip it follows, and
+    // keeps this fix in one place rather than a retry-after-failure path
+    // that would need its own testing.
+    internal static string SanitizeControlCharacters(string json)
+    {
+        StringBuilder? sanitized = null;
+        for (var i = 0; i < json.Length; i++)
+        {
+            if (json[i] < 0x20)
+            {
+                sanitized ??= new StringBuilder(json, 0, i, json.Length);
+                sanitized.Append(' ');
+            }
+            else
+            {
+                sanitized?.Append(json[i]);
+            }
+        }
+
+        return sanitized?.ToString() ?? json;
     }
 
     // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — see
