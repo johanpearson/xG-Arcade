@@ -109,3 +109,10 @@ being reversed. `IPlayerCareerOverlapService.GetSharedClubOverlapsAsync` is
 the one place interval-overlap math is computed for this component —
 `HaveSharedClubOverlapAsync` must stay a thin wrapper over it, never a
 second, separately-maintained implementation.
+
+**Addendum (2026-09-05, ADR-0109):** exactly the scenario anticipated
+above happened — a claimed-club input is back, but ONLY on the new
+dispute-a-failure flow (REQ-1412/1413), never on ordinary submission,
+which this ADR's decision still governs unchanged. See ADR-0109 for the
+reasoning; it does not supersede this ADR, it narrowly carves out one new
+path this ADR didn't cover.

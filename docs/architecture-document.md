@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.52"
+version: "1.53"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -1527,6 +1527,12 @@ new ADR that references the old one.
 | ADR-0086 | REQ-513's admin `POST /admin/players/{id}/refresh-from-wikidata` is a narrow, admin-triggered-only exception to `Player.FullName`/`Position`/`BirthYear`/`PhotoUrl`'s "set once at creation, never re-synced" rule — re-fetches by the player's own already-stored `WikidataQid`, per-field diff (a missing fetched value never overwrites), no confirmation step or review queue, re-applying ADR-0032's existing Wikidata-trust model rather than reopening it | Accepted |
 | ADR-0089 | Grid row/column headers each pick their own category type (Country/Club/Trophy) independently, drawn from one combined reference-data pool, instead of `SelectPairing` fixing one homogeneous pairing type for the whole instance — REQ-107's Country×Country ban is checked per cell, not once globally; fixes the recurring "Ran out of candidates" generation failure without touching `MinValidAnswers` | Accepted |
 | ADR-0103 | xG Connect: Core.Social (COMP-16) is a separate arcade-level component from Games.XGConnect (COMP-17), not folded together; `ConnectMatch` is a new first-class concept owned by COMP-17, never a `Round` — xG Connect's pairwise, on-demand match doesn't fit `Core.Rounds`'/`Core.Scoring`'s shared-round, `FinalPoints`-total shape | Accepted |
+| ADR-0104 | xG Connect chain-step submission auto-detects the shared club from real career-overlap data server-side, instead of asking the player to type and validate a claimed club by string match | Accepted |
+| ADR-0105 | xG Connect's career-overlap check always refreshes both players' career stints unconditionally on every call, never trusting cached rows just because some already exist for a player | Accepted |
+| ADR-0106 | Wikidata career-stint parsing falls back to the end-time qualifier as the start year when a stint's start time is missing/unparseable but its end time is usable, instead of silently dropping the stint | Accepted |
+| ADR-0107 | xG Connect candidate resolution uses the clicked autocomplete suggestion's WikidataQid to resolve the exact real person, instead of a name-only lookup that guesses on a same-name collision | Accepted |
+| ADR-0108 | `WikidataClient` sanitizes raw ASCII control characters out of the response body before JSON parsing, fixing a confirmed malformed-SPARQL-response failure that blocked `import-player-name-index` | Accepted |
+| ADR-0109 | xG Connect's dispute-a-ruling flow reintroduces a player-claimed club, narrowly scoped to disputing a rejected chain-step failure only — never ordinary submission, which ADR-0104 still governs unchanged | Accepted |
 
 ## 11. Glossary
 
