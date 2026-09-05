@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.65"
+version: "2.66"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -1702,6 +1702,21 @@ a photo shows neither at rest as of S-048, see that status note)
   `import-player-name-index` run backfills it; xG Connect's own fallback
   for that case is documented in REQ-1404/1406's own status notes. See
   ADR-0107 for the full decision.
+- **Bug fix status note (2026-09-05, ADR-0108): `import-player-name-index`
+  (this REQ's own bulk importer) confirmed failing, twice in a row plus a
+  third manually-triggered attempt, on the exact birth-year slice (1983)
+  ADR-0107's fix needs backfilled.** Root cause: Wikidata's own SPARQL JSON
+  response contained a raw, unescaped control character (a line feed)
+  directly inside a `?countryLabel` string value — invalid per RFC 8259,
+  correctly rejected by `System.Text.Json`. Not transient: identical error,
+  same birth year, on separate runs a week apart. Fixed by sanitizing every
+  raw ASCII control character in a Wikidata response to a plain space
+  before parsing (`WikidataClient.SanitizeControlCharacters`), applied to
+  both shared query drivers — closes the same defect class for every other
+  Wikidata query this client makes, not only the one job that surfaced it
+  loudly. See ADR-0108 for the full decision and its accepted trade-off
+  (an embedded control character in a label is flattened to a space, never
+  preserved — never needed by any field this codebase reads).
 - Given a player is typing a guess
 - When autocomplete suggestions are shown
 - Then suggestions are drawn from a broad player name index covering many

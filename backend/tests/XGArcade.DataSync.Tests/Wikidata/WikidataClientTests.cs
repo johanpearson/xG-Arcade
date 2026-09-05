@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using XGArcade.DataSync.Wikidata;
@@ -2201,6 +2202,66 @@ public class WikidataClientTests
         Assert.That(result[0].FullName, Is.EqualTo("Thierry Henry"));
         Assert.That(result[0].BirthYear, Is.EqualTo(1977));
         Assert.That(result[0].Nationality, Is.EqualTo("France"));
+    }
+
+    // Bug fix (2026-09-05, real reported incident): reproduces the exact
+    // shape of a real, twice-confirmed WDQS response failure —
+    // import-player-name-index's birth-year-1983 slice failed identically
+    // on two separate runs a week apart, both times on a raw, unescaped
+    // line-feed character embedded directly inside a ?countryLabel binding
+    // value (invalid per RFC 8259 — must be escaped as \n). This is the
+    // production data behind the "Jonas Olsson" same-name-collision
+    // incident (ADR-0107): the fix that incident needed depends on this
+    // exact birth-year slice succeeding so the real 1983-born player's
+    // WikidataQid actually gets indexed. See WikidataClient
+    // .SanitizeControlCharacters' own doc comment for the fix.
+    [Test]
+    public async Task QueryPlayerPoolBirthYearAsync_RawControlCharacterEmbeddedInsideAStringValue_IsSanitizedAndParsedSuccessfully()
+    {
+        var json = "{\n" +
+                    "  \"results\": {\n" +
+                    "    \"bindings\": [\n" +
+                    "      {\n" +
+                    "        \"player\": { \"type\": \"uri\", \"value\": \"http://www.wikidata.org/entity/Q1519\" },\n" +
+                    "        \"playerLabel\": { \"type\": \"literal\", \"value\": \"Thierry Henry\" },\n" +
+                    "        \"birthYear\": { \"type\": \"literal\", \"value\": \"1977\" },\n" +
+                    "        \"countryLabel\": { \"type\": \"literal\", \"value\": \"Fra\nnce\" }\n" +
+                    "      }\n" +
+                    "    ]\n" +
+                    "  }\n" +
+                    "}";
+        // Sanity-check the fixture itself actually reproduces the reported
+        // failure shape before this fix: a raw JSON string cannot legally
+        // contain an unescaped control character.
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<object>(json));
+
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolBirthYearAsync(1977);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].FullName, Is.EqualTo("Thierry Henry"),
+            "the malformed response must still parse successfully end to end, not just avoid throwing");
+        Assert.That(result[0].Nationality, Is.EqualTo("Fra nce"),
+            "the embedded raw control character becomes a plain space — lossy for this one field's exact text, but this app never depends on preserving it");
+    }
+
+    [Test]
+    public void SanitizeControlCharacters_NoControlCharacters_ReturnsInputUnchanged()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+
+        var result = WikidataClient.SanitizeControlCharacters(json);
+
+        Assert.That(result, Is.SameAs(json), "no allocation/copy needed when there is nothing to sanitize");
+    }
+
+    [Test]
+    public void SanitizeControlCharacters_MultipleControlCharacters_ReplacesEachWithASingleSpace()
+    {
+        var result = WikidataClient.SanitizeControlCharacters("\"a\nb\tc\"");
+
+        Assert.That(result, Is.EqualTo("\"a b c\""));
     }
 
     [Test]

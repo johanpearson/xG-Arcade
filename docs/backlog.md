@@ -10563,6 +10563,24 @@ real `Player` row rather than guessing by name. Name-only resolution stays
 as a fallback for a suggestion indexed before this backfill. See ADR-0107
 and REQ-1404/1406/207's own status notes for detail.
 
+**S-032 bugfix addendum (2026-09-05, ADR-0108) — discovered while
+operationalizing the ADR-0107 fix above:** the `WikidataQid` backfill
+ADR-0107's fix depends on requires `import-player-name-index` to actually
+succeed — triggering it confirmed the job has been failing, twice in a row
+plus this manual attempt, on the exact birth-year slice (1983) needed for
+the real "Jonas Olsson" incident. Root cause: a genuine Wikidata data
+peculiarity, not flakiness — a raw, unescaped control character embedded
+directly inside a `?countryLabel` JSON string value, invalid per RFC 8259
+and correctly rejected by `System.Text.Json`, reproduced identically on
+two separate runs a week apart. Fixed in `WikidataClient`'s two shared
+HTTP/JSON drivers (`RunIntersectionQueryAsync`/`RunThrowingQueryAsync`):
+every raw ASCII control character in a Wikidata response is now sanitized
+to a plain space before parsing, closing the same defect for every
+Wikidata query this client makes, not only the one job that surfaced it
+loudly (the intersection queries were silently swallowing the identical
+failure to an empty "no match" before now). See ADR-0108 and REQ-207's own
+status note for detail.
+
 **S-212 · Match start, 6-hour timer, resolution scaffolding (REQ-1405)**
 Match officially starts once both picks are locked; independent per-player
 6-hour deadline; forfeit-on-timeout sweep job; resolution waits for both
