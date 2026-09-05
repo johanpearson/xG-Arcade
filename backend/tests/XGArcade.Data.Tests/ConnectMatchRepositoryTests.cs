@@ -431,4 +431,153 @@ public class ConnectMatchRepositoryTests
 
         Assert.That(result, Is.Empty);
     }
+
+    // ---- REQ-1412/1413/1414: dispute persistence primitives -----------------
+
+    private async Task<ConnectChainStep> AddChainStepAsync(Guid matchId, Guid userId, int position, int attemptNumber, bool isValid) =>
+        await _repository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userId, Position = position, AttemptNumber = attemptNumber,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = isValid, ClosesChain = false, SubmittedAt = DateTime.UtcNow,
+        });
+
+    [Test]
+    public async Task AddDisputeAsync_PersistsDispute_AndFlipsStepsOwnHasPendingDisputeCache()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var step = await AddChainStepAsync(matchId, userId, position: 1, attemptNumber: 1, isValid: false);
+
+        var dispute = await _repository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = step.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = DateTime.UtcNow,
+        });
+
+        Assert.That(dispute.Id, Is.Not.EqualTo(Guid.Empty));
+        var storedStep = await _repository.GetChainStepByIdAsync(step.Id);
+        Assert.That(storedStep!.HasPendingDispute, Is.True);
+        var storedDispute = await _repository.GetDisputeForChainStepAsync(step.Id);
+        Assert.That(storedDispute!.Status, Is.EqualTo(ConnectChainStepDisputeStatus.Pending));
+    }
+
+    [Test]
+    public async Task ApproveDisputeAsync_PromotesStepToPermanentlyValid_AndClearsHasPendingDisputeCache()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var step = await AddChainStepAsync(matchId, userId, position: 1, attemptNumber: 1, isValid: false);
+        var dispute = await _repository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = step.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = DateTime.UtcNow,
+        });
+        var reviewedAt = DateTime.UtcNow.AddMinutes(5);
+
+        await _repository.ApproveDisputeAsync(dispute.Id, reviewedAt);
+
+        var storedDispute = await _repository.GetDisputeByIdAsync(dispute.Id);
+        Assert.That(storedDispute!.Status, Is.EqualTo(ConnectChainStepDisputeStatus.Approved));
+        Assert.That(storedDispute.ReviewedAt, Is.EqualTo(reviewedAt));
+        var storedStep = await _repository.GetChainStepByIdAsync(step.Id);
+        Assert.That(storedStep!.IsValid, Is.True);
+        Assert.That(storedStep.MatchedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(storedStep.HasPendingDispute, Is.False);
+    }
+
+    [Test]
+    public async Task DenyDisputeAsync_DiscardsLaterSteps_AndCascadesToDenyTheirOwnStillPendingDisputes()
+    {
+        var matchId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var disputedStep = await AddChainStepAsync(matchId, userId, position: 1, attemptNumber: 1, isValid: false);
+        var dispute = await _repository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = disputedStep.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = DateTime.UtcNow,
+        });
+        var laterStep = await AddChainStepAsync(matchId, userId, position: 2, attemptNumber: 1, isValid: true);
+        var laterDispute = await _repository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = laterStep.Id, ClaimedClubName = "Chelsea",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = DateTime.UtcNow,
+        });
+        // A step BEFORE the disputed one must be untouched.
+        var earlierStep = await AddChainStepAsync(matchId, userId, position: 0, attemptNumber: 1, isValid: true);
+
+        await _repository.DenyDisputeAsync(dispute.Id, DateTime.UtcNow);
+
+        var storedLaterStep = await _repository.GetChainStepByIdAsync(laterStep.Id);
+        Assert.That(storedLaterStep!.IsValid, Is.False);
+        Assert.That(storedLaterStep.HasPendingDispute, Is.False);
+        var storedLaterDispute = await _repository.GetDisputeByIdAsync(laterDispute.Id);
+        Assert.That(storedLaterDispute!.Status, Is.EqualTo(ConnectChainStepDisputeStatus.Denied),
+            "cascades to deny a still-Pending dispute on a step that just got discarded");
+        var storedEarlierStep = await _repository.GetChainStepByIdAsync(earlierStep.Id);
+        Assert.That(storedEarlierStep!.IsValid, Is.True, "a step BEFORE the denied one is untouched");
+    }
+
+    [Test]
+    public async Task ClearPlayerBustedAsync_ClearsOnlyTheGivenSlot()
+    {
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(), PlayerAUserId = Guid.NewGuid(), PlayerBUserId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow,
+        });
+        await _repository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, DateTime.UtcNow);
+        await _repository.MarkPlayerBustedAsync(match.Id, isPlayerA: false, DateTime.UtcNow);
+
+        await _repository.ClearPlayerBustedAsync(match.Id, isPlayerA: true);
+
+        var stored = await _repository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.PlayerABustedAt, Is.Null);
+        Assert.That(stored.PlayerBBustedAt, Is.Not.Null, "only the given slot is cleared");
+    }
+
+    [Test]
+    public async Task ReopenMatchAsync_ResetsStatusAndOutcomeAndScores_ButNotStartedAtOrDeadline()
+    {
+        var startedAt = DateTime.UtcNow.AddHours(-2);
+        var deadlineUtc = startedAt.AddHours(6);
+        var match = await _repository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(), PlayerAUserId = Guid.NewGuid(), PlayerBUserId = Guid.NewGuid(),
+            CreatedAt = startedAt, StartedAt = startedAt, DeadlineUtc = deadlineUtc,
+        });
+        await _repository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.PlayerAWin, DateTime.UtcNow, 1, null);
+
+        await _repository.ReopenMatchAsync(match.Id);
+
+        var stored = await _repository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.Status, Is.EqualTo(ConnectMatchStatus.Active));
+        Assert.That(stored.Outcome, Is.EqualTo(ConnectMatchOutcome.Pending));
+        Assert.That(stored.ResolvedAt, Is.Null);
+        Assert.That(stored.PlayerAScore, Is.Null);
+        Assert.That(stored.PlayerBScore, Is.Null);
+        Assert.That(stored.StartedAt, Is.EqualTo(startedAt));
+        Assert.That(stored.DeadlineUtc, Is.EqualTo(deadlineUtc));
+    }
+
+    [Test]
+    public async Task DataCorrectionSuggestion_AddThenGetAll_RoundTrips()
+    {
+        var suggestion = new ConnectDisputeDataCorrectionSuggestion
+        {
+            Id = Guid.NewGuid(),
+            ConnectMatchId = Guid.NewGuid(),
+            ConnectChainStepId = Guid.NewGuid(),
+            ConnectChainStepDisputeId = Guid.NewGuid(),
+            CandidatePlayerId = Guid.NewGuid(),
+            PrecedingPlayerId = Guid.NewGuid(),
+            ClaimedClubName = "Arsenal",
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _repository.AddDataCorrectionSuggestionAsync(suggestion);
+
+        var all = await _repository.GetAllDataCorrectionSuggestionsAsync();
+        Assert.That(all, Has.Count.EqualTo(1));
+        Assert.That(all[0].Id, Is.EqualTo(suggestion.Id));
+        Assert.That(all[0].ClaimedClubName, Is.EqualTo("Arsenal"));
+    }
 }

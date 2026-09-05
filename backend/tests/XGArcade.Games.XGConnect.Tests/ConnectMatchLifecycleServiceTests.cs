@@ -432,6 +432,46 @@ public class ConnectMatchLifecycleServiceTests
         Assert.That(stored!.ResolvedAt, Is.EqualTo(FixedNow.UtcDateTime), "an already-resolved match must never be re-resolved");
     }
 
+    // ---- REQ-1413: a Pending dispute gates resolution, even once both
+    // ---- players are otherwise terminal ---------------------------------------
+
+    [Test]
+    public async Task REQ1413_TryResolveMatchIfBothTerminalAsync_PendingDisputeAnywhereInMatch_ReturnsFalse_DoesNotResolve()
+    {
+        var match = await CreateMatchAsync(Guid.NewGuid(), Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        // Both players otherwise terminal (one closed their chain, the
+        // other busted) — would ordinarily resolve as a completer win.
+        await AddClosingStepAsync(match.Id, match.PlayerAUserId, position: 1, FixedNow.UtcDateTime);
+        var disputedStep = await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = match.PlayerBUserId, Position = 1, AttemptNumber = 2,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+        // Raises a genuine Pending dispute on B's own busted step, via the
+        // same repository primitive ConnectChainStepDisputeService itself
+        // uses — this test is scoped to the lifecycle service's own gate,
+        // not the dispute-raise flow (covered in
+        // ConnectChainStepDisputeServiceTests.cs).
+        await _connectMatchRepository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(),
+            ConnectChainStepId = disputedStep.Id,
+            ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending,
+            RaisedAt = FixedNow.UtcDateTime,
+        });
+        var service = BuildService(FixedNow);
+
+        var resolved = await service.TryResolveMatchIfBothTerminalAsync(match.Id);
+
+        Assert.That(resolved, Is.False, "a match with any Pending dispute must not resolve, even though both players are otherwise terminal");
+        var stored = await _connectMatchRepository.GetMatchByIdAsync(match.Id);
+        Assert.That(stored!.Status, Is.EqualTo(ConnectMatchStatus.Active));
+        Assert.That(stored.Outcome, Is.EqualTo(ConnectMatchOutcome.Pending));
+    }
+
     // ---- GetMatchesAwaitingActionAsync (REQ-1411/S-216) -----------------------
 
     // A caller with no target pick submitted yet for an open match falls
