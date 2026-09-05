@@ -12165,7 +12165,9 @@ without that ADR existing too.
 - Then a dispute is recorded for that step in a Pending state, and the
   disputed step is treated as provisionally valid — the player's chain
   continues as if the step had passed ordinary validation, using the
-  claimed club as that step's provisional matched club
+  claimed club as that step's provisional matched club. Disputing consumes
+  this position's one REQ-1407 retry immediately, whether or not the
+  dispute is later Approved (see REQ-1413's own Denied-outcome criterion)
 - Given a player's chain-step submission fails validation for a second,
   consecutive time at the same position — the bust-causing failure under
   REQ-1407
@@ -12247,14 +12249,14 @@ player-typed club claim any actual consequence.
 - Given a Pending dispute is Denied
 - When it resolves
 - Then the disputed step, and every step that player built after it in
-  their own chain, are discarded, and that player's result for this match
-  reverts to what it would have been without the dispute: if the disputed
-  failure was the player's first failure at that position, they now have
-  their one ordinary REQ-1407 retry available at that position, unused,
-  exactly as if they had not disputed it; if the disputed failure was the
-  second, bust-causing failure at that position, they are now busted — a
-  denied dispute never grants a second do-over beyond the one retry
-  REQ-1407 already allows
+  their own chain, are discarded, and that player is immediately busted at
+  that position — disputing a failure (whether the first or the second,
+  bust-causing one) consumes that position's one REQ-1407 retry the moment
+  it is raised, not only if it is later Approved, so a Denied dispute of
+  the *first* failure leaves no retry to fall back on: it counts as this
+  position's second, consecutive failure, exactly as if the player had
+  retried and failed again. A denied dispute never grants a second
+  do-over beyond the one retry REQ-1407 already allows
 - Given a match has one or more Pending disputes
 - When the shared 6-hour deadline (REQ-1405) passes for a player before
   their dispute, or any dispute in the match, is reviewed
@@ -12273,27 +12275,20 @@ player-typed club claim any actual consequence.
 resolve even once both players are otherwise terminal; only the match's
 own opponent can approve/deny, never a third party; an approved dispute
 scores per REQ-1407/1408's existing attempt-number rules; a denied dispute
-discards the step and everything the same player built after it, correctly
-reverting to an available retry (first-failure case) or an immediate bust
-(second-failure case); the REQ-1405 deadline continues to apply, unpaused,
-while a dispute is pending; resolution proceeds automatically once every
-dispute is reviewed and both players are terminal.
+(whether it was raised on the first or second failure at that position)
+discards the step and everything the same player built after it, and
+results in an immediate bust, since disputing itself consumes that
+position's one retry the moment it is raised; the REQ-1405 deadline
+continues to apply, unpaused, while a dispute is pending; resolution
+proceeds automatically once every dispute is reviewed and both players are
+terminal.
 
-**Assumption flagged for product-owner confirmation:** the "denied dispute
-reverts to what it would have been without the dispute" rule above resolves
-two sub-cases that the confirmed mechanic described only one of directly.
-The bust-causing-failure sub-case (a denied dispute of the second failure
-results in an immediate bust, no extra do-over) was stated explicitly by
-the product owner. The first-failure sub-case (a denied dispute of the
-*first* failure restores that player's one ordinary REQ-1407 retry, unused
-— rather than, say, treating the disputed attempt itself as having
-consumed that retry) is this document's own extrapolation, applying "no
-second do-over on top of the one already used" symmetrically: disputing a
-first failure is offered *instead of* taking the retry, so nothing has
-consumed the retry yet if the dispute is denied. This is the only
-self-consistent reading found, but it was not asked about in this exact
-framing — confirm before implementation; if wrong, only this REQ's fourth
-acceptance-criteria block needs correcting, nothing else in this section.
+**Product-owner confirmation (2026-09-05):** disputing a failure consumes
+that position's REQ-1407 retry at the moment the dispute is raised, not
+only if it is later Approved — so a Denied dispute always results in an
+immediate bust, whether it was raised on the first or the second failure.
+Confirmed directly; this replaces an earlier draft of this REQ that treated
+the first-failure case differently (restoring an unused retry on denial).
 
 **REQ-1414 – Approved dispute produces a data-correction suggestion for
 admin follow-up**
