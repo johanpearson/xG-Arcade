@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-04 — `backend/src/XGArcade.DataSync/Wikidata/SparqlResponseParsers.cs`,
+  `backend/src/XGArcade.DataSync/Wikidata/WikidataCareerStintEntry.cs`,
+  `backend/src/XGArcade.DataSync/Wikidata/WikidataPlayerMatch.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`,
+  `docs/decisions/0106-career-stint-missing-start-time-falls-back-to-end-time.md`
+  (new), `docs/requirements-document.md` (REQ-1203/1406 status notes, v2.63
+  → v2.64), `docs/architecture-document.md` (COMP-05/COMP-07 rows, v1.49 →
+  v1.50), `docs/backlog.md` (S-211 given a second bugfix addendum) — the
+  SAME reported chain step (Reece James → Jonas Olsson, sharing a real
+  2019 Wigan Athletic loan) was resubmitted after ADR-0105's fix deployed
+  and STILL failed, ruling out staleness (every chain-step submission is a
+  fresh live check, nothing cached across attempts). Root cause was one
+  layer deeper: `SparqlResponseParsers.ParseCareerStintBindings` required a
+  usable Wikidata P580 ("start time") qualifier to construct any
+  career-stint row at all, so a P54 statement lacking one was silently
+  dropped on every single refetch, regardless of how unconditionally
+  ADR-0105 made that refetch run. Jonas Olsson's Wigan Athletic loan — a
+  short, lower-profile late-career stint — has exactly this data shape on
+  Wikidata (a usable end time and appearance count, no start time). Fixed
+  by falling back to the P582 ("end time") qualifier as the start year when
+  start time is missing/unparseable but end time is usable (a
+  single-year-stint approximation; a row with neither is still skipped, as
+  before). Architecture review of this fix found the identical gap in the
+  sibling `ParseBindings` parser (feeding xG Grid's REQ-211 guess-time live
+  lookup byproduct writes) and it was fixed in the same change — it does
+  not affect xG Grid's own guess correctness (decided by the intersection
+  query's match list, not by career-stint qualifiers), only the
+  completeness of the `PlayerCareerStint` rows it persists alongside that
+  result. See ADR-0106 for the full decision, its accepted trade-off, and
+  a newly-flagged (accepted, not yet observed) duplicate-row risk in
+  `CareerStintReconciler`'s existing dedup key. New test coverage:
+  `ADR0106_QueryPlayerCareerStintsByQidsAsync_RowWithNoStartTime_ButUsableEndTime_FallsBackToEndYear`
+  and `ADR0106_QueryCountryClubIntersectionAsync_CareerStint_WhenStartTimeAbsentButEndTimeUsable`.
+  No `dotnet` SDK in this sandbox — verified via CI on the branch/PR.
+
 - 2026-09-04 — `backend/src/XGArcade.Games.XGConnect/PlayerCareerOverlapService.cs`,
   `backend/src/XGArcade.Games.XGConnect/IPlayerCareerOverlapService.cs`,
   `backend/tests/XGArcade.Games.XGConnect.Tests/PlayerCareerOverlapServiceTests.cs`,

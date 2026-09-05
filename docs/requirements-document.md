@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.63"
+version: "2.64"
 status: draft
 last_updated: 2026-09-04
 owner: Johan
@@ -2124,6 +2124,21 @@ an extra attempt), API
   (`GridGenerationService.GetMatchCountAsync`) is a separate call path and
   deliberately untouched by this flag. See ADR-0070 for the full decision
   and alternatives considered.
+- **Status note (2026-09-04, ADR-0106, found via architecture review of an
+  xG Connect fix, applies here too).** This requirement's own guess
+  correctness was never affected — that's decided by whether the player
+  appears in the live intersection query's own match list, not by any
+  career-stint qualifier. But `WikidataLookupService.PersistCareerStintsAsync`,
+  which persists `PlayerCareerStint` rows alongside that correctness result
+  for reuse by xG Path/xG Connect, was silently omitting a real stint
+  whenever Wikidata recorded no start-time (P580) qualifier for it — the
+  identical `SparqlResponseParsers` parser gap ADR-0106 found and fixed for
+  xG Path's/xG Connect's own career-stint fetches (see REQ-1406's own
+  bug-fix status notes for the incident that surfaced it). Fixed in the
+  same change by the same fallback (use the end-time qualifier as the
+  start year when start time is missing/unparseable but usable). No
+  behavior change to this requirement's own guess-scoring; only more
+  complete downstream `PlayerCareerStint` data.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
@@ -9212,6 +9227,25 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   effect: a player whose true single-club appearance total was split
   across two adjacent sub-threshold rows now correctly counts toward
   REQ-1201's seeded-club appearance-count bar once merged — see ADR-0081.
+- **Bug fix status note (2026-09-04, ADR-0106, shared-parser fix — found via
+  an xG Connect incident, applies here too).** `WikidataClient
+  .ParseCareerStintBindings` required a usable P580 start-time qualifier to
+  construct any career-stint row at all, silently dropping a real P54
+  statement whenever Wikidata recorded no start date for it — the exact
+  same parser this REQ's own club-reveal clues (and REQ-1201's eligibility
+  count) depend on. A real, reported incident in xG Connect (REQ-1406)
+  confirmed this: a genuine stint (Jonas Olsson's 2019 Wigan Athletic loan,
+  which has a usable end time and appearance count on Wikidata but no start
+  time) kept being silently dropped on every refetch, even after ADR-0105
+  made the refetch itself unconditional. Fixed by falling back to the end
+  time qualifier as the start year when start time is missing/unparseable
+  but end time is usable (a single-year-stint approximation — see ADR-0106
+  for the full decision and its accepted trade-off); a row with neither is
+  still skipped. This REQ's own club-reveal clues and REQ-1201's stint-count
+  eligibility check both read `PlayerCareerStintRefreshService`'s output,
+  so a target player whose real career included a similarly under-dated
+  stint on Wikidata now has it counted/revealed correctly, for free — no
+  xG Path-specific code changed.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -11526,6 +11560,26 @@ New test coverage in `PlayerCareerOverlapServiceTests.cs`: a test proving
 both players are always refreshed even when both already have cached data,
 and a test reproducing the exact incident shape (existing narrow cache,
 refresh discovers the real additional shared club).
+
+**Bug fix status note (2026-09-04, ADR-0106).** Same incident, still
+failing after the ADR-0105 fix above shipped: the SAME reported chain step
+(Reece James → Jonas Olsson via their real 2019 Wigan Athletic loan) was
+submitted again — post-deploy, no cached staleness possible, since every
+chain-step submission is a fresh live check — and was STILL rejected. Root
+cause was one layer deeper than ADR-0105: `SparqlResponseParsers
+.ParseCareerStintBindings` (`XGArcade.DataSync`) required a usable Wikidata
+P580 ("start time") qualifier to construct any career-stint row at all, so
+a P54 statement lacking one was silently dropped, every single refresh,
+regardless of how unconditionally the refresh ran. Jonas Olsson's Wigan
+Athletic loan — a short, lower-profile late-career stint — has exactly this
+data shape on Wikidata (a usable end time and appearance count, no start
+time). Fixed by falling back to the end-time qualifier as the start year
+when start time is missing/unparseable but end time is usable (a
+single-year-stint approximation; a row with neither is still skipped, since
+there is then genuinely no year to anchor on). See ADR-0106 for the full
+decision and its accepted trade-off. New test coverage:
+`ADR0106_QueryPlayerCareerStintsByQidsAsync_RowWithNoStartTime_ButUsableEndTime_FallsBackToEndYear`
+(`WikidataClientTests.cs`), reproducing the exact reported data shape.
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
