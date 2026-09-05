@@ -270,8 +270,17 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // longer types a claimed club — only the candidate name — so this
       // helper no longer takes one either; the server computes which
       // club(s) actually connect the two players.
+      // Bug fix (2026-09-05, ADR-0107): a real /players/autocomplete
+      // suggestion must now be clicked (same requirement submitTargetPick
+      // above already has) — typing the name alone no longer enables
+      // "Submit connector," since that free-text path is exactly the
+      // same-name-collision-prone one a real incident showed is a genuine
+      // bug. InternalConnectTestDataEndpoints now seeds a matching
+      // PlayerNameIndex row (with WikidataQid) for the connector player too,
+      // so this suggestion is always findable here.
       async function submitClosingChainStep(page: Page): Promise<void> {
         await page.getByLabel('Candidate player name').fill(seed.connectorPlayerName)
+        await page.getByRole('option', { name: seed.connectorPlayerName }).click()
         // Captured (not awaited) BEFORE the click below, purely for
         // diagnostics on failure — recording the promise doesn't delay or
         // otherwise change the click/assert timing that follows, since

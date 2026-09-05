@@ -180,6 +180,101 @@ public class ConnectChainStepEndpointTests
         Assert.That(body.CandidatePlayerId, Is.EqualTo(candidateId));
     }
 
+    // Bug fix (2026-09-05, ADR-0107): over the real HTTP pipeline, a
+    // CandidateWikidataQid in the request body resolves the exact real
+    // person seeded under it — not the other, same-named player whose lower
+    // Id would otherwise win via the name-only fallback. Reproduces the
+    // real, reported incident's data shape (two different real people
+    // sharing a name) end to end.
+    //
+    // Both seeded players carry a syntactically-valid WikidataQid (needed
+    // for ConnectCandidateResolver's own WikidataQid.IsValid gate to
+    // actually take the QID-resolution path this test means to prove,
+    // rather than silently falling back to name resolution) — which, per
+    // ADR-0105, means PlayerCareerOverlapService's own subsequent overlap
+    // check will try to refresh BOTH of them live. This test swaps in the
+    // same FailingWikidataClient fake this file already uses for its
+    // LiveLookupUnavailable test, just configured to succeed with no new
+    // data, so that refresh is a harmless no-op rather than a real network
+    // call — the pre-seeded PlayerCareerStint rows below are what the
+    // overlap check actually reads back.
+    [Test]
+    public async Task ADR0107_PostChainStep_CandidateWikidataQid_ResolvesTheCorrectPlayer_NotTheLowestIdSameNamedOne()
+    {
+        var noOpWikidataClient = new FailingWikidataClient(_ => new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>());
+        using var factory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IWikidataClient>();
+                services.AddSingleton<IWikidataClient>(noOpWikidataClient);
+            });
+        });
+
+        var aAuthProviderUserId = Guid.NewGuid();
+        Guid userAId, userBId, aTargetPlayerId, bTargetPlayerId, wrongPlayerId, correctPlayerId, matchId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var bAuthProviderUserId = Guid.NewGuid();
+            dbContext.Users.AddRange(
+                new User { Id = Guid.NewGuid(), AuthProviderUserId = aAuthProviderUserId, Email = "a@example.com", DisplayName = "Alex", EmailConfirmed = true, CreatedAt = DateTime.UtcNow },
+                new User { Id = Guid.NewGuid(), AuthProviderUserId = bAuthProviderUserId, Email = "b@example.com", DisplayName = "Blair", EmailConfirmed = true, CreatedAt = DateTime.UtcNow });
+            await dbContext.SaveChangesAsync();
+            userAId = dbContext.Users.Single(u => u.AuthProviderUserId == aAuthProviderUserId).Id;
+            userBId = dbContext.Users.Single(u => u.AuthProviderUserId == bAuthProviderUserId).Id;
+
+            var playerRepository = scope.ServiceProvider.GetRequiredService<IPlayerRepository>();
+            var aTarget = await playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "A Target Player", WikidataQid = "Q100" });
+            var bTarget = await playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "B Target Player", WikidataQid = "Q101" });
+            var wrongPlayer = await playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "Jonas Olsson", WikidataQid = "Q102" });
+            var correctPlayer = await playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "Jonas Olsson", WikidataQid = "Q103" });
+            aTargetPlayerId = aTarget.Id;
+            bTargetPlayerId = bTarget.Id;
+            wrongPlayerId = wrongPlayer.Id;
+            correctPlayerId = correctPlayer.Id;
+
+            // The correct player genuinely overlaps A's target; the wrong
+            // one (which the pre-fix name-only fallback could pick instead)
+            // has no career data at all, so the test would fail loudly
+            // (InvalidStep, not StepAccepted) if resolution picked the
+            // wrong player.
+            dbContext.PlayerCareerStints.AddRange(
+                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = aTargetPlayerId, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, SequenceOrder = 0 },
+                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = correctPlayerId, ClubName = "Arsenal", StartYear = 2003, EndYear = 2010, SequenceOrder = 0 });
+            await dbContext.SaveChangesAsync();
+
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            var now = DateTime.UtcNow;
+            var match = await connectMatchRepository.AddMatchAsync(new ConnectMatch
+            {
+                Id = Guid.NewGuid(),
+                PlayerAUserId = userAId,
+                PlayerBUserId = userBId,
+                CreatedAt = now,
+                Status = ConnectMatchStatus.Active,
+                StartedAt = now,
+                DeadlineUtc = now.AddHours(6),
+            });
+            await connectMatchRepository.AddOrUpdateTargetPickAsync(match.Id, userAId, aTargetPlayerId, now);
+            await connectMatchRepository.AddOrUpdateTargetPickAsync(match.Id, userBId, bTargetPlayerId, now);
+            await connectMatchRepository.LockTargetPicksForMatchAsync(match.Id);
+            matchId = match.Id;
+        }
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(aAuthProviderUserId));
+
+        var response = await client.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps", new SubmitChainStepRequest("Jonas Olsson", "Q103"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitChainStepResponse>();
+        Assert.That(body!.IsValid, Is.True);
+        Assert.That(body.CandidatePlayerId, Is.EqualTo(correctPlayerId));
+        Assert.That(body.CandidatePlayerId, Is.Not.EqualTo(wrongPlayerId));
+    }
+
     // ---- Closing step ---------------------------------------------------------
 
     [Test]
@@ -501,14 +596,23 @@ public class ConnectChainStepEndpointTests
     // ---- Minimal local fake for IWikidataClient — same "trivial stub except
     // ---- for the one member under test" precedent as
     // ---- AdminEndpointTests.FakeWikidataClient. Only
-    // ---- QueryPlayerCareerStintsByQidsAsync is meaningfully implemented
-    // ---- (always throws), since that's the only member
-    // ---- PlayerCareerStintRefreshService's REQ-1406 code path calls. -------
-    private sealed class FailingWikidataClient : IWikidataClient
+    // ---- QueryPlayerCareerStintsByQidsAsync is meaningfully implemented,
+    // ---- since that's the only member PlayerCareerStintRefreshService's
+    // ---- REQ-1406 code path calls — its behavior is configurable (bug fix,
+    // ---- 2026-09-05, ADR-0107) so this one class serves both this file's
+    // ---- original "genuine technical failure" test (the default, unchanged
+    // ---- behavior) and ADR0107_PostChainStep_CandidateWikidataQid's own
+    // ---- "succeeds, returns nothing new" needs, rather than duplicating
+    // ---- this class's ~15 other trivial no-op members a second time. -------
+    private sealed class FailingWikidataClient(
+        Func<IReadOnlyList<string>, IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>>? careerStintsByQids = null)
+        : IWikidataClient
     {
         public Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
             IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
-            throw new WikidataQueryException("simulated WDQS failure for REQ-1406 chain-step live validation");
+            careerStintsByQids is null
+                ? throw new WikidataQueryException("simulated WDQS failure for REQ-1406 chain-step live validation")
+                : Task.FromResult(careerStintsByQids(wikidataQids));
 
         public Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
             string playerName, CancellationToken cancellationToken = default) =>

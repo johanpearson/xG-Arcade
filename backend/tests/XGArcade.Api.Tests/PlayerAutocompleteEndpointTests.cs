@@ -65,7 +65,8 @@ public class PlayerAutocompleteEndpointTests
         await dbContext.SaveChangesAsync();
     }
 
-    private async Task<Guid> SeedPlayerNameIndexEntryAsync(string primaryName, int? birthYear = null, string? nationality = null)
+    private async Task<Guid> SeedPlayerNameIndexEntryAsync(
+        string primaryName, int? birthYear = null, string? nationality = null, string? wikidataQid = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -76,6 +77,7 @@ public class PlayerAutocompleteEndpointTests
             NormalizedName = PlayerNameNormalizer.Normalize(primaryName),
             BirthYear = birthYear,
             PrimaryNationality = nationality,
+            WikidataQid = wikidataQid,
         };
         dbContext.PlayerNameIndexEntries.Add(entry);
         await dbContext.SaveChangesAsync();
@@ -179,6 +181,43 @@ public class PlayerAutocompleteEndpointTests
             "a nationality value must never be serialized into the autocomplete response — it leaks correctness for a nationality-based cell");
         Assert.That(rawJson, Does.Not.Contain("nationality").IgnoreCase,
             "the field itself must be gone from the response shape, not merely null");
+    }
+
+    // Bug fix (2026-09-05, ADR-0107): WikidataQid is a real, deliberate
+    // addition to this response — the opposite of the Nationality test
+    // above — since it's what lets xG Connect's candidate/target-pick
+    // resolution disambiguate two different real people sharing a name
+    // (e.g. "Jonas Olsson"). A null value (a row indexed before this column
+    // existed) must still serialize as present-but-null, never omit the
+    // field or throw.
+    [Test]
+    public async Task ADR0107_Autocomplete_Get_ResponseIncludesWikidataQid_WhenPlayerNameIndexHasOne()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedPlayerNameIndexEntryAsync("Someone Identified", wikidataQid: "Q123456");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/players/autocomplete?query=someone");
+
+        var suggestions = await response.Content.ReadFromJsonAsync<List<PlayerAutocompleteSuggestion>>();
+        Assert.That(suggestions!, Has.Count.EqualTo(1));
+        Assert.That(suggestions[0].WikidataQid, Is.EqualTo("Q123456"));
+    }
+
+    [Test]
+    public async Task ADR0107_Autocomplete_Get_ResponseHasNullWikidataQid_WhenPlayerNameIndexRowPredatesTheColumn()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedPlayerNameIndexEntryAsync("Someone Unidentified", wikidataQid: null);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/players/autocomplete?query=someone");
+
+        var suggestions = await response.Content.ReadFromJsonAsync<List<PlayerAutocompleteSuggestion>>();
+        Assert.That(suggestions!, Has.Count.EqualTo(1));
+        Assert.That(suggestions[0].WikidataQid, Is.Null);
     }
 
     [Test]

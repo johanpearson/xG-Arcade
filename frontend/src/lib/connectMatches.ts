@@ -49,10 +49,18 @@ export async function fetchConnectMatchDetail(accessToken: string, matchId: stri
 // REQ-1404: either player selects (or, before the match officially starts,
 // replaces) their own target pick (POST /matches/{matchId}/target-pick).
 // Takes a player NAME, resolved server-side against Player (COMP-06) —
-// never a client-supplied id, since the only search UI available
-// (/players/autocomplete, COMP-10) returns PlayerNameIndex.PlayerId, a
-// different, unreconciled id space (ADR-0007). Mirrors
+// never a client-supplied Player.Id directly, since the only search UI
+// available (/players/autocomplete, COMP-10) returns PlayerNameIndex.PlayerId,
+// a different, unreconciled id space (ADR-0007). Mirrors
 // submitConnectChainStep's own candidatePlayerName precedent below.
+//
+// targetWikidataQid (bug fix, 2026-09-05, ADR-0107): optional — when the
+// caller has a suggestion's wikidataQid (TargetPickPanel.tsx now requires a
+// suggestion click), sending it resolves the exact real person
+// unambiguously server-side, instead of the name-only fallback that a real,
+// reported incident showed can pick the wrong one of two different real
+// people sharing a name.
+//
 // Errors (404 not-found "Target player not found", 403 not-a-participant,
 // 409 already-locked, 409 trivially-connected, 503 live-lookup-unavailable)
 // left to throw — see design-document.md SCREEN-16's "Target-pick phase"
@@ -61,10 +69,11 @@ export async function submitConnectTargetPick(
   accessToken: string,
   matchId: string,
   targetPlayerName: string,
+  targetWikidataQid?: string | null,
 ): Promise<ConnectTargetPickSubmitResponse> {
   return apiRequest<ConnectTargetPickSubmitResponse>(accessToken, `/matches/${matchId}/target-pick`, {
     method: 'POST',
-    body: JSON.stringify({ targetPlayerName }),
+    body: JSON.stringify({ targetPlayerName, targetWikidataQid: targetWikidataQid ?? null }),
   });
 }
 
@@ -79,14 +88,19 @@ export async function submitConnectTargetPick(
 // Design change (2026-09-04, REQ-1406, ADR-0104): no longer takes a
 // claimedClubName — the caller names only a candidate player; the server
 // computes which club(s) actually connect them.
+//
+// candidateWikidataQid (bug fix, 2026-09-05, ADR-0107): optional, mirrors
+// submitConnectTargetPick's own targetWikidataQid exactly — see that
+// function's own doc comment.
 export async function submitConnectChainStep(
   accessToken: string,
   matchId: string,
   candidatePlayerName: string,
+  candidateWikidataQid?: string | null,
 ): Promise<ConnectSubmitChainStepResponse> {
   return apiRequest<ConnectSubmitChainStepResponse>(accessToken, `/matches/${matchId}/chain-steps`, {
     method: 'POST',
-    body: JSON.stringify({ candidatePlayerName }),
+    body: JSON.stringify({ candidatePlayerName, candidateWikidataQid: candidateWikidataQid ?? null }),
   });
 }
 

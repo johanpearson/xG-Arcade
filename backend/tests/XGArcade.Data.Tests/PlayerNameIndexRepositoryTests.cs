@@ -254,6 +254,37 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(stored.BirthYear, Is.EqualTo(1990));
     }
 
+    // Bug fix (2026-09-05, ADR-0107): a row indexed before WikidataQid
+    // existed on this entity has none until its player is swept again — the
+    // update-in-place branch above must actually copy the freshly-fetched
+    // value onto the existing row, not just leave a pre-existing null in
+    // place forever. Without this, PlayerNameIndexImporter re-running would
+    // never actually backfill a single already-indexed row, permanently
+    // blocking the disambiguation this column exists for.
+    [Test]
+    public async Task ADR0107_UpsertManyAsync_ExistingRowWithNullWikidataQid_BackfillsItOnReimport()
+    {
+        var playerId = Guid.NewGuid();
+        await _repository.UpsertManyAsync([new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "Jonas Olsson",
+            NormalizedName = PlayerNameNormalizer.Normalize("Jonas Olsson"),
+            WikidataQid = null,
+        }]);
+
+        await _repository.UpsertManyAsync([new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "Jonas Olsson",
+            NormalizedName = PlayerNameNormalizer.Normalize("Jonas Olsson"),
+            WikidataQid = "Q1533537",
+        }]);
+
+        var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync(p => p.PlayerId == playerId);
+        Assert.That(stored.WikidataQid, Is.EqualTo("Q1533537"));
+    }
+
     // A re-import that changes a player's name must reconcile
     // PlayerNameIndexWord in place too — a stale word from the old name must
     // no longer match, and a word from the new name must.

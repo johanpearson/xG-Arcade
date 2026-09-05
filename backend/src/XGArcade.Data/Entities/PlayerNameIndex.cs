@@ -37,4 +37,26 @@ public class PlayerNameIndex
     // shippable for exactly that reason), so fetching/storing P18 was dead
     // weight in the bulk import. Re-add deliberately if a real photo
     // feature ever exists.
+
+    // Bug fix (2026-09-05, ADR-0107): a real, reported incident — two
+    // genuinely different real footballers both named "Jonas Olsson"
+    // (Wikidata QIDs for different people) both got indexed here from a
+    // routine nationality-pool sweep, so xG Connect's candidate/target-pick
+    // resolution (which only ever had a NAME to go on — see
+    // ConnectChainStepService.SubmitChainStepAsync's own "known, deliberate
+    // simplification" comment) had no way to tell them apart and
+    // deterministically picked the wrong one, permanently rejecting every
+    // genuinely correct connection through the right one. This is the
+    // deliberate reconciliation this entity's own PlayerId doc comment
+    // above says "must be built deliberately" if ever needed — added as its
+    // OWN new column rather than by changing what PlayerId means, so
+    // PlayerId's existing "different id space than Player.Id" contract is
+    // completely unchanged. Nullable: a row indexed before this column
+    // existed has no value until the next `import-player-name-index` run
+    // backfills it (PlayerNameIndexImporter.ToIndexEntry always populates
+    // it for every row going forward) — callers that need to resolve a
+    // specific real person unambiguously (xG Connect) must treat a null
+    // value here as "this suggestion can't yet be disambiguated by id,"
+    // never crash on it. See ADR-0107 for the full decision.
+    public string? WikidataQid { get; set; }
 }

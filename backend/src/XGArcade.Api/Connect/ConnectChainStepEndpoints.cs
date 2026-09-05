@@ -36,7 +36,7 @@ public static class ConnectChainStepEndpoints
                 return Results.Unauthorized();
 
             var result = await connectChainStepService.SubmitChainStepAsync(
-                matchId, requestingUser.Id, request.CandidatePlayerName, cancellationToken);
+                matchId, requestingUser.Id, request.CandidatePlayerName, request.CandidateWikidataQid, cancellationToken);
 
             return result.Outcome switch
             {
@@ -100,7 +100,15 @@ public static class ConnectChainStepEndpoints
 // Design change (2026-09-04, REQ-1406, ADR-0104): no longer takes a
 // ClaimedClubName — see IConnectChainStepService.SubmitChainStepAsync's own
 // doc comment.
-public record SubmitChainStepRequest(string CandidatePlayerName);
+//
+// CandidateWikidataQid (bug fix, 2026-09-05, ADR-0107): optional — sent by
+// the frontend only when the player picked a real /players/autocomplete
+// suggestion (ChainBuilder.tsx now requires a click for exactly this
+// reason). Null when absent/omitted, which falls back to
+// CandidatePlayerName-only resolution — see
+// IConnectChainStepService.SubmitChainStepAsync's own doc comment for why
+// that fallback still exists.
+public record SubmitChainStepRequest(string CandidatePlayerName, string? CandidateWikidataQid = null);
 
 // IsValid/ChainComplete/Position/AttemptNumber/CandidatePlayerId/
 // MatchedClubName/MatchedOverlapStartYear/MatchedOverlapEndYear cover what

@@ -225,6 +225,13 @@ public class PlayerNameIndexImporter(
         NormalizedName = PlayerNameNormalizer.Normalize(entry.FullName),
         BirthYear = entry.BirthYear,
         PrimaryNationality = entry.Nationality,
+        // ADR-0107: see PlayerNameIndex.WikidataQid's own doc comment — this
+        // is what lets xG Connect resolve a specific autocomplete suggestion
+        // to an unambiguous real person, closing a real same-name-collision
+        // bug (two different real "Jonas Olsson"s). Was already in scope
+        // here (it's literally this method's own input), just never carried
+        // through to the persisted row before now.
+        WikidataQid = entry.WikidataQid,
     };
 
     // MD5's 16-byte digest maps directly onto a Guid's 16-byte layout — the

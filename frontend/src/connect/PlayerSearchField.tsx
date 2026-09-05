@@ -9,11 +9,13 @@ export interface PlayerSearchFieldProps {
   value: string;
   onValueChange: (value: string) => void;
   // Fired only when a suggestion is actually picked (click or Enter on a
-  // highlighted option) — never on plain typing. The caller decides what a
-  // selection means: TargetPickPanel needs the suggestion's playerId (the
-  // target-pick endpoint takes an id), ChainBuilder's candidate field only
-  // ever needs the name text (the chain-step endpoint takes a name and
-  // resolves it server-side) — see each caller's own comment.
+  // highlighted option) — never on plain typing. Bug fix (2026-09-05,
+  // ADR-0107): both TargetPickPanel and ChainBuilder now require a
+  // selection before their submit button enables, and both read the
+  // suggestion's wikidataQid (not just its name) to resolve the exact real
+  // person unambiguously — see each caller's own comment, and
+  // ConnectCandidateResolver's (backend, Games.XGConnect) for the real,
+  // reported same-name-collision bug this closes.
   onSelect: (suggestion: PlayerAutocompleteSuggestion) => void;
   placeholder?: string;
   disabled?: boolean;

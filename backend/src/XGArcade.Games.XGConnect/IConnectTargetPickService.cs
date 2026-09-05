@@ -17,16 +17,18 @@ public interface IConnectTargetPickService
     // client-supplied Guid — the only player-search UI a client has
     // (`/players/autocomplete`, COMP-10) returns `PlayerNameIndex.PlayerId`
     // values, which live in a different, unreconciled id space from
-    // `Player.Id` (see `PlayerNameIndex.PlayerId`'s own doc comment). This
-    // mirrors `ConnectChainStepService.SubmitChainStepAsync`'s own
-    // candidatePlayerName resolution exactly: normalize
-    // (`PlayerNameNormalizer.Normalize`), resolve via
-    // `IPlayerRepository.GetPlayersByNormalizedFullNameAsync` (COMP-06,
-    // never `PlayerNameIndex`), lowest-`Id`-wins on a same-name collision —
-    // a known, deliberate simplification, not a new REQ, same as that
-    // sibling's own comment.
+    // `Player.Id` (see `PlayerNameIndex.PlayerId`'s own doc comment).
+    //
+    // targetWikidataQid (bug fix, 2026-09-05, ADR-0107): optional — when
+    // supplied, resolution goes through ConnectCandidateResolver's
+    // unambiguous WikidataQid path instead of the name-only,
+    // lowest-Id-on-collision fallback this method used to always use (see
+    // that resolver's own doc comment for the real, reported same-name-
+    // collision incident this closes — two different real "Jonas Olsson"s).
+    // Null/omitted keeps the exact same fallback behavior as before.
     Task<SubmitTargetPickResult> SubmitTargetPickAsync(
-        Guid matchId, Guid userId, string targetPlayerName, CancellationToken cancellationToken = default);
+        Guid matchId, Guid userId, string targetPlayerName, string? targetWikidataQid = null,
+        CancellationToken cancellationToken = default);
 }
 
 public enum SubmitTargetPickOutcome

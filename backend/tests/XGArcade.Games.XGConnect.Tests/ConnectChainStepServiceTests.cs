@@ -312,6 +312,92 @@ public class ConnectChainStepServiceTests
         Assert.That(await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId), Is.Empty);
     }
 
+    // ---- Bug fix (2026-09-05, ADR-0107): candidateWikidataQid resolves the
+    // ---- exact real person unambiguously on a same-name collision ---------
+
+    [Test]
+    public async Task ADR0107_SubmitChainStepAsync_SameNameCollision_CandidateWikidataQidResolvesTheCorrectPlayer_NotTheLowestId()
+    {
+        // Reproduces the real, reported incident this ADR closes: two
+        // different real people (different WikidataQid) both indexed under
+        // the exact same name ("Jonas Olsson") — the pre-fix behavior
+        // deterministically picked whichever sorted first by Id, which could
+        // easily be the WRONG one. Both are seeded here so the wrong-player
+        // Id sorts first, proving this isn't passing by coincidence.
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        var wrongPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.Parse("00000000-0000-0000-0000-000000000001"), FullName = "Jonas Olsson", WikidataQid = "Q1" });
+        var correctPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.Parse("00000000-0000-0000-0000-000000000002"), FullName = "Jonas Olsson", WikidataQid = "Q2" });
+        // Sanity-checks the test's own setup: without a supplied QID, the
+        // pre-existing fallback really would pick the wrong player here.
+        Assert.That(wrongPlayer.Id, Is.LessThan(correctPlayer.Id));
+        _overlapService.SetSharedClubOverlaps(correctPlayer.Id, aTargetPlayerId, new SharedClubOverlap("Wigan Athletic", 2019, 2019));
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Jonas Olsson", "Q2");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
+        Assert.That(result.ChainStep!.CandidatePlayerId, Is.EqualTo(correctPlayer.Id));
+        Assert.That(result.ChainStep.MatchedClubName, Is.EqualTo("Wigan Athletic"));
+    }
+
+    [Test]
+    public async Task ADR0107_SubmitChainStepAsync_CandidateWikidataQid_ForPlayerNeverBeforeReferenced_GetOrCreatesTheRealPlayerRow()
+    {
+        // The candidate is indexed in PlayerNameIndex (COMP-10) — that's how
+        // the frontend got a wikidataQid to submit at all — but has never
+        // been referenced by any game module, so no Player (COMP-06) row
+        // exists for them yet. ConnectCandidateResolver must create one via
+        // GetOrCreatePlayersByWikidataQidAsync rather than 404ing.
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Never Referenced Player", "Q999");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.InvalidStep),
+            "no overlap configured for this brand-new player against the target — this only proves resolution succeeded, not that the step validates");
+        var createdPlayer = await _playerRepository.GetPlayerByWikidataQidAsync("Q999");
+        Assert.That(createdPlayer, Is.Not.Null);
+        Assert.That(createdPlayer!.FullName, Is.EqualTo("Never Referenced Player"));
+        Assert.That(result.ChainStep!.CandidatePlayerId, Is.EqualTo(createdPlayer.Id));
+    }
+
+    [Test]
+    public async Task ADR0107_SubmitChainStepAsync_NoCandidateWikidataQidSupplied_FallsBackToNameOnlyResolution()
+    {
+        // Backward compatibility for a caller (or a not-yet-backfilled
+        // suggestion) that genuinely has no QID to send — the pre-existing
+        // name-only resolution must be completely unaffected.
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", candidateWikidataQid: null);
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
+        Assert.That(result.ChainStep!.CandidatePlayerId, Is.EqualTo(candidate.Id));
+    }
+
+    [Test]
+    public async Task ADR0107_SubmitChainStepAsync_MalformedCandidateWikidataQid_FallsBackToNameOnlyResolution_NeverErrors()
+    {
+        // A malformed value (never sent by this codebase's own frontend,
+        // but the request body is client-controlled) must not be trusted
+        // blindly or crash the request — it degrades to the same fallback
+        // as "none supplied," which still has a working resolution path.
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Middle Link Player", candidateWikidataQid: "not-a-real-qid");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
+        Assert.That(result.ChainStep!.CandidatePlayerId, Is.EqualTo(candidate.Id));
+    }
+
     [Test]
     public async Task REQ1406_SubmitChainStepAsync_LiveLookupUnavailableOnMainCheck_PersistsNothing()
     {

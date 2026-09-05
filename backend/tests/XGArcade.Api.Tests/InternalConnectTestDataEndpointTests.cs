@@ -105,14 +105,19 @@ public class InternalConnectTestDataEndpointTests
 
         // The test-only PlayerNameIndex id-space alignment (see
         // InternalConnectTestDataEndpoints.cs's own top-of-file comment):
-        // only the two target-pick players get an entry, keyed by the SAME
-        // id as their real Player.Id — never the connector (its candidate
-        // field resolves by name, not by any PlayerNameIndex-sourced id).
+        // all three players get an entry, keyed by the SAME id as their real
+        // Player.Id. Bug fix (2026-09-05, ADR-0107): the connector now gets
+        // one too (previously it didn't, since its candidate field used to
+        // resolve by name alone) — ChainBuilder.tsx's candidate field now
+        // also requires a real /players/autocomplete suggestion click, same
+        // as TargetPickPanel.tsx's target-pick field already did.
         var targetANameIndexEntry = await dbContext.PlayerNameIndexEntries.SingleAsync(e => e.PlayerId == targetA.Id);
         Assert.That(targetANameIndexEntry.PrimaryName, Is.EqualTo(targetA.FullName));
         var targetBNameIndexEntry = await dbContext.PlayerNameIndexEntries.SingleAsync(e => e.PlayerId == targetB.Id);
         Assert.That(targetBNameIndexEntry.PrimaryName, Is.EqualTo(targetB.FullName));
-        Assert.That(await dbContext.PlayerNameIndexEntries.AnyAsync(e => e.PlayerId == connector.Id), Is.False);
+        var connectorNameIndexEntry = await dbContext.PlayerNameIndexEntries.SingleAsync(e => e.PlayerId == connector.Id);
+        Assert.That(connectorNameIndexEntry.PrimaryName, Is.EqualTo(connector.FullName));
+        Assert.That(connectorNameIndexEntry.WikidataQid, Is.EqualTo(connector.WikidataQid));
     }
 
     [Test]

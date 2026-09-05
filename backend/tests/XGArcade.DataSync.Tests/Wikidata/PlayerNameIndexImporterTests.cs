@@ -76,6 +76,22 @@ public class PlayerNameIndexImporterTests
         Assert.That(await _dbContext.PlayerNameIndexEntries.CountAsync(), Is.EqualTo(2));
     }
 
+    // Bug fix (2026-09-05, ADR-0107): WikidataQid was always available here
+    // (it's this method's own input) but never carried through to the
+    // persisted row until now — see PlayerNameIndex.WikidataQid's own doc
+    // comment for the real, reported same-name-collision incident this
+    // closes (two different real footballers both named "Jonas Olsson").
+    [Test]
+    public async Task ADR0107_ImportAsync_PersistsWikidataQid_OnEveryIndexedRow()
+    {
+        _wikidataClient.SetYear(1990, [new WikidataNameIndexEntry("Q1", "Player One", 1990, "France")]);
+
+        await _importer.ImportAsync();
+
+        var persisted = await _dbContext.PlayerNameIndexEntries.SingleAsync();
+        Assert.That(persisted.WikidataQid, Is.EqualTo("Q1"));
+    }
+
     [Test]
     public async Task ImportAsync_NoYearHasAnyPlayers_ReturnsZeroWithoutThrowing()
     {

@@ -26,6 +26,10 @@ export interface TargetPickPanelProps {
 export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthError, onSubmitted }: TargetPickPanelProps) {
   const [name, setName] = useState('');
   const [selectedName, setSelectedName] = useState<string | null>(null);
+  // Bug fix (2026-09-05, ADR-0107): carried alongside selectedName so
+  // submission can resolve the exact real person unambiguously — see
+  // handleSelect/handleSubmit below and PlayerSearchField.tsx's own comment.
+  const [selectedWikidataQid, setSelectedWikidataQid] = useState<string | null>(null);
   const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
   // TriviallyConnected (REQ-1404) and TargetPlayerNotFound both get their
   // own, more specific message than whatever generic ApiError.detail
@@ -48,6 +52,7 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
 
   function handleSelect(suggestion: PlayerAutocompleteSuggestion) {
     setSelectedName(suggestion.name);
+    setSelectedWikidataQid(suggestion.wikidataQid ?? null);
     setRejectionNotice(null);
   }
 
@@ -57,7 +62,7 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
     run(
       async () => {
         try {
-          await submitConnectTargetPick(accessToken, matchId, selectedName);
+          await submitConnectTargetPick(accessToken, matchId, selectedName, selectedWikidataQid);
         } catch (err) {
           if (
             err instanceof ApiError &&
@@ -71,6 +76,7 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
             // rather than resubmitting the exact same rejected name.
             setName('');
             setSelectedName(null);
+            setSelectedWikidataQid(null);
           }
           // Re-thrown either way — useSubmitAction's `run` must treat this
           // as a failed submission (never calling onSubmitted/refetch,
@@ -105,6 +111,7 @@ export function TargetPickPanel({ matchId, accessToken, myTargetPick, onAuthErro
         onValueChange={(value) => {
           setName(value);
           setSelectedName(null);
+          setSelectedWikidataQid(null);
         }}
         onSelect={handleSelect}
         placeholder="Search for a player…"

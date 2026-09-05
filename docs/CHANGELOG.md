@@ -13,6 +13,56 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-05 — `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
+  `backend/src/XGArcade.Data/Migrations/20260905100000_AddPlayerNameIndexWikidataQid.{cs,Designer.cs}`,
+  `backend/src/XGArcade.Data/Migrations/XGArcadeDbContextModelSnapshot.cs`,
+  `backend/src/XGArcade.Data/Repositories/PlayerNameIndexRepository.cs`,
+  `backend/src/XGArcade.DataSync/Wikidata/PlayerNameIndexImporter.cs`,
+  `backend/src/XGArcade.Api/Players/PlayerAutocompleteEndpoints.cs`,
+  `backend/src/XGArcade.Api/Connect/ConnectChainStepEndpoints.cs`,
+  `backend/src/XGArcade.Api/Connect/ConnectMatchEndpoints.cs`,
+  `backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs`,
+  `backend/src/XGArcade.Games.XGConnect/ConnectCandidateResolver.cs` (new),
+  `backend/src/XGArcade.Games.XGConnect/ConnectChainStepService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/ConnectTargetPickService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/IConnectChainStepService.cs`,
+  `backend/src/XGArcade.Games.XGConnect/IConnectTargetPickService.cs`, and
+  matching test files in `backend/tests/`, plus
+  `frontend/src/lib/types.ts`, `frontend/src/lib/connectMatches.ts`,
+  `frontend/src/connect/PlayerSearchField.tsx`,
+  `frontend/src/connect/ChainBuilder.tsx`,
+  `frontend/src/connect/TargetPickPanel.tsx`,
+  `frontend/tests/e2e/play-connect.spec.ts`, and matching frontend test
+  files — `docs/decisions/0107-connect-candidate-resolution-uses-wikidata-qid.md`
+  (new), `docs/requirements-document.md` (REQ-207/1404/1406 status notes,
+  v2.64 → v2.65), `docs/architecture-document.md` (COMP-10/COMP-17 rows,
+  v1.50 → v1.51), `docs/backlog.md` (S-211 third bugfix addendum) — a
+  THIRD attempt at connecting to "Jonas Olsson," via a different,
+  independently real connection (Markus Rosenberg via West Bromwich
+  Albion, not Reece James via Wigan Athletic from the two prior fixes),
+  also failed — ruling out a per-club Wikidata data gap as the cause and
+  pointing at the target player's own identity resolution instead. Root
+  cause: two different real footballers are both named "Jonas Olsson"
+  (born 1983 vs. 1994), both plausibly indexed as separate, individually
+  correct `Player` rows via this codebase's own routine Wikidata sweeps —
+  `ConnectChainStepService`/`ConnectTargetPickService`'s candidate
+  resolution, which deterministically picked the lowest `Id` on a
+  same-name collision (already flagged in both services' own code
+  comments as "a known, deliberate simplification, not a new REQ"), had
+  no way to tell the two apart. Fixed by giving `/players/autocomplete`
+  suggestions a `WikidataQid` (a new, additive `PlayerNameIndex` column,
+  populated by `PlayerNameIndexImporter` and backfilled on any future
+  re-import), requiring a real suggestion click in `ChainBuilder.tsx`
+  (matching `TargetPickPanel.tsx`'s pre-existing requirement), and
+  resolving via a new shared `ConnectCandidateResolver` that uses the
+  supplied QID to get-or-create the exact real `Player` row rather than
+  guessing by name — the old name-only, lowest-`Id` fallback is kept only
+  for a suggestion that predates the QID backfill. See ADR-0107 for the
+  full decision. New test coverage across backend unit/API tests and
+  frontend component tests, reproducing the exact same-name-collision
+  incident shape. No `dotnet` SDK in this sandbox — verified via CI on the
+  branch/PR.
+
 - 2026-09-04 — `backend/src/XGArcade.DataSync/Wikidata/SparqlResponseParsers.cs`,
   `backend/src/XGArcade.DataSync/Wikidata/WikidataCareerStintEntry.cs`,
   `backend/src/XGArcade.DataSync/Wikidata/WikidataPlayerMatch.cs`,

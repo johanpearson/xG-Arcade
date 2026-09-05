@@ -50,11 +50,14 @@ namespace XGArcade.Api.Connect;
 // that's the simplest thing to write, not because anything downstream reads
 // or requires it.
 //
-// The chain-step candidate field (ChainBuilder.tsx) has no such issue — it
-// submits typed name text, resolved server-side via that same
-// GetPlayersByNormalizedFullNameAsync call — so the connector player seeded
-// below gets no PlayerNameIndex row at all; only the two target-pick
-// players need one.
+// Bug fix (2026-09-05, ADR-0107): the chain-step candidate field
+// (ChainBuilder.tsx) now ALSO requires a real suggestion click, same as
+// TargetPickPanel.tsx — see ConnectCandidateResolver's own doc comment for
+// why a name-typed-and-submitted-without-selecting flow reintroduces the
+// exact same-name-collision bug this story closes. The connector player
+// seeded below therefore needs a PlayerNameIndex row too, not just the two
+// target-pick players (this paragraph previously said otherwise, before
+// that UX changed).
 public static class InternalConnectTestDataEndpoints
 {
     public static void MapInternalConnectTestDataEndpoints(this WebApplication app)
@@ -116,11 +119,19 @@ public static class InternalConnectTestDataEndpoints
                 ],
                 cancellationToken);
 
-            // Seeded purely so /players/autocomplete has something to return
-            // for these target players' names (TargetPickPanel.tsx requires
-            // a real suggestion click before submitting) — see this file's
-            // own top-of-file comment for why the PlayerId value itself is
-            // no longer load-bearing now that target-pick resolves by name.
+            // Seeded so /players/autocomplete has something to return for
+            // these players' names — TargetPickPanel.tsx requires a real
+            // suggestion click before submitting, and (bug fix, 2026-09-05,
+            // ADR-0107) ChainBuilder.tsx's candidate field now requires one
+            // too, for the identical reason (see ConnectCandidateResolver's
+            // own doc comment on the same-name-collision bug this closes).
+            // WikidataQid on each row is seeded equal to the corresponding
+            // Player row's own value, so this E2E path exercises the real
+            // QID-based resolution these screens now use — never a
+            // stand-in that only reaches the name-only fallback — and
+            // ConnectCandidateResolver's GetOrCreatePlayersByWikidataQidAsync
+            // call resolves to this exact already-seeded Player, never
+            // creates a second one.
             await playerNameIndexRepository.UpsertManyAsync(
                 [
                     new PlayerNameIndex
@@ -128,12 +139,21 @@ public static class InternalConnectTestDataEndpoints
                         PlayerId = targetA.Id,
                         PrimaryName = targetA.FullName,
                         NormalizedName = PlayerNameNormalizer.Normalize(targetA.FullName),
+                        WikidataQid = targetA.WikidataQid,
                     },
                     new PlayerNameIndex
                     {
                         PlayerId = targetB.Id,
                         PrimaryName = targetB.FullName,
                         NormalizedName = PlayerNameNormalizer.Normalize(targetB.FullName),
+                        WikidataQid = targetB.WikidataQid,
+                    },
+                    new PlayerNameIndex
+                    {
+                        PlayerId = connector.Id,
+                        PrimaryName = connector.FullName,
+                        NormalizedName = PlayerNameNormalizer.Normalize(connector.FullName),
+                        WikidataQid = connector.WikidataQid,
                     },
                 ],
                 cancellationToken);
@@ -144,12 +164,11 @@ public static class InternalConnectTestDataEndpoints
     }
 }
 
-// TargetPlayerAName/TargetPlayerBName: searchable (via PlayerNameIndex,
-// see this file's own top-of-file comment) and selectable through
-// TargetPickPanel.tsx's real UI. ConnectorPlayerName: typed directly into
-// ChainBuilder.tsx's candidate field (resolved server-side by exact
-// normalized name, no PlayerNameIndex/autocomplete-suggestion selection
-// needed — see ConnectChainStepService.SubmitChainStepAsync). Club*
+// TargetPlayerAName/TargetPlayerBName/ConnectorPlayerName: all three are
+// searchable (via PlayerNameIndex, see this file's own top-of-file comment)
+// and selectable through the real UI — TargetPickPanel.tsx and (bug fix,
+// 2026-09-05, ADR-0107) ChainBuilder.tsx's candidate field both now require
+// a real suggestion click, never a bare typed-and-submitted name. Club*
 // (design change, 2026-09-04, REQ-1406, ADR-0104): the player no longer
 // types a club at all — these are exposed purely so an E2E spec can assert
 // the SERVER-computed matched club/years it should see rendered back,

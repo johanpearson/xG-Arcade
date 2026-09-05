@@ -43,7 +43,7 @@ public static class PlayerAutocompleteEndpoints
             var matches = await playerNameIndexRepository.SearchByPrefixAsync(normalizedQuery, effectiveLimit, cancellationToken);
 
             var suggestions = matches
-                .Select(m => new PlayerAutocompleteSuggestion(m.PlayerId, m.PrimaryName, m.BirthYear))
+                .Select(m => new PlayerAutocompleteSuggestion(m.PlayerId, m.PrimaryName, m.BirthYear, m.WikidataQid))
                 .ToList();
 
             return Results.Ok(suggestions);
@@ -82,4 +82,16 @@ public static class PlayerAutocompleteEndpoints
 // BirthYear stays: no xG Grid category is birth-year-based (categories are
 // Country/Club/Trophy only — CategoryPairingRules), so it can't leak a
 // category match the same way.
-public record PlayerAutocompleteSuggestion(Guid PlayerId, string Name, int? BirthYear);
+//
+// WikidataQid (bug fix, 2026-09-05, ADR-0107): unlike Nationality, this is
+// not a correctness signal for any xG Grid category — it's an opaque
+// identifier, not a category value a guess could match. Added so xG
+// Connect's target-pick/chain-step candidate resolution (Games.XGConnect)
+// can submit a specific real person unambiguously instead of a bare name —
+// a real, reported bug (two different real footballers sharing the exact
+// name "Jonas Olsson") showed name-only resolution has no way to
+// distinguish them. Nullable: a row indexed before this column existed
+// won't have one until the next `import-player-name-index` run — a null
+// value here just means "this suggestion can't be disambiguated by id yet,"
+// same as BirthYear being absent already means today. See ADR-0107.
+public record PlayerAutocompleteSuggestion(Guid PlayerId, string Name, int? BirthYear, string? WikidataQid);

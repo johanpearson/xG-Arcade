@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.64"
+version: "2.65"
 status: draft
-last_updated: 2026-09-04
+last_updated: 2026-09-05
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1689,6 +1689,19 @@ a photo shows neither at rest as of S-048, see that status note)
   what the caller requests. This story covers the suggestion-list UX only;
   REQ-208's alias/fuzzy-typo-tolerance clauses for guess *scoring* remain
   separately deferred, as does REQ-209's disambiguation UI.
+- **Status note (2026-09-05, ADR-0107): `PlayerAutocompleteSuggestion` now
+  also carries `WikidataQid`.** Not a correctness-leak risk the way
+  `PrimaryNationality` was (removed 2026-07-27, see below) — it's an
+  opaque identifier, not a category value any xG Grid guess could match
+  against. Added so xG Connect's target-pick/chain-step screens (REQ-1404/
+  1406) can resolve the exact real person a suggestion represents,
+  unambiguously — a real, reported incident (two different real
+  footballers both named "Jonas Olsson") showed name-only resolution has
+  no way to tell them apart. Nullable: a `PlayerNameIndex` row indexed
+  before this column existed has none until the next
+  `import-player-name-index` run backfills it; xG Connect's own fallback
+  for that case is documented in REQ-1404/1406's own status notes. See
+  ADR-0107 for the full decision.
 - Given a player is typing a guess
 - When autocomplete suggestions are shown
 - Then suggestions are drawn from a broad player name index covering many
@@ -11269,6 +11282,18 @@ against `Player` via `GetPlayersByIdsAsync` (COMP-06), which is now simply
 correct instead of incidentally reading a (still-real, since
 `AddOrUpdateTargetPickAsync` never validated its input) but wrong id.
 
+**Status note (2026-09-05, ADR-0107): the deterministic lowest-Id-on-collision
+fallback above was a real bug, not just a "known, deliberate simplification"
+— fixed, see REQ-1406's own ADR-0107 status note for the full incident.**
+`TargetPickPanel.tsx` now submits the selected suggestion's `wikidataQid`
+alongside its name, and `SubmitTargetPickAsync` resolves via the new shared
+`ConnectCandidateResolver` — a `WikidataQid` (when the suggestion has one)
+resolves the exact real person unambiguously, get-or-creating their
+`Player` row if it doesn't exist yet; the lowest-Id fallback described
+above is kept only for a suggestion that predates the `WikidataQid`
+backfill (see REQ-207's own status note). See ADR-0107 for the full
+decision.
+
 - Given a match has just been created (via REQ-1402's accepted challenge or
   REQ-1403's random pairing)
 - When either player selects a target-pick player
@@ -11580,6 +11605,29 @@ there is then genuinely no year to anchor on). See ADR-0106 for the full
 decision and its accepted trade-off. New test coverage:
 `ADR0106_QueryPlayerCareerStintsByQidsAsync_RowWithNoStartTime_ButUsableEndTime_FallsBackToEndYear`
 (`WikidataClientTests.cs`), reproducing the exact reported data shape.
+
+**Bug fix status note (2026-09-05, ADR-0107).** A THIRD attempt at the same
+reported "Jonas Olsson" connection, at a DIFFERENT club (Markus Rosenberg
+via West Bromwich Albion, not Reece James via Wigan Athletic this time),
+also failed — a different, independently real, correct connection failing
+on the same target player rules out a per-club Wikidata data gap (ADR-0106's
+shape) as the cause; the common factor is the identity of "Jonas Olsson"
+itself. Root cause: there are two different real footballers named "Jonas
+Olsson" (one born 1983 — West Brom, then Wigan; one born 1994 — a
+lower-league goalkeeper with no connection to either club), both plausibly
+indexed as separate, individually-correct `Player` rows via this
+codebase's own routine Wikidata sweeps. `SubmitChainStepAsync`'s own
+resolution had no way to tell them apart — its "deterministically pick the
+lowest Id on a same-name collision" behavior (already flagged in its own
+code comment as "a known, deliberate simplification, not a new REQ") could
+easily resolve to the wrong one, and evidently did. Fixed by giving
+`/players/autocomplete` suggestions a `WikidataQid` (see REQ-207's own
+status note) and requiring a real suggestion click in `ChainBuilder.tsx`
+(mirroring `TargetPickPanel.tsx`'s pre-existing requirement) so the exact
+real person clicked resolves unambiguously server-side via the new shared
+`ConnectCandidateResolver`, rather than the old name-only fallback. See
+ADR-0107 for the full decision, including the still-supported name-only
+fallback for a suggestion that predates the `WikidataQid` backfill.
 
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
