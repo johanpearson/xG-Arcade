@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.67"
+version: "2.68"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -11772,6 +11772,15 @@ first-attempt failure instead reads "…You have one more attempt at this
 position." and leaves the form open. Full Vitest coverage in
 `ChainBuilder.test.tsx`.
 
+**Note (2026-09-05, REQ-1412/REQ-1413):** a player may dispute either
+failure described above — the first (instead of taking the retry this REQ
+offers) or the second/bust-causing one (instead of accepting the forfeit
+this REQ describes) — rather than accept the outcome immediately. See
+REQ-1412 for how a dispute is raised and REQ-1413 for how the opponent's
+review can defer or alter the outcome above; this REQ's own rules are
+otherwise unchanged and still apply in full once a dispute (if any)
+resolves.
+
 **REQ-1408 – Scoring: connection count plus accumulated penalties**
 > As a player who completes a valid chain, I want my score to reflect both
 > how short my chain was and how many mistakes I made getting there, so a
@@ -11910,6 +11919,13 @@ coverage in `MatchResolution.test.tsx`/`ChainBuilder.test.tsx`.
 **Test level:** Unit — lower-score win; equal-score draw;
 one-completes-one-forfeits win; both-forfeit draw; no additional penalty
 beyond the match outcome itself.
+
+**Note (2026-09-05, REQ-1413):** resolution as described above waits for
+both players to reach a terminal state, but that is no longer sufficient
+on its own — a match with any pending dispute (REQ-1412) does not resolve
+until every dispute in it has been reviewed. See REQ-1413 for that added
+gate and how an approved/denied dispute can change a player's final chain
+state before this REQ's win/draw/forfeit rules are applied to it.
 
 **REQ-1410 – In-match text chat**
 > As a player in an active match, I want to chat with my opponent, so we
@@ -12119,6 +12135,207 @@ not count. Frontend (Vitest/Playwright, once a screen exists): the
 indicator renders when the count is non-zero and is absent at zero,
 without asserting a specific visual treatment this REQ deliberately leaves
 to `design-document.md`.
+
+**REQ-1412 – Disputing a rejected chain-step failure instead of retrying or
+accepting the forfeit**
+> As a player whose chain step just failed validation, I want to dispute
+> that failure by naming the specific club I believe connects the two
+> players, so a genuine connection the system's own data doesn't yet
+> capture doesn't cost me my retry or my match.
+
+**Status: Not yet built.** This REQ deliberately reopens ADR-0104
+(`docs/decisions/0104-connect-chain-step-club-auto-detected-not-claimed.md`),
+which removed a player-typed claimed-club field from ordinary REQ-1406
+step submission — but **only on this narrow dispute path below, never for
+ordinary submission**, which keeps working exactly as REQ-1406/ADR-0104
+already describe: no club-naming input exists anywhere in ordinary
+submission, only here, and only in direct response to a failure. Per
+ADR-0104's own "For AI agents" note, reintroducing this input needs a new
+ADR alongside whatever implements this REQ — not just this REQ text, and
+not as a bug fix — reasoning about why the auto-detect design is being
+reversed on this one path. Do not begin implementation from this REQ alone
+without that ADR existing too.
+
+- Given a player's chain-step submission (REQ-1406) fails validation for
+  the first time at a position, where REQ-1407 would ordinarily offer them
+  a retry at that same position
+- When the player instead chooses to dispute that failure, naming the
+  specific club they believe the candidate and the immediately preceding
+  chain player share
+- Then a dispute is recorded for that step in a Pending state, and the
+  disputed step is treated as provisionally valid — the player's chain
+  continues as if the step had passed ordinary validation, using the
+  claimed club as that step's provisional matched club
+- Given a player's chain-step submission fails validation for a second,
+  consecutive time at the same position — the bust-causing failure under
+  REQ-1407
+- When the player instead chooses to dispute that failure, naming the
+  specific club they believe the candidate and the immediately preceding
+  chain player share, rather than accepting the forfeit
+- Then the same provisional-continuation behavior applies: the player does
+  not bust, a Pending dispute is recorded, and their chain continues from
+  that step, using the claimed club as that step's provisional matched club
+- Given a step's dispute is Pending
+- When the player continues playing
+- Then they may submit further steps, attempt to close the chain, fail and
+  bust at a later position (REQ-1407), or time out (REQ-1405) — exactly as
+  if the disputed step had ordinarily validated. Nothing about REQ-1406's,
+  REQ-1407's, or REQ-1408's own mechanics changes for any step before or
+  after the disputed one
+- Given a player is submitting an ordinary (non-disputed) chain step
+- When they submit it
+- Then no club-naming input is offered or accepted — REQ-1406/ADR-0104's
+  auto-detected-club design for ordinary submission is unchanged; naming a
+  club is only ever possible on this dispute path, and only in response to
+  a failed validation
+- Given a player already has a Pending dispute on one of their own steps
+- When they later fail validation at a different position in the same
+  match
+- Then they may dispute that failure too — a match may have more than one
+  Pending dispute for the same player over its course; each is tracked,
+  and reviewed (REQ-1413), independently by position
+
+**Test level:** Unit/API — a first-failure dispute is recorded Pending and
+the chain continues provisionally with the claimed club; a
+second/bust-causing-failure dispute is recorded Pending and averts an
+immediate bust; a player with a Pending dispute may keep submitting, close
+their chain, bust at a later position, or time out; ordinary submission
+never offers or accepts a club-naming input; more than one independent
+Pending dispute can exist for the same player within one match.
+
+**REQ-1413 – Opponent review of a pending dispute, and its effect on
+scoring and match resolution**
+> As the opponent in a match with a pending dispute, I want to approve or
+> deny my opponent's disputed step based on my own knowledge, so a genuine
+> connection can be recognized without the system's own data already
+> capturing it, while an unfounded claim still can't hand my opponent a
+> match they didn't earn.
+
+**Status: Not yet built.** Depends on REQ-1412 landing first. References
+REQ-1405 (forfeit timer), REQ-1407 (bust rule), REQ-1408 (scoring), and
+REQ-1409 (match resolution) without restating their mechanics. Like
+REQ-1412, this REQ's implementation needs a new ADR alongside it (see
+REQ-1412's own status note) — it is the other half of the same
+ADR-0104-reopening decision, since it's what gives the dispute path's
+player-typed club claim any actual consequence.
+
+- Given a match has one or more Pending disputes (REQ-1412), raised by
+  either player
+- When both players would otherwise have reached a terminal state
+  (REQ-1409)
+- Then the match is not resolved — REQ-1409's outcome and
+  `PlayerAScore`/`PlayerBScore` are not computed or written — for as long
+  as any dispute in that match remains Pending, even though both players
+  have otherwise reached a terminal state
+- Given a match has a Pending dispute raised by one player
+- When someone attempts to review it
+- Then only the other participant in that same match — never a neutral
+  party, and never an admin — may Approve or Deny it; a review attempt by
+  anyone else is rejected
+- Given a Pending dispute is Approved
+- When it resolves
+- Then the disputed step becomes a permanent, valid step: its claimed club
+  becomes that step's permanent matched club, recorded without any
+  server-side re-verification against career data — the opponent's
+  approval is what confirms it, by design — and it is scored exactly as
+  REQ-1407/REQ-1408 already score an ordinary successful validation at
+  that same attempt number: a disputed-and-approved first-attempt step
+  scores as a clean pass, and a disputed-and-approved second/bust-attempt
+  step keeps the +1 penalty already incurred from the first failure at
+  that position — the same as an ordinary successful retry already works
+  today; this is not a new scoring rule
+- Given a Pending dispute is Denied
+- When it resolves
+- Then the disputed step, and every step that player built after it in
+  their own chain, are discarded, and that player's result for this match
+  reverts to what it would have been without the dispute: if the disputed
+  failure was the player's first failure at that position, they now have
+  their one ordinary REQ-1407 retry available at that position, unused,
+  exactly as if they had not disputed it; if the disputed failure was the
+  second, bust-causing failure at that position, they are now busted — a
+  denied dispute never grants a second do-over beyond the one retry
+  REQ-1407 already allows
+- Given a match has one or more Pending disputes
+- When the shared 6-hour deadline (REQ-1405) passes for a player before
+  their dispute, or any dispute in the match, is reviewed
+- Then that player's own per-player timeout still applies exactly as
+  REQ-1405 already specifies — the deadline is not paused, extended, or
+  otherwise altered by a pending dispute — and the match still does not
+  resolve until every Pending dispute in it is reviewed, per this REQ's own
+  first criterion above
+- Given every one of a match's disputes has been reviewed (Approved or
+  Denied), and both players have reached a terminal state
+- When the later of those two conditions becomes true
+- Then the match resolves at that point, per REQ-1409, using each player's
+  final chain state as corrected by any dispute resolution above
+
+**Test level:** Unit/API — a match with any Pending dispute does not
+resolve even once both players are otherwise terminal; only the match's
+own opponent can approve/deny, never a third party; an approved dispute
+scores per REQ-1407/1408's existing attempt-number rules; a denied dispute
+discards the step and everything the same player built after it, correctly
+reverting to an available retry (first-failure case) or an immediate bust
+(second-failure case); the REQ-1405 deadline continues to apply, unpaused,
+while a dispute is pending; resolution proceeds automatically once every
+dispute is reviewed and both players are terminal.
+
+**Assumption flagged for product-owner confirmation:** the "denied dispute
+reverts to what it would have been without the dispute" rule above resolves
+two sub-cases that the confirmed mechanic described only one of directly.
+The bust-causing-failure sub-case (a denied dispute of the second failure
+results in an immediate bust, no extra do-over) was stated explicitly by
+the product owner. The first-failure sub-case (a denied dispute of the
+*first* failure restores that player's one ordinary REQ-1407 retry, unused
+— rather than, say, treating the disputed attempt itself as having
+consumed that retry) is this document's own extrapolation, applying "no
+second do-over on top of the one already used" symmetrically: disputing a
+first failure is offered *instead of* taking the retry, so nothing has
+consumed the retry yet if the dispute is denied. This is the only
+self-consistent reading found, but it was not asked about in this exact
+framing — confirm before implementation; if wrong, only this REQ's fourth
+acceptance-criteria block needs correcting, nothing else in this section.
+
+**REQ-1414 – Approved dispute produces a data-correction suggestion for
+admin follow-up**
+> As a platform admin, I want an approved dispute to leave behind a
+> durable, reviewable suggestion about the underlying player data, so I
+> can later decide whether to correct it for future games — without that
+> decision ever touching a match that has already been played.
+
+**Status: Not yet built.** Deliberately scoped light — this REQ records
+that a suggestion must exist and be visible, not how it is stored, queued,
+or eventually acted on; the actual data-correction mechanism (e.g. a new
+table modeled after `PlayerOverride`, or a manual process) is an
+implementation decision for later, not pinned down here.
+
+- Given a Pending dispute (REQ-1412) is Approved (REQ-1413)
+- When it resolves
+- Then a suggestion is durably recorded, containing at minimum: the
+  candidate player, the preceding chain player, the claimed club, and a
+  reference to the match and step the dispute came from
+- Given one or more such suggestions exist
+- When an admin looks for them
+- Then every recorded suggestion is visible to an admin somewhere in the
+  product — this REQ does not specify a particular screen, workflow, or
+  storage mechanism; that is left to implementation
+- Given an admin reviews, acts on, or ignores a suggestion in any way
+- When that happens
+- Then it never changes the outcome, score, or any other recorded state of
+  the match the suggestion came from, or of any other already-played
+  match — a suggestion exists purely to inform a possible future
+  correction to the underlying player data, never to retroactively adjust
+  a result, mirroring REQ-215's own "no retroactive rescoring" precedent
+- Given a suggestion has been recorded
+- When no admin ever acts on it
+- Then nothing about that match, either player's account, or any future
+  match is affected by its mere existence — a suggestion is purely
+  additive, optional follow-up data, never a blocking or required step for
+  anything else in this document
+
+**Test level:** API — an approved dispute is durably recorded with the
+required fields and is retrievable by an admin; no acceptance criterion of
+any other REQ changes as a result of a suggestion existing, being
+reviewed, or being ignored.
 
 ---
 
