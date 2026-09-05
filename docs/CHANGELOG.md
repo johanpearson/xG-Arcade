@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-05 — `docs/requirements-document.md` (REQ-1412/1413/1414 marked
+  Built, v2.68 → v2.69), `docs/architecture-document.md` (COMP-17 row
+  extended with this implementation's detail, v1.53 → v1.54) — backend
+  implementation of the xG Connect dispute-a-failed-chain-step flow
+  (ADR-0109): new `ConnectChainStepDispute`
+  and `ConnectDisputeDataCorrectionSuggestion` entities/migration
+  (`20260905110000_AddConnectChainStepDispute`), a denormalized
+  `ConnectChainStep.HasPendingDispute` cache backing a new
+  `ConnectChainStepExtensions.IsEffectivelyValid()`, new
+  `IConnectChainStepDisputeService`/`ConnectChainStepDisputeService`
+  (raise/review/list), a REQ-1413 resolution-gating check added to
+  `ConnectMatchLifecycleService.ResolveIfBothTerminalAsync` (a Pending
+  dispute anywhere in a match blocks resolution), and a reopen-an-already-
+  resolved-match path in the dispute-raise flow for the one known,
+  accepted edge case that gate can't otherwise catch (both REQs' own
+  status notes explain this in full). New endpoints: `POST
+  /matches/{matchId}/chain-steps/{chainStepId}/dispute`, `POST
+  /matches/{matchId}/disputes/{disputeId}/approve`, `.../deny`, `GET
+  /matches/{matchId}/disputes`, and `GET
+  /admin/connect-dispute-suggestions` (REQ-1414). No dotnet SDK in this
+  sandbox — verification is CI-only, pending a `ci.yml` `workflow_dispatch`
+  run.
+
 - 2026-09-05 — `docs/requirements-document.md` (new REQ-1412/1413/1414,
   v2.68), `docs/decisions/0109-connect-dispute-reintroduces-claimed-club-narrowly.md`
   (new), `docs/decisions/0104-connect-chain-step-club-auto-detected-not-claimed.md`

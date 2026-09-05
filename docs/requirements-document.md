@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.68"
+version: "2.69"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -12143,18 +12143,65 @@ accepting the forfeit**
 > players, so a genuine connection the system's own data doesn't yet
 > capture doesn't cost me my retry or my match.
 
-**Status: Not yet built.** This REQ deliberately reopens ADR-0104
+**Status: Built, 2026-09-05.** This REQ deliberately reopens ADR-0104
 (`docs/decisions/0104-connect-chain-step-club-auto-detected-not-claimed.md`),
 which removed a player-typed claimed-club field from ordinary REQ-1406
 step submission — but **only on this narrow dispute path below, never for
 ordinary submission**, which keeps working exactly as REQ-1406/ADR-0104
 already describe: no club-naming input exists anywhere in ordinary
 submission, only here, and only in direct response to a failure. Per
-ADR-0104's own "For AI agents" note, reintroducing this input needs a new
-ADR alongside whatever implements this REQ — not just this REQ text, and
-not as a bug fix — reasoning about why the auto-detect design is being
-reversed on this one path. Do not begin implementation from this REQ alone
-without that ADR existing too.
+ADR-0104's own "For AI agents" note, ADR-0109
+(`docs/decisions/0109-connect-dispute-reintroduces-claimed-club-narrowly.md`)
+reasons through why the auto-detect design is being reversed on this one
+path — implemented alongside this REQ, not as a bug fix.
+
+New `ConnectChainStepDispute` entity (`XGArcade.Data.Entities`, migration
+`20260905110000_AddConnectChainStepDispute`): `ConnectChainStepId` (a real,
+unique FK — at most one dispute per step, ever, regardless of outcome),
+`ClaimedClubName`, `Status` (`Pending`/`Approved`/`Denied`), `RaisedAt`,
+`ReviewedAt`. `ConnectChainStep` gained a denormalized `HasPendingDispute`
+cache column, kept in sync exclusively by `ConnectMatchRepository`'s own
+dispute read/write methods, so a new `ConnectChainStepExtensions.
+IsEffectivelyValid()` (`step.IsValid || step.HasPendingDispute`) can answer
+"does this step count as valid for chain-continuation/closing/forfeiture
+purposes right now" from an already-loaded row with no join —
+`ConnectChainStepService.SubmitChainStepAsync`'s own frontier-advancement
+logic (`validSteps`), and `ConnectChainStepExtensions.HasClosedChain`
+(shared by resolution and the notification indicator), both switched from
+raw `IsValid` to this. New `IConnectChainStepDisputeService`/
+`ConnectChainStepDisputeService` (`XGArcade.Games.XGConnect`) implements
+`RaiseDisputeAsync`: participant/step-ownership/step-must-be-invalid/
+not-already-disputed/most-recent-invalid-step-at-this-position (comparing
+`AttemptNumber` within the position — an old, superseded failure at that
+same position can't be disputed) checks, then persists a `Pending` dispute
+and — per the product-owner's 2026-09-05 confirmation under REQ-1413 —
+unconditionally marks the caller's slot busted via the existing
+`MarkPlayerBustedAsync` (a harmless idempotent no-op for a dispute raised
+on the bust-causing second failure, and the real, new effect for a
+first-failure dispute), then attempts resolution via
+`IConnectMatchLifecycleService.TryResolveMatchIfBothTerminalAsync` exactly
+like every other terminal-state-affecting write in this component (see
+REQ-1413's own gate for why this attempt is a no-op while the dispute it
+just raised is itself Pending). Exposed as `POST
+/matches/{matchId}/chain-steps/{chainStepId}/dispute`
+(`XGArcade.Api.Connect.ConnectChainStepDisputeEndpoints`,
+`.RequireAuthorization()`'d), request `{ claimedClubName }`, mirroring
+`SubmitChainStepOutcome`'s enum-plus-result-record shape (a normal 200 for
+`Raised`, 403/404/409/400 for genuine precondition failures). A new `GET
+/matches/{matchId}/disputes` lists every dispute in a match, in the
+caller's own perspective (`RaisedByMe`), backing both "what's the status of
+my own dispute" and the opponent's own review queue — needed plumbing this
+REQ's text didn't itself specify but the dispute flow can't function
+without. `GET /matches/{matchId}`'s existing `ConnectChainStepDetailResponse`
+also gained a `ChainStepId` field (previously absent from every xG Connect
+read surface, since nothing before this REQ ever needed to reference a
+specific step by id) — the client needs it to call the dispute-raise
+endpoint at all. Full `REQ1412_...`-named test coverage in
+`ConnectChainStepDisputeServiceTests.cs` (new) and
+`ConnectChainStepDisputeEndpointTests.cs` (new); `ConnectMatchRepositoryTests.cs`
+gained coverage for the new dispute-persistence primitives. **See REQ-1413's
+own status note for the opponent-review, resolution-gating, and reopen-a-
+resolved-match halves of this same implementation.**
 
 - Given a player's chain-step submission (REQ-1406) fails validation for
   the first time at a position, where REQ-1407 would ordinarily offer them
@@ -12213,13 +12260,72 @@ scoring and match resolution**
 > capturing it, while an unfounded claim still can't hand my opponent a
 > match they didn't earn.
 
-**Status: Not yet built.** Depends on REQ-1412 landing first. References
-REQ-1405 (forfeit timer), REQ-1407 (bust rule), REQ-1408 (scoring), and
-REQ-1409 (match resolution) without restating their mechanics. Like
-REQ-1412, this REQ's implementation needs a new ADR alongside it (see
-REQ-1412's own status note) — it is the other half of the same
-ADR-0104-reopening decision, since it's what gives the dispute path's
-player-typed club claim any actual consequence.
+**Status: Built, 2026-09-05.** References REQ-1405 (forfeit timer),
+REQ-1407 (bust rule), REQ-1408 (scoring), and REQ-1409 (match resolution)
+without restating their mechanics — see ADR-0109 for the "why" shared with
+REQ-1412.
+
+`ConnectChainStepDisputeService.ReviewDisputeAsync` (see REQ-1412's own
+status note for the raise half) enforces "only the other participant, never
+the disputing player" via a `CannotReviewOwnDispute` outcome (the reviewer
+is confirmed a match participant first, then confirmed NOT the step's own
+`UserId`) and rejects a re-review of an already-resolved dispute
+(`AlreadyReviewed`). **Approve**
+(`IConnectMatchRepository.ApproveDisputeAsync`): the disputed
+`ConnectChainStep` row is mutated in place — `IsValid = true`,
+`MatchedClubName = ` the claimed club, `HasPendingDispute = false` — no
+`MatchedOverlapStartYear`/`MatchedOverlapEndYear` (never asked for) — so it
+flows through `IConnectScoringService.CalculateScore` completely
+unchanged the next time this match resolves: zero new scoring logic, per
+this REQ's own explicit requirement. The disputing player's provisional
+bust (set at raise time) is cleared via a new
+`IConnectMatchRepository.ClearPlayerBustedAsync`. A REQ-1414
+data-correction suggestion is recorded in the same call. **Deny**
+(`IConnectMatchRepository.DenyDisputeAsync`): the provisional bust is left
+standing (never cleared) — "disputing itself consumes that position's one
+retry the moment it is raised" (REQ-1412) is what already put it there —
+and every one of that player's own `ConnectChainStep` rows at a LATER
+position in the same match is discarded in place (`IsValid = false`,
+`ClosesChain = false`), cascading to also mark `Denied` any of those
+discarded steps' own still-`Pending` disputes, so a discarded step can
+never leave a dangling `Pending` dispute nobody will ever review. Exposed
+as two endpoints mirroring `FriendEndpoints`' accept/decline precedent:
+`POST /matches/{matchId}/disputes/{disputeId}/approve` and `.../deny`
+(`.RequireAuthorization()`'d, no request body).
+
+**Resolution gating** (this REQ's first Given/When/Then): a new check in
+the single place both `RunForfeitSweepAsync` and
+`TryResolveMatchIfBothTerminalAsync` converge
+(`ConnectMatchLifecycleService.ResolveIfBothTerminalAsync`) — if either
+player's already-loaded chain-step list has any row with
+`HasPendingDispute == true`, resolution returns `false` immediately,
+exactly like the existing `!playerATerminal || !playerBTerminal`
+early-return, before either player's terminal state is even evaluated. No
+extra query: the check reads the same denormalized cache
+`ConnectChainStepExtensions.IsEffectivelyValid()` and
+`ConnectMatchRepository`'s dispute methods keep in sync. **Known, accepted
+consequence, flagged for the product owner:** if a player reaches a
+terminal state (e.g. busts) at the exact moment their opponent has ALREADY
+reached their own terminal state, resolution still fires synchronously in
+that same request, exactly as it did before this REQ — this gate only ever
+runs BEFORE a resolution, it cannot undo one that already happened. If that
+player wants to dispute the step that just busted them, they must do so
+before anyone acts on the match's now-Resolved state.
+
+**Reopen-a-resolved-match:** to make the consequence above still resolvable
+correctly, raising a dispute (REQ-1412) against a step whose match has
+ALREADY reached `Resolved` reopens it first —
+`IConnectMatchRepository.ReopenMatchAsync` resets `Status` back to `Active`
+and `Outcome`/`ResolvedAt`/`PlayerAScore`/`PlayerBScore` back to their
+pre-resolution defaults, deliberately leaving `StartedAt`/`DeadlineUtc`
+untouched (this REQ's own "the deadline is not paused... by a pending
+dispute" rule) — before the new `Pending` dispute is persisted. This is
+implemented entirely in `ConnectChainStepDisputeService.RaiseDisputeAsync`
+itself, not by changing when resolution normally fires. Full
+`REQ1413_...`-named test coverage in `ConnectChainStepDisputeServiceTests.cs`
+(review outcomes, cascading denial, the reopen behavior) and a dedicated
+`ConnectMatchLifecycleServiceTests.cs` case for the resolution gate itself;
+API-level coverage in `ConnectChainStepDisputeEndpointTests.cs`.
 
 - Given a match has one or more Pending disputes (REQ-1412), raised by
   either player
@@ -12297,11 +12403,38 @@ admin follow-up**
 > can later decide whether to correct it for future games — without that
 > decision ever touching a match that has already been played.
 
-**Status: Not yet built.** Deliberately scoped light — this REQ records
+**Status: Built, 2026-09-05.** Deliberately scoped light — this REQ records
 that a suggestion must exist and be visible, not how it is stored, queued,
 or eventually acted on; the actual data-correction mechanism (e.g. a new
 table modeled after `PlayerOverride`, or a manual process) is an
 implementation decision for later, not pinned down here.
+
+New `ConnectDisputeDataCorrectionSuggestion` entity (`XGArcade.Data.Entities`,
+same migration as REQ-1412), per ADR-0053's own precedent (REQ-215's
+`PlayerSuggestion` got its own new, separate admin table rather than being
+folded into an unrelated queue) — a deliberately new, small, standalone
+table, never `PlayerSuggestion` or `PlayerData`'s unverified queue, since
+this is a club-overlap fact discovered through a match, not a cell-guess
+candidate. Recorded with `CandidatePlayerId`, `PrecedingPlayerId` (computed
+the same "immediately preceding chain player" way
+`ConnectChainStepService` itself does — the most recently effectively-valid
+step before the disputed one, or that player's own target pick for
+position 1), `ClaimedClubName`, and `ConnectMatchId`/`ConnectChainStepId`/
+`ConnectChainStepDisputeId` references — written exactly once, in
+`ConnectChainStepDisputeService.ReviewDisputeAsync`'s Approve branch, never
+touched again by anything. Exposed as a single, read-only `GET
+/admin/connect-dispute-suggestions`
+(`XGArcade.Api.Admin.AdminConnectDisputeSuggestionEndpoints`,
+`.RequireAuthorization("Admin")`'d, same admin-auth convention as
+`AdminSuggestionEndpoints`) listing every suggestion with candidate/
+preceding player names resolved (`IPlayerRepository.GetPlayersByIdsAsync`,
+batched). No approve/reject/act-on workflow exists for this table at all —
+by design, matching this REQ's own "never touches a match's stored
+outcome/score" rule; nothing else in the system reads from or writes to it.
+Full `REQ1414_...`-named coverage in `ConnectChainStepDisputeServiceTests.cs`
+(the suggestion is recorded on approval, never on denial, with the correct
+fields) and `AdminConnectDisputeSuggestionEndpointTests.cs` (admin-only
+read, non-admin rejected).
 
 - Given a Pending dispute (REQ-1412) is Approved (REQ-1413)
 - When it resolves
