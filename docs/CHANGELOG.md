@@ -44,6 +44,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `RunIntersectionQueryAsync`, one of the two drivers ADR-0108 fixed, so it
   was silently exposed to the same malformed-response defect class. No
   behavior change; note added for traceability alongside REQ-207's.
+- 2026-09-05 — `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`,
+  `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs`,
+  `docs/decisions/0108-wikidata-json-sanitizes-raw-control-characters.md` —
+  `quality-architect` review follow-up on ADR-0108: extracted the
+  duplicated read/sanitize/deserialize sequence out of
+  `RunIntersectionQueryAsync`/`RunThrowingQueryAsync` into one shared
+  `ReadSanitizedSparqlResponseAsync` helper, added a direct reproduction
+  test for the intersection-query path (previously only the "throwing"
+  path had one), and added the `ADR0108_` naming prefix the guidelines call
+  for on tests covering a structural mechanism an ADR introduces. No
+  behavior change.
 
 - 2026-09-05 — `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
   `backend/src/XGArcade.Data/Migrations/20260905100000_AddPlayerNameIndexWikidataQid.{cs,Designer.cs}`,

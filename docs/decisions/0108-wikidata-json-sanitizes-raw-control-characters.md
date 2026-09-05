@@ -41,7 +41,12 @@ well beyond the one job that happens to surface it loudly).
 `RunThrowingQueryAsync`) now read the HTTP response body as text and run it
 through a new `SanitizeControlCharacters` method before handing it to
 `JsonSerializer`, instead of streaming the response directly into the
-deserializer as before. `SanitizeControlCharacters` replaces every raw
+deserializer as before. Both drivers funnel through one shared private
+helper, `ReadSanitizedSparqlResponseAsync`, rather than duplicating the
+read/sanitize/deserialize sequence — a `quality-architect` review of the
+first version of this fix flagged the duplication (and the resulting gap
+where only one driver had a direct reproduction test), so this was
+extracted before merge. `SanitizeControlCharacters` replaces every raw
 ASCII control character (0x00-0x1F, which includes the tab/LF/CR
 characters that are also legitimate whitespace *between* JSON tokens) in
 the ENTIRE response body with a single space — it does not attempt to

@@ -327,12 +327,7 @@ public class WikidataClient(
             using var response = await httpClient.SendAsync(request, linkedCts.Token);
             response.EnsureSuccessStatusCode();
 
-            // Bug fix (2026-09-05): see SanitizeControlCharacters' own doc
-            // comment for why this reads the body as text and sanitizes it
-            // before deserializing, rather than streaming straight into
-            // JsonSerializer as before.
-            var rawJson = await response.Content.ReadAsStringAsync(linkedCts.Token);
-            var parsed = JsonSerializer.Deserialize<SparqlResponseParsers.SparqlResponse>(SanitizeControlCharacters(rawJson), JsonOptions);
+            var parsed = await ReadSanitizedSparqlResponseAsync(response, linkedCts.Token);
 
             return SparqlResponseParsers.ParseBindings(parsed);
         }
@@ -494,12 +489,7 @@ public class WikidataClient(
             using var response = await httpClient.SendAsync(request, linkedCts.Token);
             response.EnsureSuccessStatusCode();
 
-            // Bug fix (2026-09-05): see SanitizeControlCharacters' own doc
-            // comment for why this reads the body as text and sanitizes it
-            // before deserializing, rather than streaming straight into
-            // JsonSerializer as before.
-            var rawJson = await response.Content.ReadAsStringAsync(linkedCts.Token);
-            var parsed = JsonSerializer.Deserialize<SparqlResponseParsers.SparqlResponse>(SanitizeControlCharacters(rawJson), JsonOptions);
+            var parsed = await ReadSanitizedSparqlResponseAsync(response, linkedCts.Token);
 
             return parseResponse(parsed);
         }
@@ -519,6 +509,23 @@ public class WikidataClient(
         {
             throw new WikidataQueryException($"{description} failed: {ex.Message}", ex);
         }
+    }
+
+    // ADR-0108: shared by both RunIntersectionQueryAsync and
+    // RunThrowingQueryAsync so the read-body/sanitize/deserialize sequence
+    // (and the fix below) exists in exactly one place — quality-architect
+    // flagged the pre-refactor version of this fix as duplicated verbatim
+    // across both drivers, which also meant only one of them had a direct
+    // reproduction test. Deliberately typed to the shared SparqlResponse
+    // DTO (not generic) since every one of this client's query methods
+    // parses that same response shape; RunThrowingQueryAsync's own
+    // genericness lives in its parseResponse callback, not in how the body
+    // is read.
+    private static async Task<SparqlResponseParsers.SparqlResponse?> ReadSanitizedSparqlResponseAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<SparqlResponseParsers.SparqlResponse>(SanitizeControlCharacters(rawJson), JsonOptions);
     }
 
     // Bug fix (2026-09-05, real reported incident): WDQS's own JSON
