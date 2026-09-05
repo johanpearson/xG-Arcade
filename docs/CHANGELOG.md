@@ -38,6 +38,12 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   direct unit tests on the new `WikidataClient.SanitizeControlCharacters`
   helper. No `dotnet` SDK in this sandbox — verified via CI on the
   branch/PR.
+- 2026-09-05 — `docs/requirements-document.md` (REQ-103 status note, v2.66
+  → v2.67) — doc-sync follow-up flagged by `architecture-reviewer` on the
+  ADR-0108 PR: REQ-103's live-fetch path also runs through
+  `RunIntersectionQueryAsync`, one of the two drivers ADR-0108 fixed, so it
+  was silently exposed to the same malformed-response defect class. No
+  behavior change; note added for traceability alongside REQ-207's.
 
 - 2026-09-05 — `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
   `backend/src/XGArcade.Data/Migrations/20260905100000_AddPlayerNameIndexWikidataQid.{cs,Designer.cs}`,

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.66"
+version: "2.67"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -248,6 +248,17 @@ abort), API (endpoint never returns a grid with an invalid cell)
   including REQ-211's guess-time fallback, persists `confidence="verified"`
   immediately. This REQ (REQ-103, routine sync) is unaffected in
   substance — it already wrote `"verified"` under ADR-0029 and continues to.
+- **Bug fix status note (2026-09-05, ADR-0108):** the SPARQL intersection
+  query this REQ's live-fetch path runs goes through
+  `WikidataClient.RunIntersectionQueryAsync` — one of the same two shared
+  response drivers fixed by ADR-0108 for a confirmed malformed-response
+  bug (a raw unescaped control character inside a JSON string value). This
+  REQ's behavior is unaffected in substance (same waterfall, same
+  persistence), but it was silently exposed to the same defect class: a
+  malformed response here would previously fail parsing and be swallowed
+  to an empty "no match" result rather than surfacing the real cause. See
+  ADR-0108 for the fix; the REQ-207 status note below covers the specific
+  incident (`import-player-name-index`) that surfaced it.
 - Given a combination has no match in the local cache
 - When the system performs a live lookup against external sources
 - Then Wikidata is tried first, with a timeout — it isn't meaningfully
