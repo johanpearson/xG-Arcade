@@ -1999,3 +1999,44 @@ category types are present and which cross-type pairings actually have
 live-lookup/cache support (Trophy×Trophy does not), not on the old
 per-instance-pairing feasibility thresholds these fixtures were
 originally sized against.**
+
+### 2026-09-05 — ADR-0108's fix confirmed working (birth year 1983 now imports); a DIFFERENT, still-unfixed `import-player-name-index` failure mode showed up in the same run
+
+Re-ran `import-player-name-index.yml` on `main` right after ADR-0108
+(control-character sanitization, PR #347) merged. Birth year 1983 — the
+exact slice the real "Jonas Olsson" same-name-collision bug (ADR-0107)
+needs — succeeded this time: `upserted 5481 entries for birth year 1983`,
+with no `JsonException` at all for that year. Confirms the fix chain
+(ADR-0105 → 0106 → 0107 → 0108) is now genuinely operational for that
+specific player.
+
+The run still failed overall — 8 other slices (1949, 1971, 1982, 1990,
+1992, 1994, 1995, 2003) failed after 3 attempts each. Checked these are
+NOT the same bug ADR-0108 fixed: no raw control character anywhere in
+these errors. Instead a mix of:
+- Plain transient `502 (Bad Gateway)` (1990, 2004, 2010 — the latter two
+  recovered on retry and imported fine).
+- Timeouts (`timed out after 60s`, on years that also see a 502 on a
+  different attempt — same underlying flakiness, different symptom).
+- A genuinely NEW JSON-parse failure shape: mid-value truncation
+  (`Expected start of a property name or value, but instead reached end
+  of data`, `Expected depth to be zero at the end of the JSON payload`,
+  `'S'/'2'/'1' is invalid after a value/property name`), always at a
+  BytePositionInLine in the hundreds-of-thousands-to-millions range —
+  consistent with the response being cut off mid-stream (a proxy/gateway
+  truncating a large body), not a malformed character WITHIN otherwise-
+  complete JSON. `SanitizeControlCharacters` cannot and should not try to
+  fix a truncated response — there's no way to recover data that was
+  never received.
+
+Not investigated further since it's outside the scope of the Jonas Olsson
+bug and none of the 8 failed years block anything currently reported —
+the job is idempotent and self-documents "re-run it to fill in the failed
+years." Given ADR-0088's own Supabase-egress-incident caution against
+bursty re-dispatches of these bulk Wikidata jobs, did not immediately
+re-trigger a third time in the same session just to chase a fully clean
+run. If this truncation pattern recurs on a future scheduled run (not
+just today's manual one), it's worth checking whether it correlates with
+response size (all the affected years import 500-9000+ entries — not
+obviously the largest slices) or is simply WDQS/network flakiness on this
+particular day before treating it as a new ADR-worthy defect.
