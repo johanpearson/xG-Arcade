@@ -171,13 +171,18 @@ internal static class SparqlResponseParsers
     // Grouped by QID, one list entry per distinct (ClubName, StartYear,
     // EndYear, AppearanceCount) tuple — same HashSet-based dedup
     // ParseBindings' CareerStints field uses, for the same reason (SPARQL's
-    // OPTIONAL semantics can otherwise multiply rows). A row where
-    // startTime never bound carries zero information (StartYear is
+    // OPTIONAL semantics can otherwise multiply rows). A row where NEITHER
+    // startTime NOR endTime bound carries zero information (StartYear is
     // non-nullable on WikidataCareerStintEntry) and is skipped, same as
     // ParseBindings' own CareerStintQualifiers construction. A row with no
     // clubLabel binding at all (should not happen — ?club is a mandatory,
     // non-OPTIONAL match) is also skipped defensively rather than persisting
     // a stint with a blank club name.
+    //
+    // Bug fix (2026-09-04, ADR-0106): a row whose startTime specifically is
+    // missing/unparseable but whose endTime IS usable no longer gets
+    // dropped — see the per-row fallback logic below (and ADR-0106) for why
+    // and its accepted single-year-stint approximation.
     //
     // Bug fix (2026-08-03, xG Path duplicate-stint bug, REQ-1203): the
     // ClubName the HashSet dedups (and every caller ultimately persists) is
@@ -238,13 +243,40 @@ internal static class SparqlResponseParsers
             if (!binding.TryGetValue("clubLabel", out var clubLabelValue) || string.IsNullOrWhiteSpace(clubLabelValue.Value))
                 continue;
 
-            if (!binding.TryGetValue("startTime", out var startTimeValue) || !TryParseXsdDateTimeYear(startTimeValue.Value, out var startYear))
-                continue;
-
             int? endYear = binding.TryGetValue("endTime", out var endTimeValue)
                 && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
                     ? parsedEndYear
                     : null;
+
+            // Bug fix (2026-09-04, ADR-0106, follow-up to ADR-0105): a P54
+            // statement missing its P580 ("start time") qualifier used to be
+            // dropped outright here — StartYear is non-nullable, so there
+            // was nothing to construct a row with. That silently loses real,
+            // short stints (loans especially) whose Wikidata statement never
+            // got a start-time qualifier filled in, even though this same
+            // OPTIONAL-fetched query row often DOES carry a usable end time
+            // or appearance count. A real, reported incident (Jonas Olsson's
+            // 2019 Wigan Athletic loan) confirmed this: ADR-0105's own
+            // "always refresh" fix made no difference, because the refetch
+            // kept re-discarding the same startTime-less row every time. See
+            // ADR-0106 for the full decision — when startTime is missing/
+            // unparseable but endTime IS usable, this falls back to treating
+            // endYear as StartYear too (a single-year stint is the correct
+            // default assumption for a loan spell specifically, and this
+            // codebase only ever needs year-level granularity for career-
+            // stint matching, never month/day precision — see this method's
+            // own TryParseXsdDateTimeYear). A row with NEITHER a usable
+            // startTime NOR a usable endTime still carries zero information
+            // to anchor any year on and is still skipped, unchanged from
+            // before this fix.
+            int startYear;
+            if (binding.TryGetValue("startTime", out var startTimeValue) && TryParseXsdDateTimeYear(startTimeValue.Value, out var parsedStartYear))
+                startYear = parsedStartYear;
+            else if (endYear is { } fallbackStartYear)
+                startYear = fallbackStartYear;
+            else
+                continue;
+
             int? appearanceCount = binding.TryGetValue("numberOfMatches", out var numberOfMatchesValue)
                 && int.TryParse(numberOfMatchesValue.Value, out var parsedAppearanceCount)
                     ? parsedAppearanceCount

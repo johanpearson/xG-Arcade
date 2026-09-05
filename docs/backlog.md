@@ -10528,6 +10528,21 @@ coverage in `PlayerCareerOverlapServiceTests.cs` reproducing the exact
 incident shape. See ADR-0105 for the full decision and REQ-1406's own
 bug-fix status note for detail.
 
+**S-211 second bugfix addendum (2026-09-04, ADR-0106):** the SAME reported
+chain step was resubmitted post-deploy and STILL failed — ruling out
+staleness (every submission is a fresh live check). Root cause was one
+layer deeper: `SparqlResponseParsers.ParseCareerStintBindings` required a
+usable Wikidata start-time (P580) qualifier to construct any stint row,
+silently dropping Jonas Olsson's Wigan Athletic loan (which has a usable
+end time and appearance count on Wikidata, but no start time) on every
+refetch regardless of how unconditionally ADR-0105 made that refetch run.
+Fixed by falling back to the end-time qualifier as the start year when
+start time is missing/unparseable but end time is usable; a row with
+neither is still skipped. Applies to both `PlayerCareerStintRefreshService`
+callers (xG Path's ADR-0054 fetch and xG Connect's ADR-0105 fetch), not
+xG-Connect-only. See ADR-0106 and REQ-1406's own second bug-fix status
+note for detail.
+
 **S-212 · Match start, 6-hour timer, resolution scaffolding (REQ-1405)**
 Match officially starts once both picks are locked; independent per-player
 6-hour deadline; forfeit-on-timeout sweep job; resolution waits for both

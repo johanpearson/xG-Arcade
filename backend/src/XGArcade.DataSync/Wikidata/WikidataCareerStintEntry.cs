@@ -11,7 +11,12 @@ namespace XGArcade.DataSync.Wikidata;
 //
 // StartYear is non-nullable for the same reason CareerStintQualifiers'
 // is: a row is only ever constructed when Wikidata's P580 ("start time")
-// qualifier was actually bound (see WikidataClient.ParseCareerStintBindings).
+// qualifier was actually bound, OR (bug fix, 2026-09-04, ADR-0106) when
+// P582 ("end time") was bound instead and StartYear falls back to that same
+// year — see SparqlResponseParsers.ParseCareerStintBindings' own comment
+// and ADR-0106 for why. Either way, a row is only ever constructed when
+// SOME usable year was found; there is no code path that leaves StartYear
+// as a genuine unknown.
 //
 // ClubQid (bug fix, 2026-08-04, xG Path duplicate-node bug, REQ-1203
 // follow-up): the underlying Wikidata QID for ClubName's ?club binding,
