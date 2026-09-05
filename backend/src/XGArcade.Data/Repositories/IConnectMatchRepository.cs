@@ -107,6 +107,103 @@ public interface IConnectMatchRepository
     Task<IReadOnlyList<ConnectChainStep>> GetChainStepsForMatchAndUserAsync(
         Guid matchId, Guid? userId, CancellationToken cancellationToken = default);
 
+    // REQ-1412/1413: a single chain-step lookup by id, unscoped by match or
+    // user — same "load broadly, let the caller apply the narrower check"
+    // split GetMatchByIdAsync/ResolveParticipantMatchAsync already use (the
+    // dispute-raise/review endpoints cross-check the returned step's own
+    // ConnectMatchId/UserId against the route/caller themselves). AsNoTracking.
+    Task<ConnectChainStep?> GetChainStepByIdAsync(Guid chainStepId, CancellationToken cancellationToken = default);
+
+    // REQ-1412/ADR-0109: persists a new Pending dispute and flips the
+    // disputed step's own HasPendingDispute cache to true in the same call
+    // — the two writes always happen together, so that cache can never
+    // drift from "does a Pending ConnectChainStepDispute exist for this
+    // step" (this repository is the only writer of either — see
+    // ConnectChainStep.HasPendingDispute's own doc comment).
+    Task<ConnectChainStepDispute> AddDisputeAsync(ConnectChainStepDispute dispute, CancellationToken cancellationToken = default);
+
+    // REQ-1412: the AlreadyDisputed precondition — at most one dispute per
+    // step, ever, regardless of its outcome. AsNoTracking.
+    Task<ConnectChainStepDispute?> GetDisputeForChainStepAsync(Guid chainStepId, CancellationToken cancellationToken = default);
+
+    // REQ-1413: single dispute lookup for the review endpoint. AsNoTracking.
+    Task<ConnectChainStepDispute?> GetDisputeByIdAsync(Guid disputeId, CancellationToken cancellationToken = default);
+
+    // REQ-1412/1413: every dispute (any status) attached to any of the given
+    // chain-step ids — backs the GET .../disputes list endpoint only. The
+    // resolution gate (ConnectMatchLifecycleService.ResolveIfBothTerminalAsync)
+    // and the forfeiture exemption (ConnectChainStepService.SubmitChainStepAsync)
+    // deliberately do NOT use this method — both read the denormalized
+    // ConnectChainStep.HasPendingDispute cache off step lists they already
+    // have loaded instead, avoiding an extra query on that hot path.
+    // AsNoTracking.
+    Task<IReadOnlyList<ConnectChainStepDispute>> GetDisputesForChainStepsAsync(
+        IReadOnlyCollection<Guid> chainStepIds, CancellationToken cancellationToken = default);
+
+    // REQ-1413 (Approve branch, ADR-0109): promotes the disputed step to a
+    // permanent, valid step — its claimed club becomes MatchedClubName,
+    // recorded with NO server-side re-verification (the opponent's approval
+    // IS the verification, by design) — and marks the dispute Approved, in
+    // the same call that clears the step's own HasPendingDispute cache.
+    // Load-then-save, tracked (coding-guidelines.md — never ExecuteUpdateAsync).
+    Task ApproveDisputeAsync(Guid disputeId, DateTime reviewedAt, CancellationToken cancellationToken = default);
+
+    // REQ-1413 (Deny branch): marks the dispute Denied and clears the
+    // step's own HasPendingDispute cache (the step itself stays
+    // IsValid=false — nothing else to change on it), then discards
+    // (IsValid=false, ClosesChain=false) every LATER step the same player
+    // built in this match — "the disputed step, and every step that player
+    // built after it in their own chain, are discarded." Cascades: any of
+    // those later, discarded steps' own still-Pending disputes are marked
+    // Denied too, in the same call, so a discarded step never leaves a
+    // dangling Pending dispute nobody will ever review (which would
+    // otherwise permanently block this match's own resolution gate). Load-
+    // then-save, tracked.
+    Task DenyDisputeAsync(Guid disputeId, DateTime reviewedAt, CancellationToken cancellationToken = default);
+
+    // REQ-1413: the mirror of MarkPlayerBustedAsync — clears a slot's bust
+    // back to null. Needed because raising ANY dispute (REQ-1412) marks
+    // that slot busted immediately (consuming the position's one REQ-1407
+    // retry the instant the dispute is raised, per the product-owner's
+    // 2026-09-05 confirmation), which must be reversed if the dispute is
+    // later Approved — an approved dispute means the player did not
+    // actually bust. Load-then-save, tracked. Unlike MarkPlayerBustedAsync's
+    // `??=` idempotency, this unconditionally clears (there is at most one
+    // Approved-dispute-driven clear per bust, called at most once per
+    // review).
+    Task ClearPlayerBustedAsync(Guid matchId, bool isPlayerA, CancellationToken cancellationToken = default);
+
+    // REQ-1412's reopen-an-already-resolved-match rule: resets Status back
+    // to Active and Outcome/ResolvedAt/PlayerAScore/PlayerBScore back to
+    // their pre-resolution defaults. Called only from
+    // ConnectChainStepDisputeService.RaiseDisputeAsync, only when a dispute
+    // is raised against a match that had ALREADY resolved (the known,
+    // accepted consequence of a bust firing synchronous resolution the
+    // instant the opponent is also already terminal — see
+    // ConnectMatchLifecycleService.ResolveIfBothTerminalAsync's own
+    // comment). Deliberately does NOT touch StartedAt/DeadlineUtc — REQ-1405's
+    // original 6h forfeit clock keeps its original start/deadline; disputing
+    // does not restart or extend it (REQ-1413's own "the deadline is not
+    // paused... by a pending dispute" rule). Load-then-save, tracked.
+    Task ReopenMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    // REQ-1414: durably records the data-correction suggestion an Approved
+    // dispute produces. The only writer is
+    // ConnectChainStepDisputeService.ReviewDisputeAsync's own Approve
+    // branch; the only reader is the admin list endpoint
+    // (GET /admin/connect-dispute-suggestions) — nothing else in the system
+    // ever reads or writes this table, by design (REQ-1414's own "never
+    // touches a match's stored outcome/score" rule).
+    Task<ConnectDisputeDataCorrectionSuggestion> AddDataCorrectionSuggestionAsync(
+        ConnectDisputeDataCorrectionSuggestion suggestion, CancellationToken cancellationToken = default);
+
+    // REQ-1414: every suggestion ever recorded, for the admin list
+    // endpoint — no filtering/paging (REQ-1414 doesn't call for either; the
+    // Approve trigger is rare enough that an unbounded list is a reasonable
+    // default, revisit only if that stops being true). AsNoTracking.
+    Task<IReadOnlyList<ConnectDisputeDataCorrectionSuggestion>> GetAllDataCorrectionSuggestionsAsync(
+        CancellationToken cancellationToken = default);
+
     // REQ-1411/S-216: the notification indicator's own candidate set — every
     // match this user is a participant in (either slot) that has not yet
     // reached ConnectMatch.Status == Resolved. Deliberately a pure

@@ -113,6 +113,13 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<ConnectChainStep> ConnectChainSteps => Set<ConnectChainStep>();
     public DbSet<ConnectChatMessage> ConnectChatMessages => Set<ConnectChatMessage>();
 
+    // REQ-1412/1413/1414/ADR-0109: dispute-a-failed-chain-step and its
+    // REQ-1414 admin data-correction-suggestion by-product — see each
+    // entity's own doc comment.
+    public DbSet<ConnectChainStepDispute> ConnectChainStepDisputes => Set<ConnectChainStepDispute>();
+    public DbSet<ConnectDisputeDataCorrectionSuggestion> ConnectDisputeDataCorrectionSuggestions =>
+        Set<ConnectDisputeDataCorrectionSuggestion>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Dedup identity for players fetched across multiple intersection
@@ -670,5 +677,51 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // per-match read.
         modelBuilder.Entity<ConnectChatMessage>()
             .HasIndex(ccm => new { ccm.ConnectMatchId, ccm.SentAt });
+
+        // REQ-1412/1413/ADR-0109: at most one dispute per step, ever — see
+        // ConnectChainStepDispute's own doc comment.
+        modelBuilder.Entity<ConnectChainStepDispute>()
+            .HasOne<ConnectChainStep>()
+            .WithMany()
+            .HasForeignKey(d => d.ConnectChainStepId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ConnectChainStepDispute>()
+            .HasIndex(d => d.ConnectChainStepId)
+            .IsUnique();
+
+        // REQ-1414: ConnectChainStepDisputeId is the one real, enforced FK
+        // (cascade) — the row's actual "reference to the match and step the
+        // dispute came from" (both are reachable transitively through it).
+        // ConnectMatchId/ConnectChainStepId are deliberately NOT configured
+        // with HasForeignKey here — same precedent as Challenge.
+        // ResultingMatchId/MatchmakingOptIn.ResultingMatchId above: plain,
+        // unenforced convenience columns (so the admin read endpoint below
+        // doesn't need a multi-hop join), and configuring a THIRD cascade
+        // path down to ConnectMatch (direct, alongside the existing
+        // ConnectChainStepDispute -> ConnectChainStep -> ConnectMatch chain)
+        // adds real migration-time risk for zero behavioral benefit.
+        modelBuilder.Entity<ConnectDisputeDataCorrectionSuggestion>()
+            .HasOne<ConnectChainStepDispute>()
+            .WithMany()
+            .HasForeignKey(s => s.ConnectChainStepDisputeId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ConnectDisputeDataCorrectionSuggestion>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(s => s.CandidatePlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ConnectDisputeDataCorrectionSuggestion>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(s => s.PrecedingPlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1414: the admin list endpoint's only read shape — every
+        // suggestion, newest first.
+        modelBuilder.Entity<ConnectDisputeDataCorrectionSuggestion>()
+            .HasIndex(s => s.CreatedAt);
     }
 }

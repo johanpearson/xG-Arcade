@@ -167,6 +167,128 @@ public class ConnectMatchRepository(XGArcadeDbContext dbContext) : IConnectMatch
             .Where(s => s.ConnectMatchId == matchId && s.UserId == userId)
             .ToListAsync(cancellationToken);
 
+    public async Task<ConnectChainStep?> GetChainStepByIdAsync(Guid chainStepId, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectChainSteps.AsNoTracking().FirstOrDefaultAsync(s => s.Id == chainStepId, cancellationToken);
+
+    // REQ-1412/ADR-0109: see this method's own doc comment on
+    // IConnectMatchRepository — both writes (the new dispute row, and the
+    // disputed step's own HasPendingDispute cache) happen in the same
+    // SaveChangesAsync call.
+    public async Task<ConnectChainStepDispute> AddDisputeAsync(ConnectChainStepDispute dispute, CancellationToken cancellationToken = default)
+    {
+        var step = await dbContext.ConnectChainSteps.FirstAsync(s => s.Id == dispute.ConnectChainStepId, cancellationToken);
+        step.HasPendingDispute = true;
+
+        dbContext.ConnectChainStepDisputes.Add(dispute);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return dispute;
+    }
+
+    public async Task<ConnectChainStepDispute?> GetDisputeForChainStepAsync(Guid chainStepId, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectChainStepDisputes.AsNoTracking().FirstOrDefaultAsync(d => d.ConnectChainStepId == chainStepId, cancellationToken);
+
+    public async Task<ConnectChainStepDispute?> GetDisputeByIdAsync(Guid disputeId, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectChainStepDisputes.AsNoTracking().FirstOrDefaultAsync(d => d.Id == disputeId, cancellationToken);
+
+    public async Task<IReadOnlyList<ConnectChainStepDispute>> GetDisputesForChainStepsAsync(
+        IReadOnlyCollection<Guid> chainStepIds, CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectChainStepDisputes
+            .AsNoTracking()
+            .Where(d => chainStepIds.Contains(d.ConnectChainStepId))
+            .ToListAsync(cancellationToken);
+
+    // REQ-1413 (Approve branch): see this method's own doc comment on
+    // IConnectMatchRepository.
+    public async Task ApproveDisputeAsync(Guid disputeId, DateTime reviewedAt, CancellationToken cancellationToken = default)
+    {
+        var dispute = await dbContext.ConnectChainStepDisputes.FirstAsync(d => d.Id == disputeId, cancellationToken);
+        var step = await dbContext.ConnectChainSteps.FirstAsync(s => s.Id == dispute.ConnectChainStepId, cancellationToken);
+
+        dispute.Status = ConnectChainStepDisputeStatus.Approved;
+        dispute.ReviewedAt = reviewedAt;
+
+        step.IsValid = true;
+        step.MatchedClubName = dispute.ClaimedClubName;
+        step.HasPendingDispute = false;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    // REQ-1413 (Deny branch): see this method's own doc comment on
+    // IConnectMatchRepository for the cascading-denial behavior.
+    public async Task DenyDisputeAsync(Guid disputeId, DateTime reviewedAt, CancellationToken cancellationToken = default)
+    {
+        var dispute = await dbContext.ConnectChainStepDisputes.FirstAsync(d => d.Id == disputeId, cancellationToken);
+        var step = await dbContext.ConnectChainSteps.FirstAsync(s => s.Id == dispute.ConnectChainStepId, cancellationToken);
+
+        dispute.Status = ConnectChainStepDisputeStatus.Denied;
+        dispute.ReviewedAt = reviewedAt;
+        step.HasPendingDispute = false;
+
+        var laterSteps = await dbContext.ConnectChainSteps
+            .Where(s => s.ConnectMatchId == step.ConnectMatchId && s.UserId == step.UserId && s.Position > step.Position)
+            .ToListAsync(cancellationToken);
+
+        var laterStepIds = laterSteps.Select(s => s.Id).ToList();
+        var cascadeDisputes = await dbContext.ConnectChainStepDisputes
+            .Where(d => laterStepIds.Contains(d.ConnectChainStepId) && d.Status == ConnectChainStepDisputeStatus.Pending)
+            .ToListAsync(cancellationToken);
+
+        foreach (var laterStep in laterSteps)
+        {
+            laterStep.IsValid = false;
+            laterStep.ClosesChain = false;
+            laterStep.HasPendingDispute = false;
+        }
+
+        foreach (var cascadeDispute in cascadeDisputes)
+        {
+            cascadeDispute.Status = ConnectChainStepDisputeStatus.Denied;
+            cascadeDispute.ReviewedAt = reviewedAt;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    // REQ-1413: see this method's own doc comment on IConnectMatchRepository.
+    public async Task ClearPlayerBustedAsync(Guid matchId, bool isPlayerA, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
+
+        if (isPlayerA)
+            match.PlayerABustedAt = null;
+        else
+            match.PlayerBBustedAt = null;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    // REQ-1412: see this method's own doc comment on IConnectMatchRepository.
+    public async Task ReopenMatchAsync(Guid matchId, CancellationToken cancellationToken = default)
+    {
+        var match = await dbContext.ConnectMatches.FirstAsync(m => m.Id == matchId, cancellationToken);
+
+        match.Status = ConnectMatchStatus.Active;
+        match.Outcome = ConnectMatchOutcome.Pending;
+        match.ResolvedAt = null;
+        match.PlayerAScore = null;
+        match.PlayerBScore = null;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<ConnectDisputeDataCorrectionSuggestion> AddDataCorrectionSuggestionAsync(
+        ConnectDisputeDataCorrectionSuggestion suggestion, CancellationToken cancellationToken = default)
+    {
+        dbContext.ConnectDisputeDataCorrectionSuggestions.Add(suggestion);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return suggestion;
+    }
+
+    public async Task<IReadOnlyList<ConnectDisputeDataCorrectionSuggestion>> GetAllDataCorrectionSuggestionsAsync(
+        CancellationToken cancellationToken = default) =>
+        await dbContext.ConnectDisputeDataCorrectionSuggestions.AsNoTracking().ToListAsync(cancellationToken);
+
     // REQ-1411/S-216: see this method's own doc comment on
     // IConnectMatchRepository for why the per-slot terminal-state check is
     // deliberately NOT done here.
