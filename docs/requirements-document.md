@@ -2124,6 +2124,21 @@ an extra attempt), API
   (`GridGenerationService.GetMatchCountAsync`) is a separate call path and
   deliberately untouched by this flag. See ADR-0070 for the full decision
   and alternatives considered.
+- **Status note (2026-09-04, ADR-0106, found via architecture review of an
+  xG Connect fix, applies here too).** This requirement's own guess
+  correctness was never affected — that's decided by whether the player
+  appears in the live intersection query's own match list, not by any
+  career-stint qualifier. But `WikidataLookupService.PersistCareerStintsAsync`,
+  which persists `PlayerCareerStint` rows alongside that correctness result
+  for reuse by xG Path/xG Connect, was silently omitting a real stint
+  whenever Wikidata recorded no start-time (P580) qualifier for it — the
+  identical `SparqlResponseParsers` parser gap ADR-0106 found and fixed for
+  xG Path's/xG Connect's own career-stint fetches (see REQ-1406's own
+  bug-fix status notes for the incident that surfaced it). Fixed in the
+  same change by the same fallback (use the end-time qualifier as the
+  start year when start time is missing/unparseable but usable). No
+  behavior change to this requirement's own guess-scoring; only more
+  complete downstream `PlayerCareerStint` data.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither

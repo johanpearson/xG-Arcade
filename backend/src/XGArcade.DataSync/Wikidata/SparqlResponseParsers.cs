@@ -654,22 +654,36 @@ internal static class SparqlResponseParsers
             // N aliases and M distinct qualifier combinations can produce up
             // to N×M result rows — dedupe qualifier tuples per player via
             // the HashSet the same way Aliases is deduped above (records get
-            // structural equality for free). Only recorded when startTime is
-            // actually bound: a row where all three qualifiers are unbound
-            // carries zero information, and PlayerCareerStint.StartYear is
-            // non-nullable, so there is nothing valid to write.
-            if (binding.TryGetValue("startTime", out var startTimeValue) && TryParseXsdDateTimeYear(startTimeValue.Value, out var startYear))
+            // structural equality for free). A row where NEITHER startTime
+            // NOR endTime is bound carries zero information, and
+            // PlayerCareerStint.StartYear is non-nullable, so there is
+            // nothing valid to write.
+            //
+            // Bug fix (2026-09-04, ADR-0106): same fallback as
+            // ParseCareerStintBindings' own fix (architecture-review
+            // follow-up — this method feeds WikidataLookupService
+            // .PersistCareerStintsAsync, xG Grid's own guess-time live
+            // lookup, ADR-0011, and shares the identical "start time
+            // missing but end time usable" gap that fix closed for xG
+            // Path/xG Connect's full-career fetch) — see that method's own
+            // comment for the full "why."
+            int? endYear = binding.TryGetValue("endTime", out var endTimeValue)
+                && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
+                    ? parsedEndYear
+                    : null;
+
+            int? startYear = binding.TryGetValue("startTime", out var startTimeValue) && TryParseXsdDateTimeYear(startTimeValue.Value, out var parsedStartYear)
+                ? parsedStartYear
+                : endYear;
+
+            if (startYear is { } resolvedStartYear)
             {
-                int? endYear = binding.TryGetValue("endTime", out var endTimeValue)
-                    && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
-                        ? parsedEndYear
-                        : null;
                 int? appearanceCount = binding.TryGetValue("numberOfMatches", out var numberOfMatchesValue)
                     && int.TryParse(numberOfMatchesValue.Value, out var parsedAppearanceCount)
                         ? parsedAppearanceCount
                         : null;
 
-                entry.CareerStints.Add(new CareerStintQualifiers(startYear, endYear, appearanceCount));
+                entry.CareerStints.Add(new CareerStintQualifiers(resolvedStartYear, endYear, appearanceCount));
             }
 
             byQid[qid] = entry;

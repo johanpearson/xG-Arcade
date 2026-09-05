@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-04
-- **Related requirements:** REQ-1203, REQ-1404, REQ-1406
-- **Related components:** COMP-07 (DataSync), COMP-17 (Games.XGConnect)
+- **Related requirements:** REQ-211, REQ-1203, REQ-1404, REQ-1406
+- **Related components:** COMP-05 (Games.XGGrid), COMP-07 (DataSync), COMP-17 (Games.XGConnect)
 
 ## Context
 
@@ -49,6 +49,17 @@ single-year stint rather than dropping the row. A row with neither a usable
 `startTime` nor a usable `endTime` still carries no year to anchor on and
 is still skipped, exactly as before this fix.
 
+Architecture review of this change (2026-09-04) found the identical gap in
+`SparqlResponseParsers.ParseBindings` — a sibling parser, for the
+`CategoryType`-intersection queries (`QueryCountryClubIntersectionAsync`
+and friends) that feed `WikidataLookupService.PersistCareerStintsAsync`,
+xG Grid's own guess-time live lookup (REQ-211, ADR-0011) — which required
+the identical unconditional `startTime` bind to construct a
+`CareerStintQualifiers` tuple at all. Since this is the exact same defect,
+not a separate one, the identical fallback is applied there too in the
+same change, rather than leaving a known-but-unfixed instance of a bug this
+ADR exists specifically to close.
+
 This codebase already only needs year-level granularity for every
 career-stint use (`TryParseXsdDateTimeYear` discards month/day precision
 everywhere it's called) — a single-year approximation is not a loss of
@@ -71,27 +82,59 @@ not a guess invented for this fix.
 - Positive: closes the Reece James / Jonas Olsson incident for real —
   ADR-0105 made the refresh unconditional, and this ADR makes the refresh's
   own parsing actually keep the row that refresh was supposed to recover.
-- Positive: applies uniformly everywhere `ParseCareerStintBindings` is used
-  (`PlayerCareerStintRefreshService`, feeding both xG Path's ADR-0054 fetch
-  and xG Connect's ADR-0105 fetch) — not a narrow xG-Connect-only patch, so
-  the identical xG Path duplicate-node-shaped gap (a target's real loan
-  spell silently missing from their own puzzle) is closed too, for free.
+- Positive: applies uniformly everywhere either affected parser is used —
+  `ParseCareerStintBindings` (`PlayerCareerStintRefreshService`, feeding
+  both xG Path's ADR-0054 fetch and xG Connect's ADR-0105 fetch) AND
+  `ParseBindings` (the `CategoryType`-intersection queries, feeding xG
+  Grid's REQ-211 guess-time live lookup) — not a narrow xG-Connect-only
+  patch, so the identical xG Path duplicate-node-shaped gap (a target's
+  real loan spell silently missing from their own puzzle) is closed too,
+  for free. `ParseBindings`' own fix does not change any xG Grid guess's
+  correctness (that is decided by the intersection query's own match list,
+  never by `CareerStintQualifiers`) — its benefit is a more complete
+  `PlayerCareerStint` byproduct write, avoiding exactly the kind of narrow,
+  incomplete cache row ADR-0105 already had to defend against elsewhere
+  ("has any row" is not "has a full career").
 - Negative / trade-off accepted: a stint whose true start year is one
   calendar year earlier than its end year, and whose Wikidata statement has
   no start-time qualifier at all, is now recorded one year later than
   reality (see Alternatives). Not measured against real Wikidata data at
   scale — accepted because the alternative (silently missing the stint
   entirely) is strictly worse for this codebase's purposes.
+- Negative / trade-off accepted (architecture-review finding, 2026-09-04):
+  `CareerStintReconciler`/`PlayerCareerStintRefreshService`'s existing
+  dedup key, `(ClubName, StartYear)`, already never revisits a stored
+  `StartYear` once written (ADR-0059/ADR-0063/S-187's own established
+  limit — see `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`'s
+  doc comment). This ADR gives that pre-existing limit a new way to trigger
+  a duplicate row: if Wikidata is later edited to add the real start time
+  for a stint this fix approximated (e.g. a true start of 2018, currently
+  stored as 2019 because the fallback used the end year), the next refresh
+  inserts a SECOND row at the newly-correct key rather than correcting the
+  first — the exact duplicate-club-reveal-node symptom ADR-0059/ADR-0063
+  already fought once, now with a new trigger. Accepted rather than
+  addressed here: this requires Wikidata's own data to change in a specific
+  way after this fix has already approximated a year, a narrower precondition
+  than either of those ADRs' original bugs, and no report of it has occurred.
 - Follow-up: if a future report shows this one-year approximation itself
   produces a wrong answer (rather than a missing one), reconsider the
   richer season-qualifier fallback from the Alternatives table above — with
   a real example in hand, not a hypothetical one.
+- Follow-up: if the duplicate-row risk immediately above is ever actually
+  observed, it is the same class of bug `DuplicateCareerStintCleaner`
+  already retroactively cleans up — extending that tool's provable-match
+  rules (per its own ADR-0059/ADR-0063 "For AI agents" gate) is the
+  established path, not a new mechanism.
 
 ## For AI agents
 
-`ParseCareerStintBindings`' start-year resolution is `startTime`, falling
-back to `endTime` — not a single unconditional read of `startTime`. Do not
-"simplify" this back to requiring `startTime` alone without re-reading this
-ADR and ADR-0105 first: that combination (unconditional refresh + a
-parser that still drops the exact statement shape a real incident hit) is
-what caused the same reported bug to survive one fix already.
+Both `ParseCareerStintBindings` and `ParseBindings`' start-year resolution
+is `startTime`, falling back to `endTime` — not a single unconditional read
+of `startTime`. Do not "simplify" either one back to requiring `startTime`
+alone without re-reading this ADR and ADR-0105 first: that combination
+(unconditional refresh + a parser that still drops the exact statement
+shape a real incident hit) is what caused the same reported bug to survive
+one fix already. If you find a THIRD Wikidata response parser in this
+codebase with the same unconditional-`startTime` shape, that is this exact
+bug again, not a coincidence — fix it here too rather than filing it as a
+separate report.

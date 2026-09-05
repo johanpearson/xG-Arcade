@@ -57,10 +57,12 @@ public record WikidataPlayerMatch(
 // ADR-0042/S-079: one distinct (start, end, appearance-count) combination
 // carried by a player's P54 statement qualifiers. StartYear is
 // non-nullable — a tuple is only ever constructed when Wikidata's P580
-// ("start time") qualifier was actually bound; a row with none of the three
-// qualifiers bound carries zero information and never produces one of
-// these (see WikidataClient.ParseBindings). Two statements that happen to
-// share identical (start, end, count) collapse into one tuple — there is
-// no way to distinguish them from this query shape, and it is not worth
-// tracking raw statement URIs just to do so.
+// ("start time") qualifier was actually bound, OR (bug fix, 2026-09-04,
+// ADR-0106) when P582 ("end time") was bound instead and StartYear falls
+// back to that same year; a row with NEITHER qualifier bound carries zero
+// information and never produces one of these (see
+// WikidataClient.ParseBindings). Two statements that happen to share
+// identical (start, end, count) collapse into one tuple — there is no way
+// to distinguish them from this query shape, and it is not worth tracking
+// raw statement URIs just to do so.
 public record CareerStintQualifiers(int StartYear, int? EndYear, int? AppearanceCount);

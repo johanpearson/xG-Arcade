@@ -617,11 +617,14 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task QueryCountryClubIntersectionAsync_NoCareerStint_WhenStartTimeAbsent()
+    public async Task QueryCountryClubIntersectionAsync_NoCareerStint_WhenStartTimeAndEndTimeBothAbsent()
     {
         // A row with none of the three qualifiers bound carries zero
         // information — must not fabricate a stint (StartYear is
         // non-nullable on the entity, so there is nothing valid to write).
+        // See ADR0106_QueryCountryClubIntersectionAsync_CareerStint_WhenStartTimeAbsentButEndTimeUsable
+        // just below for the (2026-09-04, ADR-0106) case this does NOT
+        // cover anymore — startTime absent alone, with a usable endTime.
         const string json = """
             {
               "results": {
@@ -637,6 +640,36 @@ public class WikidataClientTests
 
         Assert.That(result, Has.Count.EqualTo(1));
         Assert.That(result[0].CareerStints, Is.Empty);
+    }
+
+    // Bug fix (2026-09-04, ADR-0106): architecture-review follow-up to the
+    // fix already applied to ParseCareerStintBindings — ParseBindings (this
+    // query's own parser, feeding WikidataLookupService
+    // .PersistCareerStintsAsync, xG Grid's guess-time live lookup) shares
+    // the identical gap. A row with a usable endTime but no startTime used
+    // to be dropped outright; now it falls back to using the end year as
+    // the start year too.
+    [Test]
+    public async Task ADR0106_QueryCountryClubIntersectionAsync_CareerStint_WhenStartTimeAbsentButEndTimeUsable()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "endTime": { "type": "literal", "value": "2019-01-01T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "6" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints[0].StartYear, Is.EqualTo(2019));
+        Assert.That(result[0].CareerStints[0].EndYear, Is.EqualTo(2019));
+        Assert.That(result[0].CareerStints[0].AppearanceCount, Is.EqualTo(6));
     }
 
     [Test]
