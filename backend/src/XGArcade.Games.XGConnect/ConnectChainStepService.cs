@@ -31,6 +31,9 @@ public class ConnectChainStepService(
         if (match.Status != ConnectMatchStatus.Active)
             return new SubmitChainStepResult(SubmitChainStepOutcome.MatchNotActive, null);
 
+        var callerIsPlayerA = match.PlayerAUserId == userId;
+        var existingSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, userId, cancellationToken);
+
         // REQ-1407: the caller's own slot may already be terminal (busted
         // or timed out) even while ConnectMatch.Status is still Active,
         // because Status only flips to Resolved once BOTH players are
@@ -38,18 +41,34 @@ public class ConnectChainStepService(
         // not be able to submit further steps just because their opponent
         // hasn't finished yet. This closes a gap the MatchNotActive check
         // above does NOT cover on its own.
-        var callerIsPlayerA = match.PlayerAUserId == userId;
-        var callerAlreadyForfeited = callerIsPlayerA
-            ? match.PlayerABustedAt is not null || match.PlayerATimedOutAt is not null
-            : match.PlayerBBustedAt is not null || match.PlayerBTimedOutAt is not null;
+        //
+        // REQ-1412/1413: a bust is NOT a real forfeit for as long as a
+        // Pending dispute exists on one of the caller's own steps —
+        // raising ANY dispute (either failure type) marks the slot busted
+        // immediately (consuming the position's one REQ-1407 retry the
+        // instant it's raised), but the player must still be able to keep
+        // playing while that dispute awaits review (REQ-1412's own "they
+        // may submit further steps... exactly as if the disputed step had
+        // ordinarily validated" rule) — only a timeout, or a bust with NO
+        // Pending dispute attached, is a real, blocking forfeit.
+        var callerBustedAt = callerIsPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
+        var callerTimedOutAt = callerIsPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
+        var callerHasPendingDispute = existingSteps.Any(s => s.HasPendingDispute);
+        var callerAlreadyForfeited = callerTimedOutAt is not null || (callerBustedAt is not null && !callerHasPendingDispute);
         if (callerAlreadyForfeited)
             return new SubmitChainStepResult(SubmitChainStepOutcome.AlreadyForfeited, null);
 
-        var existingSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, userId, cancellationToken);
         if (existingSteps.HasClosedChain())
             return new SubmitChainStepResult(SubmitChainStepOutcome.ChainAlreadyComplete, null);
 
-        var validSteps = existingSteps.Where(s => s.IsValid).ToList();
+        // Includes a step whose dispute is still Pending (or, in practice,
+        // Approved — ConnectChainStepExtensions.IsEffectivelyValid's own
+        // doc comment) as if it had ordinarily validated — REQ-1412's own
+        // "the player's chain continues... using the claimed club as that
+        // step's provisional matched club" rule. MatchedClubName itself is
+        // never read for this computation (only CandidatePlayerId is), so
+        // no "effective matched club" concept is needed here at all.
+        var validSteps = existingSteps.Where(s => s.IsEffectivelyValid()).ToList();
 
         // REQ-1406: the "immediately preceding player in the chain" — the
         // most recently accepted valid step's candidate, or, for the very

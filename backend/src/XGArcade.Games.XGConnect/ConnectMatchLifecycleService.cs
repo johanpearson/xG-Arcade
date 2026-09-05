@@ -140,6 +140,34 @@ public class ConnectMatchLifecycleService(
         if (match.Status == ConnectMatchStatus.Resolved)
             return false;
 
+        // REQ-1413: a match with ANY Pending dispute anywhere in it — raised
+        // by either player, at any position — must not resolve, even once
+        // both players have otherwise reached a terminal state; REQ-1409's
+        // outcome/scores are withheld until every dispute has been reviewed.
+        // Checked via the denormalized ConnectChainStep.HasPendingDispute
+        // cache on the already-loaded step lists (no extra query) — see
+        // that column's own doc comment for why it's always in sync with
+        // ConnectChainStepDispute.Status.
+        //
+        // Known, accepted consequence (flagged to the product owner,
+        // REQ-1412/1413 implementation, 2026-09-05): if a player reaches a
+        // terminal state (e.g. busts) at the exact moment their opponent
+        // has ALREADY reached their own terminal state, resolution still
+        // fires synchronously in this same call, exactly as it did before
+        // this REQ — this gate only ever runs BEFORE a resolution, it
+        // cannot undo one that already happened. If that player wants to
+        // dispute the step that just busted them, they must do so before
+        // anyone acts on the match's now-Resolved state; raising a dispute
+        // against an already-Resolved match reopens it (resets Status back
+        // to Active and Outcome/ResolvedAt/PlayerAScore/PlayerBScore back to
+        // their pre-resolution defaults) BEFORE persisting the new Pending
+        // dispute, so it can correctly re-resolve once reviewed — see
+        // ConnectChainStepDisputeService.RaiseDisputeAsync's own comment;
+        // this gate itself is unchanged for that case, the reopen happens
+        // entirely in the dispute-raising path.
+        if (playerASteps.Any(s => s.HasPendingDispute) || playerBSteps.Any(s => s.HasPendingDispute))
+            return false;
+
         var playerACompleted = playerASteps.HasClosedChain();
         var playerBCompleted = playerBSteps.HasClosedChain();
 

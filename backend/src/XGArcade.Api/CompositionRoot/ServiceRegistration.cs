@@ -298,6 +298,13 @@ public static class ServiceRegistration
         // re-deriving it), and IPlayerRepository (COMP-06) for batch player
         // name resolution. See ConnectMatchQueryService's own doc comment.
         builder.Services.AddScoped<IConnectMatchQueryService, ConnectMatchQueryService>();
+        // REQ-1412/1413/1414/ADR-0109: dispute-a-failed-chain-step business
+        // logic, layered on top of IConnectMatchRepository and
+        // IConnectMatchLifecycleService above (to attempt match resolution
+        // the instant a dispute is raised/reviewed, mirroring
+        // IConnectChainStepService's own pattern) — see
+        // ConnectChainStepDisputeService's own doc comment.
+        builder.Services.AddScoped<IConnectChainStepDisputeService, ConnectChainStepDisputeService>();
         // REQ-1403/ADR-0103, S-210: orchestrates IMatchmakingOptInRepository
         // (Core.Social) together with IConnectMatchRepository above
         // (Games.XGConnect) for the periodic pairing sweep — lives in
