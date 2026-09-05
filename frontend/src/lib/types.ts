@@ -155,10 +155,20 @@ export interface LoginResponse {
 // Grid categories (e.g. Country × Club), since seeing which suggestions
 // carry the target nationality tells the player who's eligible before
 // they even guess.
+//
+// wikidataQid (bug fix, 2026-09-05, ADR-0107): unlike nationality, not a
+// correctness signal for any xG Grid category — an opaque id. Lets xG
+// Connect's target-pick/chain-step screens submit the exact real person a
+// suggestion represents, rather than a bare name that can't tell two
+// different real people sharing a name apart (a real, reported incident:
+// two different real footballers both named "Jonas Olsson"). Absent/null
+// for a suggestion indexed before this column existed — callers must treat
+// that as "submit by name instead," never assume it's always present.
 export interface PlayerAutocompleteSuggestion {
   playerId: string;
   name: string;
   birthYear?: number;
+  wikidataQid?: string | null;
 }
 
 // SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).

@@ -368,10 +368,11 @@ public class ConnectTargetPickServiceTests
     }
 
     // Same "no client-supplied disambiguation id, deterministically pick the
-    // lowest Id" simplification ConnectChainStepService already applies to
-    // candidatePlayerName (see that class's own comment) — proven here via
-    // two same-named Player rows, asserting the LOWER Id wins regardless of
-    // insertion order.
+    // lowest Id" fallback ConnectCandidateResolver still applies when no
+    // targetWikidataQid is supplied (see ADR-0107, and the tests just below
+    // for the QID-supplied case that supersedes this whenever it can) —
+    // proven here via two same-named Player rows, asserting the LOWER Id
+    // wins regardless of insertion order.
     [Test]
     public async Task REQ1404_SubmitTargetPickAsync_NameResolvesToMultiplePlayers_PicksLowestIdDeterministically()
     {
@@ -389,5 +390,63 @@ public class ConnectTargetPickServiceTests
         Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
         Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(lowerId.Id));
         Assert.That(result.TargetPick.TargetPlayerId, Is.Not.EqualTo(higherId.Id));
+    }
+
+    // ---- Bug fix (2026-09-05, ADR-0107): targetWikidataQid resolves the
+    // ---- exact real person unambiguously on a same-name collision ---------
+
+    [Test]
+    public async Task ADR0107_SubmitTargetPickAsync_SameNameCollision_TargetWikidataQidResolvesTheCorrectPlayer_NotTheLowestId()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var wrongPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), FullName = "Jonas Olsson", WikidataQid = "Q1" });
+        var correctPlayer = await _playerRepository.AddPlayerAsync(
+            new Player { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), FullName = "Jonas Olsson", WikidataQid = "Q2" });
+        Assert.That(wrongPlayer.Id, Is.LessThan(correctPlayer.Id));
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, "Jonas Olsson", "Q2");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
+        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(correctPlayer.Id));
+    }
+
+    [Test]
+    public async Task ADR0107_SubmitTargetPickAsync_TargetWikidataQid_ForPlayerNeverBeforeReferenced_GetOrCreatesTheRealPlayerRow()
+    {
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, "Never Referenced Player", "Q999");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
+        var createdPlayer = await _playerRepository.GetPlayerByWikidataQidAsync("Q999");
+        Assert.That(createdPlayer, Is.Not.Null);
+        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(createdPlayer!.Id));
+    }
+
+    [Test]
+    public async Task ADR0107_SubmitTargetPickAsync_MalformedTargetWikidataQid_FallsBackToNameOnlyResolution_NeverErrors()
+    {
+        // Mirrors ConnectChainStepServiceTests's own malformed-QID coverage
+        // — a malformed value (never sent by this codebase's own frontend,
+        // but the request body is client-controlled) must not be trusted
+        // blindly or crash the request — it degrades to the same fallback
+        // as "none supplied," which still has a working resolution path.
+        var playerA = Guid.NewGuid();
+        var playerB = Guid.NewGuid();
+        var match = await CreateMatchAsync(playerA, playerB);
+        var target = await SeedPlayerAsync("Alpha Target");
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitTargetPickAsync(match.Id, playerA, target.FullName, "not-a-real-qid");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitTargetPickOutcome.RecordedAwaitingOther));
+        Assert.That(result.TargetPick!.TargetPlayerId, Is.EqualTo(target.Id));
     }
 }

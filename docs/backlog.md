@@ -10543,6 +10543,26 @@ callers (xG Path's ADR-0054 fetch and xG Connect's ADR-0105 fetch), not
 xG-Connect-only. See ADR-0106 and REQ-1406's own second bug-fix status
 note for detail.
 
+**S-211 third bugfix addendum (2026-09-05, ADR-0107):** a THIRD attempt at
+connecting to "Jonas Olsson" — via a different, independently real
+connection (Markus Rosenberg via West Bromwich Albion, not Reece James via
+Wigan Athletic) — also failed, ruling out a per-club Wikidata data gap
+(ADR-0106's shape) as the cause. Root cause: two different real
+footballers are both named "Jonas Olsson" (born 1983 vs. 1994), both
+plausibly indexed as separate, correct `Player` rows via this codebase's
+own routine Wikidata sweeps — `ConnectChainStepService`/
+`ConnectTargetPickService`'s name-only candidate resolution, which
+deterministically picked the lowest `Id` on a same-name collision (already
+flagged in their own code comments as "a known, deliberate simplification,
+not a new REQ"), had no way to tell them apart. Fixed by giving
+`/players/autocomplete` suggestions a `WikidataQid` and requiring a real
+suggestion click in `ChainBuilder.tsx` (matching `TargetPickPanel.tsx`'s
+existing requirement), then resolving via a new shared
+`ConnectCandidateResolver` that uses the QID to get-or-create the exact
+real `Player` row rather than guessing by name. Name-only resolution stays
+as a fallback for a suggestion indexed before this backfill. See ADR-0107
+and REQ-1404/1406/207's own status notes for detail.
+
 **S-212 · Match start, 6-hour timer, resolution scaffolding (REQ-1405)**
 Match officially starts once both picks are locked; independent per-player
 6-hour deadline; forfeit-on-timeout sweep job; resolution waits for both

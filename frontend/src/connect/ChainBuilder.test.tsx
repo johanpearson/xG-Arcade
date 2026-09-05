@@ -46,8 +46,17 @@ function renderBuilder(overrides: Partial<ChainBuilderProps> = {}, fetchMock = v
   return { onAuthError, onChanged, rerenderWith };
 }
 
-async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, candidate: string) {
-  await user.type(screen.getByLabelText('Candidate player name'), candidate);
+// Bug fix (2026-09-05, ADR-0107): a real /players/autocomplete suggestion
+// must now be selected before "Submit connector" enables — typing a name
+// and submitting it directly (this helper's old behavior) no longer works,
+// since that's exactly the same-name-collision-prone path a real incident
+// (two different real footballers both named "Jonas Olsson") showed is a
+// genuine bug. The mocked autocomplete response must return a suggestion
+// whose name exactly matches `candidate` for this to find and click it.
+async function pickSuggestionAndSubmit(user: ReturnType<typeof userEvent.setup>, candidate: string) {
+  await user.type(screen.getByLabelText('Candidate player name'), candidate.slice(0, 2));
+  await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+  await user.click(screen.getByText(candidate));
   await user.click(screen.getByRole('button', { name: 'Submit connector' }));
 }
 
@@ -69,7 +78,7 @@ describe('ChainBuilder', () => {
   it('REQ-1406: an accepted, non-closing step shows confirmation and notifies the parent to refetch', async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/players/autocomplete')) return jsonResponse([]);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
       if (url.endsWith('/matches/match-1/chain-steps')) {
         return jsonResponse({
           isValid: true,
@@ -88,7 +97,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player');
+    await pickSuggestionAndSubmit(user, 'Some Player');
 
     expect(await screen.findByText('Connector accepted — Barcelona, 2010-2015.')).toBeInTheDocument();
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
@@ -107,7 +116,7 @@ describe('ChainBuilder', () => {
     // a real `onChanged()`-triggered refetch would deliver moments later.
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/players/autocomplete')) return jsonResponse([]);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
       if (url.endsWith('/matches/match-1/chain-steps')) {
         return jsonResponse({
           isValid: true,
@@ -126,7 +135,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged, rerenderWith } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player');
+    await pickSuggestionAndSubmit(user, 'Some Player');
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
 
     // Before the parent's refetch has delivered new props, nothing claims
@@ -166,7 +175,7 @@ describe('ChainBuilder', () => {
   it('REQ-1407: a first invalid attempt allows a retry, without ending participation', async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/players/autocomplete')) return jsonResponse([]);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
       if (url.endsWith('/matches/match-1/chain-steps')) {
         return jsonResponse({
           isValid: false,
@@ -185,7 +194,7 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player');
+    await pickSuggestionAndSubmit(user, 'Some Player');
 
     expect(await screen.findByText(/one more attempt at this position/)).toBeInTheDocument();
     // Nothing persisted differently for the caller to see yet — this
@@ -197,7 +206,7 @@ describe('ChainBuilder', () => {
   it('REQ-1407: a second consecutive failure busts the player and hides the submission form', async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/players/autocomplete')) return jsonResponse([]);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
       if (url.endsWith('/matches/match-1/chain-steps')) {
         return jsonResponse({
           isValid: false,
@@ -216,16 +225,22 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Some Player');
+    await pickSuggestionAndSubmit(user, 'Some Player');
 
     expect(await screen.findByText(/Busted — that was a second failed attempt/)).toBeInTheDocument();
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
   });
 
-  it('REQ-1406: a name that resolves to no known player shows a distinct "no player found" message', async () => {
+  it('REQ-1406: a selected suggestion that still resolves to no known player shows a distinct "not found" message', async () => {
+    // Bug fix (2026-09-05, ADR-0107): this is now the narrow remaining case
+    // where CandidateNotFound is reachable — a suggestion the client can see
+    // (indexed in PlayerNameIndex, COMP-10) but that has no Player row yet
+    // (COMP-06) and also predates the WikidataQid backfill — rather than the
+    // old "any typo resolves to nothing" case, which the required selection
+    // now rules out entirely.
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/players/autocomplete')) return jsonResponse([]);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-2', name: 'Nobody Real' }]);
       if (url.endsWith('/matches/match-1/chain-steps')) {
         return jsonResponse({
           isValid: false,
@@ -244,10 +259,67 @@ describe('ChainBuilder', () => {
     const user = userEvent.setup();
     const { onChanged } = renderBuilder({}, fetchMock);
 
-    await fillAndSubmit(user, 'Nobody Real');
+    await pickSuggestionAndSubmit(user, 'Nobody Real');
 
-    expect(await screen.findByText(/No player found matching "Nobody Real"/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't find a match for "Nobody Real"/)).toBeInTheDocument();
     expect(onChanged).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('Candidate player name') as HTMLInputElement).value).toBe('');
+  });
+
+  // Bug fix (2026-09-05, ADR-0107): the actual regression test for the fix
+  // itself — typing an exact name is no longer enough to submit; a real
+  // suggestion must be selected. Without this, the bug this story closes
+  // (a same-name collision silently resolved to whichever player sorts
+  // first) would still be reachable via plain typed submission.
+  it('ADR-0107: the submit button stays disabled after typing until a suggestion is actually selected', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const user = userEvent.setup();
+    renderBuilder({}, fetchMock);
+
+    await user.type(screen.getByLabelText('Candidate player name'), 'Some Player');
+
+    expect(screen.getByRole('button', { name: 'Submit connector' })).toBeDisabled();
+  });
+
+  // Bug fix (2026-09-05, ADR-0107): proves the selected suggestion's
+  // wikidataQid — not just its name — reaches the server, which is what lets
+  // it resolve the exact real person unambiguously.
+  it('ADR-0107: submitting a selected candidate includes the suggestion\'s wikidataQid when it has one', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/players/autocomplete')) {
+        return jsonResponse([{ playerId: 'cand-1', name: 'Jonas Olsson', birthYear: 1983, wikidataQid: 'Q1533537' }]);
+      }
+      if (url.endsWith('/matches/match-1/chain-steps')) {
+        return jsonResponse({
+          isValid: true,
+          chainComplete: false,
+          position: 1,
+          attemptNumber: 1,
+          candidatePlayerId: 'p1',
+          matchedClubName: 'West Bromwich Albion',
+          matchedOverlapStartYear: 2010,
+          matchedOverlapEndYear: 2012,
+          busted: false,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const user = userEvent.setup();
+    renderBuilder({}, fetchMock);
+
+    await pickSuggestionAndSubmit(user, 'Jonas Olsson');
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(postCall![1].body as string)).toEqual({
+      candidatePlayerName: 'Jonas Olsson',
+      candidateWikidataQid: 'Q1533537',
+    });
   });
 
   it('REQ-1407: shows a terminal "you busted" state with no submission form when already busted', () => {

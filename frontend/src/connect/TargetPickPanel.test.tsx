@@ -68,7 +68,40 @@ describe('TargetPickPanel', () => {
 
     await waitFor(() => expect(onSubmitted).toHaveBeenCalledTimes(1));
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
-    expect(JSON.parse(postCall![1].body as string)).toEqual({ targetPlayerName: 'Lionel Messi' });
+    // No wikidataQid on the mocked suggestion above (a row indexed before
+    // ADR-0107's column existed) — null is sent, not omitted, so the server
+    // falls back to name-only resolution rather than erroring on a missing
+    // field.
+    expect(JSON.parse(postCall![1].body as string)).toEqual({ targetPlayerName: 'Lionel Messi', targetWikidataQid: null });
+  });
+
+  // Bug fix (2026-09-05, ADR-0107): proves the suggestion's wikidataQid — not
+  // just its name — reaches the server, which is what lets it resolve the
+  // exact real person unambiguously (the real, reported incident this closes:
+  // two different real footballers both named "Jonas Olsson").
+  it('ADR-0107: submitting a selected target includes the suggestion\'s wikidataQid when it has one', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/players/autocomplete')) {
+        return jsonResponse([{ playerId: 'p1', name: 'Jonas Olsson', birthYear: 1983, wikidataQid: 'Q1533537' }]);
+      }
+      if (url.endsWith('/matches/match-1/target-pick')) {
+        return jsonResponse({ targetPlayerId: 'p1', selectedAt: '2026-09-05T00:00:00Z', locked: false });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const user = userEvent.setup();
+    const { onSubmitted } = renderPanel({}, fetchMock);
+
+    await pickSuggestion(user, 'Jonas Olsson');
+    await user.click(screen.getByRole('button', { name: 'Set target pick' }));
+
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledTimes(1));
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(postCall![1].body as string)).toEqual({
+      targetPlayerName: 'Jonas Olsson',
+      targetWikidataQid: 'Q1533537',
+    });
   });
 
   it('REQ-1404: a "Target player not found" 404 shows the server\'s own detail text and lets the player pick again', async () => {

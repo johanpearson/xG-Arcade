@@ -24,8 +24,17 @@ public interface IConnectChainStepService
     // (IPlayerCareerOverlapService.GetSharedClubOverlapsAsync), never
     // player-typed. See that interface's own doc comment for the false-
     // rejection bug this supersedes.
+    //
+    // candidateWikidataQid (bug fix, 2026-09-05, ADR-0107): optional —
+    // when supplied (a real autocomplete suggestion was clicked), resolves
+    // the exact real person unambiguously via ConnectCandidateResolver,
+    // never the deterministic-lowest-Id same-name-collision fallback a real
+    // incident showed is a genuine bug (two different real "Jonas
+    // Olsson"s). Null/omitted falls back to candidatePlayerName-only
+    // resolution — see that resolver's own doc comment for why this
+    // fallback still exists.
     Task<SubmitChainStepResult> SubmitChainStepAsync(
-        Guid matchId, Guid userId, string candidatePlayerName,
+        Guid matchId, Guid userId, string candidatePlayerName, string? candidateWikidataQid = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -83,10 +92,10 @@ public enum SubmitChainStepOutcome
     // hasn't yet reached terminal). Nothing is persisted.
     AlreadyForfeited,
 
-    // REQ-1406/ADR-0007: candidatePlayerName didn't resolve to any known
-    // Player (COMP-06) via an exact normalized-name match. Nothing is
-    // persisted — ConnectChainStep.CandidatePlayerId is a required,
-    // non-nullable FK, so there is no real player id to store.
+    // REQ-1406/ADR-0007/ADR-0107: candidatePlayerName (or, when supplied,
+    // candidateWikidataQid) didn't resolve to any known Player (COMP-06).
+    // Nothing is persisted — ConnectChainStep.CandidatePlayerId is a
+    // required, non-nullable FK, so there is no real player id to store.
     CandidateNotFound,
 
     // ADR-0010/0011: a live Wikidata refresh (either the main claimed-club

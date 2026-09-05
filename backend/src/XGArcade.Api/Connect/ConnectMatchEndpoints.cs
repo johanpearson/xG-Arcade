@@ -40,7 +40,7 @@ public static class ConnectMatchEndpoints
                 return Results.Unauthorized();
 
             var result = await connectTargetPickService.SubmitTargetPickAsync(
-                matchId, requestingUser.Id, request.TargetPlayerName, cancellationToken);
+                matchId, requestingUser.Id, request.TargetPlayerName, request.TargetWikidataQid, cancellationToken);
 
             return result.Outcome switch
             {
@@ -103,7 +103,11 @@ public static class ConnectMatchEndpoints
 // a different, unreconciled id space than `Player.Id`). Resolved the same
 // way ConnectChainStepEndpoints.SubmitChainStepRequest.CandidatePlayerName
 // already is.
-public record SubmitTargetPickRequest(string TargetPlayerName);
+//
+// TargetWikidataQid (bug fix, 2026-09-05, ADR-0107): optional — mirrors
+// SubmitChainStepRequest.CandidateWikidataQid exactly, see that record's own
+// doc comment.
+public record SubmitTargetPickRequest(string TargetPlayerName, string? TargetWikidataQid = null);
 
 // Locked (REQ-1404/1405): true only once BOTH players' target picks are
 // fixed (this submission was the completing, non-trivial one) — false

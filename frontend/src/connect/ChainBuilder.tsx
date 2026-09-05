@@ -48,6 +48,27 @@ export function ChainBuilder({
   onChanged,
 }: ChainBuilderProps) {
   const [candidateName, setCandidateName] = useState('');
+  // Bug fix (2026-09-05, ADR-0107): a real, reported incident (two
+  // different real footballers both named "Jonas Olsson") showed that
+  // resolving a typed candidate name server-side, with no way to
+  // disambiguate a same-name collision, is a genuine bug — not just a
+  // theoretical edge case. This field now requires a real
+  // /players/autocomplete suggestion to be clicked (same as
+  // TargetPickPanel.tsx already requires) before it can be submitted.
+  // candidateWikidataQid is carried through to submission when the
+  // selected suggestion has one, letting the server resolve the exact real
+  // person unambiguously; it can legitimately be null for a suggestion
+  // indexed before that column existed (see PlayerNameIndex.WikidataQid's
+  // own doc comment) — that still submits, just via the same name-only
+  // fallback resolution as before this fix, so an as-yet-unbackfilled
+  // player is never unplayable. hasSelectedCandidate is the actual
+  // "may submit" gate (a null QID must not be mistaken for "nothing
+  // selected"); both reset together whenever the typed text no longer
+  // matches what was selected (see the PlayerSearchField's onValueChange
+  // below) — an edited-after-selecting field must not silently keep
+  // submitting the stale selection.
+  const [candidateWikidataQid, setCandidateWikidataQid] = useState<string | null>(null);
+  const [hasSelectedCandidate, setHasSelectedCandidate] = useState(false);
   const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
@@ -83,31 +104,45 @@ export function ChainBuilder({
   const myChainJustCompleted = myTerminalState.completed;
 
   function handleSelect(suggestion: PlayerAutocompleteSuggestion) {
-    // The chain-step endpoint takes a plain name (resolved server-side) —
-    // ADR-0007's autocomplete/correctness separation means seeing a
+    // ADR-0007's autocomplete/correctness separation still holds — seeing a
     // suggestion here is never itself confirmation the step will validate
-    // (REQ-1406's own note). Only the text is used; the id is discarded.
+    // (REQ-1406's own note), the server still runs the real live-overlap
+    // check. But (bug fix, 2026-09-05, ADR-0107) which real person this
+    // selection resolves to is no longer left ambiguous: the suggestion's
+    // wikidataQid is carried through to submission alongside its name.
     setCandidateName(suggestion.name);
+    setCandidateWikidataQid(suggestion.wikidataQid ?? null);
+    setHasSelectedCandidate(true);
   }
 
   function handleSubmit() {
     const trimmedName = candidateName.trim();
-    if (!trimmedName) return;
+    if (!trimmedName || !hasSelectedCandidate) return;
     setFeedback(null);
     run(async () => {
-      const result = await submitConnectChainStep(accessToken, matchId, trimmedName);
+      const result = await submitConnectChainStep(accessToken, matchId, trimmedName, candidateWikidataQid);
 
       if (result.position === null) {
-        // REQ-1406: candidatePlayerName didn't resolve to any known player
-        // at all — nothing was persisted, this consumes no attempt/strike.
-        // Keep the field as typed so a misspelling is easy to fix.
-        setFeedback({ tone: 'error', text: `No player found matching "${trimmedName}". Check the spelling and try again.` });
+        // REQ-1406: the selected candidate didn't resolve to any known
+        // player at all — nothing was persisted, this consumes no
+        // attempt/strike. Rare now that a real suggestion must be selected
+        // (ADR-0107): only reachable for a player indexed in autocomplete
+        // (COMP-10) but never yet referenced by any game (COMP-06), on a
+        // suggestion that also predates the WikidataQid backfill. Clear the
+        // selection so the player tries a different search rather than
+        // re-submitting the exact same one.
+        setFeedback({ tone: 'error', text: `Couldn't find a match for "${trimmedName}" — try searching again.` });
+        setCandidateName('');
+        setCandidateWikidataQid(null);
+        setHasSelectedCandidate(false);
         return;
       }
 
       if (result.busted) {
         setFeedback({ tone: 'error', text: 'Busted — that was a second failed attempt at this position. Your participation in this match has ended.' });
         setCandidateName('');
+        setCandidateWikidataQid(null);
+        setHasSelectedCandidate(false);
         onChanged();
         return;
       }
@@ -118,10 +153,14 @@ export function ChainBuilder({
           text: `${trimmedName} never shared a club with the previous player at an overlapping time. You have one more attempt at this position.`,
         });
         setCandidateName('');
+        setCandidateWikidataQid(null);
+        setHasSelectedCandidate(false);
         return;
       }
 
       setCandidateName('');
+      setCandidateWikidataQid(null);
+      setHasSelectedCandidate(false);
       if (result.chainComplete) {
         // Deliberately NOT set here — see `myChainJustCompleted` above for
         // why the completion acknowledgment is derived from props instead
@@ -168,7 +207,14 @@ export function ChainBuilder({
             label="Candidate player name"
             accessToken={accessToken}
             value={candidateName}
-            onValueChange={setCandidateName}
+            onValueChange={(value) => {
+              setCandidateName(value);
+              // Bug fix (2026-09-05, ADR-0107): editing the text after a
+              // selection must not leave a stale wikidataQid submittable
+              // for text that no longer matches it.
+              setCandidateWikidataQid(null);
+              setHasSelectedCandidate(false);
+            }}
             onSelect={handleSelect}
             placeholder="Candidate player…"
             disabled={submitting}
@@ -176,7 +222,7 @@ export function ChainBuilder({
           <button
             type="button"
             className="connect-match__button"
-            disabled={submitting || !candidateName.trim()}
+            disabled={submitting || !candidateName.trim() || !hasSelectedCandidate}
             onClick={handleSubmit}
           >
             {submitting ? 'Checking…' : 'Submit connector'}

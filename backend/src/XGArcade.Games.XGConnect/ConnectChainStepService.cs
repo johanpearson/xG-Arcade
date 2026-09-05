@@ -1,5 +1,4 @@
 using XGArcade.Core.Games;
-using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
@@ -19,7 +18,7 @@ public class ConnectChainStepService(
     TimeProvider timeProvider) : IConnectChainStepService
 {
     public async Task<SubmitChainStepResult> SubmitChainStepAsync(
-        Guid matchId, Guid userId, string candidatePlayerName,
+        Guid matchId, Guid userId, string candidatePlayerName, string? candidateWikidataQid = null,
         CancellationToken cancellationToken = default)
     {
         var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
@@ -74,20 +73,17 @@ public class ConnectChainStepService(
         var nextPosition = (validSteps.Count > 0 ? validSteps.Max(s => s.Position) : 0) + 1;
         var attemptNumber = existingSteps.Count(s => s.Position == nextPosition) + 1;
 
-        var normalizedName = PlayerNameNormalizer.Normalize(candidatePlayerName);
-        var candidates = await playerRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
-        if (candidates.Count == 0)
+        // Bug fix (2026-09-05, ADR-0107): resolves via ConnectCandidateResolver
+        // rather than this class's own name-only lookup — see that class's
+        // own doc comment for the real, reported same-name-collision
+        // incident (two different real "Jonas Olsson"s) this closes when
+        // candidateWikidataQid is supplied, and the transition-window
+        // fallback it still applies when it isn't.
+        var resolved = await ConnectCandidateResolver.ResolveAsync(
+            playerRepository, candidatePlayerName, candidateWikidataQid, cancellationToken);
+        if (resolved.Outcome == ConnectCandidateResolver.Outcome.NotFound)
             return new SubmitChainStepResult(SubmitChainStepOutcome.CandidateNotFound, null);
-
-        // No client-supplied disambiguation id exists for this endpoint,
-        // unlike xG Grid's REQ-209 — deliberately pick deterministically
-        // (lowest Id) rather than inventing a new disambiguation mechanism
-        // for this story. A known, deliberate simplification, not a new
-        // REQ: a same-name collision here just means the live overlap check
-        // below runs against whichever of the same-named players sorts
-        // first, which may occasionally reject a step that would have
-        // validated against the OTHER same-named player.
-        var candidate = candidates.OrderBy(p => p.Id).First();
+        var candidateId = resolved.PlayerId;
 
         var submittedAt = timeProvider.GetUtcNow().UtcDateTime;
 
@@ -103,7 +99,7 @@ public class ConnectChainStepService(
         try
         {
             overlaps = await playerCareerOverlapService.GetSharedClubOverlapsAsync(
-                candidate.Id, precedingPlayerId, cancellationToken);
+                candidateId, precedingPlayerId, cancellationToken);
         }
         catch (LiveLookupUnavailableException)
         {
@@ -119,7 +115,7 @@ public class ConnectChainStepService(
                 UserId = userId,
                 Position = nextPosition,
                 AttemptNumber = attemptNumber,
-                CandidatePlayerId = candidate.Id,
+                CandidatePlayerId = candidateId,
                 MatchedClubName = null,
                 MatchedOverlapStartYear = null,
                 MatchedOverlapEndYear = null,
@@ -151,10 +147,9 @@ public class ConnectChainStepService(
         // Deterministically pick ONE representative overlap to persist/
         // display when the pair shared more than one club (e.g. Maxwell and
         // Zlatan Ibrahimović — Inter, Barcelona, PSG all valid) — the most
-        // recent one (latest OverlapStartYear). Same "pick deterministically
-        // rather than invent a new disambiguation mechanism" precedent this
-        // method's own candidate-name-collision handling above already
-        // uses; ConnectChainStep has one MatchedClubName column, not a list.
+        // recent one (latest OverlapStartYear). ConnectChainStep has one
+        // MatchedClubName column, not a list, so a deterministic pick is
+        // needed regardless of how the candidate itself was resolved.
         var matchedOverlap = overlaps.OrderByDescending(o => o.OverlapStartYear).First();
 
         // REQ-1406: chain-closing is checked against the OTHER participant's
@@ -169,7 +164,7 @@ public class ConnectChainStepService(
         try
         {
             closesChain = await playerCareerOverlapService.HaveSharedClubOverlapAsync(
-                candidate.Id, otherTargetPick!.TargetPlayerId, cancellationToken);
+                candidateId, otherTargetPick!.TargetPlayerId, cancellationToken);
         }
         catch (LiveLookupUnavailableException)
         {
@@ -187,7 +182,7 @@ public class ConnectChainStepService(
             UserId = userId,
             Position = nextPosition,
             AttemptNumber = attemptNumber,
-            CandidatePlayerId = candidate.Id,
+            CandidatePlayerId = candidateId,
             MatchedClubName = matchedOverlap.ClubName,
             MatchedOverlapStartYear = matchedOverlap.OverlapStartYear,
             MatchedOverlapEndYear = matchedOverlap.OverlapEndYear,

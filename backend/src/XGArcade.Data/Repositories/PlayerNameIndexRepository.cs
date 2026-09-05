@@ -154,6 +154,12 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
                 existingEntry.NormalizedName = entry.NormalizedName;
                 existingEntry.BirthYear = entry.BirthYear;
                 existingEntry.PrimaryNationality = entry.PrimaryNationality;
+                // ADR-0107: backfills a row indexed before WikidataQid
+                // existed the next time this player is swept — without this,
+                // a re-run would leave every already-indexed row's
+                // WikidataQid null forever, permanently blocking the
+                // disambiguation this column exists for.
+                existingEntry.WikidataQid = entry.WikidataQid;
             }
             else
             {
