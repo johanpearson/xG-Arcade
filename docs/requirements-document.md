@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.69"
+version: "2.70"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -12326,6 +12326,26 @@ itself, not by changing when resolution normally fires. Full
 (review outcomes, cascading denial, the reopen behavior) and a dedicated
 `ConnectMatchLifecycleServiceTests.cs` case for the resolution gate itself;
 API-level coverage in `ConnectChainStepDisputeEndpointTests.cs`.
+
+**Bug fix status note (2026-09-05, quality-architect review):** the initial
+implementation's `AlreadyForfeited` check (`ConnectChainStepService
+.SubmitChainStepAsync`) and two related read paths (`ConnectMatchLifecycleService
+.GetMatchesAwaitingActionAsync`, `ConnectMatchQueryService.GetMatchDetailAsync`'s
+terminal-state construction) read `existingSteps.Any(s => s.HasPendingDispute)`
+— ANY Pending dispute anywhere in the caller's own step history — rather
+than specifically the step covering their CURRENT bust. A player who
+disputed an early failure and left it unreviewed could keep submitting
+steps indefinitely past a completely separate, genuine, undisputed bust at
+a later position, for as long as the opponent left the earlier dispute
+unreviewed. Fixed by a new `ConnectChainStepExtensions.IsReallyBusted`
+extension, scoped to the player's own chain frontier (their
+most-recently-submitted step, by `Position` then `AttemptNumber`) —used
+identically in all three call sites, closing the "same question answered
+three different ways" gap the review also flagged. New `REQ1412_...`-named
+regression coverage in `ConnectChainStepDisputeServiceTests.cs`,
+`ConnectMatchLifecycleServiceTests.cs`, and `ConnectMatchQueryServiceTests.cs`
+reproduces the exact incorrect-exemption scenario and confirms both the
+caller's own and their opponent's terminal-state reads are correct.
 
 - Given a match has one or more Pending disputes (REQ-1412), raised by
   either player

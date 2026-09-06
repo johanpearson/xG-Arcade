@@ -11340,3 +11340,34 @@ friend-requests/challenges cases exactly. `docs/design-document.md`
 (SCREEN-07) and `docs/requirements-document.md` (REQ-1411) updated in the
 same iteration. No REQ/ADR change — this closes an already-flagged,
 temporary gap in an already-Built feature, not a new decision.
+
+**S-220 · Dispute-a-ruling mechanic (REQ-1412/1413/1414, ADR-0109) — Built,
+2026-09-05.** Product-owner-requested feature, additive to Epic 27: a
+player may dispute a rejected chain-step failure (either the first, instead
+of retrying, or the bust-causing second, instead of forfeiting) by naming
+the club they believe connects the two players — the one place in xG
+Connect a player types a club name since ADR-0104 removed it from ordinary
+submission. Only the match's own opponent may approve or deny it; approval
+scores exactly like an ordinary successful validation (no new scoring
+rule), denial is always an immediate bust (disputing consumes the retry the
+instant it's raised). A match cannot resolve while any dispute is Pending.
+An approved dispute separately produces a lightweight, non-retroactive
+admin data-correction suggestion (REQ-1414) — never affecting any match's
+outcome, past or future.
+
+Backend: new `ConnectChainStepDispute`/`ConnectDisputeDataCorrectionSuggestion`
+entities, `IConnectChainStepDisputeService`/`ConnectChainStepDisputeService`,
+new dispute raise/approve/deny/list endpoints plus a read-only admin
+suggestion list — see REQ-1412/1413/1414's own status notes and
+`architecture-document.md`'s COMP-17 row for the full shape. A same-story
+quality-gate finding (the `AlreadyForfeited`/terminal-state checks were
+scoped to ANY Pending dispute in a player's history rather than the one
+covering their current bust) was fixed before merge — see REQ-1412's own
+bug-fix status note. Frontend: `ChainBuilder.tsx`'s dispute-raising
+affordance, a new `DisputeReview.tsx` opponent-review component, and a new,
+deliberately read-only `ConnectDisputeSuggestionsScreen.tsx` admin screen.
+ADR-0109 (reopening ADR-0104 narrowly, on this one path only) written
+alongside this story, per ADR-0104's own "For AI agents" requirement. Full
+`REQ1412_`/`REQ1413_`/`REQ1414_`-named backend test coverage plus Vitest
+coverage for every new/changed frontend component — verified via `ci.yml`
+(no `dotnet` SDK in this sandbox).
