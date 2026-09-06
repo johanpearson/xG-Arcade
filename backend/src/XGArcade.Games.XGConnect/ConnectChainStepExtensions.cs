@@ -42,7 +42,16 @@ public static class ConnectChainStepExtensions
         var frontierStep = stepsForOnePlayerInOneMatch
             .OrderByDescending(s => s.Position)
             .ThenByDescending(s => s.AttemptNumber)
-            .First();
+            .FirstOrDefault();
+
+        // Defensive, not expected in production: MarkPlayerBustedAsync is
+        // only ever called right after AddChainStepAsync persists the
+        // failing step itself, so a non-null bustedAt should always have at
+        // least one step behind it. No steps at all means nothing could
+        // possibly be a Pending dispute covering this bust either way, so
+        // treat it as genuinely busted rather than throwing.
+        if (frontierStep is null)
+            return true;
 
         return !frontierStep.IsValid && !frontierStep.HasPendingDispute;
     }

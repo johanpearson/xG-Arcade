@@ -580,4 +580,77 @@ public class ConnectMatchLifecycleServiceTests
 
         Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { match.Id }));
     }
+
+    // ---- REQ-1412: a bust covered by a Pending dispute is not a real
+    // ---- forfeit — the player must still be nudged to keep playing while it
+    // ---- awaits review -------------------------------------------------------
+
+    [Test]
+    public async Task REQ1412_GetMatchesAwaitingActionAsync_PendingDisputeCoveredBust_StillIncludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var disputedStep = await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = callerId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        await _connectMatchRepository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = disputedStep.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = FixedNow.UtcDateTime,
+        });
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result.Select(m => m.Id), Is.EquivalentTo(new[] { match.Id }),
+            "a bust covered by a Pending dispute must not exclude the match — the player must still be nudged to keep playing while it awaits review (REQ-1412), since REQ-1413 keeps the deadline running unpaused");
+    }
+
+    // Bug fix regression (2026-09-05, quality-architect review): an old,
+    // still-Pending dispute at an EARLIER position must never exempt a
+    // completely separate, undisputed bust at a LATER position from
+    // correctly excluding the match here either — not just in
+    // ConnectChainStepService.SubmitChainStepAsync's own AlreadyForfeited
+    // check (see ConnectChainStepServiceTests/ConnectChainStepDisputeServiceTests
+    // for that call site's own dedicated coverage of the same bug).
+    [Test]
+    public async Task REQ1412_GetMatchesAwaitingActionAsync_OldPendingDisputeAtEarlierPosition_DoesNotExemptGenuineLaterBust_ExcludesMatch()
+    {
+        var callerId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, Guid.NewGuid(), FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var oldDisputedStep = await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = callerId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = oldDisputedStep.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = FixedNow.UtcDateTime,
+        });
+        // A completely separate, genuine, undisputed bust at a LATER
+        // position — two real, consecutive failures at position 3.
+        await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = callerId, Position = 3, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime.AddMinutes(10),
+        });
+        await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = callerId, Position = 3, AttemptNumber = 2,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime.AddMinutes(11),
+        });
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime.AddMinutes(11));
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchesAwaitingActionAsync(callerId);
+
+        Assert.That(result, Is.Empty,
+            "the old, still-Pending dispute at position 1 must not exempt a completely separate, undisputed bust at position 3 from correctly excluding the match");
+    }
 }

@@ -174,6 +174,78 @@ public class ConnectChainStepDisputeServiceTests
         Assert.That(result.ChainStep!.Position, Is.EqualTo(2));
     }
 
+    // ---- Bug fix regression (2026-09-05, quality-architect review): an old,
+    // ---- still-Pending dispute at an EARLIER position must never exempt a
+    // ---- completely separate, undisputed bust at a LATER position ----------
+
+    [Test]
+    public async Task REQ1412_RaiseDisputeAsync_OldPendingDisputeAtEarlierPosition_DoesNotExemptGenuineUndisputedBustAtLaterPosition()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        var disputedCandidate = await SeedPlayerAsync("Position One Player");
+        var disputedStep = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, disputedCandidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        var raiseResult = await disputeService.RaiseDisputeAsync(match.Id, disputedStep.Id, aUserId, "Arsenal");
+        Assert.That(raiseResult.Outcome, Is.EqualTo(RaiseChainStepDisputeOutcome.Raised));
+        // Left Pending/unreviewed deliberately — this is exactly the bug
+        // scenario: an opponent who never reviews it must not thereby grant
+        // the disputing player unlimited further play.
+
+        // A completely separate, genuine, undisputed bust at a LATER
+        // position — two real, consecutive failures at position 3.
+        var laterFirstFailureCandidate = await SeedPlayerAsync("Later First Failure Player");
+        var laterRetryFailureCandidate = await SeedPlayerAsync("Later Retry Failure Player");
+        await AddInvalidStepAsync(match.Id, aUserId, position: 3, attemptNumber: 1, laterFirstFailureCandidate.Id, FixedNow.UtcDateTime.AddMinutes(10));
+        await AddInvalidStepAsync(match.Id, aUserId, position: 3, attemptNumber: 2, laterRetryFailureCandidate.Id, FixedNow.UtcDateTime.AddMinutes(11));
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime.AddMinutes(11));
+
+        var chainStepService = new ConnectChainStepService(
+            _connectMatchRepository, new FakePlayerCareerOverlapService(), _playerRepository,
+            _connectMatchLifecycleService, new FixedTimeProvider(FixedNow.AddMinutes(15)));
+
+        var result = await chainStepService.SubmitChainStepAsync(match.Id, aUserId, "Anyone");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.AlreadyForfeited),
+            "the old, still-Pending dispute at position 1 must not exempt a completely separate, undisputed bust at position 3 — " +
+            "pre-fix, scoping the Pending-dispute check to ANY step anywhere in the caller's history incorrectly let this submission succeed");
+        Assert.That(result.ChainStep, Is.Null);
+    }
+
+    // ---- Gap-closing companion to REQ1412_RaiseDisputeAsync_
+    // ---- PendingDispute_LetsCallerKeepSubmittingFurtherSteps above: that
+    // ---- test only disputes a FIRST failure; REQ-1412's own text applies
+    // ---- identically to a dispute raised on the bust-CAUSING (second)
+    // ---- failure, which was not separately exercised anywhere else.
+    [Test]
+    public async Task REQ1412_RaiseDisputeAsync_BustCausingFailureDispute_LetsCallerKeepSubmittingFurtherSteps()
+    {
+        var (match, aUserId, _, _, bTargetPlayerId) = await CreateActiveMatchAsync();
+        var firstCandidate = await SeedPlayerAsync("First Attempt Player");
+        var retryCandidate = await SeedPlayerAsync("Retry Attempt Player");
+        await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, firstCandidate.Id, FixedNow.UtcDateTime);
+        var bustStep = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 2, retryCandidate.Id, FixedNow.UtcDateTime);
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        var raiseResult = await disputeService.RaiseDisputeAsync(match.Id, bustStep.Id, aUserId, "Arsenal");
+        Assert.That(raiseResult.Outcome, Is.EqualTo(RaiseChainStepDisputeOutcome.Raised));
+
+        var overlapService = new FakePlayerCareerOverlapService();
+        var closingCandidate = await SeedPlayerAsync("Closing Link Player");
+        // The next step's "preceding player" must be the DISPUTED (bust-
+        // causing) step's own candidate — proving the chain really did
+        // advance past it, not just past a disputed FIRST failure.
+        overlapService.SetSharedClubOverlaps(closingCandidate.Id, retryCandidate.Id, new SharedClubOverlap("Chelsea", 2005, 2010));
+        overlapService.SetOverlap(closingCandidate.Id, bTargetPlayerId, overlaps: true);
+        var chainStepService = new ConnectChainStepService(
+            _connectMatchRepository, overlapService, _playerRepository, _connectMatchLifecycleService, new FixedTimeProvider(FixedNow));
+
+        var result = await chainStepService.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainClosed),
+            "disputing the bust-causing (second) failure must also let the player keep playing (REQ-1412), not just a disputed first failure");
+        Assert.That(result.ChainStep!.Position, Is.EqualTo(2));
+    }
+
     [Test]
     public async Task REQ1412_RaiseDisputeAsync_StepAlreadyValid_ReturnsStepNotInvalid()
     {
