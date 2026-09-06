@@ -6,7 +6,14 @@ import { SuggestionsScreen } from './admin/SuggestionsScreen';
 import { AuthScreen } from './auth/AuthScreen';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Logo } from './components/Logo';
-import { GameSelectScreen, XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from './games/GameSelectScreen';
+import {
+  GameSelectScreen,
+  XG_GRID_GAME_KEY,
+  XG_PATH_GAME_KEY,
+  XG_PREDICT_GAME_KEY,
+  XG_CONNECT_GAME_KEY,
+} from './games/GameSelectScreen';
+import { ConnectEntryScreen } from './connect/ConnectEntryScreen';
 import { GridScreen } from './grid/GridScreen';
 import { IncidentReportDialog } from './incidents/IncidentReportDialog';
 import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
@@ -73,18 +80,30 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // 'friends' (REQ-1401/1402/1403, S-217, SCREEN-15) is FriendsScreen's own
 // destination — reachable from the header's new "Friends" nav entry
 // (REQ-1411's own notification badge lives on that entry, not this Screen
-// value itself) and, optionally, from UserStatsScreen's "Respond in
-// Friends & Challenges" link (onOpenFriends) when the viewed player already
-// sent the viewer a pending friend request. S-218 (SCREEN-16) added a
-// fourth "Matches" tab inside FriendsScreen itself (not a new top-level
-// Screen/hash route) — see FriendsScreen.tsx's own comment on why the
-// match/gameplay drill-down is component-local state, not App-level
-// navigation.
+// value itself), optionally from UserStatsScreen's "Respond in Friends &
+// Challenges" link (onOpenFriends) when the viewed player already sent the
+// viewer a pending friend request, and (REQ-1415) from
+// 'xg-connect-entry's two choice buttons, which seed `friendsInitialTab`
+// first (see handleOpenFriendsTab, reused as-is for this new caller). S-218
+// (SCREEN-16) added a fourth "Matches" tab inside FriendsScreen itself (not
+// a new top-level Screen/hash route) — see FriendsScreen.tsx's own comment
+// on why the match/gameplay drill-down is component-local state, not
+// App-level navigation.
+// 'xg-connect-entry' (REQ-1415, SCREEN-17) is ConnectEntryScreen's own
+// destination — reached via GameSelectScreen's fourth tile or HeaderNav's
+// "Games" -> "xG Connect" entry, the same way 'grid'/'path'/'predict' are
+// reached via their own tile/nav-entry. Deliberately the one game tile that
+// does NOT go straight into that game's own play screen (see
+// GameSelectScreen.tsx's own doc comment for why) — instead it shows two
+// choices ("Challenge a friend" / "Challenge random player"), each of which
+// hands off to 'friends' with a pre-seeded tab, per REQ-1415's own
+// "don't restate the underlying flows" requirement.
 type Screen =
   | 'game-select'
   | 'grid'
   | 'path'
   | 'predict'
+  | 'xg-connect-entry'
   | 'leaderboard'
   | 'leagues'
   | 'friends'
@@ -104,6 +123,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   grid: '#/grid',
   path: '#/path',
   predict: '#/predict',
+  'xg-connect-entry': '#/xg-connect',
   leaderboard: '#/leaderboard',
   leagues: '#/leagues',
   friends: '#/friends',
@@ -437,6 +457,7 @@ function App() {
             isGridCurrent={screen === 'grid'}
             isPathCurrent={screen === 'path'}
             isPredictCurrent={screen === 'predict'}
+            isConnectCurrent={screen === 'xg-connect-entry'}
             onSelectLeaderboard={() => {
               // REQ-1210/ADR-0083: a normal, explicit nav-menu visit always
               // clears any completion-banner-seeded target — otherwise a
@@ -465,6 +486,7 @@ function App() {
             onSelectGrid={() => navigateTo('grid')}
             onSelectPath={() => navigateTo('path')}
             onSelectPredict={() => navigateTo('predict')}
+            onSelectConnect={() => navigateTo('xg-connect-entry')}
             onLogout={handleLogoutClick}
           />
         )}
@@ -553,12 +575,13 @@ function App() {
           screen === 'game-select' ? (
             // S-085/SCREEN-09: now dispatches on the passed gameKey — xG
             // Grid's tile/nav-entry still routes to 'grid' exactly as
-            // before; xG Path's new tile/nav-entry routes to 'path'. A
-            // switch over the two-member literal union (quality-gate
-            // follow-up, S-085) rather than an if/else-if chain — a third
-            // game key added to that union without a matching case here is
-            // now a compile error (the `never` assignment below), not a
-            // silent no-op.
+            // before; xG Path's tile/nav-entry routes to 'path'; xG
+            // Predict's to 'predict'. A switch over the literal union
+            // (quality-gate follow-up, S-085) rather than an if/else-if
+            // chain — a new game key added to that union without a matching
+            // case here is now a compile error (the `never` assignment
+            // below), not a silent no-op. REQ-1415 added xG Connect's own
+            // case as the deliberate exception noted just below.
             <GameSelectScreen
               onSelectGame={(gameKey) => {
                 switch (gameKey) {
@@ -570,6 +593,11 @@ function App() {
                     break;
                   case XG_PREDICT_GAME_KEY:
                     navigateTo('predict');
+                    break;
+                  case XG_CONNECT_GAME_KEY:
+                    // REQ-1415: the deliberate exception — routes to the
+                    // two-choice entry screen, not directly into gameplay.
+                    navigateTo('xg-connect-entry');
                     break;
                   default: {
                     const _exhaustive: never = gameKey;
@@ -601,6 +629,20 @@ function App() {
             // deliberately does not apply to xG Predict — see
             // PredictScreenProps' own doc comment for why).
             <PredictScreen accessToken={accessToken} onAuthError={handleLogout} />
+          ) : screen === 'xg-connect-entry' ? (
+            // REQ-1415/SCREEN-17: the two choices each seed
+            // `friendsInitialTab` and navigate to 'friends', reusing
+            // handleOpenFriendsTab exactly as the notification-badge
+            // dropdown already does (same two-step "seed a tab, navigate"
+            // mechanism, see that function's own comment) — this is what
+            // makes REQ-1415's "don't restate the underlying flows' own
+            // business rules" and "Matches tab stays reachable" criteria
+            // hold for free, since FriendsScreen always renders all four
+            // tabs regardless of which one is initially active.
+            <ConnectEntryScreen
+              onChallengeFriend={() => handleOpenFriendsTab('friends')}
+              onChallengeRandomPlayer={() => handleOpenFriendsTab('matchmaking')}
+            />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen
               accessToken={accessToken}

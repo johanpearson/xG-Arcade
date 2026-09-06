@@ -11371,3 +11371,45 @@ alongside this story, per ADR-0104's own "For AI agents" requirement. Full
 `REQ1412_`/`REQ1413_`/`REQ1414_`-named backend test coverage plus Vitest
 coverage for every new/changed frontend component — verified via `ci.yml`
 (no `dotnet` SDK in this sandbox).
+
+**S-221 · xG Connect discoverability: Games-screen tile + entry screen +
+rules explainer (REQ-1415/1416) — Built, 2026-09-06.** Before this story,
+xG Connect (REQ-1401-1414) had no presence at all on `GameSelectScreen.tsx`
+(SCREEN-09), the one screen whose entire purpose is listing the games xG
+Arcade hosts — the only way in was the "Friends" header-nav entry, which a
+player had to already know led to xG Connect.
+
+Frontend only, no backend/dotnet change needed. `GameSelectScreen.tsx`
+gained a fourth tile, "xG Connect," appended last (after xG Predict,
+matching `HeaderNav`'s own new fourth "Games" entry), exposing a new
+`XG_CONNECT_GAME_KEY` constant alongside the existing three. Selecting
+either opens a new `ConnectEntryScreen.tsx` (`frontend/src/connect/`,
+SCREEN-17) — a new `'xg-connect-entry'` `Screen`/`#/xg-connect` hash wired
+into `App.tsx`'s switch and `SCREEN_HASHES` map, plus a matching
+`isConnectCurrent`/`onSelectConnect` pair on `HeaderNav.tsx` — presenting
+exactly two choices, "Challenge a friend" and "Challenge random player."
+Both choices reuse `FriendsScreen`'s existing `initialTab` mechanism
+as-is: each seeds `friendsInitialTab` (`'friends'` or `'matchmaking'`)
+and navigates to `'friends'` via the same `handleOpenFriendsTab`
+`App.tsx` already established for the notification-badge dropdown — no
+forking of `FriendsTab`/`MatchmakingTab` logic, and no REQ-1401/1402/1403
+business rule restated or changed. `GameSelectScreen.tsx` itself stays
+unaware of any of this; it still just calls
+`onSelectGame(XG_CONNECT_GAME_KEY)` like every other tile, with the
+branching living entirely in `App.tsx`.
+
+Also new: `ConnectScoringExplainer.tsx` (REQ-1416), built on the shared
+`ScoringExplainerShell.tsx` (REQ-213) pattern already used by
+`ScoringExplainer.tsx`/`PathScoringExplainer.tsx`/
+`PredictScoringExplainer.tsx`, covering xG Connect's own mechanics (chain-
+building, the bust rule, scoring shape only, the forfeit timer, and the
+dispute mechanic) as five independently identifiable points. Its `(ⓘ)`
+trigger is wired into both `ConnectEntryScreen.tsx` and `MatchScreen.tsx`'s
+title row, reachable regardless of match phase. See SCREEN-09's and
+SCREEN-17's own status notes in `design-document.md` for the full spec.
+
+`docs/architecture-document.md` left unchanged — `architecture-reviewer`
+confirmed this is pure frontend routing/reuse with no component boundary
+change, and no ADR is needed. Full suite verified in-sandbox (no backend
+change to defer to CI for): 938/938 Vitest tests passing, `tsc -b` clean,
+lint clean.

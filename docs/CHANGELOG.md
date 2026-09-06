@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-06 — `docs/requirements-document.md` (new REQ-1415/1416, marked
+  Built, v2.72 → v2.73), `docs/design-document.md` (SCREEN-09 amended,
+  new SCREEN-17, v0.93 → v0.94), `docs/backlog.md` (new S-221 story),
+  `docs/implementation-document.md` (`/games` folder entry updated for the
+  fourth game key, v1.27 → v1.28) — a discoverability front door for xG
+  Connect (S-221, Epic 27): a fourth
+  "xG Connect" tile on `GameSelectScreen.tsx` (SCREEN-09) and a matching
+  `HeaderNav` "Games" entry, both opening a new `ConnectEntryScreen.tsx`
+  (SCREEN-17, REQ-1415) with exactly two choices — "Challenge a friend" /
+  "Challenge random player" — each seeding `FriendsScreen`'s existing
+  `initialTab` prop and reusing `App.tsx`'s existing
+  `handleOpenFriendsTab`/`navigateTo('friends')` mechanism rather than
+  forking any Friends/Matchmaking logic; no REQ-1401/1402/1403 business
+  rule was restated or changed. New `ConnectScoringExplainer.tsx`
+  (REQ-1416), built on the shared `ScoringExplainerShell` (REQ-213), wired
+  into both `ConnectEntryScreen` and `MatchScreen.tsx`'s title row. No
+  `docs/architecture-document.md` change — confirmed by
+  `architecture-reviewer`: pure frontend routing/reuse, no boundary
+  change — and no ADR needed.
+
 - 2026-09-05 — `docs/requirements-document.md` (REQ-1412 bug-fix status
   note, v2.69 → v2.70), `docs/architecture-document.md` (COMP-17 row
   extended with the fix + frontend build, v1.54 → v1.55), `docs/backlog.md`

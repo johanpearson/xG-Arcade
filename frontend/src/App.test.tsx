@@ -828,6 +828,180 @@ describe('App (REQ-1301: xG Predict routing)', () => {
   });
 });
 
+// REQ-1415 (SCREEN-17): App.tsx's routing for xG Connect's own lighter-
+// weight front door — reached via GameSelectScreen's fourth tile or
+// HeaderNav's "Games" -> "xG Connect" entry, itself routing onward into the
+// already-built FriendsScreen (REQ-1401/1403) rather than any new gameplay
+// screen of its own.
+describe('App (REQ-1415: xG Connect entry-point routing)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function stubFetchForConnectEntry() {
+    return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/friends/requests/pending')) return jsonResponse([]);
+      if (url.includes('/friends')) return jsonResponse([]);
+      if (url.includes('/challenges/pending')) return jsonResponse([]);
+      if (url.includes('/notifications/summary')) {
+        return jsonResponse({
+          pendingFriendRequestCount: 0,
+          pendingChallengeCount: 0,
+          matchesAwaitingActionCount: 0,
+          hasPending: false,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it('REQ-1415: selecting the xG Connect tile reaches the two-choice entry screen (not gameplay directly) and updates location.hash to #/xg-connect', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForConnectEntry());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'xG Connect' }));
+
+    expect(await screen.findByRole('button', { name: 'Challenge a friend' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Challenge random player' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/xg-connect');
+
+    // The title still routes back to GameSelectScreen from inside the new
+    // screen, same as every other game (REQ-720).
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+
+  it('REQ-1415: Games -> xG Connect reaches the same entry screen, and the "xG Arcade" title still reaches GameSelectScreen unchanged', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForConnectEntry());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    // Scoped to the nav: GameSelectScreen's own "xG Connect" tile also
+    // renders "xG Connect" text while game-select is showing, so an
+    // unscoped query here would match two elements.
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    await user.click(within(nav).getByRole('button', { name: 'xG Connect' }));
+
+    expect(await screen.findByRole('button', { name: 'Challenge a friend' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/xg-connect');
+
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+
+  it('REQ-1415: "Challenge a friend" reaches FriendsScreen on its Friends tab, with the existing per-row "Challenge" flow (REQ-1402) still intact', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+        if (url.includes('/auth/me')) return jsonResponse(meResponse);
+        if (url.includes('/friends/requests/pending')) return jsonResponse([]);
+        if (url.includes('/friends')) {
+          return jsonResponse([
+            { id: 'friendship-1', friendUserId: 'user-9', friendDisplayName: 'Robin', createdAt: '2026-09-01T00:00:00Z' },
+          ]);
+        }
+        if (url.includes('/challenges/pending')) return jsonResponse([]);
+        if (url.includes('/notifications/summary')) {
+          return jsonResponse({
+            pendingFriendRequestCount: 0,
+            pendingChallengeCount: 0,
+            matchesAwaitingActionCount: 0,
+            hasPending: false,
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'xG Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Challenge a friend' }));
+
+    expect(await screen.findByRole('heading', { name: 'Friends & Challenges' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/friends');
+    expect(screen.getByRole('tab', { name: 'Friends' })).toHaveAttribute('aria-selected', 'true');
+    // REQ-1402's own friend-row "Challenge" action is still exactly what's
+    // reachable here — unchanged by this new entry point.
+    expect(await screen.findByRole('button', { name: /Challenge/ })).toBeInTheDocument();
+  });
+
+  it('REQ-1415: "Challenge random player" reaches FriendsScreen already on its Matchmaking tab, with the existing opt-in flow (REQ-1403) still intact', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForConnectEntry());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'xG Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Challenge random player' }));
+
+    expect(await screen.findByRole('heading', { name: 'Friends & Challenges' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/friends');
+    expect(screen.getByRole('tab', { name: 'Matchmaking' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Opt in' })).toBeInTheDocument();
+  });
+
+  it('REQ-1415: the existing "Friends" nav entry and its Matches tab remain reachable and unaffected by the new xG Connect entry point', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+        if (url.includes('/auth/me')) return jsonResponse(meResponse);
+        if (url.includes('/friends/requests/pending')) return jsonResponse([]);
+        if (url.includes('/friends')) return jsonResponse([]);
+        if (url.includes('/challenges/pending')) return jsonResponse([]);
+        if (url.includes('/matches')) return jsonResponse([]);
+        if (url.includes('/notifications/summary')) {
+          return jsonResponse({
+            pendingFriendRequestCount: 0,
+            pendingChallengeCount: 0,
+            matchesAwaitingActionCount: 0,
+            hasPending: false,
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Friends' }));
+
+    expect(await screen.findByRole('heading', { name: 'Friends & Challenges' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/friends');
+    // Default tab is still "Friends," unaffected by xG Connect's own seeded
+    // navigation elsewhere in this suite.
+    expect(screen.getByRole('tab', { name: 'Friends' })).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(screen.getByRole('tab', { name: 'Matches' }));
+    expect(screen.getByRole('tab', { name: 'Matches' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
 // REQ-721/ADR-0039: hash-based URL-per-screen support. E2E
 // (tests/e2e/url-routing.spec.ts) covers the full real-browser reload
 // round trip; this covers the ordering constraints that must hold

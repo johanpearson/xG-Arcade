@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.72"
+version: "2.73"
 status: draft
 last_updated: 2026-09-06
 owner: Johan
@@ -12501,18 +12501,27 @@ friend or challenge a random player**
 > can discover and start a match without already knowing it's reachable
 > from the "Friends" header-nav entry.
 
-**Status: Proposed.** Not built. xG Connect (REQ-1401-1414) currently has
-no presence on `GameSelectScreen.tsx` (SCREEN-09) at all — the only
-existing entry point is the top-level "Friends" header-nav item, which
-opens `FriendsScreen.tsx` (SCREEN-15) directly to its tabbed
-Friends/Challenges/Matchmaking/Matches view. A player who has never
-noticed "Friends" in the header nav, or who has but doesn't already know
-challenges are how xG Connect is played, has no way to learn xG Connect is
-a game from the one screen whose entire purpose is listing the games xG
-Arcade hosts. This requirement adds a lighter-weight front door for that
-case; it does not change REQ-1401/1402/1403's own flows, and does not
-remove or replace the existing "Friends" nav entry or `FriendsScreen`,
-which remain exactly as they are.
+**Status: Built, 2026-09-06.** `GameSelectScreen.tsx` (SCREEN-09) gained a
+fourth tile, "xG Connect," positioned last, appended after xG Predict —
+matching `HeaderNav`'s own new fourth "Games" list entry. Selecting either
+opens a new `ConnectEntryScreen.tsx` (`frontend/src/connect/`, SCREEN-17)
+presenting exactly the two choices described below; each choice seeds
+`FriendsScreen.tsx`'s (SCREEN-15) `initialTab` prop and navigates there,
+reusing the exact `setFriendsInitialTab`/`navigateTo('friends')` mechanism
+`App.tsx`'s notification-badge handler already established — no business
+rule from REQ-1401/1402/1403 was restated or changed, and the existing
+"Friends" header-nav entry and `FriendsScreen`'s own tabs remain reachable
+exactly as before. Before this, xG Connect (REQ-1401-1414) had no presence
+on `GameSelectScreen.tsx` at all — the only existing entry point was the
+top-level "Friends" header-nav item, which opens `FriendsScreen.tsx`
+directly to its tabbed Friends/Challenges/Matchmaking/Matches view. A
+player who had never noticed "Friends" in the header nav, or who had but
+didn't already know challenges are how xG Connect is played, had no way to
+learn xG Connect is a game from the one screen whose entire purpose is
+listing the games xG Arcade hosts. This requirement adds a lighter-weight
+front door for that case; it does not change REQ-1401/1402/1403's own
+flows, and does not remove or replace the existing "Friends" nav entry or
+`FriendsScreen`, which remain exactly as they are.
 
 - Given the Games screen (SCREEN-09) renders
 - When a logged-in player views it
@@ -12581,13 +12590,17 @@ Matches tab remain reachable and unchanged throughout).
 > including that disputing a ruling is possible, so I don't have to guess
 > at the rules or discover the dispute mechanic by accident.
 
-**Status: Proposed.** Not built. xG Grid, xG Path, and xG Predict each have
-a rules/scoring explainer reachable via a `(ⓘ)` entry point opening an
-accessible modal (`ScoringExplainer.tsx`, `PathScoringExplainer.tsx`,
-`PredictScoringExplainer.tsx`, all built on the shared
-`ScoringExplainerShell.tsx` pattern established by REQ-213) — xG Connect
-has no equivalent today, despite having real, non-obvious mechanics of its
-own (the bust rule, the forfeit timer, and the dispute mechanic in
+**Status: Built, 2026-09-06.** New `frontend/src/connect/
+ConnectScoringExplainer.tsx`, built on the same shared
+`ScoringExplainerShell.tsx` (REQ-213) as `ScoringExplainer.tsx`/
+`PathScoringExplainer.tsx`/`PredictScoringExplainer.tsx`, with its own
+content covering exactly the five points below. Its `(ⓘ)` trigger is wired
+into both `ConnectEntryScreen.tsx` (SCREEN-17, REQ-1415) and
+`MatchScreen.tsx`'s own title row, reachable regardless of match phase.
+Before this, xG Grid, xG Path, and xG Predict each had a rules/scoring
+explainer reachable via a `(ⓘ)` entry point opening an accessible modal —
+xG Connect had no equivalent, despite having real, non-obvious mechanics of
+its own (the bust rule, the forfeit timer, and the dispute mechanic in
 particular are exactly the kind of thing a player cannot infer from the UI
 alone).
 

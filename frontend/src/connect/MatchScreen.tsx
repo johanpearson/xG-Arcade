@@ -1,8 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { fetchConnectMatchDetail } from '../lib/connectMatches';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { usePolling } from '../lib/usePolling';
 import { ChainBuilder } from './ChainBuilder';
+import { ConnectScoringExplainer } from './ConnectScoringExplainer';
 import { DisputeReview } from './DisputeReview';
 import { MatchChat } from './MatchChat';
 import { MatchResolution } from './MatchResolution';
@@ -43,11 +44,32 @@ export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, o
   // extracted into this shared hook).
   usePolling(refetch, POLL_INTERVAL_MS, { enabled: detail !== null && detail.status !== 'Resolved' });
 
+  // REQ-1416: gates ConnectScoringExplainer — same "own local disclosure
+  // state" shape GridScreen.tsx/PathScreen.tsx already use for their own
+  // (ⓘ) toggles.
+  const [explainerOpen, setExplainerOpen] = useState(false);
+
   return (
     <div className="connect-match">
-      <button type="button" className="connect-match__back" onClick={onBack}>
-        &larr; Back to matches
-      </button>
+      <div className="connect-match__title-row">
+        <button type="button" className="connect-match__back" onClick={onBack}>
+          &larr; Back to matches
+        </button>
+        {/* REQ-1416: opens SCREEN-17's own rules explainer — reachable at
+            any point in an active match, mirroring GridScreen.tsx's/
+            PathScreen.tsx's own (ⓘ) placement next to their own title-row
+            content, and reusing their "How scoring works" label (see
+            ConnectScoringExplainer.tsx's own doc comment for why). Also
+            reachable, before any match exists, from ConnectEntryScreen. */}
+        <button
+          type="button"
+          className="connect-match__info-toggle"
+          onClick={() => setExplainerOpen(true)}
+          aria-label="How scoring works"
+        >
+          ⓘ
+        </button>
+      </div>
 
       {loadError && (
         <p className="connect-match__error" role="alert">
@@ -99,6 +121,8 @@ export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, o
           <MatchChat matchId={matchId} accessToken={accessToken} viewerUserId={viewerUserId} onAuthError={onAuthError} />
         </>
       )}
+
+      {explainerOpen && <ConnectScoringExplainer onClose={() => setExplainerOpen(false)} />}
     </div>
   );
 }

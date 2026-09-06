@@ -127,4 +127,33 @@ describe('MatchScreen', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
+
+  // REQ-1416 (design-document.md SCREEN-17): the rules explainer's entry
+  // point is available on this screen too, regardless of match phase —
+  // ConnectScoringExplainer.test.tsx covers the dialog's own content/focus/
+  // Escape behavior; this only covers the trigger's wiring on this screen.
+  describe('REQ-1416: scoring explainer', () => {
+    it('renders the "How scoring works" (ⓘ) entry point immediately, even before the match detail has loaded', () => {
+      stubDetailAndChat(detail());
+      renderScreen();
+
+      expect(screen.getByRole('button', { name: 'How scoring works' })).toBeInTheDocument();
+    });
+
+    it('opens a "How scoring works" dialog with xG Connect\'s own content, and closing it returns to the match screen', async () => {
+      stubDetailAndChat(detail());
+      renderScreen();
+      await screen.findByText('Opponent: Opponent Olivia');
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      screen.getByRole('button', { name: 'How scoring works' }).click();
+      const dialog = await screen.findByRole('dialog', { name: 'How scoring works' });
+      expect(dialog.textContent).toMatch(/target pick/i);
+      expect(dialog.textContent).toMatch(/dispute/i);
+
+      screen.getByRole('button', { name: 'Close' }).click();
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+  });
 });
