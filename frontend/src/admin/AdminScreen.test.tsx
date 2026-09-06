@@ -678,6 +678,30 @@ describe('AdminScreen', () => {
     expect(onOpenSuggestions).toHaveBeenCalledTimes(1);
   });
 
+  it('REQ-1414: clicking "Connect dispute suggestions" calls onOpenConnectDisputeSuggestions', async () => {
+    const onOpenConnectDisputeSuggestions = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+    const user = userEvent.setup();
+
+    render(
+      <AdminScreen
+        accessToken="token"
+        onAuthError={vi.fn()}
+        onOpenSuggestions={vi.fn()}
+        onOpenConnectDisputeSuggestions={onOpenConnectDisputeSuggestions}
+      />,
+    );
+    // REQ-1414: "Connect dispute suggestions" lives in the default "Users"
+    // nav group, so no tab switch is needed before interacting with it.
+    const button = await screen.findByRole('button', { name: 'Connect dispute suggestions' });
+    await user.click(button);
+
+    expect(onOpenConnectDisputeSuggestions).toHaveBeenCalledTimes(1);
+  });
+
   it('REQ-512: a non-401/403 error from the suggestions fetch shows an inline error message, with no badge and no onAuthError call', async () => {
     const onAuthError = vi.fn();
     stubFetch({

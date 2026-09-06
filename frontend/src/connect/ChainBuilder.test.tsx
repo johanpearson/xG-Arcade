@@ -60,6 +60,47 @@ async function pickSuggestionAndSubmit(user: ReturnType<typeof userEvent.setup>,
   await user.click(screen.getByRole('button', { name: 'Submit connector' }));
 }
 
+// REQ-1412/ADR-0109: shared setup for the dispute tests below — submits one
+// candidate that fails validation on its first attempt (isValid: false,
+// busted: false, chainStepId: 'step-1'), leaving `disputableStep` set and the
+// "Dispute this ruling" form visible alongside the ordinary retry form (see
+// ChainBuilder.tsx's own `disputableStep` comment). `matchDisputeFetch`
+// handles only the dispute-raising POST itself (return `undefined` for any
+// URL it doesn't recognize) — every other route (autocomplete, the
+// chain-steps submission) is already wired to the fixed first-failure
+// response below.
+async function renderWithDisputableFirstFailure(
+  matchDisputeFetch: (url: string, init?: RequestInit) => Promise<Response> | undefined,
+) {
+  const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
+    if (url.endsWith('/matches/match-1/chain-steps') && method === 'POST') {
+      return jsonResponse({
+        isValid: false,
+        chainComplete: false,
+        position: 1,
+        attemptNumber: 1,
+        candidatePlayerId: 'p1',
+        chainStepId: 'step-1',
+        matchedClubName: null,
+        matchedOverlapStartYear: null,
+        matchedOverlapEndYear: null,
+        busted: false,
+      });
+    }
+    const disputeResult = matchDisputeFetch(url, init);
+    if (disputeResult) return disputeResult;
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+  const user = userEvent.setup();
+  const utils = renderBuilder({}, fetchMock);
+  await pickSuggestionAndSubmit(user, 'Some Player');
+  await screen.findByText(/one more attempt at this position/);
+  return { user, ...utils };
+}
+
 // REQ-1406/1407 (design-document.md SCREEN-16's "Active/chain-building
 // phase").
 describe('ChainBuilder', () => {
@@ -341,5 +382,184 @@ describe('ChainBuilder', () => {
     renderBuilder({ opponentTerminalState: { busted: true, timedOut: false, completed: false } });
 
     expect(screen.getByText(/Your opponent busted/)).toBeInTheDocument();
+  });
+
+  // ---- REQ-1412/1413/ADR-0109: dispute-a-ruling ---------------------------
+
+  it('REQ-1412: after a first invalid attempt, raising a dispute calls raiseChainStepDispute with the failed step and club, and once the parent reports the resulting provisional bust shows the "waiting for review" text', async () => {
+    const { user, onChanged, rerenderWith } = await renderWithDisputableFirstFailure((url, init) => {
+      if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && init?.method === 'POST') {
+        expect(JSON.parse(init!.body as string)).toEqual({ claimedClubName: 'Chelsea' });
+        return jsonResponse({
+          disputeId: 'dispute-1',
+          chainStepId: 'step-1',
+          claimedClubName: 'Chelsea',
+          status: 'Pending',
+          raisedAt: '2026-09-06T00:00:00Z',
+          reviewedAt: null,
+        });
+      }
+      return undefined;
+    });
+
+    // Both the ordinary retry form and the new dispute form are offered
+    // alongside each other after a first failure.
+    expect(screen.getByRole('button', { name: 'Submit connector' })).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'Chelsea');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    // Raising ANY dispute provisionally busts the caller's slot server-side
+    // (ChainBuilder.tsx's own `awaitingOwnDisputeReview` comment) — simulate
+    // the parent's post-onChanged refetch delivering that.
+    rerenderWith({ myTerminalState: { busted: true, timedOut: false, completed: false } });
+
+    expect(
+      await screen.findByText(
+        'You disputed this ruling, claiming they played together at Chelsea. Waiting for your opponent to review it.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('REQ-1412/1413: after a Busted result, the dispute form appears; raising a dispute succeeds the same way, suppressing the busted terminal message in favor of the dispute-waiting text', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
+      if (url.endsWith('/matches/match-1/chain-steps') && method === 'POST') {
+        return jsonResponse({
+          isValid: false,
+          chainComplete: false,
+          position: 1,
+          attemptNumber: 2,
+          candidatePlayerId: 'p1',
+          chainStepId: 'step-2',
+          matchedClubName: null,
+          matchedOverlapStartYear: null,
+          matchedOverlapEndYear: null,
+          busted: true,
+        });
+      }
+      if (url.endsWith('/matches/match-1/chain-steps/step-2/dispute') && method === 'POST') {
+        return jsonResponse({
+          disputeId: 'dispute-2',
+          chainStepId: 'step-2',
+          claimedClubName: 'West Ham',
+          status: 'Pending',
+          raisedAt: '2026-09-06T00:00:00Z',
+          reviewedAt: null,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const user = userEvent.setup();
+    const { onChanged, rerenderWith } = renderBuilder({}, fetchMock);
+
+    await pickSuggestionAndSubmit(user, 'Some Player');
+
+    expect(await screen.findByText(/Busted — that was a second failed attempt/)).toBeInTheDocument();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+    // Simulate the parent's post-onChanged refetch delivering the real,
+    // server-confirmed bust.
+    rerenderWith({ myTerminalState: { busted: true, timedOut: false, completed: false } });
+    expect(screen.getByText(/You busted — two failed attempts at the same position\./)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'West Ham');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+
+    expect(
+      await screen.findByText(
+        'You disputed this ruling, claiming they played together at West Ham. Waiting for your opponent to review it.',
+      ),
+    ).toBeInTheDocument();
+    // The generic busted terminal message is suppressed in favor of the
+    // dispute-specific wording above — ChainBuilder.tsx's own
+    // `awaitingOwnDisputeReview` comment explains why.
+    expect(screen.queryByText(/You busted — two failed attempts/)).not.toBeInTheDocument();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
+  });
+
+  it('REQ-1412: a 409 "Step is not invalid" from raising a dispute renders inline in the dispute form', async () => {
+    const { user } = await renderWithDisputableFirstFailure((url, init) => {
+      if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && init?.method === 'POST') {
+        return jsonResponse(
+          { title: 'Step is not invalid', detail: 'This step already succeeded and cannot be disputed.' },
+          409,
+        );
+      }
+      return undefined;
+    });
+
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'Chelsea');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+
+    expect(await screen.findByText('This step already succeeded and cannot be disputed.')).toBeInTheDocument();
+    // A failed dispute attempt doesn't end participation — the retry form
+    // stays usable.
+    expect(screen.getByRole('button', { name: 'Submit connector' })).toBeInTheDocument();
+  });
+
+  it('REQ-1412: a 409 "Already disputed" from raising a dispute renders inline in the dispute form', async () => {
+    const { user } = await renderWithDisputableFirstFailure((url, init) => {
+      if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && init?.method === 'POST') {
+        return jsonResponse({ title: 'Already disputed', detail: 'This step already has a pending dispute.' }, 409);
+      }
+      return undefined;
+    });
+
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'Chelsea');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+
+    expect(await screen.findByText('This step already has a pending dispute.')).toBeInTheDocument();
+  });
+
+  it('REQ-1412: a 409 "Step superseded" from raising a dispute renders inline in the dispute form', async () => {
+    const { user } = await renderWithDisputableFirstFailure((url, init) => {
+      if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && init?.method === 'POST') {
+        return jsonResponse(
+          { title: 'Step superseded', detail: 'A later submission has already superseded this failure.' },
+          409,
+        );
+      }
+      return undefined;
+    });
+
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'Chelsea');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+
+    expect(await screen.findByText('A later submission has already superseded this failure.')).toBeInTheDocument();
+  });
+
+  it('REQ-1412/1413: myTerminalState.busted flipping back to false (e.g. an Approve clearing the provisional bust) drops the local dispute-waiting state and resumes ordinary submission', async () => {
+    const { user, onChanged, rerenderWith } = await renderWithDisputableFirstFailure((url, init) => {
+      if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && init?.method === 'POST') {
+        return jsonResponse({
+          disputeId: 'dispute-1',
+          chainStepId: 'step-1',
+          claimedClubName: 'Chelsea',
+          status: 'Pending',
+          raisedAt: '2026-09-06T00:00:00Z',
+          reviewedAt: null,
+        });
+      }
+      return undefined;
+    });
+
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'Chelsea');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+    rerenderWith({ myTerminalState: { busted: true, timedOut: false, completed: false } });
+    expect(await screen.findByText(/You disputed this ruling/)).toBeInTheDocument();
+
+    // REQ-1413's Approve path clears the provisional bust — simulate the
+    // resulting refetch.
+    rerenderWith({ myTerminalState: { busted: false, timedOut: false, completed: false } });
+
+    expect(screen.queryByText(/You disputed this ruling/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Dispute this ruling/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Candidate player name')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit connector' })).toBeInTheDocument();
   });
 });
