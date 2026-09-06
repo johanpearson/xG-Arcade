@@ -78,6 +78,33 @@ public class AdminConnectDisputeSuggestionEndpointTests
         return client;
     }
 
+    // Root-cause note (2026-09-06, CI): the previous version of this helper
+    // gave ConnectChainStepDisputeId a dangling Guid.NewGuid() ("no real
+    // ConnectChainStepDispute row exists for this id"). That was suspected
+    // as the cause of REQ1414_GetSuggestions_Admin_ReturnsEverySuggestion's
+    // CI failure (an enforced, cascade FK — see XGArcadeDbContext
+    // .OnModelCreating's own comment on ConnectDisputeDataCorrectionSuggestion)
+    // but was NOT confirmed as such: the EF Core InMemory provider (verified
+    // against the exact pinned 10.0.11 source — InMemoryTable.Create only
+    // ever raises for a NULL value on a non-nullable property, never for a
+    // dangling foreign key to a principal it never loaded) does not enforce
+    // referential integrity on either the write or this file's own
+    // unconditional GetAllDataCorrectionSuggestionsAsync read, so a dangling
+    // id here should never have made the row disappear. The true root cause
+    // of the CI failure was not found despite that investigation (and this
+    // session's own repeat of it, including re-verifying the shared-
+    // InMemory-store-by-name mechanism a second, independent way against the
+    // same pinned source). Seeding through the real repository methods below
+    // — a real ConnectMatch/ConnectChainStep/ConnectChainStepDispute chain,
+    // the same shape ConnectChainStepDisputeService.ReviewDisputeAsync's own
+    // Approve branch actually produces one from — removes the one
+    // deliberately-unrealistic input this helper had, and matches
+    // ConnectChainStepDisputeServiceTests.cs's own REQ1414_ReviewDisputeAsync_
+    // Approved_RecordsDataCorrectionSuggestion test (which exercises the same
+    // entity type/read method and passes). If this test still fails in CI
+    // after this change, the dangling FK was never the cause and this needs
+    // a real dotnet-SDK-backed debugging session, not another static-analysis
+    // pass — see this session's handoff notes.
     private async Task SeedSuggestionAsync(string claimedClubName)
     {
         using var scope = _factory.Services.CreateScope();
@@ -86,12 +113,32 @@ public class AdminConnectDisputeSuggestionEndpointTests
         var preceding = await playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "Preceding Player" });
 
         var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+        var match = await connectMatchRepository.AddMatchAsync(new ConnectMatch { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow });
+        var chainStep = await connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(),
+            ConnectMatchId = match.Id,
+            Position = 1,
+            AttemptNumber = 1,
+            CandidatePlayerId = candidate.Id,
+            IsValid = false,
+            ClosesChain = false,
+            SubmittedAt = DateTime.UtcNow,
+        });
+        var dispute = await connectMatchRepository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(),
+            ConnectChainStepId = chainStep.Id,
+            ClaimedClubName = claimedClubName,
+            RaisedAt = DateTime.UtcNow,
+        });
+
         await connectMatchRepository.AddDataCorrectionSuggestionAsync(new ConnectDisputeDataCorrectionSuggestion
         {
             Id = Guid.NewGuid(),
-            ConnectMatchId = Guid.NewGuid(),
-            ConnectChainStepId = Guid.NewGuid(),
-            ConnectChainStepDisputeId = Guid.NewGuid(),
+            ConnectMatchId = match.Id,
+            ConnectChainStepId = chainStep.Id,
+            ConnectChainStepDisputeId = dispute.Id,
             CandidatePlayerId = candidate.Id,
             PrecedingPlayerId = preceding.Id,
             ClaimedClubName = claimedClubName,
