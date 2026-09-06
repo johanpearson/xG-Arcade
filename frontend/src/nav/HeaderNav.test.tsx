@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { HeaderNav } from './HeaderNav';
@@ -19,6 +19,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
   const onSelectGrid = vi.fn();
   const onSelectPath = vi.fn();
   const onSelectPredict = vi.fn();
+  const onSelectConnect = vi.fn();
   const onLogout = vi.fn();
 
   render(
@@ -30,6 +31,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       isGridCurrent={false}
       isPathCurrent={false}
       isPredictCurrent={false}
+      isConnectCurrent={false}
       onSelectLeaderboard={onSelectLeaderboard}
       onSelectLeagues={onSelectLeagues}
       onSelectFriends={onSelectFriends}
@@ -41,6 +43,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       onSelectGrid={onSelectGrid}
       onSelectPath={onSelectPath}
       onSelectPredict={onSelectPredict}
+      onSelectConnect={onSelectConnect}
       onLogout={onLogout}
       {...overrides}
     />,
@@ -55,6 +58,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
     onSelectGrid,
     onSelectPath,
     onSelectPredict,
+    onSelectConnect,
     onLogout,
   };
 }
@@ -322,7 +326,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     const gamesList = screen.getByTestId('header-nav-games-toggle').nextElementSibling as HTMLElement;
     const entryNames = Array.from(gamesList.querySelectorAll('button')).map((button) => button.textContent);
 
-    expect(entryNames).toEqual(['xG Grid', 'xG Path', 'xG Predict']);
+    expect(entryNames).toEqual(['xG Grid', 'xG Path', 'xG Predict', 'xG Connect']);
   });
 
   it('REQ-720: selecting "xG Grid" calls onSelectGrid and closes both the Games list and the outer menu', async () => {
@@ -404,6 +408,41 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+  // REQ-1415/SCREEN-17: mirrors the "xG Predict" selection test above for
+  // the new "xG Connect" entry.
+  it('REQ-1415: selecting "xG Connect" calls onSelectConnect and closes both the Games list and the outer menu', async () => {
+    const {
+      onSelectConnect,
+      onSelectPredict,
+      onSelectGrid,
+      onSelectPath,
+      onSelectLeaderboard,
+      onSelectLeagues,
+      onSelectSettings,
+      onLogout,
+    } = renderHeaderNav();
+    const user = userEvent.setup();
+    const outerToggle = screen.getByTestId('header-nav-toggle');
+    const gamesToggle = screen.getByTestId('header-nav-games-toggle');
+
+    await user.click(outerToggle);
+    await user.click(gamesToggle);
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'xG Connect' }));
+
+    expect(onSelectConnect).toHaveBeenCalledTimes(1);
+    expect(onSelectPredict).not.toHaveBeenCalled();
+    expect(onSelectGrid).not.toHaveBeenCalled();
+    expect(onSelectPath).not.toHaveBeenCalled();
+    expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
+    expect(onSelectSettings).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(outerToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('REQ-720: closing the outer menu also closes the nested Games list', async () => {
     renderHeaderNav();
     const user = userEvent.setup();
@@ -431,6 +470,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isGridCurrent={false}
         isPathCurrent={false}
         isPredictCurrent={false}
+        isConnectCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -442,6 +482,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
+        onSelectConnect={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -458,6 +499,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isGridCurrent
         isPathCurrent={false}
         isPredictCurrent={false}
+        isConnectCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -469,6 +511,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
+        onSelectConnect={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -490,6 +533,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isGridCurrent={false}
         isPathCurrent={false}
         isPredictCurrent={false}
+        isConnectCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -501,6 +545,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
+        onSelectConnect={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -517,6 +562,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isGridCurrent={false}
         isPathCurrent
         isPredictCurrent={false}
+        isConnectCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -528,10 +574,28 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectGrid={vi.fn()}
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
+        onSelectConnect={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
     await user.click(screen.getByTestId('header-nav-games-toggle'));
     expect(screen.getByRole('button', { name: 'xG Path' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  // REQ-1415/SCREEN-17: mirrors the "xG Grid"/"xG Path" aria-current tests
+  // above for the new isConnectCurrent prop, using the renderHeaderNav
+  // helper's overrides (simpler than the earlier two tests' inline full
+  // prop lists, and just as valid coverage).
+  it('REQ-1415: aria-current="page" is not set on "xG Connect" by default, and is set when isConnectCurrent is true', async () => {
+    const user = userEvent.setup();
+
+    renderHeaderNav();
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+    expect(screen.getByRole('button', { name: 'xG Connect' })).not.toHaveAttribute('aria-current');
+    cleanup();
+
+    renderHeaderNav({ isConnectCurrent: true });
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+    expect(screen.getByRole('button', { name: 'xG Connect' })).toHaveAttribute('aria-current', 'page');
   });
 });

@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.93"
+version: "0.94"
 status: draft
-last_updated: 2026-09-04
+last_updated: 2026-09-06
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -2682,6 +2682,24 @@ matched exactly by the shipped code — no deviations:
 - Selecting a tile navigates the same way `onSelectGame(gameKey)` already
   works today — no change to that mechanism, only to how many tiles call
   it.
+- **Status note (2026-09-06, REQ-1415 — see SCREEN-17): xG Connect's
+  tile is a deliberate exception to the rule immediately above.** A fourth
+  tile, "xG Connect" / "Challenge a friend or a random player to connect
+  two players," was appended last (after xG Predict), same tokens/pattern
+  as the other three — but selecting it does **not** call
+  `onSelectGame(gameKey)` straight into that game's own play screen the way
+  xG Grid/xG Path/xG Predict's tiles do. xG Connect has no single "start
+  playing" screen the way a solo scheduled round does (ADR-0103: a
+  `ConnectMatch` is pairwise and on-demand, not a `Round` every participant
+  gets at once) — there's no round to land on until a player has chosen
+  *who* to play against. So this one tile instead opens a new, small
+  intermediate screen (SCREEN-17) presenting exactly that choice ("Challenge
+  a friend" / "Challenge random player"), each of which then hands off to
+  the already-built REQ-1401/1403 flows inside `FriendsScreen` (SCREEN-15).
+  `GameSelectScreen.tsx` itself doesn't know any of this — it still just
+  calls `onSelectGame(XG_CONNECT_GAME_KEY)` like every other tile; the
+  branching lives in `App.tsx`'s own switch. `HeaderNav`'s "Games" list
+  gained a matching fourth "xG Connect" entry, same order, same exception.
 
 ### SCREEN-10: xG Path puzzle (clue reveal)
 
@@ -3998,6 +4016,98 @@ remains correct for them.
   for the more conservative choice; a future pass could deliberately extend
   that existing cue here if wanted, but this story didn't treat that as a
   given.
+
+### SCREEN-17: xG Connect entry point (REQ-1415) and rules explainer (REQ-1416)
+
+New for this story — no prior SCREEN entry covered this. `ConnectEntryScreen.tsx`
+(`frontend/src/connect/`), reached from `GameSelectScreen`'s new fourth tile
+or `HeaderNav`'s "Games" → "xG Connect" entry (see SCREEN-09's own
+2026-09-06 status note for why this is the one tile that opens an
+intermediate screen instead of gameplay directly). Solves a real
+discoverability gap: before this, xG Connect (REQ-1401-1414) had no
+presence anywhere on the one screen whose entire purpose is listing the
+games xG Arcade hosts — a player who never noticed the "Friends" header-nav
+entry, or who noticed it but didn't already know challenges are how xG
+Connect is played, had no way to learn it's a game at all.
+
+```
+┌───────────────────────────────┐
+│ xG Connect                  (ⓘ) │
+├───────────────────────────────┤
+│ Who do you want to challenge?     │
+│  ┌─────────────┐ ┌───────────┐ │
+│  │ Challenge a  │ │ Challenge │ │
+│  │ friend       │ │ random    │ │
+│  │ Pick someone │ │ player    │ │
+│  │ from your... │ │ Opt in... │ │
+│  └─────────────┘ └───────────┘ │
+└───────────────────────────────┘
+```
+
+- **Exactly two choices and nothing else that itself starts a match**
+  (REQ-1415's own acceptance criterion) — "Challenge a friend" and
+  "Challenge random player," same tile look as `GameSelectScreen`'s own
+  tiles (`surface-card`/`border-hairline`, no per-game accent color,
+  aria-label/aria-describedby split pinning the accessible name to just the
+  choice's name), laid out in a row that wraps to stacked below 480px, the
+  same breakpoint/pattern SCREEN-09 already established. Reused verbatim,
+  not re-derived, since this screen is one hop further into the same
+  "choose where to go" flow as that one.
+- **This screen restates none of the underlying flows' own business
+  rules.** Selecting either choice hands off to the exact, already-built
+  flow those rules already live in — "Challenge a friend" seeds
+  `FriendsScreen`'s (SCREEN-15) `initialTab` prop to `'friends'` and
+  navigates there (its Friends tab's per-row "Challenge" action, REQ-1402);
+  "Challenge random player" seeds `initialTab` to `'matchmaking'` (its
+  Matchmaking tab's opt-in button, REQ-1403). Both reuse the exact
+  `setFriendsInitialTab` + `navigateTo('friends')` mechanism `App.tsx`'s
+  `handleOpenFriendsTab` already established for the notification-badge
+  dropdown (SCREEN-07) — no new navigation primitive. Because `FriendsScreen`
+  always renders all four tabs regardless of which one is initially active,
+  the existing "Friends" header-nav entry and its Challenges/Matches tabs
+  remain exactly as reachable as before this screen existed — this is an
+  additional, lighter-weight front door in front of those flows, never a
+  replacement.
+- **Rules explainer (REQ-1416), `ConnectScoringExplainer.tsx`.** A `(ⓘ)`
+  entry point next to the "xG Connect" heading, same relative position/
+  quiet/no-accent-color treatment `GridScreen.tsx`'s/`PathScreen.tsx`'s own
+  `(ⓘ)` toggles use next to their own title-row content — opens the same
+  shared `ScoringExplainerShell` (`role="dialog"`, `aria-modal="true"`,
+  focus moved in on open/restored on close, Escape-to-close) as
+  `ScoringExplainer.tsx`/`PathScoringExplainer.tsx`/`PredictScoringExplainer.tsx`,
+  reusing that shell's existing "How scoring works" heading/aria-label
+  as-is rather than inventing new wording for the same affordance, even
+  though this content is broader than pure scoring (every sibling explainer
+  already blends "how the round/match plays" with "how it scores" under
+  that same heading). A new, separate component with its own content, not a
+  branch inside any sibling explainer — xG Connect shares essentially none
+  of its mechanics with xG Grid/xG Path/xG Predict (no clue reveal, no
+  uniqueness, a 1v1 match instead of a solo round, its own bust/timer/
+  dispute rules). Content covers, as five independently identifiable
+  points: (1) how a match works — each player privately picks a target,
+  then both build a chain of real shared-club "played together" connections
+  linking the two agreed target players, not connecting their own pick
+  directly to the opponent's; (2) the two-strikes-per-step bust rule
+  (REQ-1407) — a first failure at a step is a warning, a second consecutive
+  one ends that player's chain; (3) scoring shape only, no exact formula
+  (REQ-1408, matching REQ-213's own "no exact formula" precedent) — golf
+  style, fewer connections and fewer failed first attempts is better; (4)
+  the 6-hour timer and forfeit (REQ-1405); (5) the dispute mechanic
+  (REQ-1412-1414), framed so a player learns disputing a failed connection
+  exists at all, not just that failures can occur.
+- **Reachable from two places (REQ-1416's own "no active match required"
+  criterion):** this entry screen (before any match exists — a player
+  deciding whether to try xG Connect can learn the rules first) and, via
+  the same `ConnectScoringExplainer` component, `MatchScreen.tsx`'s own new
+  title row (a "← Back to matches" button paired with the same `(ⓘ)`
+  trigger), reachable throughout an active match regardless of phase.
+- **Tokens only** — same tile/title-row/`(ⓘ)` shell as SCREEN-09/
+  SCREEN-01/SCREEN-10 (`--color-surface-card`, `--color-border-hairline`,
+  `--color-text-primary`/`--color-text-muted`, existing spacing scale,
+  `--touch-target-min`); the explainer modal duplicates
+  `PathScoringExplainer.css`'s own values exactly, same "duplicate per
+  siblings, don't share the stylesheet" precedent. No new color, typeface,
+  or animation introduced.
 
 ## 4. Responsive strategy
 

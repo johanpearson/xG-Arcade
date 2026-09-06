@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "1.27"
+version: "1.28"
 status: draft
-last_updated: 2026-09-03
+last_updated: 2026-09-06
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1015,11 +1015,18 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      screen; SCREEN-09, S-085 — originally two
                                      static tiles, xG Grid then xG Path; a
                                      third, xG Predict, added 2026-08-31
-                                     (ADR-0098, S-197, REQ-1301/1306) — still
-                                     no backend "list games" endpoint since
-                                     all three game keys remain client-side
-                                     constants, ordered to agree with
-                                     HeaderNav's own "Games" list)
+                                     (ADR-0098, S-197, REQ-1301/1306); a
+                                     fourth, xG Connect, added 2026-09-06
+                                     (S-221, REQ-1415) — its tile opens a new
+                                     two-choice entry screen rather than
+                                     navigating straight into gameplay, the
+                                     one deliberate exception to this
+                                     screen's otherwise-uniform tile
+                                     behavior (see SCREEN-09's own status
+                                     note) — still no backend "list games"
+                                     endpoint since all four game keys remain
+                                     client-side constants, ordered to agree
+                                     with HeaderNav's own "Games" list)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
                                      GuessInput, ScoringExplainer
                                      (SCREEN-01/01a/02/06, S-041).

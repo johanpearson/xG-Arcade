@@ -21,6 +21,13 @@ export interface HeaderNavProps {
   // REQ-1301/1306/SCREEN-14: mirrors isGridCurrent/isPathCurrent above for
   // xG Predict — whether xG Predict's own screen is currently showing.
   isPredictCurrent: boolean;
+  // REQ-1415/SCREEN-17: mirrors isGridCurrent/isPathCurrent/isPredictCurrent
+  // above for xG Connect — whether xG Connect's own entry screen
+  // ('xg-connect-entry') is currently showing. Deliberately does NOT cover
+  // 'friends' (the existing "Friends" nav entry below already owns that
+  // aria-current), even though selecting this entry can eventually lead
+  // there too — this flag tracks the new entry screen only.
+  isConnectCurrent: boolean;
   onSelectLeaderboard: () => void;
   onSelectLeagues: () => void;
   onSelectFriends: () => void;
@@ -52,6 +59,13 @@ export interface HeaderNavProps {
   // already triggers. Keeps this list and GameSelectScreen's tile order in
   // agreement (xG Grid, xG Path, then xG Predict).
   onSelectPredict: () => void;
+  // REQ-1415/SCREEN-17: mirrors onSelectGrid/onSelectPath/onSelectPredict
+  // above for xG Connect — same destination GameSelectScreen's own "xG
+  // Connect" tile already triggers (the new entry screen, not gameplay
+  // directly — see that tile's own comment). Keeps this list and
+  // GameSelectScreen's tile order in agreement (xG Grid, xG Path, xG
+  // Predict, then xG Connect).
+  onSelectConnect: () => void;
   onLogout: () => void;
 }
 
@@ -76,6 +90,7 @@ export function HeaderNav({
   isGridCurrent,
   isPathCurrent,
   isPredictCurrent,
+  isConnectCurrent,
   onSelectLeaderboard,
   onSelectLeagues,
   onSelectFriends,
@@ -87,6 +102,7 @@ export function HeaderNav({
   onSelectGrid,
   onSelectPath,
   onSelectPredict,
+  onSelectConnect,
   onLogout,
 }: HeaderNavProps) {
   const [open, setOpen] = useState(false);
@@ -212,6 +228,18 @@ export function HeaderNav({
               onClick={() => selectAndClose(onSelectPredict)}
             >
               xG Predict
+            </button>
+            {/* REQ-1415/SCREEN-17: mirrors the three entries above,
+                positioned fourth/last — keeps this list and
+                GameSelectScreen's tile order in agreement (never
+                alphabetical/recency). */}
+            <button
+              type="button"
+              className="header-nav__link header-nav__games-item"
+              aria-current={isConnectCurrent ? 'page' : undefined}
+              onClick={() => selectAndClose(onSelectConnect)}
+            >
+              xG Connect
             </button>
           </div>
         </div>

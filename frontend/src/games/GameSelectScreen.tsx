@@ -16,22 +16,40 @@ export const XG_PATH_GAME_KEY = 'xg-path' as const;
 // REQ-1301 (xG Predict): matches the backend GameKey string exactly
 // ("xg-predict" — see PredictTemplateResolver/XGPredictGameModule).
 export const XG_PREDICT_GAME_KEY = 'xg-predict' as const;
+// REQ-1415 (xG Connect): matches the backend GameKey string exactly
+// ("xg-connect" — see XGConnectGameModule.XGConnectGameKey).
+export const XG_CONNECT_GAME_KEY = 'xg-connect' as const;
 
 export interface GameSelectScreenProps {
   onSelectGame: (
-    gameKey: typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY | typeof XG_PREDICT_GAME_KEY,
+    gameKey:
+      | typeof XG_GRID_GAME_KEY
+      | typeof XG_PATH_GAME_KEY
+      | typeof XG_PREDICT_GAME_KEY
+      | typeof XG_CONNECT_GAME_KEY,
   ) => void;
 }
 
-// REQ-303 (S-021), extended by S-085/SCREEN-09 for a second game, and again
-// for xG Predict as a third: shown immediately after login/signup, before
-// any game's own screen. design-document.md's SCREEN-09 is the spec for the
-// multi-tile layout below — tiles laid out in a row that wraps to stacked
-// below 480px (same breakpoint HeaderNav.css's mobile toggle uses), tokens
-// only (surface-card/border-hairline, no per-game accent color), order
-// matching HeaderNav's "Games" list (xG Grid first, xG Path second, xG
-// Predict third — never alphabetical/recency), no loading state since all
-// three keys are client-side constants.
+// REQ-303 (S-021), extended by S-085/SCREEN-09 for a second game, again for
+// xG Predict as a third, and again for xG Connect as a fourth (REQ-1415):
+// shown immediately after login/signup, before any game's own screen.
+// design-document.md's SCREEN-09 is the spec for the multi-tile layout
+// below — tiles laid out in a row that wraps to stacked below 480px (same
+// breakpoint HeaderNav.css's mobile toggle uses), tokens only
+// (surface-card/border-hairline, no per-game accent color), order matching
+// HeaderNav's "Games" list (xG Grid first, xG Path second, xG Predict
+// third, xG Connect fourth — never alphabetical/recency), no loading state
+// since all four keys are client-side constants.
+//
+// xG Connect's tile is a deliberate exception to every other tile's
+// behavior (SCREEN-09's own 2026-09-06 status note, REQ-1415): selecting it
+// does NOT navigate directly into that game's own play screen the way the
+// other three tiles do — the caller (App.tsx) instead routes to a new
+// two-choice entry screen ("Challenge a friend" / "Challenge random
+// player"), since xG Connect has no single "start playing" action the way
+// a solo round does. This component itself doesn't know that — it still
+// just calls onSelectGame(XG_CONNECT_GAME_KEY) like every other tile; the
+// branching lives entirely in App.tsx's switch.
 export function GameSelectScreen({ onSelectGame }: GameSelectScreenProps) {
   return (
     <div className="game-select-screen">
@@ -85,6 +103,23 @@ export function GameSelectScreen({ onSelectGame }: GameSelectScreenProps) {
           <span className="game-select-screen__tile-name">xG Predict</span>
           <span id="game-tile-predict-desc" className="game-select-screen__tile-description">
             Predict the final score
+          </span>
+        </button>
+        {/* REQ-1415: the fourth tile, positioned last — keeps this list and
+            HeaderNav's own "Games" list order in agreement (never
+            alphabetical/recency), same reasoning as the xG Path/xG Predict
+            tiles' own comments above. Selecting it does not start a game
+            directly — see this file's own top-of-file comment on why. */}
+        <button
+          type="button"
+          className="game-select-screen__tile"
+          aria-label="xG Connect"
+          aria-describedby="game-tile-connect-desc"
+          onClick={() => onSelectGame(XG_CONNECT_GAME_KEY)}
+        >
+          <span className="game-select-screen__tile-name">xG Connect</span>
+          <span id="game-tile-connect-desc" className="game-select-screen__tile-description">
+            Challenge a friend or a random player to connect two players
           </span>
         </button>
       </div>
