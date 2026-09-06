@@ -13,6 +13,48 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-05 — `docs/requirements-document.md` (REQ-1412 bug-fix status
+  note, v2.69 → v2.70), `docs/architecture-document.md` (COMP-17 row
+  extended with the fix + frontend build, v1.54 → v1.55), `docs/backlog.md`
+  (new S-220 story) — completes S-220 (xG Connect dispute-a-ruling
+  mechanic): fixed a quality-gate finding in the backend implementation
+  below (`AlreadyForfeited`/terminal-state checks were scoped to ANY
+  Pending dispute in a player's history rather than the one covering their
+  current bust, via a new frontier-scoped `ConnectChainStepExtensions
+  .IsReallyBusted`, used identically in all three affected call sites; a
+  follow-up `.First()` → `.FirstOrDefault()` defensive fix on that same
+  helper, found while writing its own regression tests, avoids an
+  `InvalidOperationException` against several pre-existing tests that mark
+  a player busted with no chain step behind it); built the frontend (`ChainBuilder.tsx`'s dispute-raising affordance, a new
+  `DisputeReview.tsx` opponent-review component, a new read-only
+  `ConnectDisputeSuggestionsScreen.tsx` admin screen wired into
+  `App.tsx`/`AdminScreen.tsx`); added full `REQ1412_`/`REQ1413_`-named
+  backend regression coverage and Vitest coverage for every new/changed
+  frontend component (full suite, 70 files/910 tests, verified passing).
+
+- 2026-09-05 — `docs/requirements-document.md` (REQ-1412/1413/1414 marked
+  Built, v2.68 → v2.69), `docs/architecture-document.md` (COMP-17 row
+  extended with this implementation's detail, v1.53 → v1.54) — backend
+  implementation of the xG Connect dispute-a-failed-chain-step flow
+  (ADR-0109): new `ConnectChainStepDispute`
+  and `ConnectDisputeDataCorrectionSuggestion` entities/migration
+  (`20260905110000_AddConnectChainStepDispute`), a denormalized
+  `ConnectChainStep.HasPendingDispute` cache backing a new
+  `ConnectChainStepExtensions.IsEffectivelyValid()`, new
+  `IConnectChainStepDisputeService`/`ConnectChainStepDisputeService`
+  (raise/review/list), a REQ-1413 resolution-gating check added to
+  `ConnectMatchLifecycleService.ResolveIfBothTerminalAsync` (a Pending
+  dispute anywhere in a match blocks resolution), and a reopen-an-already-
+  resolved-match path in the dispute-raise flow for the one known,
+  accepted edge case that gate can't otherwise catch (both REQs' own
+  status notes explain this in full). New endpoints: `POST
+  /matches/{matchId}/chain-steps/{chainStepId}/dispute`, `POST
+  /matches/{matchId}/disputes/{disputeId}/approve`, `.../deny`, `GET
+  /matches/{matchId}/disputes`, and `GET
+  /admin/connect-dispute-suggestions` (REQ-1414). No dotnet SDK in this
+  sandbox — verification is CI-only, pending a `ci.yml` `workflow_dispatch`
+  run.
+
 - 2026-09-05 — `docs/requirements-document.md` (new REQ-1412/1413/1414,
   v2.68), `docs/decisions/0109-connect-dispute-reintroduces-claimed-club-narrowly.md`
   (new), `docs/decisions/0104-connect-chain-step-club-auto-detected-not-claimed.md`

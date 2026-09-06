@@ -59,6 +59,24 @@ namespace XGArcade.Data.Entities;
 // future chain-reconstruction read's natural shape — deliberately NOT
 // unique: both a failed first attempt and a successful retry at the same
 // position are legitimate distinct rows.
+//
+// HasPendingDispute (REQ-1412/1413/ADR-0109): a denormalized cache of
+// "does this step have a Pending ConnectChainStepDispute" — false by
+// default, flipped true the instant a dispute is raised
+// (IConnectMatchRepository.AddDisputeAsync) and back to false the instant
+// it resolves in either direction (ApproveDisputeAsync/DenyDisputeAsync).
+// ConnectChainStepDispute.Status remains the single source of truth; this
+// column exists purely so ConnectChainStepExtensions.IsEffectivelyValid()
+// (and every caller that used to read IsValid directly — see that
+// extension's own doc comment) can answer "is this step valid for chain-
+// continuation/closing/forfeiture purposes right now" from an already-
+// loaded ConnectChainStep row alone, with no join — this component
+// deliberately has no EF navigation properties anywhere (every FK here is
+// configured store-only, see XGArcadeDbContext's own OnModelCreating), so
+// a live join at every read site would mean re-deriving this same lookup
+// repeatedly. ConnectMatchRepository's own dispute read/write methods are
+// the ONLY code that ever sets this column — kept tightly scoped so the
+// two can't drift.
 public class ConnectChainStep
 {
     public Guid Id { get; set; }
@@ -73,4 +91,5 @@ public class ConnectChainStep
     public required bool IsValid { get; set; }
     public required bool ClosesChain { get; set; }
     public required DateTime SubmittedAt { get; set; }
+    public bool HasPendingDispute { get; set; }
 }

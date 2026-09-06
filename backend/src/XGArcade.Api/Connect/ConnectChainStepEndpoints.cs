@@ -58,7 +58,7 @@ public static class ConnectChainStepEndpoints
                 // the player mistyped or picked an unknown name, not a
                 // precondition failure about the match/caller/state.
                 SubmitChainStepOutcome.CandidateNotFound => Results.Ok(
-                    new SubmitChainStepResponse(false, false, null, null, null, null, null, null)),
+                    new SubmitChainStepResponse(null, false, false, null, null, null, null, null, null)),
                 SubmitChainStepOutcome.MatchNotFound => Results.NotFound(),
                 SubmitChainStepOutcome.NotAParticipant => Results.Problem(
                     title: "Not a participant",
@@ -93,7 +93,7 @@ public static class ConnectChainStepEndpoints
     }
 
     private static SubmitChainStepResponse ToResponse(ConnectChainStep chainStep, bool chainComplete, bool busted = false) =>
-        new(chainStep.IsValid, chainComplete, chainStep.Position, chainStep.AttemptNumber, chainStep.CandidatePlayerId,
+        new(chainStep.Id, chainStep.IsValid, chainComplete, chainStep.Position, chainStep.AttemptNumber, chainStep.CandidatePlayerId,
             chainStep.MatchedClubName, chainStep.MatchedOverlapStartYear, chainStep.MatchedOverlapEndYear, busted);
 }
 
@@ -121,7 +121,17 @@ public record SubmitChainStepRequest(string CandidatePlayerName, string? Candida
 // club was found at all — see ConnectChainStep's own doc comment). Busted
 // (REQ-1407/S-214) defaults to false and is true only for the Busted
 // outcome — see SubmitChainStepOutcome.Busted's own doc comment.
+//
+// ChainStepId (REQ-1412, 2026-09-05): the persisted step's own id, null only
+// for CandidateNotFound (same as CandidatePlayerId/Position/AttemptNumber
+// above — nothing was persisted at all). Added specifically so the client
+// can immediately offer "dispute this ruling" on a just-returned invalid or
+// Busted outcome without a separate round-trip to GET /matches/{matchId}
+// first (whose myChainSteps items carry the same id via
+// ConnectChainStepDetailResponse.ChainStepId) — see
+// IConnectChainStepDisputeService.RaiseDisputeAsync's own doc comment for
+// what this id is used for.
 public record SubmitChainStepResponse(
-    bool IsValid, bool ChainComplete, int? Position, int? AttemptNumber, Guid? CandidatePlayerId,
+    Guid? ChainStepId, bool IsValid, bool ChainComplete, int? Position, int? AttemptNumber, Guid? CandidatePlayerId,
     string? MatchedClubName, int? MatchedOverlapStartYear, int? MatchedOverlapEndYear,
     bool Busted = false);

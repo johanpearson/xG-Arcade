@@ -22,6 +22,11 @@ export interface AdminScreenProps {
   // mirroring how SettingsScreen's own onOpenAdmin link is this screen's own
   // entry point. Never a standalone top-level nav entry (ADR-0053).
   onOpenSuggestions: () => void;
+  // REQ-1414/ADR-0053/ADR-0109: the only entry point into
+  // ConnectDisputeSuggestionsScreen — same "App.tsx wires this to a
+  // navigateTo() call, never a standalone top-level nav entry" shape as
+  // onOpenSuggestions above.
+  onOpenConnectDisputeSuggestions: () => void;
 }
 
 // REQ-516 (S-177): the grouped-nav tabs, in this fixed order — "Users" is
@@ -55,7 +60,7 @@ const ADMIN_NAV_GROUPS: Array<{ value: AdminNavGroup; label: string }> = [
 // run. The two fetches must stay independently refetchable — see
 // refreshUnverified/refreshActiveRound below — so this deliberately does NOT
 // collapse to one shared refetch.
-export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: AdminScreenProps) {
+export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions, onOpenConnectDisputeSuggestions }: AdminScreenProps) {
   // REQ-516: which nav group is currently visible. Deliberately does NOT
   // affect any fetch below — every section keeps fetching/loading exactly
   // as it did before this story, on mount, regardless of which group is
@@ -184,6 +189,21 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
             above — so rendered unconditionally, not nested inside the
             `activeRound !== null` (Non-Production-only) gate. */}
         <AvatarModerationSection accessToken={accessToken} onAuthError={onAuthError} />
+
+        {/* REQ-1414/ADR-0053/ADR-0109: the only entry point into
+            ConnectDisputeSuggestionsScreen — a separate screen/file, never
+            folded into this one's sections, same precedent
+            PlayerSuggestionsEntry's own comment cites above for
+            SuggestionsScreen. Placed here (Users), not Grid — this concerns
+            xG Connect, not xG Grid's player-data review. Plain button, no
+            pending-count badge (unlike PlayerSuggestionsEntry/REQ-512) —
+            REQ-1414 specifies no staleness/count requirement, and a
+            suggestion existing or not has no urgency attached to it. */}
+        <section className="admin-screen__section">
+          <button type="button" onClick={onOpenConnectDisputeSuggestions}>
+            Connect dispute suggestions
+          </button>
+        </section>
       </div>
 
       {/* Grid: unverified data review (REQ-503), player suggestions entry

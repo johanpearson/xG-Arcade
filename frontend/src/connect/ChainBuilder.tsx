@@ -1,7 +1,13 @@
-import { useState } from 'react';
-import { formatMatchedClub, submitConnectChainStep } from '../lib/connectMatches';
+import { useEffect, useRef, useState } from 'react';
+import { formatMatchedClub, raiseChainStepDispute, submitConnectChainStep } from '../lib/connectMatches';
 import { useSubmitAction } from '../lib/useSubmitAction';
-import type { ConnectChainStepView, ConnectTargetPickView, ConnectTerminalState, PlayerAutocompleteSuggestion } from '../lib/types';
+import type {
+  ChainStepDisputeResponse,
+  ConnectChainStepView,
+  ConnectTargetPickView,
+  ConnectTerminalState,
+  PlayerAutocompleteSuggestion,
+} from '../lib/types';
 import { ChainStepsList } from './ChainStepsList';
 import { PlayerSearchField } from './PlayerSearchField';
 
@@ -72,9 +78,56 @@ export function ChainBuilder({
   const { submitting, error, run } = useSubmitAction<void>({ onAuthError });
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
+  // REQ-1412/ADR-0109: the most recent failed submission's own step id —
+  // set right after `!result.isValid` or `result.busted` below, whether
+  // this is the player's first failure at this position (a REQ-1407 retry
+  // would normally follow) or the bust-causing second one. Non-null only
+  // while that specific failure hasn't itself been disputed yet — an old,
+  // superseded failure is never disputable (StepSuperseded, server-side),
+  // so this is always overwritten (never merged/appended) by the outcome
+  // of the player's very next submission.
+  const [disputableStep, setDisputableStep] = useState<{ chainStepId: string } | null>(null);
+  const [claimedClubName, setClaimedClubName] = useState('');
+  const disputeAction = useSubmitAction<ChainStepDisputeResponse>({ onAuthError });
+  // Set once raiseChainStepDispute succeeds — the caller's own ephemeral
+  // acknowledgment of a dispute they just raised (REQ-1412's own "You
+  // disputed this ruling..." text, design-document.md SCREEN-16 addendum).
+  // Deliberately local/ephemeral, not re-derived from a poll: on a fresh
+  // mount/page reload this is empty even for a genuinely still-Pending
+  // dispute — DisputeReview.tsx's own independent GET
+  // /matches/{matchId}/disputes fetch is the durable, always-accurate
+  // source for that case (see its own top-of-file comment), this is only
+  // the immediate feedback for the raise action itself.
+  const [raisedDispute, setRaisedDispute] = useState<{ claimedClubName: string } | null>(null);
+
   const myTerminalLabel = terminalStateLabel(myTerminalState, 'you');
   const opponentTerminalLabel = terminalStateLabel(opponentTerminalState, 'opponent') ?? 'Your opponent is still playing.';
-  const stillPlaying = myTerminalLabel === null;
+
+  // REQ-1412/1413: raising ANY dispute (first-failure or bust-causing)
+  // unconditionally marks the caller's slot busted server-side the instant
+  // it's raised (requirements-document.md REQ-1412's own status note) —
+  // so `myTerminalState.busted` reads true here even for a still-Pending,
+  // potentially reversible provisional bust, indistinguishable on the wire
+  // from a genuine, permanent two-strikes bust. Showing the generic
+  // "Busted — two failed attempts..." wording in that case would be
+  // actively misleading (it may not have been a real second failure at
+  // all, and the opponent's own review can still clear it) — while this
+  // component itself just raised a dispute that hasn't since cleared, the
+  // dispute-specific "waiting for review" text takes over entirely instead
+  // of the generic terminal label below, and the ordinary retry form and
+  // the "your participation has ended" hint are both suppressed (REQ-1412:
+  // the player may recover from this, it isn't a real forfeit yet).
+  //
+  // Known limitation, flagged rather than hidden (see `raisedDispute`'s own
+  // comment above): this override only applies for as long as THIS
+  // component instance remembers raising the dispute. A page reload loses
+  // it, after which a still-Pending (or even Denied) dispute reads as the
+  // plain "Busted — two failed attempts..." text again — DisputeReview.tsx
+  // (rendered alongside this component) is the durable, always-accurate
+  // status source regardless, so the real information is never lost, only
+  // this component's own copy of it.
+  const awaitingOwnDisputeReview = raisedDispute !== null && myTerminalState.busted;
+  const stillPlaying = myTerminalLabel === null || awaitingOwnDisputeReview;
 
   // S-218 bugfix (real product bug, not a test-only flake — see
   // ChainBuilder.tsx's git history / docs/design-document.md SCREEN-16's
@@ -102,6 +155,22 @@ export function ChainBuilder({
   // stops setting local `feedback` text for that specific outcome and
   // leaves this to take over instead.
   const myChainJustCompleted = myTerminalState.completed;
+
+  // REQ-1413's Approve path clears the caller's provisional bust
+  // (`ClearPlayerBustedAsync`) — the very next refetch delivers
+  // `myTerminalState.busted: false` here. Detects that busted→not-busted
+  // transition to drop this component's own stale `raisedDispute`/
+  // `disputableStep` state, so ordinary submission resumes automatically
+  // rather than staying stuck showing "waiting for review" forever once
+  // it's actually been resolved in the player's favor.
+  const wasBustedRef = useRef(myTerminalState.busted);
+  useEffect(() => {
+    if (wasBustedRef.current && !myTerminalState.busted) {
+      setRaisedDispute(null);
+      setDisputableStep(null);
+    }
+    wasBustedRef.current = myTerminalState.busted;
+  }, [myTerminalState.busted]);
 
   function handleSelect(suggestion: PlayerAutocompleteSuggestion) {
     // ADR-0007's autocomplete/correctness separation still holds — seeing a
@@ -143,6 +212,14 @@ export function ChainBuilder({
         setCandidateName('');
         setCandidateWikidataQid(null);
         setHasSelectedCandidate(false);
+        // REQ-1412: a Busted result still carries a real chainStepId (it's
+        // only null for the "no such player" case handled above) — the
+        // player may dispute the bust-causing failure instead of accepting
+        // the forfeit. Overwrites any earlier disputable step (an old,
+        // superseded failure could never be disputed anyway).
+        setDisputableStep(result.chainStepId ? { chainStepId: result.chainStepId } : null);
+        setRaisedDispute(null);
+        setClaimedClubName('');
         onChanged();
         return;
       }
@@ -155,12 +232,24 @@ export function ChainBuilder({
         setCandidateName('');
         setCandidateWikidataQid(null);
         setHasSelectedCandidate(false);
+        // REQ-1412: an ordinary first-attempt failure may also be disputed
+        // instead of retried — offered alongside the retry form, not
+        // instead of it.
+        setDisputableStep(result.chainStepId ? { chainStepId: result.chainStepId } : null);
+        setRaisedDispute(null);
+        setClaimedClubName('');
         return;
       }
 
       setCandidateName('');
       setCandidateWikidataQid(null);
       setHasSelectedCandidate(false);
+      // A new position was reached — any earlier failure at the previous
+      // position is now moot (either it was retried successfully here, or
+      // it's simply no longer the frontier), so drop any stale disputable/
+      // raised-dispute state left over from it.
+      setDisputableStep(null);
+      setRaisedDispute(null);
       if (result.chainComplete) {
         // Deliberately NOT set here — see `myChainJustCompleted` above for
         // why the completion acknowledgment is derived from props instead
@@ -175,6 +264,30 @@ export function ChainBuilder({
       }
       onChanged();
     });
+  }
+
+  // REQ-1412/ADR-0109: raises a dispute against the most recent failed
+  // submission (`disputableStep`), naming the specific club the player
+  // believes connects the two players — the one place in xG Connect a
+  // player types a club at all. Always refetches on success: raising a
+  // dispute always changes persisted state (a new Pending
+  // ConnectChainStepDispute row, and — for a first-failure dispute — a
+  // provisional bust that wasn't there before), the same "changed
+  // persisted state, so refetch" rule handleSubmit's own accepted/busted
+  // branches already follow.
+  function handleRaiseDispute() {
+    if (!disputableStep) return;
+    const trimmedClub = claimedClubName.trim();
+    if (!trimmedClub) return;
+    disputeAction.run(
+      () => raiseChainStepDispute(accessToken, matchId, disputableStep.chainStepId, trimmedClub),
+      async (dispute) => {
+        setRaisedDispute({ claimedClubName: dispute.claimedClubName });
+        setDisputableStep(null);
+        setClaimedClubName('');
+        onChanged();
+      },
+    );
   }
 
   return (
@@ -196,7 +309,17 @@ export function ChainBuilder({
 
       <p className="connect-match__status">{opponentTerminalLabel}</p>
 
-      {myTerminalLabel ? (
+      {awaitingOwnDisputeReview && raisedDispute ? (
+        // REQ-1412/1413: takes over from the generic terminal label AND the
+        // ordinary submission form below while this component itself still
+        // remembers raising a dispute that hasn't since cleared — see
+        // `awaitingOwnDisputeReview`'s own comment above for why the
+        // generic "Busted..." wording would be misleading here.
+        <p className="connect-match__status" role="status">
+          You disputed this ruling, claiming they played together at {raisedDispute.claimedClubName}. Waiting for
+          your opponent to review it.
+        </p>
+      ) : myTerminalLabel ? (
         <p className="connect-match__status" role="status">
           {myTerminalLabel}
         </p>
@@ -245,6 +368,44 @@ export function ChainBuilder({
           {error}
         </p>
       )}
+
+      {/* REQ-1412/ADR-0109: offered right after either kind of failure
+          (`disputableStep` set by handleSubmit above) — alongside the
+          ordinary retry form for a first failure, or alongside the
+          "Busted..." terminal text for the bust-causing one. Disappears
+          once the dispute is actually raised (replaced by the
+          `awaitingOwnDisputeReview` acknowledgment above), or once a
+          different submission supersedes this failure. */}
+      {disputableStep && (
+        <div className="connect-match__chain-form connect-match__dispute-form">
+          <label className="connect-match__hint" htmlFor="dispute-claimed-club">
+            Dispute this ruling — name the club you believe connects them
+          </label>
+          <input
+            id="dispute-claimed-club"
+            type="text"
+            className="connect-match__search-input"
+            value={claimedClubName}
+            onChange={(event) => setClaimedClubName(event.target.value)}
+            placeholder="Claimed club…"
+            disabled={disputeAction.submitting}
+          />
+          <button
+            type="button"
+            className="connect-match__button"
+            disabled={disputeAction.submitting || !claimedClubName.trim()}
+            onClick={handleRaiseDispute}
+          >
+            {disputeAction.submitting ? 'Disputing…' : 'Dispute this ruling'}
+          </button>
+          {disputeAction.error && (
+            <p className="connect-match__error" role="alert">
+              {disputeAction.error}
+            </p>
+          )}
+        </div>
+      )}
+
       {!stillPlaying && (
         <p className="connect-match__hint">No further steps can be submitted — your participation has ended.</p>
       )}

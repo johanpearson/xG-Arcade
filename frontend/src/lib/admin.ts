@@ -7,6 +7,7 @@ import type {
   ClearGuestAccountsResponse,
   CommitPlayerDataPayload,
   CommitPlayerDataResult,
+  ConnectDisputeDataCorrectionSuggestion,
   GuestAccountCountResponse,
   PendingAvatarSubmission,
   PendingSuggestion,
@@ -214,6 +215,18 @@ export async function fetchAdminXGPathCycle(accessToken: string): Promise<AdminX
 // 403 (non-admin token) is left to throw like every other admin endpoint.
 export async function fetchPendingSuggestions(accessToken: string): Promise<PendingSuggestion[]> {
   return apiRequest<PendingSuggestion[]>(accessToken, '/admin/suggestions');
+}
+
+// REQ-1414: every recorded xG Connect dispute data-correction suggestion —
+// its own new, standalone queue (ADR-0053's own precedent), never merged
+// with fetchPendingSuggestions above. Read-only, no approve/reject/lookup
+// counterpart of any kind (REQ-1414's own "no workflow" rule) — see
+// ConnectDisputeSuggestionsScreen.tsx. A 403 (non-admin token) is left to
+// throw like every other admin endpoint in this file.
+export async function fetchConnectDisputeSuggestions(
+  accessToken: string,
+): Promise<ConnectDisputeDataCorrectionSuggestion[]> {
+  return apiRequest<ConnectDisputeDataCorrectionSuggestion[]>(accessToken, '/admin/connect-dispute-suggestions');
 }
 
 // REQ-509: triggers a fresh, admin-initiated Wikidata lookup for one pending

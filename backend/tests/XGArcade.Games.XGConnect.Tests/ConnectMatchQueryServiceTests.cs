@@ -417,4 +417,96 @@ public class ConnectMatchQueryServiceTests
 
         Assert.That(result.Detail!.MyTargetPick!.TargetPlayerName, Is.EqualTo("Unknown player"));
     }
+
+    // ---- REQ-1412: a bust covered by a Pending dispute is not a real bust —
+    // ---- Busted: false on the exact API surface a client builds gameplay UI
+    // ---- against, both from the busted player's own read AND from their
+    // ---- opponent's read of that same player's terminal state -------------
+
+    [Test]
+    public async Task REQ1412_GetMatchDetailAsync_PendingDisputeCoveredBust_BustedIsFalse_FromOwnPerspective()
+    {
+        var bustedPlayerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(bustedPlayerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var disputedStep = await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = bustedPlayerId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        await _connectMatchRepository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = disputedStep.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = FixedNow.UtcDateTime,
+        });
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, bustedPlayerId);
+
+        Assert.That(result.Detail!.MyTerminalState.Busted, Is.False,
+            "a bust covered by a Pending dispute is not a real bust (REQ-1412) — the busted player's own read must reflect that");
+    }
+
+    // Same scenario as above, but read from the OPPONENT's own call to
+    // GetMatchDetailAsync — the disputing player must show up correctly as
+    // NOT busted in OpponentTerminalState too, not just in their own
+    // MyTerminalState (both call sites were fixed together; this is the one
+    // not otherwise covered above).
+    [Test]
+    public async Task REQ1412_GetMatchDetailAsync_PendingDisputeCoveredBust_BustedIsFalse_FromOpponentsPerspective()
+    {
+        var bustedPlayerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(bustedPlayerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var disputedStep = await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = bustedPlayerId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        await _connectMatchRepository.AddDisputeAsync(new ConnectChainStepDispute
+        {
+            Id = Guid.NewGuid(), ConnectChainStepId = disputedStep.Id, ClaimedClubName = "Arsenal",
+            Status = ConnectChainStepDisputeStatus.Pending, RaisedAt = FixedNow.UtcDateTime,
+        });
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, opponentId);
+
+        Assert.That(result.Detail!.OpponentTerminalState.Busted, Is.False,
+            "the SAME Pending-dispute-covered-bust check, read from the opponent's own perspective of the disputing player's terminal state");
+    }
+
+    [Test]
+    public async Task REQ1412_GetMatchDetailAsync_GenuineUndisputedBust_BustedIsTrue_BothFromOwnAndOpponentsPerspective()
+    {
+        var bustedPlayerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(bustedPlayerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        // Two real, consecutive, undisputed failures — a genuine bust.
+        await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = bustedPlayerId, Position = 1, AttemptNumber = 1,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+        {
+            Id = Guid.NewGuid(), ConnectMatchId = match.Id, UserId = bustedPlayerId, Position = 1, AttemptNumber = 2,
+            CandidatePlayerId = Guid.NewGuid(), IsValid = false, ClosesChain = false, SubmittedAt = FixedNow.UtcDateTime,
+        });
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: true, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var ownResult = await service.GetMatchDetailAsync(match.Id, bustedPlayerId);
+        var opponentResult = await service.GetMatchDetailAsync(match.Id, opponentId);
+
+        Assert.That(ownResult.Detail!.MyTerminalState.Busted, Is.True,
+            "a genuine, undisputed bust must still show as busted in the player's own read");
+        Assert.That(opponentResult.Detail!.OpponentTerminalState.Busted, Is.True,
+            "...and in the opponent's own read of that player's terminal state");
+    }
 }

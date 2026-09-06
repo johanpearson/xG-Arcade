@@ -1,4 +1,6 @@
 import type {
+  ChainStepDisputeListItem,
+  ChainStepDisputeResponse,
   ConnectChatMessage,
   ConnectMatchDetail,
   ConnectMatchListItem,
@@ -126,4 +128,72 @@ export async function sendConnectChatMessage(
 // "does not require a live push update").
 export async function fetchConnectChatMessages(accessToken: string, matchId: string): Promise<ConnectChatMessage[]> {
   return apiRequest<ConnectChatMessage[]>(accessToken, `/matches/${matchId}/chat-messages`);
+}
+
+// REQ-1412/ADR-0109: dispute a failed chain-step submission (POST
+// /matches/{matchId}/chain-steps/{chainStepId}/dispute), naming the
+// specific club the caller believes connects the candidate and the
+// immediately preceding chain player — the one place in xG Connect a
+// player names a club at all (ADR-0109's own narrow carve-out of
+// ADR-0104). `chainStepId` comes from `ConnectSubmitChainStepResponse
+// .chainStepId` (the just-failed submission's own step id) — see that
+// type's own doc comment for when it's present. Errors (404 match/step not
+// found, 403 "Not a participant"/"Not your step", 409 "Step is not
+// invalid"/"Already disputed"/"Step superseded", 400 "Invalid claimed
+// club") left to throw — ChainBuilder.tsx shows the server's own detail
+// text inline, same convention every other domain file in this directory
+// uses.
+export async function raiseChainStepDispute(
+  accessToken: string,
+  matchId: string,
+  chainStepId: string,
+  claimedClubName: string,
+): Promise<ChainStepDisputeResponse> {
+  return apiRequest<ChainStepDisputeResponse>(accessToken, `/matches/${matchId}/chain-steps/${chainStepId}/dispute`, {
+    method: 'POST',
+    body: JSON.stringify({ claimedClubName }),
+  });
+}
+
+// REQ-1413: the match's own opponent approves a Pending dispute (POST
+// /matches/{matchId}/disputes/{disputeId}/approve) — mirrors
+// acceptFriendRequest's own two-separate-endpoints shape (friends.ts)
+// rather than one function taking an approve/deny flag, since the backend
+// itself exposes these as two distinct endpoints (ConnectChainStepDisputeEndpoints'
+// own doc comment: "mirroring Core.Social's FriendEndpoints accept/decline
+// precedent... rather than a single endpoint taking an 'approve' flag").
+// No request body. Errors (404, 403 "Not a participant"/"Cannot review
+// your own dispute", 409 "Already reviewed") left to throw.
+export async function approveChainStepDispute(
+  accessToken: string,
+  matchId: string,
+  disputeId: string,
+): Promise<ChainStepDisputeResponse> {
+  return apiRequest<ChainStepDisputeResponse>(accessToken, `/matches/${matchId}/disputes/${disputeId}/approve`, {
+    method: 'POST',
+  });
+}
+
+// REQ-1413: the match's own opponent denies a Pending dispute — same error
+// set as approveChainStepDispute above.
+export async function denyChainStepDispute(
+  accessToken: string,
+  matchId: string,
+  disputeId: string,
+): Promise<ChainStepDisputeResponse> {
+  return apiRequest<ChainStepDisputeResponse>(accessToken, `/matches/${matchId}/disputes/${disputeId}/deny`, {
+    method: 'POST',
+  });
+}
+
+// REQ-1412/1413: every dispute in this match, in the caller's own
+// perspective (GET /matches/{matchId}/disputes) — backs both "what's the
+// status of my own dispute" (DisputeReview.tsx's own-dispute section) and
+// "what do I need to review as the opponent" (its actionable-card
+// section), via each item's own `raisedByMe` flag.
+export async function fetchConnectChainStepDisputes(
+  accessToken: string,
+  matchId: string,
+): Promise<ChainStepDisputeListItem[]> {
+  return apiRequest<ChainStepDisputeListItem[]>(accessToken, `/matches/${matchId}/disputes`);
 }

@@ -103,6 +103,11 @@ public static class EndpointMapping
         // MapAdminEndpoints above (ADR-0053, see AdminSuggestionEndpoints.cs's own
         // doc comment).
         app.MapAdminSuggestionEndpoints();
+        // REQ-1414/ADR-0053: read-only admin list of xG Connect dispute
+        // data-correction suggestions — its own file/registration, same
+        // "submission file vs. admin file"-style split as
+        // MapAdminSuggestionEndpoints above.
+        app.MapAdminConnectDisputeSuggestionEndpoints();
         // REQ-507/508: guest/user metrics + bulk guest force-clear, registered
         // unconditionally (including Production) — see that file's own doc comment
         // for why these are kept separate from MapAdminManagementEndpoints below.
@@ -184,6 +189,11 @@ public static class EndpointMapping
         // split as MapConnectMatchEndpoints/MapConnectChainStepEndpoints/
         // MapConnectChatEndpoints above.
         app.MapConnectMatchQueryEndpoints();
+        // REQ-1412/1413/ADR-0103/ADR-0109: Games.XGConnect (COMP-17)'s own
+        // dispute-a-failed-chain-step raise/approve/deny/list surface — its
+        // own file/registration, same per-feature split as every other
+        // Map*Endpoints call in this section.
+        app.MapConnectChainStepDisputeEndpoints();
         // REQ-1411/S-216/ADR-0103: the visible-notification-indicator
         // aggregate read (GET /notifications/summary) — combines pending
         // friend requests (Core.Social/COMP-16), pending challenges

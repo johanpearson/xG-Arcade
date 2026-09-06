@@ -140,6 +140,34 @@ public class ConnectMatchLifecycleService(
         if (match.Status == ConnectMatchStatus.Resolved)
             return false;
 
+        // REQ-1413: a match with ANY Pending dispute anywhere in it — raised
+        // by either player, at any position — must not resolve, even once
+        // both players have otherwise reached a terminal state; REQ-1409's
+        // outcome/scores are withheld until every dispute has been reviewed.
+        // Checked via the denormalized ConnectChainStep.HasPendingDispute
+        // cache on the already-loaded step lists (no extra query) — see
+        // that column's own doc comment for why it's always in sync with
+        // ConnectChainStepDispute.Status.
+        //
+        // Known, accepted consequence (flagged to the product owner,
+        // REQ-1412/1413 implementation, 2026-09-05): if a player reaches a
+        // terminal state (e.g. busts) at the exact moment their opponent
+        // has ALREADY reached their own terminal state, resolution still
+        // fires synchronously in this same call, exactly as it did before
+        // this REQ — this gate only ever runs BEFORE a resolution, it
+        // cannot undo one that already happened. If that player wants to
+        // dispute the step that just busted them, they must do so before
+        // anyone acts on the match's now-Resolved state; raising a dispute
+        // against an already-Resolved match reopens it (resets Status back
+        // to Active and Outcome/ResolvedAt/PlayerAScore/PlayerBScore back to
+        // their pre-resolution defaults) BEFORE persisting the new Pending
+        // dispute, so it can correctly re-resolve once reviewed — see
+        // ConnectChainStepDisputeService.RaiseDisputeAsync's own comment;
+        // this gate itself is unchanged for that case, the reopen happens
+        // entirely in the dispute-raising path.
+        if (playerASteps.Any(s => s.HasPendingDispute) || playerBSteps.Any(s => s.HasPendingDispute))
+            return false;
+
         var playerACompleted = playerASteps.HasClosedChain();
         var playerBCompleted = playerBSteps.HasClosedChain();
 
@@ -216,9 +244,22 @@ public class ConnectMatchLifecycleService(
             var bustedAt = isPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
             var timedOutAt = isPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
 
-            // Already terminal via bust or timeout — not awaiting this
-            // player's move, regardless of the other participant's state.
-            if (bustedAt is not null || timedOutAt is not null)
+            // Already terminal via timeout — not awaiting this player's
+            // move, regardless of the other participant's state. Unlike a
+            // bust, a timeout is never provisional, so this can be decided
+            // without fetching this player's steps at all.
+            if (timedOutAt is not null)
+                continue;
+
+            var steps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, userId, cancellationToken);
+
+            // Bug fix (2026-09-05, quality-architect review): a bust
+            // covered by a Pending dispute is NOT a real forfeit (REQ-1412)
+            // — the player must still be nudged to keep playing while it
+            // awaits review, since REQ-1413 keeps the 6-hour deadline
+            // running unpaused through a dispute. See
+            // ConnectChainStepExtensions.IsReallyBusted's own doc comment.
+            if (steps.IsReallyBusted(bustedAt))
                 continue;
 
             // Already terminal via a completed chain (REQ-1408). A player
@@ -226,7 +267,6 @@ public class ConnectMatchLifecycleService(
             // in-progress chain with no ClosesChain=true step, naturally
             // falls through both checks above and is included below — no
             // separate "no target pick yet" branch is needed.
-            var steps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, userId, cancellationToken);
             if (steps.HasClosedChain())
                 continue;
 

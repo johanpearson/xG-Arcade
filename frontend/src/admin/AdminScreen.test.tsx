@@ -114,7 +114,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: UnverifiedDataSection now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -148,7 +148,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: UnverifiedDataSection now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -170,7 +170,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await screen.findByText('No unverified data to review.');
 
     expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
@@ -185,7 +185,7 @@ describe('AdminScreen', () => {
         jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await screen.findByText('No unverified data to review.');
 
     expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
@@ -201,7 +201,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': () => jsonResponse(activeRound),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Round control — xg-grid')).toBeInTheDocument();
     // REQ-304: the round label uses the human-readable sequenceNumber, not
@@ -233,7 +233,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: RoundControlSection now lives in the "Grid" nav group, which
     // isn't the default ("Users") — select it before interacting.
     await user.click(await screen.findByRole('tab', { name: 'Grid' }));
@@ -255,7 +255,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await user.click(await screen.findByRole('tab', { name: 'Predict' }));
 
     expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
@@ -281,7 +281,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await user.click(await screen.findByRole('tab', { name: 'Predict' }));
 
     expect(await screen.findByText('Round control — xg-predict')).toBeInTheDocument();
@@ -316,7 +316,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await user.click(await screen.findByRole('tab', { name: 'Predict' }));
     await screen.findByText('Predict Round #3 · ends 2026-08-30T00:00:00Z');
 
@@ -341,7 +341,7 @@ describe('AdminScreen', () => {
         jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(onAuthError).not.toHaveBeenCalled();
@@ -355,7 +355,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(onAuthError).not.toHaveBeenCalled();
@@ -370,7 +370,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -383,7 +383,7 @@ describe('AdminScreen', () => {
         jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(onAuthError).not.toHaveBeenCalled();
@@ -398,7 +398,7 @@ describe('AdminScreen', () => {
         jsonResponse({ totalUserCount: 42, currentGuestCount: 7, claimedGuestCount: 3 }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Accounts')).toBeInTheDocument();
     // "Accounts" renders unconditionally on mount, before the
@@ -422,7 +422,7 @@ describe('AdminScreen', () => {
       '/admin/accounts/metrics': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Accounts')).not.toBeInTheDocument());
@@ -438,7 +438,7 @@ describe('AdminScreen', () => {
       '/admin/accounts/metrics': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -460,7 +460,7 @@ describe('AdminScreen', () => {
         }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
     expect(await screen.findByText('Current cycle')).toBeInTheDocument();
@@ -490,7 +490,7 @@ describe('AdminScreen', () => {
         }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
     expect(
@@ -514,7 +514,7 @@ describe('AdminScreen', () => {
         }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No cycle has completed yet')).toBeInTheDocument();
   });
@@ -527,7 +527,7 @@ describe('AdminScreen', () => {
       '/admin/xg-path/cycle': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -540,7 +540,7 @@ describe('AdminScreen', () => {
       '/admin/xg-path/cycle': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('xG Path target cycle')).not.toBeInTheDocument());
@@ -554,7 +554,7 @@ describe('AdminScreen', () => {
       '/admin/xg-path/cycle': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
     expect(await screen.findByText('Something broke.')).toBeInTheDocument();
@@ -589,7 +589,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -607,7 +607,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -628,7 +628,7 @@ describe('AdminScreen', () => {
       '/admin/suggestions': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -643,7 +643,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -667,7 +667,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={onOpenSuggestions} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={onOpenSuggestions} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before interacting.
     await user.click(await screen.findByRole('tab', { name: 'Grid' }));
@@ -676,6 +676,30 @@ describe('AdminScreen', () => {
     await user.click(button);
 
     expect(onOpenSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-1414: clicking "Connect dispute suggestions" calls onOpenConnectDisputeSuggestions', async () => {
+    const onOpenConnectDisputeSuggestions = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+    const user = userEvent.setup();
+
+    render(
+      <AdminScreen
+        accessToken="token"
+        onAuthError={vi.fn()}
+        onOpenSuggestions={vi.fn()}
+        onOpenConnectDisputeSuggestions={onOpenConnectDisputeSuggestions}
+      />,
+    );
+    // REQ-1414: "Connect dispute suggestions" lives in the default "Users"
+    // nav group, so no tab switch is needed before interacting with it.
+    const button = await screen.findByRole('button', { name: 'Connect dispute suggestions' });
+    await user.click(button);
+
+    expect(onOpenConnectDisputeSuggestions).toHaveBeenCalledTimes(1);
   });
 
   it('REQ-512: a non-401/403 error from the suggestions fetch shows an inline error message, with no badge and no onAuthError call', async () => {
@@ -688,7 +712,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: PlayerSuggestionsEntry now lives in the "Grid" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -725,7 +749,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -755,7 +779,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -779,7 +803,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -807,7 +831,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: IncidentReportsEntry now lives in the "Issues" nav group,
     // which isn't the default ("Users") — select it before asserting on
     // its content.
@@ -829,7 +853,7 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => Promise.reject(new Error('Network request failed')),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Network request failed')).toBeInTheDocument();
   });
@@ -842,7 +866,7 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await screen.findByText('No unverified data to review.');
     await waitFor(() => expect(screen.queryByText(/Incident reports/)).not.toBeInTheDocument());
@@ -857,7 +881,7 @@ describe('AdminScreen', () => {
       '/admin/incident-reports': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -884,7 +908,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
     // nav group, which isn't the default ("Users") — select it before
     // asserting on its content.
@@ -909,7 +933,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
     // nav group, which isn't the default ("Users") — select it before
     // asserting on its content.
@@ -937,7 +961,7 @@ describe('AdminScreen', () => {
 
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
     // nav group, which isn't the default ("Users") — select it before
     // asserting on its content.
@@ -956,7 +980,7 @@ describe('AdminScreen', () => {
       '/admin/announcement-banner': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Site-wide announcement banner')).not.toBeInTheDocument());
@@ -971,7 +995,7 @@ describe('AdminScreen', () => {
       '/admin/announcement-banner': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -996,7 +1020,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
     // nav group, which isn't the default ("Users") — select it before
     // interacting.
@@ -1036,7 +1060,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
     // nav group, which isn't the default ("Users") — select it before
     // interacting.
@@ -1065,7 +1089,7 @@ describe('AdminScreen', () => {
         jsonResponse({ totalUserCount: 1, currentGuestCount: 0, claimedGuestCount: 0 }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByRole('tablist', { name: 'Admin section' })).toBeInTheDocument();
     for (const label of ['Users', 'Grid', 'Path', 'Predict', 'Announcements', 'Issues']) {
@@ -1098,7 +1122,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     expect(await screen.findByText('Accounts')).toBeVisible();
     expect(await screen.findByText('Avatar moderation')).toBeVisible();
     await screen.findByText('No unverified data to review.');
@@ -1130,7 +1154,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await screen.findByText('No unverified data to review.');
     await screen.findByText('Total users');
     expect(unverifiedCallCount).toBe(1);
@@ -1150,7 +1174,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     await screen.findByText('No unverified data to review.');
 
     await user.click(screen.getByRole('tab', { name: 'Grid' }));
@@ -1167,7 +1191,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
@@ -1190,7 +1214,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} onOpenConnectDisputeSuggestions={vi.fn()} />);
     // REQ-516: AnnouncementBannerSection now lives in the "Announcements"
     // nav group, which isn't the default ("Users") — select it before
     // interacting.
