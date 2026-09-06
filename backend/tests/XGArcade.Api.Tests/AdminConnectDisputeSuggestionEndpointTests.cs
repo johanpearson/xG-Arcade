@@ -32,6 +32,19 @@ public class AdminConnectDisputeSuggestionEndpointTests
     [SetUp]
     public void SetUp()
     {
+        // Bug fix (2026-09-06, CI): generated here, not inside the
+        // ConfigureServices closure below — see AdminSuggestionEndpointTests
+        // .SetUp's own comment on this exact gotcha. WebApplicationFactory
+        // for a minimal-hosting-model Program performs an internal
+        // throwaway build before the real one, replaying this configuration
+        // action each time — a name generated inside the closure gets
+        // re-rolled on that replay, silently pointing SeedSuggestionAsync's
+        // write and the test's own GET request at two different, unrelated
+        // empty databases. Captured once here, both resolve the same EF
+        // Core InMemory store (keyed by name) regardless of how many times
+        // the closure itself re-runs.
+        var inMemoryDatabaseName = Guid.NewGuid().ToString();
+
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
@@ -50,7 +63,7 @@ public class AdminConnectDisputeSuggestionEndpointTests
                     }
 
                     services.AddDbContext<XGArcadeDbContext>(options =>
-                        options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+                        options.UseInMemoryDatabase(inMemoryDatabaseName));
                 });
             });
     }

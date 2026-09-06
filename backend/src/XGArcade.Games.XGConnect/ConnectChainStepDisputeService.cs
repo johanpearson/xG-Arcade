@@ -176,6 +176,16 @@ public class ConnectChainStepDisputeService(
         // which case REQ-1413's gate now lets resolution actually proceed.
         await connectMatchLifecycleService.TryResolveMatchIfBothTerminalAsync(matchId, cancellationToken);
 
+        // Bug fix (2026-09-06, CI): `dispute` was loaded via
+        // GetDisputeByIdAsync's AsNoTracking() query above, BEFORE
+        // ApproveDisputeAsync/DenyDisputeAsync mutated the actual tracked
+        // row via their own separately-loaded instance — returning it
+        // as-is here reported the pre-review "Pending" status regardless
+        // of the outcome. Updated in place to reflect exactly what was
+        // just persisted, rather than a second DB round-trip to re-fetch it.
+        dispute.Status = approve ? ConnectChainStepDisputeStatus.Approved : ConnectChainStepDisputeStatus.Denied;
+        dispute.ReviewedAt = now;
+
         return new ReviewChainStepDisputeResult(
             approve ? ReviewChainStepDisputeOutcome.Approved : ReviewChainStepDisputeOutcome.Denied, dispute);
     }
