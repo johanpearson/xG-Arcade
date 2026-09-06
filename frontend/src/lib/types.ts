@@ -935,7 +935,15 @@ export interface ConnectTargetPickSubmitResponse {
 // `matchedClubName`/`matchedOverlapStartYear`/`matchedOverlapEndYear` are
 // additionally null whenever `isValid` is false (no shared club was found
 // at all).
+//
+// chainStepId (REQ-1412, 2026-09-05): the persisted step's own id — null
+// only when `candidatePlayerId` is also null (the "no such player"
+// case, nothing was persisted), otherwise always present, including on an
+// invalid/Busted result, specifically so the caller can immediately offer
+// "dispute this" right after a failed submission (see ChainBuilder.tsx's
+// own dispute-affordance handling).
 export interface ConnectSubmitChainStepResponse {
+  chainStepId: string | null;
   isValid: boolean;
   chainComplete: boolean;
   position: number | null;
@@ -1005,7 +1013,16 @@ export interface ConnectTargetPickView {
 // change, 2026-09-04, REQ-1406, ADR-0104): the club(s) the candidate and
 // the preceding chain player actually share, computed server-side — never
 // a player-typed claim. Null together only when isValid is false.
+//
+// chainStepId (REQ-1412/1413, 2026-09-05): the persisted step's own id —
+// previously absent from every xG Connect read surface, since nothing
+// before REQ-1412 ever needed to reference a specific step by id. Needed
+// to call POST /matches/{matchId}/chain-steps/{chainStepId}/dispute
+// against an already-loaded step (e.g. one shown in ChainStepsList from an
+// earlier fetch), not only against the just-submitted result's own
+// SubmitChainStepResponse.chainStepId.
 export interface ConnectChainStepView {
+  chainStepId: string;
   position: number;
   attemptNumber: number;
   candidatePlayerId: string;
@@ -1057,6 +1074,43 @@ export interface ConnectMatchDetail {
   opponentScore: number | null;
 }
 
+// REQ-1412/1413/ADR-0109: mirrors ChainStepDisputeResponse exactly
+// (backend/src/XGArcade.Api/Connect/ConnectChainStepDisputeEndpoints.cs) —
+// the response to raising (POST .../chain-steps/{id}/dispute) or reviewing
+// (POST .../disputes/{id}/approve or .../deny) a dispute. `status` is the
+// backend's ConnectChainStepDisputeStatus enum serialized as its string
+// name ("Pending" | "Approved" | "Denied"), same Enum.ToString() convention
+// as every other status/outcome field in this file. `reviewedAt` is null
+// exactly while `status` is "Pending".
+export interface ChainStepDisputeResponse {
+  disputeId: string;
+  chainStepId: string;
+  claimedClubName: string;
+  status: string;
+  raisedAt: string;
+  reviewedAt: string | null;
+}
+
+// REQ-1412/1413: mirrors ChainStepDisputeListItemResponse exactly — one
+// dispute in a match, from the caller's OWN perspective (GET
+// /matches/{matchId}/disputes). `raisedByMe: true` is the caller's own
+// dispute (read-only status only, DisputeReview.tsx's own-dispute
+// section); `raisedByMe: false` is the opponent's dispute (actionable — the
+// caller may approve/deny it, DisputeReview.tsx's review-card section).
+// `position` is the disputed step's own chain position, included here
+// (unlike ChainStepDisputeResponse above) so a review UI can label each
+// dispute without a second lookup against myChainSteps.
+export interface ChainStepDisputeListItem {
+  disputeId: string;
+  chainStepId: string;
+  position: number;
+  claimedClubName: string;
+  status: string;
+  raisedAt: string;
+  reviewedAt: string | null;
+  raisedByMe: boolean;
+}
+
 // REQ-517 (S-183): a single pending avatar submission, as returned by
 // GET /admin/avatar-submissions — mirrors PendingAvatarSubmissionResponse
 // (backend/src/XGArcade.Api/Admin/AdminAvatarEndpoints.cs) exactly, oldest
@@ -1073,5 +1127,30 @@ export interface PendingAvatarSubmission {
   imagePreviewUrl: string;
   submittingUserId: string;
   submittingUserDisplayName: string | null;
+  createdAt: string;
+}
+
+// REQ-1414: mirrors ConnectDisputeDataCorrectionSuggestionResponse exactly
+// (backend/src/XGArcade.Api/Admin/AdminConnectDisputeSuggestionEndpoints.cs)
+// — a durable, read-only record of one Approved xG Connect dispute
+// (REQ-1412/1413), for a future, out-of-scope data-correction decision.
+// Deliberately its own type, never merged with PendingSuggestion above —
+// per ADR-0053's own precedent (REQ-215's PlayerSuggestion got its own new,
+// separate admin table rather than being folded into an unrelated queue),
+// applied here for the same reason: this is a club-overlap fact discovered
+// through a match, not a cell-guess candidate. Never carries any
+// approve/reject/act-on affordance of its own (REQ-1414's own "no
+// workflow" rule) — see ConnectDisputeSuggestionsScreen.tsx's own
+// top-of-file comment.
+export interface ConnectDisputeDataCorrectionSuggestion {
+  id: string;
+  connectMatchId: string;
+  connectChainStepId: string;
+  connectChainStepDisputeId: string;
+  candidatePlayerId: string;
+  candidatePlayerName: string;
+  precedingPlayerId: string;
+  precedingPlayerName: string;
+  claimedClubName: string;
   createdAt: string;
 }

@@ -3,6 +3,7 @@ import { fetchConnectMatchDetail } from '../lib/connectMatches';
 import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { usePolling } from '../lib/usePolling';
 import { ChainBuilder } from './ChainBuilder';
+import { DisputeReview } from './DisputeReview';
 import { MatchChat } from './MatchChat';
 import { MatchResolution } from './MatchResolution';
 import { TargetPickPanel } from './TargetPickPanel';
@@ -82,6 +83,15 @@ export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, o
               onAuthError={onAuthError}
               onChanged={refetch}
             />
+          )}
+
+          {/* REQ-1412/1413: the opponent-review half of the dispute flow —
+              own independent fetch/poll (DisputeReview.tsx's own top-of-file
+              comment), same "only while Active" gate ChainBuilder itself
+              renders under, since a dispute can only exist against a step
+              submitted during that same phase. */}
+          {detail.status === 'Active' && detail.myTargetPick && detail.opponentTargetPick && (
+            <DisputeReview matchId={matchId} accessToken={accessToken} onAuthError={onAuthError} onReviewed={refetch} />
           )}
 
           {detail.status === 'Resolved' && <MatchResolution detail={detail} />}

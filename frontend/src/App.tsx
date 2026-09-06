@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AdminScreen } from './admin/AdminScreen';
+import { ConnectDisputeSuggestionsScreen } from './admin/ConnectDisputeSuggestionsScreen';
 import { SuggestionsScreen } from './admin/SuggestionsScreen';
 import { AuthScreen } from './auth/AuthScreen';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
@@ -56,6 +57,12 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // is in turn only reachable from 'settings'. Never a default destination
 // and never given its own top-level nav entry, per ADR-0053's "a new,
 // separate screen... reached the same gated way" framing.
+// 'admin-connect-dispute-suggestions' (REQ-1414, ADR-0053/ADR-0109) is
+// ConnectDisputeSuggestionsScreen's own destination — same "reachable only
+// via a link inside AdminScreen, never a top-level nav entry" shape as
+// 'admin-suggestions' immediately above, for the same ADR-0053 reason (a
+// new, separate, read-only admin surface, never folded into the existing
+// one).
 // 'stats' (REQ-411, S-179, SCREEN-13) is UserStatsScreen's own destination —
 // reachable from Settings' "My stats" link (own stats) or from any
 // leaderboard row's display name (another player's stats), never given its
@@ -84,6 +91,7 @@ type Screen =
   | 'settings'
   | 'admin'
   | 'admin-suggestions'
+  | 'admin-connect-dispute-suggestions'
   | 'stats';
 
 // REQ-721/ADR-0039: hash-based, hand-rolled URL-per-screen mapping — see
@@ -102,6 +110,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   settings: '#/settings',
   admin: '#/admin',
   'admin-suggestions': '#/admin/suggestions',
+  'admin-connect-dispute-suggestions': '#/admin/connect-dispute-suggestions',
   stats: '#/stats',
 };
 
@@ -630,9 +639,16 @@ function App() {
               accessToken={accessToken}
               onAuthError={handleLogout}
               onOpenSuggestions={() => navigateTo('admin-suggestions')}
+              onOpenConnectDisputeSuggestions={() => navigateTo('admin-connect-dispute-suggestions')}
             />
           ) : screen === 'admin-suggestions' ? (
             <SuggestionsScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              onBackToAdmin={() => navigateTo('admin')}
+            />
+          ) : screen === 'admin-connect-dispute-suggestions' ? (
+            <ConnectDisputeSuggestionsScreen
               accessToken={accessToken}
               onAuthError={handleLogout}
               onBackToAdmin={() => navigateTo('admin')}

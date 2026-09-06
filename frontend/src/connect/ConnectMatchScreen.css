@@ -269,3 +269,35 @@
   box-sizing: border-box;
   resize: vertical;
 }
+
+/* REQ-1412/1413/1414 (ADR-0109): the dispute-raise mini-form
+   (ChainBuilder.tsx) and the opponent-review cards (DisputeReview.tsx) —
+   tokens only, same card/button/hint shell already used above, no new
+   color/typeface introduced. `.connect-match__dispute-form` is set off
+   from the ordinary chain-form above it with a hairline top border, since
+   the two can render stacked in the same section. */
+.connect-match__dispute-form {
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--color-border-hairline);
+}
+
+.connect-match__dispute-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+}
+
+.connect-match__dispute-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.connect-match__button--secondary {
+  background: none;
+  border: 1px solid var(--color-border-hairline);
+  color: var(--color-text-primary);
+}
