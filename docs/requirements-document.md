@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.71"
+version: "2.72"
 status: draft
-last_updated: 2026-09-05
+last_updated: 2026-09-06
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -12493,6 +12493,162 @@ read, non-admin rejected).
 required fields and is retrievable by an admin; no acceptance criterion of
 any other REQ changes as a result of a suggestion existing, being
 reviewed, or being ignored.
+
+**REQ-1415 – xG Connect entry point on the Games screen: challenge a
+friend or challenge a random player**
+> As a player browsing "Choose a game," I want to see xG Connect as one of
+> the games I can play, and a simple choice of who to play against, so I
+> can discover and start a match without already knowing it's reachable
+> from the "Friends" header-nav entry.
+
+**Status: Proposed.** Not built. xG Connect (REQ-1401-1414) currently has
+no presence on `GameSelectScreen.tsx` (SCREEN-09) at all — the only
+existing entry point is the top-level "Friends" header-nav item, which
+opens `FriendsScreen.tsx` (SCREEN-15) directly to its tabbed
+Friends/Challenges/Matchmaking/Matches view. A player who has never
+noticed "Friends" in the header nav, or who has but doesn't already know
+challenges are how xG Connect is played, has no way to learn xG Connect is
+a game from the one screen whose entire purpose is listing the games xG
+Arcade hosts. This requirement adds a lighter-weight front door for that
+case; it does not change REQ-1401/1402/1403's own flows, and does not
+remove or replace the existing "Friends" nav entry or `FriendsScreen`,
+which remain exactly as they are.
+
+- Given the Games screen (SCREEN-09) renders
+- When a logged-in player views it
+- Then it includes an "xG Connect" tile, in the same tile pattern as the
+  xG Grid/xG Path/xG Predict tiles already there (game name plus a
+  one-line, plain-language description of the core loop, no imagery, same
+  token-only styling SCREEN-09 already specifies) — appended after the
+  existing three tiles, in the same fixed order convention SCREEN-09/
+  REQ-720 already use (never alphabetical, never reordered by recency)
+- Given the "xG Connect" tile
+- When a player selects it
+- Then — unlike the other three tiles, which navigate directly into that
+  game's own play screen — the player is taken to a new xG Connect entry
+  screen presenting exactly two choices and nothing else that itself
+  starts a match: "Challenge a friend" and "Challenge random player"
+- Given that entry screen
+- When a player selects "Challenge a friend"
+- Then they are taken into the same, already-built friend-scoped challenge
+  flow REQ-1402 describes (currently `FriendsScreen`'s Friends tab, "My
+  friends" list with its per-row "Challenge" action) — unchanged by this
+  requirement; every existing rule of that flow (friendship required,
+  duplicate-pending rejection, etc.) continues to apply exactly as REQ-1401/
+  1402 already specify
+- Given that entry screen
+- When a player selects "Challenge random player"
+- Then they are taken into the same, already-built random-matchmaking
+  opt-in flow REQ-1403 describes (currently `FriendsScreen`'s Matchmaking
+  tab) — unchanged by this requirement; every existing rule of that flow
+  (the 12-hour pairing window, etc.) continues to apply exactly as REQ-1403
+  already specifies
+- Given the header nav's "Games" list (REQ-720, which already lists "one
+  entry per game xG Arcade currently hosts")
+- When it renders
+- Then it also lists "xG Connect," and selecting it leads to the same entry
+  screen and behavior described above — matching REQ-720's own existing
+  rule that a nav-list entry's destination is identical to its
+  corresponding Games-screen tile's
+- Given a player who has one or more existing xG Connect matches (in
+  progress or resolved)
+- When this tile, its entry screen, or the "xG Connect" nav-list entry are
+  added
+- Then the existing "Friends" header-nav entry and `FriendsScreen`'s
+  Friends/Challenges/Matchmaking/Matches tabs (SCREEN-15/SCREEN-16) remain
+  reachable exactly as they were before this requirement, unaffected by
+  it — this is an additional, lighter-weight front door in front of those
+  flows, not a replacement for them, and a player must still be able to
+  get back to an in-progress match via the existing Matches tab
+
+**Test level:** UI (component: the tile renders with the correct name/
+description/position in the tile row; activating it renders the two-choice
+entry screen rather than navigating directly into gameplay; each of the
+two choices routes to the corresponding existing flow's entry component;
+the "Games" nav list's "xG Connect" entry renders and carries
+`aria-current` consistent with REQ-720's existing convention when that
+screen is showing), E2E (Playwright: Games screen → "xG Connect" tile →
+"Challenge a friend" reaches the existing friend-challenge flow and a
+challenge can be sent from there; Games screen → "xG Connect" tile →
+"Challenge random player" reaches the existing matchmaking opt-in flow and
+an opt-in can be submitted from there; header "Games" nav → "xG Connect"
+reaches the identical entry screen; the "Friends" nav entry and its
+Matches tab remain reachable and unchanged throughout).
+
+**REQ-1416 – xG Connect rules/how-to-play explainer**
+> As a player who is new to xG Connect, or who thinks a ruling on one of my
+> matches was wrong, I want a plain explanation of how a match works,
+> including that disputing a ruling is possible, so I don't have to guess
+> at the rules or discover the dispute mechanic by accident.
+
+**Status: Proposed.** Not built. xG Grid, xG Path, and xG Predict each have
+a rules/scoring explainer reachable via a `(ⓘ)` entry point opening an
+accessible modal (`ScoringExplainer.tsx`, `PathScoringExplainer.tsx`,
+`PredictScoringExplainer.tsx`, all built on the shared
+`ScoringExplainerShell.tsx` pattern established by REQ-213) — xG Connect
+has no equivalent today, despite having real, non-obvious mechanics of its
+own (the bust rule, the forfeit timer, and the dispute mechanic in
+particular are exactly the kind of thing a player cannot infer from the UI
+alone).
+
+- Given a player on the xG Connect entry screen (REQ-1415) or on an active
+  xG Connect match's chain-building screen (REQ-1406)
+- When they activate a rules/how-to-play entry point, following the same
+  `(ⓘ)` convention REQ-213 and its per-game siblings already establish
+- Then a modal opens following the same accessible-modal pattern REQ-213
+  established (`role="dialog"`, `aria-modal="true"`, focus moved into the
+  modal on open, focus restored to the triggering element on close),
+  containing content distinct from `ScoringExplainer`/
+  `PathScoringExplainer`/`PredictScoringExplainer` and describing only xG
+  Connect's own mechanics
+- Given that modal's content
+- When a player reads it
+- Then it states, at minimum, each of the following as independently
+  identifiable points:
+  1. How a match works: each player privately picks one real football
+     player as their target pick; once both picks are locked in, both
+     players separately build a chain of real "played together"
+     (shared-club, overlapping-time) connections linking the two agreed
+     target players — not connecting their own pick to their opponent's
+     pick directly
+  2. The two-strikes-per-step bust rule (REQ-1407): a first failed
+     connection at a given step is a warning that may be retried; a
+     second, consecutive failure at that same step ends that player's
+     chain
+  3. Scoring (REQ-1408): a completed chain's score reflects both how few
+     connections it took and how many failed first attempts were made
+     along the way — fewer/lower is better, matching this platform's
+     existing golf-style convention (no exact formula stated, following
+     REQ-213's own "no exact formula" precedent)
+  4. The 6-hour timer and forfeit (REQ-1405): each match has a 6-hour
+     deadline from match start, and a player who has not completed their
+     chain or busted by then forfeits
+  5. The dispute mechanic (REQ-1412-1414): a player who believes a failed
+     connection should actually have been accepted may dispute it instead
+     of accepting the failure as final, and their opponent then reviews
+     that specific dispute — stated clearly enough that a player who
+     thinks a ruling was wrong learns disputing exists and roughly how it
+     works, not just that failures can occur
+- Given the modal is open
+- When a player closes it (its own close control, or any other mechanism
+  REQ-213's own precedent already establishes as the baseline for every
+  explainer sibling)
+- Then it closes and focus returns to the element that opened it, matching
+  REQ-213's existing behavior
+- Given a player has no active xG Connect match at all
+- When they reach the xG Connect entry screen (REQ-1415)
+- Then the rules entry point is still available there — a player deciding
+  whether to try xG Connect can learn the rules before committing to a
+  match, not only after one has already started
+
+**Test level:** UI (component: the entry point renders on both the entry
+screen and the active-match screen; the modal opens with correct
+`role`/`aria-modal`, moves focus on open, and restores focus on close; its
+rendered content includes each of the five required points above), E2E
+(Playwright: opening the explainer from the entry screen and from an
+active match both show the same content; the dispute-mechanic point is
+present and readable without the player having already triggered a
+dispute).
 
 ---
 
