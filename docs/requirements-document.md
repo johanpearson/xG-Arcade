@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.70"
+version: "2.71"
 status: draft
 last_updated: 2026-09-05
 owner: Johan
@@ -12346,6 +12346,15 @@ regression coverage in `ConnectChainStepDisputeServiceTests.cs`,
 `ConnectMatchLifecycleServiceTests.cs`, and `ConnectMatchQueryServiceTests.cs`
 reproduces the exact incorrect-exemption scenario and confirms both the
 caller's own and their opponent's terminal-state reads are correct.
+`IsReallyBusted` itself was found, during this same fix's own test-writing
+pass, to call `.First()` on a player's steps list with no empty-check —
+several pre-existing tests mark a player busted directly via the
+repository without ever adding a chain step first (a valid shortcut before
+this fix, since the old code only read the raw bust column), which would
+have thrown `InvalidOperationException` against the new helper. Changed to
+`.FirstOrDefault()`, treating an empty steps list as genuinely busted (no
+steps exist for a Pending dispute to possibly be covering) rather than
+throwing.
 
 - Given a match has one or more Pending disputes (REQ-1412), raised by
   either player

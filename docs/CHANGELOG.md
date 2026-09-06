@@ -21,8 +21,11 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   below (`AlreadyForfeited`/terminal-state checks were scoped to ANY
   Pending dispute in a player's history rather than the one covering their
   current bust, via a new frontier-scoped `ConnectChainStepExtensions
-  .IsReallyBusted`, used identically in all three affected call sites);
-  built the frontend (`ChainBuilder.tsx`'s dispute-raising affordance, a new
+  .IsReallyBusted`, used identically in all three affected call sites; a
+  follow-up `.First()` → `.FirstOrDefault()` defensive fix on that same
+  helper, found while writing its own regression tests, avoids an
+  `InvalidOperationException` against several pre-existing tests that mark
+  a player busted with no chain step behind it); built the frontend (`ChainBuilder.tsx`'s dispute-raising affordance, a new
   `DisputeReview.tsx` opponent-review component, a new read-only
   `ConnectDisputeSuggestionsScreen.tsx` admin screen wired into
   `App.tsx`/`AdminScreen.tsx`); added full `REQ1412_`/`REQ1413_`-named
