@@ -244,9 +244,22 @@ public class ConnectMatchLifecycleService(
             var bustedAt = isPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
             var timedOutAt = isPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
 
-            // Already terminal via bust or timeout — not awaiting this
-            // player's move, regardless of the other participant's state.
-            if (bustedAt is not null || timedOutAt is not null)
+            // Already terminal via timeout — not awaiting this player's
+            // move, regardless of the other participant's state. Unlike a
+            // bust, a timeout is never provisional, so this can be decided
+            // without fetching this player's steps at all.
+            if (timedOutAt is not null)
+                continue;
+
+            var steps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, userId, cancellationToken);
+
+            // Bug fix (2026-09-05, quality-architect review): a bust
+            // covered by a Pending dispute is NOT a real forfeit (REQ-1412)
+            // — the player must still be nudged to keep playing while it
+            // awaits review, since REQ-1413 keeps the 6-hour deadline
+            // running unpaused through a dispute. See
+            // ConnectChainStepExtensions.IsReallyBusted's own doc comment.
+            if (steps.IsReallyBusted(bustedAt))
                 continue;
 
             // Already terminal via a completed chain (REQ-1408). A player
@@ -254,7 +267,6 @@ public class ConnectMatchLifecycleService(
             // in-progress chain with no ClosesChain=true step, naturally
             // falls through both checks above and is included below — no
             // separate "no target pick yet" branch is needed.
-            var steps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, userId, cancellationToken);
             if (steps.HasClosedChain())
                 continue;
 

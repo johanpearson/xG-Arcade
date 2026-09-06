@@ -145,10 +145,18 @@ public class ConnectMatchQueryService(
         var opponentBustedAt = isPlayerA ? match.PlayerBBustedAt : match.PlayerABustedAt;
         var opponentTimedOutAt = isPlayerA ? match.PlayerBTimedOutAt : match.PlayerATimedOutAt;
 
+        // Bug fix (2026-09-05, quality-architect review): both used to read
+        // `*BustedAt is not null` directly, which reports Busted: true for
+        // a player whose bust is a Pending-dispute-covered provisional one
+        // (REQ-1412) — contradicting REQ-1412's own "the player's chain
+        // continues... exactly as if the disputed step had ordinarily
+        // validated" rule on the exact API surface a client builds gameplay
+        // UI against. See ConnectChainStepExtensions.IsReallyBusted's own
+        // doc comment.
         var myTerminalState = new ConnectTerminalState(
-            myBustedAt is not null, myTimedOutAt is not null, myChainSteps.HasClosedChain());
+            myChainSteps.IsReallyBusted(myBustedAt), myTimedOutAt is not null, myChainSteps.HasClosedChain());
         var opponentTerminalState = new ConnectTerminalState(
-            opponentBustedAt is not null, opponentTimedOutAt is not null, opponentChainSteps.HasClosedChain());
+            opponentChainSteps.IsReallyBusted(opponentBustedAt), opponentTimedOutAt is not null, opponentChainSteps.HasClosedChain());
 
         var myScore = isPlayerA ? match.PlayerAScore : match.PlayerBScore;
         var opponentScore = isPlayerA ? match.PlayerBScore : match.PlayerAScore;

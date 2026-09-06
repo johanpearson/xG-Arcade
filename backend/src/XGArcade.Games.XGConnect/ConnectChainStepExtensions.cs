@@ -4,6 +4,49 @@ namespace XGArcade.Games.XGConnect;
 
 public static class ConnectChainStepExtensions
 {
+    // REQ-1412/1413 (quality-architect review, 2026-09-05): "is this
+    // player's own bust column a REAL, blocking forfeit, or a PROVISIONAL
+    // one a Pending dispute is currently covering (REQ-1412's own "the
+    // player's chain continues... exactly as if the disputed step had
+    // ordinarily validated" rule)". A null bustedAt is never a forfeit at
+    // all, regardless of the steps. Otherwise, the single step that
+    // currently answers this is the player's OWN most-recently-submitted
+    // step — highest Position, then highest AttemptNumber at that
+    // position, i.e. the current chain frontier — never "any step anywhere
+    // in this player's history" (that broader read was exactly this bug:
+    // an old, still-unreviewed dispute at an earlier position incorrectly
+    // exempting a brand new, completely undisputed bust at a later one). If
+    // that frontier step is itself a genuine failure (IsValid == false)
+    // with no Pending dispute attached, the bust is real. If it's covered
+    // by a Pending dispute — or the frontier has since moved past it onto a
+    // later, ordinarily-valid step (that later step now being the most
+    // recent one) — it isn't.
+    //
+    // Extracted once this exact question needed answering identically in
+    // three places (ConnectChainStepService.SubmitChainStepAsync's
+    // AlreadyForfeited check, ConnectMatchLifecycleService.
+    // GetMatchesAwaitingActionAsync, ConnectMatchQueryService.
+    // GetMatchDetailAsync's terminal-state construction) — mirrors
+    // HasClosedChain's own once-extracted-when-it-hit-N-copies precedent
+    // immediately below. ConnectMatchLifecycleService.ResolveIfBothTerminalAsync
+    // deliberately does NOT use this helper: it already returns early
+    // whenever ANY Pending dispute exists anywhere in the match, so by the
+    // time it reads PlayerABustedAt/PlayerBBustedAt directly, no Pending
+    // dispute could possibly be covering either bust — the raw column is
+    // already known-real there.
+    public static bool IsReallyBusted(this IReadOnlyList<ConnectChainStep> stepsForOnePlayerInOneMatch, DateTime? bustedAt)
+    {
+        if (bustedAt is null)
+            return false;
+
+        var frontierStep = stepsForOnePlayerInOneMatch
+            .OrderByDescending(s => s.Position)
+            .ThenByDescending(s => s.AttemptNumber)
+            .First();
+
+        return !frontierStep.IsValid && !frontierStep.HasPendingDispute;
+    }
+
     // REQ-1412/1413/ADR-0109: "does this step count as valid right now" —
     // its own real IsValid flag, OR a still-Pending dispute (REQ-1412's own
     // "the disputed step is treated as provisionally valid" rule), OR an

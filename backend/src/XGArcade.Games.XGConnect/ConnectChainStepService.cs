@@ -53,8 +53,17 @@ public class ConnectChainStepService(
         // Pending dispute attached, is a real, blocking forfeit.
         var callerBustedAt = callerIsPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
         var callerTimedOutAt = callerIsPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
-        var callerHasPendingDispute = existingSteps.Any(s => s.HasPendingDispute);
-        var callerAlreadyForfeited = callerTimedOutAt is not null || (callerBustedAt is not null && !callerHasPendingDispute);
+
+        // Bug fix (2026-09-05, quality-architect review): this used to read
+        // `existingSteps.Any(s => s.HasPendingDispute)` — ANY Pending
+        // dispute anywhere in the caller's history, not specifically the
+        // one (if any) covering their CURRENT bust. That let an old,
+        // still-unreviewed dispute at an earlier position permanently
+        // exempt the caller from a completely separate, undisputed bust at
+        // a later position, for as long as the opponent left the earlier
+        // dispute unreviewed. See ConnectChainStepExtensions.IsReallyBusted's
+        // own doc comment for the corrected, frontier-scoped check.
+        var callerAlreadyForfeited = callerTimedOutAt is not null || existingSteps.IsReallyBusted(callerBustedAt);
         if (callerAlreadyForfeited)
             return new SubmitChainStepResult(SubmitChainStepOutcome.AlreadyForfeited, null);
 
