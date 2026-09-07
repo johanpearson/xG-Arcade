@@ -101,9 +101,12 @@ public class ConnectMatchQueryService(
 
         var myChainSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, userId, cancellationToken);
 
-        // Fetched ONLY to derive OpponentTerminalState.Completed below via
-        // ConnectChainStepExtensions.HasClosedChain — never returned to the
-        // caller. See IConnectMatchQueryService's own doc comment for why.
+        // Fetched to derive OpponentTerminalState.Completed below via
+        // ConnectChainStepExtensions.HasClosedChain (every match status), and
+        // — once the match is Resolved (REQ-1418) — also mapped into
+        // OpponentChainSteps below. Never returned to the caller before
+        // Resolved. See IConnectMatchQueryService's own doc comment for the
+        // full boundary.
         var opponentChainSteps = await connectMatchRepository.GetChainStepsForMatchAndUserAsync(matchId, opponentUserId, cancellationToken);
 
         var playerIdsToResolve = new HashSet<Guid>();
@@ -113,6 +116,15 @@ public class ConnectMatchQueryService(
             playerIdsToResolve.Add(opponentPick.TargetPlayerId);
         foreach (var step in myChainSteps)
             playerIdsToResolve.Add(step.CandidatePlayerId);
+        // REQ-1418: opponent candidate ids are only needed once
+        // opponentChainSteps is actually going to be mapped/returned
+        // (Resolved) — added conditionally so an open match's read never
+        // pays for player lookups it won't use.
+        if (match.Status == ConnectMatchStatus.Resolved)
+        {
+            foreach (var step in opponentChainSteps)
+                playerIdsToResolve.Add(step.CandidatePlayerId);
+        }
 
         var players = await playerRepository.GetPlayersByIdsAsync(playerIdsToResolve, cancellationToken);
 
@@ -123,22 +135,19 @@ public class ConnectMatchQueryService(
             ? null
             : new ConnectTargetPickView(opponentPick.TargetPlayerId, ResolvePlayerName(players, opponentPick.TargetPlayerId), opponentPick.IsLocked);
 
-        var myChainStepViews = myChainSteps
-            .OrderBy(s => s.Position)
-            .ThenBy(s => s.AttemptNumber)
-            .Select(s => new ConnectChainStepView(
-                s.Id,
-                s.Position,
-                s.AttemptNumber,
-                s.CandidatePlayerId,
-                ResolvePlayerName(players, s.CandidatePlayerId),
-                s.MatchedClubName,
-                s.MatchedOverlapStartYear,
-                s.MatchedOverlapEndYear,
-                s.IsValid,
-                s.ClosesChain,
-                s.SubmittedAt))
-            .ToList();
+        var myChainStepViews = BuildChainStepViews(myChainSteps, players);
+
+        // REQ-1418: the opponent's full completed chain becomes visible once
+        // the match is Resolved — null (not merely empty) beforehand, since
+        // "not yet available" is a distinct state from "genuinely empty"
+        // here (same convention ConnectMatchDetail.OpponentTargetPick and
+        // GetChatMessagesResult.Messages already use elsewhere in this
+        // surface). A match resolved via forfeit shows exactly the steps
+        // that player actually submitted, which may be a short or empty
+        // list — never fabricated.
+        var opponentChainStepViews = match.Status == ConnectMatchStatus.Resolved
+            ? BuildChainStepViews(opponentChainSteps, players)
+            : null;
 
         var myBustedAt = isPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
         var myTimedOutAt = isPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
@@ -173,6 +182,7 @@ public class ConnectMatchQueryService(
             myTargetPickView,
             opponentTargetPickView,
             myChainStepViews,
+            opponentChainStepViews,
             myTerminalState,
             opponentTerminalState,
             myScore,
@@ -183,6 +193,29 @@ public class ConnectMatchQueryService(
 
     private static string ResolvePlayerName(IReadOnlyDictionary<Guid, Player> players, Guid playerId) =>
         players.TryGetValue(playerId, out var player) ? player.FullName : "Unknown player";
+
+    // Shared mapping for MyChainSteps (always) and OpponentChainSteps
+    // (REQ-1418, only once Resolved) — same shape/ordering for both, so this
+    // is the single place that ordering/field-mapping is defined rather than
+    // duplicated per caller.
+    private static List<ConnectChainStepView> BuildChainStepViews(
+        IEnumerable<ConnectChainStep> steps, IReadOnlyDictionary<Guid, Player> players) =>
+        steps
+            .OrderBy(s => s.Position)
+            .ThenBy(s => s.AttemptNumber)
+            .Select(s => new ConnectChainStepView(
+                s.Id,
+                s.Position,
+                s.AttemptNumber,
+                s.CandidatePlayerId,
+                ResolvePlayerName(players, s.CandidatePlayerId),
+                s.MatchedClubName,
+                s.MatchedOverlapStartYear,
+                s.MatchedOverlapEndYear,
+                s.IsValid,
+                s.ClosesChain,
+                s.SubmittedAt))
+            .ToList();
 
     // SCREEN-15 "Identity gap" fix: resolves every distinct user id's
     // DisplayName in one IUserRepository.GetByIdsAsync call — same

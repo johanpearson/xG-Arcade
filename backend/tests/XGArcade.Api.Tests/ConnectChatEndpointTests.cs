@@ -360,4 +360,82 @@ public class ConnectChatEndpointTests
         var posted = await response.Content.ReadFromJsonAsync<ChatMessageResponse>();
         Assert.That(posted!.MessageText, Is.EqualTo(atMaxLength));
     }
+
+    // ---- REQ-1419: send rejected more than 1h after ResolvedAt --------------
+    // The service-level suite (ConnectChatServiceTests.cs) already covers the
+    // full before/at/after-cutoff matrix with a FixedTimeProvider; this file
+    // uses the real (system) TimeProvider registered in DI, so it only needs
+    // ResolvedAt set safely in the past/at-now to land on either side of the
+    // cutoff — proving the 409 mapping and read-path unaffected-ness over the
+    // real HTTP pipeline, not re-proving the cutoff's own arithmetic.
+
+    [Test]
+    public async Task REQ1419_PostChatMessage_MatchResolvedMoreThanOneHourAgo_ReturnsConflict()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            await connectMatchRepository.ResolveMatchAsync(
+                matchId, ConnectMatchOutcome.PlayerAWin, DateTime.UtcNow.AddHours(-2), 3, null);
+        }
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await clientA.PostAsJsonAsync(
+            $"/matches/{matchId}/chat-messages", new SendChatMessageRequest("too late"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Chat is closed"));
+    }
+
+    [Test]
+    public async Task REQ1419_PostChatMessage_MatchResolvedLessThanOneHourAgo_ReturnsOk()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            await connectMatchRepository.ResolveMatchAsync(
+                matchId, ConnectMatchOutcome.PlayerAWin, DateTime.UtcNow.AddMinutes(-5), 3, null);
+        }
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await clientA.PostAsJsonAsync(
+            $"/matches/{matchId}/chat-messages", new SendChatMessageRequest("still in time"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+    }
+
+    [Test]
+    public async Task REQ1419_GetChatMessages_MatchResolvedMoreThanOneHourAgo_StillReturnsOkWithExistingMessages()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var clientA = CreateAuthenticatedClient(aAuthProviderUserId);
+        await clientA.PostAsJsonAsync($"/matches/{matchId}/chat-messages", new SendChatMessageRequest("before the cutoff"));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            await connectMatchRepository.ResolveMatchAsync(
+                matchId, ConnectMatchOutcome.PlayerAWin, DateTime.UtcNow.AddHours(-2), 3, null);
+        }
+        var clientB = CreateAuthenticatedClient(bAuthProviderUserId);
+
+        var response = await clientB.GetAsync($"/matches/{matchId}/chat-messages");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK),
+            "REQ-1419's send cutoff must never affect the read path");
+        var messages = await response.Content.ReadFromJsonAsync<List<ChatMessageResponse>>();
+        Assert.That(messages, Has.Count.EqualTo(1));
+    }
 }

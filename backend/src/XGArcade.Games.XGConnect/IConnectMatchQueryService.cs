@@ -89,9 +89,12 @@ public record ConnectMatchSummary(
 // never needs a second round trip just to label a target.
 public record ConnectTargetPickView(Guid TargetPlayerId, string TargetPlayerName, bool Locked);
 
-// One of the caller's OWN chain steps, in submission order. Never used for
-// an opponent's steps — see ConnectMatchDetail.OpponentTerminalState's own
-// comment for why the opponent's actual steps are never returned.
+// One chain step, in submission order. Used both for the caller's OWN steps
+// (MyChainSteps, always populated) and — once a match is Resolved
+// (REQ-1418) — the opponent's steps too (OpponentChainSteps). Before
+// Resolved, an opponent's actual steps are never returned — see
+// ConnectMatchDetail.OpponentChainSteps's own comment for the exact
+// boundary.
 //
 // MatchedClubName/MatchedOverlapStartYear/MatchedOverlapEndYear (design
 // change, 2026-09-04, REQ-1406, ADR-0104): the club(s) the candidate and
@@ -136,12 +139,16 @@ public record ConnectTerminalState(bool Busted, bool TimedOut, bool Completed);
 // ConnectMatchQueryService.GetMatchDetailAsync's own comment.
 //
 // OpponentTerminalState.Completed is derived from the opponent's own chain
-// steps (ConnectChainStepExtensions.HasClosedChain), but those steps
-// themselves are never included anywhere in this record — only whether
-// they collectively reached a terminal state. REQ-1406 doesn't require
-// live visibility into an opponent's in-progress chain; keeping the actual
-// steps private is a minimal, reasonable default, not a new structural
-// decision.
+// steps (ConnectChainStepExtensions.HasClosedChain) regardless of match
+// status. The steps themselves are withheld while the match is
+// AwaitingTargetPicks or Active (REQ-1406's original privacy rule,
+// unchanged during that window) — OpponentChainSteps is null then. Once
+// Status reaches Resolved (REQ-1418), OpponentChainSteps is populated with
+// every step the opponent actually submitted as part of their final chain
+// (candidate name, matched club, matched overlap years, closing step),
+// same shape/ordering as MyChainSteps. A match resolved via forfeit shows
+// exactly what that player submitted before forfeiting — which may be a
+// short or empty list — never a fabricated chain.
 // OpponentDisplayName mirrors OpponentUserId's own nullability exactly —
 // see ConnectMatchSummary.OpponentDisplayName's own doc comment for the
 // same rule/batch-resolve rationale (a single-id resolve here, since this
@@ -158,6 +165,7 @@ public record ConnectMatchDetail(
     ConnectTargetPickView? MyTargetPick,
     ConnectTargetPickView? OpponentTargetPick,
     IReadOnlyList<ConnectChainStepView> MyChainSteps,
+    IReadOnlyList<ConnectChainStepView>? OpponentChainSteps,
     ConnectTerminalState MyTerminalState,
     ConnectTerminalState OpponentTerminalState,
     int? MyScore,

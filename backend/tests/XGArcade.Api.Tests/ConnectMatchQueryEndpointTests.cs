@@ -293,4 +293,98 @@ public class ConnectMatchQueryEndpointTests
         Assert.That(body!.MyTargetPick, Is.Null);
         Assert.That(body.OpponentTargetPick, Is.Null);
     }
+
+    // ---- REQ-1418: opponent's completed chain visible only once Resolved ----
+
+    [Test]
+    public async Task REQ1418_GetMatchDetail_MatchActive_OpponentChainStepsIsNullInResponse()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var opponentCandidateId = await AddPlayerAsync("Opponent Candidate");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            var now = DateTime.UtcNow;
+            await connectMatchRepository.StartMatchAsync(matchId, now, now.AddHours(6));
+            await connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+            {
+                Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userBId, Position = 1, AttemptNumber = 1,
+                CandidatePlayerId = opponentCandidateId, MatchedClubName = "Arsenal", IsValid = true, ClosesChain = false,
+                SubmittedAt = now,
+            });
+        }
+
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await client.GetAsync($"/matches/{matchId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ConnectMatchDetailResponse>();
+        Assert.That(body!.OpponentChainSteps, Is.Null,
+            "REQ-1406's unchanged privacy rule — opponent steps stay hidden until the match is Resolved");
+    }
+
+    [Test]
+    public async Task REQ1418_GetMatchDetail_MatchResolved_OpponentChainStepsIsPopulatedWithFullCompletedChain()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var opponentCandidateId = await AddPlayerAsync("Opponent Candidate");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            var now = DateTime.UtcNow;
+            await connectMatchRepository.StartMatchAsync(matchId, now, now.AddHours(6));
+            await connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+            {
+                Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userBId, Position = 1, AttemptNumber = 1,
+                CandidatePlayerId = opponentCandidateId, MatchedClubName = "Arsenal", IsValid = true, ClosesChain = true,
+                SubmittedAt = now,
+            });
+            await connectMatchRepository.ResolveMatchAsync(matchId, ConnectMatchOutcome.PlayerBWin, now, 0, 2);
+        }
+
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await client.GetAsync($"/matches/{matchId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ConnectMatchDetailResponse>();
+        Assert.That(body!.OpponentChainSteps, Is.Not.Null);
+        Assert.That(body.OpponentChainSteps, Has.Count.EqualTo(1));
+        Assert.That(body.OpponentChainSteps![0].CandidatePlayerId, Is.EqualTo(opponentCandidateId));
+        Assert.That(body.OpponentChainSteps[0].CandidatePlayerName, Is.EqualTo("Opponent Candidate"));
+        Assert.That(body.OpponentChainSteps[0].ClosesChain, Is.True);
+    }
+
+    [Test]
+    public async Task REQ1418_GetMatchDetail_ResolvedMatch_NonParticipant_StillReturnsForbidden()
+    {
+        var userAId = await SeedUserAsync(Guid.NewGuid(), "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            var now = DateTime.UtcNow;
+            await connectMatchRepository.StartMatchAsync(matchId, now, now.AddHours(6));
+            await connectMatchRepository.ResolveMatchAsync(matchId, ConnectMatchOutcome.Draw, now, null, null);
+        }
+        var outsiderAuthProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(outsiderAuthProviderUserId, "Casey");
+        var client = CreateAuthenticatedClient(outsiderAuthProviderUserId);
+
+        var response = await client.GetAsync($"/matches/{matchId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Not a participant"));
+    }
 }

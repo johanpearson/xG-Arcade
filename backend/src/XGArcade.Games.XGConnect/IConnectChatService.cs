@@ -15,6 +15,12 @@ namespace XGArcade.Games.XGConnect;
 // chat "remains visible/readable" once a match has reached a terminal
 // state for both players — only match-exists and participant-only checks
 // apply, for both SendMessageAsync and GetMessagesAsync.
+//
+// REQ-1419 narrows this slightly, on the SEND path only: once a match has
+// been Resolved for more than ConnectChatService.ChatCloseWindow (1h,
+// anchored to ConnectMatch.ResolvedAt), SendMessageAsync rejects with
+// ChatClosed. GetMessagesAsync is completely unaffected — REQ-1410's
+// "remains visible/readable... indefinitely" guarantee is unchanged.
 public interface IConnectChatService
 {
     Task<SendChatMessageResult> SendMessageAsync(
@@ -33,6 +39,11 @@ public enum ConnectChatOutcome
     // The caller is neither PlayerAUserId nor PlayerBUserId on this match —
     // same check/ordering as SubmitChainStepOutcome.NotAParticipant.
     NotAParticipant,
+
+    // REQ-1419: the match resolved (ConnectMatch.ResolvedAt) more than
+    // ConnectChatService.ChatCloseWindow ago — send-only, never returned by
+    // GetMessagesAsync (see this interface's own doc comment).
+    ChatClosed,
 }
 
 // Message is non-null only for Success.

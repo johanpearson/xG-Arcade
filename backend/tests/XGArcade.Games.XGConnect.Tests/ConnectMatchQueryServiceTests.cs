@@ -509,4 +509,101 @@ public class ConnectMatchQueryServiceTests
         Assert.That(opponentResult.Detail!.OpponentTerminalState.Busted, Is.True,
             "...and in the opponent's own read of that player's terminal state");
     }
+
+    // ---- REQ-1418: opponent's completed chain becomes visible once the
+    // ---- match is Resolved, never before ------------------------------------
+
+    [Test]
+    public async Task REQ1418_GetMatchDetailAsync_MatchActive_OpponentChainStepsIsNull()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var opponentCandidateId = await AddPlayerAsync("Opponent Candidate");
+        await AddStepAsync(match.Id, opponentId, position: 1, attemptNumber: 1, opponentCandidateId, "Arsenal", isValid: true, closesChain: false, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        Assert.That(result.Detail!.OpponentChainSteps, Is.Null,
+            "REQ-1406's unchanged privacy rule — the opponent's steps must stay hidden while the match is still Active");
+    }
+
+    [Test]
+    public async Task REQ1418_GetMatchDetailAsync_MatchAwaitingTargetPicks_OpponentChainStepsIsNull()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, opponentId, FixedNow.UtcDateTime);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        Assert.That(result.Detail!.OpponentChainSteps, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1418_GetMatchDetailAsync_MatchResolved_OpponentChainStepsIsPopulatedInOrderWithNamesResolved()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var opponentCandidateOneId = await AddPlayerAsync("Opponent Candidate One");
+        var opponentCandidateTwoId = await AddPlayerAsync("Opponent Candidate Two");
+        await AddStepAsync(match.Id, opponentId, position: 1, attemptNumber: 1, opponentCandidateOneId, "Arsenal", isValid: true, closesChain: false, FixedNow.UtcDateTime);
+        await AddStepAsync(match.Id, opponentId, position: 2, attemptNumber: 1, opponentCandidateTwoId, "Chelsea", isValid: true, closesChain: true, FixedNow.UtcDateTime.AddMinutes(1));
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.PlayerBWin, FixedNow.UtcDateTime, playerAScore: 0, playerBScore: 2);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        Assert.That(result.Detail!.OpponentChainSteps, Is.Not.Null);
+        Assert.That(result.Detail.OpponentChainSteps, Has.Count.EqualTo(2));
+        Assert.That(result.Detail.OpponentChainSteps![0].CandidatePlayerId, Is.EqualTo(opponentCandidateOneId));
+        Assert.That(result.Detail.OpponentChainSteps[0].CandidatePlayerName, Is.EqualTo("Opponent Candidate One"));
+        Assert.That(result.Detail.OpponentChainSteps[1].CandidatePlayerId, Is.EqualTo(opponentCandidateTwoId));
+        Assert.That(result.Detail.OpponentChainSteps[1].ClosesChain, Is.True);
+    }
+
+    // A match resolved via the opponent forfeiting (bust/timeout) shows
+    // exactly the (possibly empty) chain they actually submitted — never a
+    // fabricated one.
+    [Test]
+    public async Task REQ1418_GetMatchDetailAsync_MatchResolvedViaOpponentForfeit_OpponentChainStepsShowsExactlyWhatWasSubmitted()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        // Opponent never submitted a single valid step before timing out.
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.PlayerAWin, FixedNow.UtcDateTime, playerAScore: 3, playerBScore: null);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        Assert.That(result.Detail!.OpponentChainSteps, Is.Not.Null.And.Empty,
+            "opponent forfeited without submitting any step — shown as an empty chain, not fabricated or omitted");
+    }
+
+    // Non-participant rejection is unconditional and unaffected by match
+    // status or REQ-1418 — the existing ResolveParticipantMatchAsync check
+    // earlier in GetMatchDetailAsync already covers this; this pins that it
+    // still applies once a match is Resolved specifically.
+    [Test]
+    public async Task REQ1418_GetMatchDetailAsync_NonParticipant_ResolvedMatch_ReturnsNotAParticipant()
+    {
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(Guid.NewGuid(), opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, FixedNow.UtcDateTime, null, null);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, Guid.NewGuid());
+
+        Assert.That(result.Outcome, Is.EqualTo(ConnectMatchDetailOutcome.NotAParticipant));
+        Assert.That(result.Detail, Is.Null);
+    }
 }

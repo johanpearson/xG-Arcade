@@ -9,11 +9,14 @@ namespace XGArcade.Api.Connect;
 // COMP-17 (Games.XGConnect)/ADR-0103, S-215: REQ-1410's in-match text chat
 // send/read surface. Same thin-endpoint/owning-service pattern as
 // ConnectMatchEndpoints.cs/ConnectChainStepEndpoints.cs — every precondition
-// check (match exists, caller is a participant) lives in IConnectChatService
+// check (match exists, caller is a participant, REQ-1419's one-hour
+// post-resolution send cutoff) lives in IConnectChatService
 // (Games.XGConnect); this file only resolves the caller and shapes the
-// response. Deliberately does NOT gate on match status — see
-// IConnectChatService's own doc comment for why REQ-1410 has no such
-// precondition, unlike REQ-1406/1407's MatchNotActive/AlreadyForfeited.
+// response. The read path (GET) still does NOT gate on match status at
+// all — see IConnectChatService's own doc comment for why REQ-1410 has no
+// such precondition there, unlike REQ-1406/1407's
+// MatchNotActive/AlreadyForfeited, and REQ-1419's narrow send-only
+// exception to that.
 public static class ConnectChatEndpoints
 {
     // Quality-gate finding on REQ-1410 (S-215): no other free-text
@@ -79,6 +82,13 @@ public static class ConnectChatEndpoints
                         title: "Not a participant",
                         detail: "Only the two players in this match may send messages in its chat.",
                         statusCode: StatusCodes.Status403Forbidden),
+                    // REQ-1419: same 409 shape ConnectMatchEndpoints.cs uses
+                    // for its own "Target picks are already connected"
+                    // rejection.
+                    ConnectChatOutcome.ChatClosed => Results.Problem(
+                        title: "Chat is closed",
+                        detail: "This match's chat closed one hour after it ended.",
+                        statusCode: StatusCodes.Status409Conflict),
                     _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
                 };
             }
