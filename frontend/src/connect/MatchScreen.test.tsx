@@ -28,6 +28,7 @@ function detail(overrides: Partial<ConnectMatchDetail> = {}): ConnectMatchDetail
     opponentTerminalState: { busted: false, timedOut: false, completed: false },
     myScore: null,
     opponentScore: null,
+    opponentChainSteps: null,
     ...overrides,
   };
 }
@@ -154,6 +155,58 @@ describe('MatchScreen', () => {
 
       screen.getByRole('button', { name: 'Close' }).click();
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+  });
+
+  // REQ-1419: MatchScreen computes `chatClosed` from `resolvedAt + 1h` and
+  // threads it down to MatchChat.
+  describe('REQ-1419: chat closed state threaded from resolvedAt', () => {
+    it('a match that has never resolved never shows the closed notice', async () => {
+      stubDetailAndChat(detail({ resolvedAt: null }));
+      renderScreen();
+
+      await screen.findByText('Chat');
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
+      expect(screen.queryByText("This match's chat closed one hour after it ended.")).not.toBeInTheDocument();
+    });
+
+    it('a match resolved less than an hour ago still shows the send form', async () => {
+      const resolvedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      stubDetailAndChat(
+        detail({
+          status: 'Resolved',
+          outcome: 'Win',
+          myScore: 2,
+          opponentScore: 3,
+          resolvedAt,
+          myTargetPick: { targetPlayerId: 't1', targetPlayerName: 'Lionel Messi', locked: true },
+          opponentTargetPick: { targetPlayerId: 't2', targetPlayerName: 'Cristiano Ronaldo', locked: true },
+        }),
+      );
+      renderScreen();
+
+      await screen.findByText('Chat');
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
+      expect(screen.queryByText("This match's chat closed one hour after it ended.")).not.toBeInTheDocument();
+    });
+
+    it('a match resolved more than an hour ago shows the read-only chat notice instead of the send form', async () => {
+      const resolvedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      stubDetailAndChat(
+        detail({
+          status: 'Resolved',
+          outcome: 'Win',
+          myScore: 2,
+          opponentScore: 3,
+          resolvedAt,
+          myTargetPick: { targetPlayerId: 't1', targetPlayerName: 'Lionel Messi', locked: true },
+          opponentTargetPick: { targetPlayerId: 't2', targetPlayerName: 'Cristiano Ronaldo', locked: true },
+        }),
+      );
+      renderScreen();
+
+      expect(await screen.findByText("This match's chat closed one hour after it ended.")).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
     });
   });
 });

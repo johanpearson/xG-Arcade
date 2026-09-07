@@ -78,6 +78,26 @@ export function MatchResolution({ detail }: MatchResolutionProps) {
           />
         </>
       )}
+      {/* REQ-1418: the opponent's own completed chain — only ever populated
+          once `status === 'Resolved'` (the same status this component only
+          ever renders under, MatchScreen.tsx's own gate), but checked for
+          presence defensively rather than assumed, since the API contract
+          allows null. Runs in the opposite direction from "Your chain"
+          above: the opponent's chain started at THEIR target and closes by
+          reaching YOUR target, so targetPlayerName/otherTargetPlayerName are
+          swapped relative to the block above. Shows exactly the steps that
+          player actually submitted — a short or empty chain for a forfeit
+          (bust/timeout) is not fabricated or padded out. */}
+      {detail.opponentChainSteps && detail.myTargetPick && detail.opponentTargetPick && (
+        <>
+          <h4 className="connect-match__section-title">Opponent&rsquo;s chain</h4>
+          <ChainStepsList
+            targetPlayerName={detail.opponentTargetPick.targetPlayerName}
+            otherTargetPlayerName={detail.myTargetPick.targetPlayerName}
+            steps={detail.opponentChainSteps}
+          />
+        </>
+      )}
     </section>
   );
 }

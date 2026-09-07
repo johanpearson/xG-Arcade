@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.74"
+version: "2.76"
 status: draft
 last_updated: 2026-09-07
 owner: Johan
@@ -12670,7 +12670,40 @@ sub-tabs**
 > can find an in-progress match without scanning past ones I've already
 > resolved.
 
-**Status: Proposed, 2026-09-07 — not yet implemented.**
+**Status: Built, 2026-09-07.** Frontend-only REQ (no backend change — the
+existing `GET /matches` response already carries everything needed).
+`MatchesTab.tsx` (`frontend/src/connect/`) now buckets the already-fetched
+`matches` array into three sub-tabs — "Not Started"
+(`AwaitingTargetPicks`), "Ongoing" (`Active`), "Completed" (`Resolved`) —
+via a `useState<MatchesSubTabKey>` defaulting to "Not Started," reusing
+`FriendsScreen.tsx`'s own `friends-screen__tabs`/`friends-screen__tab`
+sub-tab-button pattern (design-document.md SCREEN-16's own updated "Matches
+tab" note) rather than a new control type. Switching sub-tabs only
+re-filters the array `useAuthedFetch` already fetched once on mount — no
+new `fetchFn` call, no new dependency that would retrigger it — satisfying
+this REQ's own "no new request on switch" criterion directly (verified by
+a REQ-1417-named test asserting the mocked `fetch` is called exactly once
+across three sub-tab switches). The overall empty-state message is
+unchanged and the sub-tab bar isn't rendered at all when the whole list is
+empty; a distinct sub-tab-specific empty message ("No matches in this
+list. Challenge a friend or opt into matchmaking to start one.") appears
+when the overall list is non-empty but the active sub-tab has no matches.
+`REQ-1417`-named Vitest coverage added to `MatchesTab.test.tsx` (bucketing
+by status, a match appearing in exactly one sub-tab, both empty states, and
+the no-refetch-on-switch behavior); the file's pre-existing tests were
+updated for the new default sub-tab (several previously asserted an
+`Active`/`Resolved` match rendering immediately, which now requires
+selecting the matching sub-tab first). `frontend/tests/e2e/
+play-connect.spec.ts` (REQ-1402/1404/1405/1406/1408/1409/1410's existing
+full-match-happy-path spec) updated at its two "Back to matches" checkpoints
+that assert on a match's row text after a status transition (Active,
+Resolved) to first select the corresponding sub-tab, since the default
+sub-tab no longer shows every match regardless of status; not yet run
+against a real backend in this sandbox (no `dotnet`/Docker available) — a
+CI run is needed before this is considered fully verified end-to-end,
+though the affected assertions are otherwise unchanged. `npm run test`
+(952 tests across 72 files, full suite including REQ-1418/1419's own new
+coverage below), `tsc -b`, and `npm run lint` all pass.
 
 - Given the existing "Matches" tab (`MatchesTab.tsx`, design-document.md
   SCREEN-16, REQ-1411) rendering the result of `GET /matches`
@@ -12723,7 +12756,59 @@ resolution**
 > opponent solved the puzzle, so I can learn from their route now that
 > nothing about it is still in play.
 
-**Status: Proposed, 2026-09-07 — not yet implemented.**
+**Status: Built (backend), 2026-09-07.** `ConnectMatchQueryService.
+GetMatchDetailAsync` (`backend/src/XGArcade.Games.XGConnect/
+ConnectMatchQueryService.cs`) now maps `opponentChainSteps` into
+`ConnectChainStepView`s (same `BuildChainStepViews` helper, ordering, and
+name-resolution `myChainSteps` already uses) whenever
+`match.Status == ConnectMatchStatus.Resolved`, and leaves the new
+`OpponentChainSteps` field `null` — not an empty list — for
+`AwaitingTargetPicks`/`Active`, matching the "null means not yet
+available" convention `OpponentTargetPick`/`GetChatMessagesResult.Messages`
+already use elsewhere on this surface. Opponent candidate player ids are
+only added to the batched `IPlayerRepository.GetPlayersByIdsAsync` lookup
+once the match is actually Resolved, to avoid a wasted lookup on every open
+match's read. `IConnectMatchQueryService`'s and
+`ConnectMatchQueryEndpoints.cs`'s DTOs
+(`ConnectMatchDetail.OpponentChainSteps` /
+`ConnectMatchDetailResponse.OpponentChainSteps`) both updated to match, with
+their doc comments corrected — opponent steps are no longer "never
+exposed," only withheld pre-resolution. The non-participant rejection is
+unchanged (`ConnectMatchAccessExtensions.ResolveParticipantMatchAsync`,
+already unconditional). `REQ1418_...`-named coverage added to
+`ConnectMatchQueryServiceTests.cs` (null pre-resolution in both open
+statuses, populated-in-order-with-names-resolved post-resolution, an
+empty chain preserved as empty on forfeit, non-participant still rejected
+once Resolved) and `ConnectMatchQueryEndpointTests.cs` (same null/populated
+distinction over the real HTTP pipeline, forbidden-for-non-participant).
+No `dotnet` SDK was available in the sandbox that built this — tests were
+hand-traced against the existing `ConnectMatchQueryServiceTests.cs`/
+`ConnectMatchQueryEndpointTests.cs` patterns (`FixedTimeProvider`,
+`WebApplicationFactory`) but not executed; a CI run is needed before this
+is considered verified.
+
+**Frontend, 2026-09-07 (built in parallel with the backend half above).**
+`ConnectMatchDetail` (`frontend/src/lib/types.ts`) gained
+`opponentChainSteps: ConnectChainStepView[] | null`, mirroring the backend
+DTO field described above exactly. `MatchResolution.tsx` now renders a
+second "Opponent's chain" section directly below the existing "Your chain"
+one, reusing the same `ChainStepsList.tsx` component — with
+`targetPlayerName`/`otherTargetPlayerName` swapped relative to "Your
+chain," since the opponent's own chain ran in the opposite direction
+(starting at their target pick, closing at the caller's). Only rendered
+when `opponentChainSteps` is non-null — defensive, even though this
+component itself is only ever mounted once `status === 'Resolved'`
+(`MatchScreen.tsx`'s own gate), matching this REQ's "check for presence
+rather than assume" guidance. `REQ-1418`-named Vitest coverage added to
+`MatchResolution.test.tsx` (renders once populated with the correct
+swapped target names, does not render when `null`, renders an empty
+opponent chain plainly without fabricating steps for a forfeit).
+`frontend/tests/e2e/play-connect.spec.ts` extended with an assertion that
+both players see an "Opponent's chain" heading and the other's own
+club-overlap text once resolved — not yet run against a real backend in
+this sandbox (no `dotnet`/Docker available); needs a CI run alongside the
+backend half above. `npm run test`, `tsc -b`, and `npm run lint` all pass
+locally with this change included.
 
 - Given a match has NOT yet reached `Resolved` (i.e. it is still
   `AwaitingTargetPicks` or `Active`)
@@ -12767,10 +12852,62 @@ resolution**
 > matches don't turn into an open-ended messaging thread while past
 > conversations stay intact.
 
-**Status: Proposed, 2026-09-07 — not yet implemented.** Additive to
-REQ-1410, which already requires chat history to remain visible/readable
-indefinitely after a match resolves — that requirement is unchanged by
-this one. This REQ only narrows the SEND path, never the read path.
+**Status: Built, 2026-09-07.** Additive to REQ-1410, which already requires
+chat history to remain visible/readable indefinitely after a match
+resolves — that requirement is unchanged by this one. This REQ only
+narrows the SEND path, never the read path. `ConnectChatService.
+SendMessageAsync` (`backend/src/XGArcade.Games.XGConnect/
+ConnectChatService.cs`) now rejects with a new `ConnectChatOutcome.
+ChatClosed` when `match.Status == ConnectMatchStatus.Resolved` and
+`now - match.ResolvedAt > ChatCloseWindow` (a named `TimeSpan.FromHours(1)`
+constant), using the same injected `TimeProvider` every other xG Connect
+service already uses for "now" (`ConnectMatchLifecycleService`'s
+deadline/timeout checks, `ConnectChainStepDisputeService`'s own deadline
+check) rather than `DateTime.UtcNow` directly. A match with a null
+`ResolvedAt` (never resolved) is never subject to the cutoff.
+`GetMessagesAsync` is untouched — no new check on the read path.
+`ConnectChatEndpoints.cs` maps `ChatClosed` to a `409 Conflict` Problem
+response (`"Chat is closed"` / `"This match's chat closed one hour after
+it ended."`), the same 409 shape `ConnectMatchEndpoints.cs` already uses
+for its own "Target picks are already connected" rejection.
+`REQ1419_...`-named coverage added to `ConnectChatServiceTests.cs` (exactly
+at the 1h boundary still accepted, just past it rejected and persists
+nothing, read path unaffected, a never-resolved match never subject to the
+cutoff — using `FixedTimeProvider` for precise boundary control) and
+`ConnectChatEndpointTests.cs` (409 mapping and read-path-unaffected over
+the real HTTP pipeline, using the real `TimeProvider` with `ResolvedAt`
+safely on either side of the cutoff rather than re-proving the boundary
+arithmetic). No `dotnet` SDK was available in the sandbox that built
+this — tests were hand-traced against the existing
+`ConnectChatServiceTests.cs`/`ConnectChatEndpointTests.cs` patterns but not
+executed; a CI run is needed before this is considered verified.
+
+**Frontend, 2026-09-07 (built in parallel with the backend half above).**
+`MatchScreen.tsx` computes a `chatClosed` boolean from `detail.resolvedAt`
+(`resolvedAt !== null && Date.now() - resolvedAt > CHAT_CLOSE_WINDOW_MS`,
+a named one-hour constant) and threads it down to `MatchChat.tsx` as a new
+required prop, so the client can show the closed state proactively —
+before ever attempting a send — rather than only reacting to a failed
+POST. When `chatClosed`, `MatchChat.tsx` replaces the `<textarea>` + "Send
+message" form entirely with a plain-text notice ("This match's chat closed
+one hour after it ended.") rather than merely disabling the form; the
+message-history list above it is completely unaffected either way,
+matching this REQ's unchanged read path. `handleSend`'s error path also
+catches a 409 defensively (a real race is possible right at the boundary,
+since the client-computed cutoff and the server's own can briefly
+disagree) and flips to the same closed notice from then on, while the
+server's own detail text still surfaces via the existing
+`useSubmitAction`/`describeError` error path — the same convention
+`TargetPickPanel.tsx`'s "Target picks are already connected" 409 already
+uses. `REQ-1419`-named Vitest coverage added to `MatchChat.test.tsx` (send
+form shown/working within the window, hidden with the notice shown once
+closed, existing messages always rendered regardless, a 409 race shows the
+server's detail text and switches to the notice) and `MatchScreen.test.tsx`
+(the `chatClosed` computation itself: never-resolved, resolved <1h ago,
+resolved >1h ago). `npm run test`, `tsc -b`, and `npm run lint` all pass
+locally with this change included; not yet run against a real backend in
+this sandbox (no `dotnet`/Docker available) — needs a CI run alongside the
+backend half above.
 
 - Given a match's `ConnectMatch.Status` has not yet reached `Resolved`, or
   it resolved (`ConnectMatch.ResolvedAt`) one hour ago or less

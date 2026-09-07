@@ -18,7 +18,16 @@ function problemResponse(title: string, detail: string, status: number) {
 function renderChat(overrides: Partial<Parameters<typeof MatchChat>[0]> = {}, fetchMock = vi.fn()) {
   vi.stubGlobal('fetch', fetchMock);
   const onAuthError = vi.fn();
-  render(<MatchChat matchId="match-1" accessToken="token" viewerUserId="me-1" onAuthError={onAuthError} {...overrides} />);
+  render(
+    <MatchChat
+      matchId="match-1"
+      accessToken="token"
+      viewerUserId="me-1"
+      onAuthError={onAuthError}
+      chatClosed={false}
+      {...overrides}
+    />,
+  );
   return { onAuthError };
 }
 
@@ -142,5 +151,78 @@ describe('MatchChat', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(15_000);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  // REQ-1419: chat closes to new messages one hour after resolution — the
+  // read path (message history) stays fully visible regardless.
+  describe('REQ-1419 chat closed state', () => {
+    it('shows the send form (not the closed notice) when chatClosed is false, within the 1h window', async () => {
+      renderChat({ chatClosed: false }, vi.fn().mockImplementation(() => jsonResponse([message])));
+
+      await screen.findByText('gg');
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Chat message')).toBeInTheDocument();
+      expect(screen.queryByText("This match's chat closed one hour after it ended.")).not.toBeInTheDocument();
+    });
+
+    it('hides the send form and shows a read-only notice when chatClosed is true, without hiding existing messages', async () => {
+      renderChat({ chatClosed: true }, vi.fn().mockImplementation(() => jsonResponse([message])));
+
+      // Existing message history is unaffected by the closed state.
+      expect(await screen.findByText('gg')).toBeInTheDocument();
+      expect(screen.getByText('Opponent Olivia')).toBeInTheDocument();
+
+      expect(screen.getByText("This match's chat closed one hour after it ended.")).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Chat message')).not.toBeInTheDocument();
+    });
+
+    it('still sends successfully when chatClosed is false (within the 1h window)', async () => {
+      let sent = false;
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url.endsWith('/matches/match-1/chat-messages') && method === 'GET') {
+          return jsonResponse(sent ? [message] : []);
+        }
+        if (url.endsWith('/matches/match-1/chat-messages') && method === 'POST') {
+          sent = true;
+          return jsonResponse(message);
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      const user = userEvent.setup();
+      renderChat({ chatClosed: false }, fetchMock);
+
+      await screen.findByText('No messages yet — say hello.');
+      await user.type(screen.getByLabelText('Chat message'), 'gg');
+      await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+      expect(await screen.findByText('gg')).toBeInTheDocument();
+    });
+
+    it('a 409 while sending (a race right at the cutoff) shows the server\'s own detail text and switches to the read-only notice', async () => {
+      const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url.endsWith('/matches/match-1/chat-messages') && method === 'GET') return jsonResponse([]);
+        if (url.endsWith('/matches/match-1/chat-messages') && method === 'POST') {
+          return problemResponse('Chat is closed', 'Chat closed one hour after this match resolved.', 409);
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      const user = userEvent.setup();
+      renderChat({ chatClosed: false }, fetchMock);
+
+      await screen.findByText('No messages yet — say hello.');
+      await user.type(screen.getByLabelText('Chat message'), 'gg');
+      await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+      // The server's own detail text surfaces via the existing error path...
+      expect(await screen.findByText('Chat closed one hour after this match resolved.')).toBeInTheDocument();
+      // ...and the send form is swapped for the read-only notice.
+      expect(await screen.findByText("This match's chat closed one hour after it ended.")).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+    });
   });
 });
