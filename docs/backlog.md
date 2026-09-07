@@ -11413,3 +11413,40 @@ confirmed this is pure frontend routing/reuse with no component boundary
 change, and no ADR is needed. Full suite verified in-sandbox (no backend
 change to defer to CI for): 938/938 Vitest tests passing, `tsc -b` clean,
 lint clean.
+
+**S-222 · Matches tab sub-tabs, post-resolution opponent chain, chat
+close window (REQ-1417/1418/1419) — Built, 2026-09-07.** Direct
+product-owner request against the existing match/gameplay screen
+(SCREEN-16): the flat "Matches" list was hard to scan once a player had a
+mix of open and finished matches, a resolved match's opponent chain
+stayed permanently hidden even though nothing about it was still in play,
+and match chat had no end — an old, finished match's chat thread could be
+messaged in indefinitely.
+
+Three requirements, one story since all three touch the same
+screen/read-path and were requested together: REQ-1417 (frontend only)
+buckets `MatchesTab.tsx`'s existing `GET /matches` list into three
+client-side-filtered sub-tabs — "Not Started" (`AwaitingTargetPicks`),
+"Ongoing" (`Active`), "Completed" (`Resolved`) — reusing
+`FriendsScreen.tsx`'s own sub-tab-button pattern, no new request on
+switch. REQ-1418 is a narrow, explicit carve-out from REQ-1406's live-play
+"opponent chain stays private" rule: `ConnectMatchQueryService` now
+returns `OpponentChainSteps` once `ConnectMatch.Status == Resolved` (null
+before then), and `MatchResolution.tsx` renders it via the existing
+`ChainStepsList.tsx`, target names swapped for the direction that chain
+actually ran. REQ-1419 is additive to REQ-1410 (read path unchanged,
+forever): `ConnectChatService.SendMessageAsync` rejects a new send with a
+409 once `ResolvedAt + 1h` has passed, and `MatchChat.tsx` proactively
+swaps the send form for a read-only notice once `MatchScreen.tsx`'s
+client-computed `chatClosed` flag says so, defensively catching a 409
+send-race at the boundary.
+
+No component-boundary change and no ADR — all three extend COMP-17's
+existing read/chat surfaces rather than introducing a new one.
+`docs/architecture-document.md` (COMP-17 row) and `docs/design-document.md`
+(SCREEN-16) both updated to match. Backend built by `backend-implementer`,
+frontend by `ui-implementer`, in parallel on the same branch; frontend
+verified in-sandbox (952/952 Vitest, `tsc -b` clean, lint clean); backend
+has no `dotnet` SDK in this sandbox to verify against — a `ci.yml`
+`workflow_dispatch` run is needed before this is considered fully
+verified end-to-end (CLAUDE.md's "Testing without a local dotnet SDK").
