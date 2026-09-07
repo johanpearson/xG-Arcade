@@ -190,4 +190,85 @@ public class ConnectChatServiceTests
         Assert.That(result.Outcome, Is.EqualTo(ConnectChatOutcome.MatchNotFound));
         Assert.That(result.Messages, Is.Null);
     }
+
+    // ---- REQ-1419: send rejected more than 1h after ResolvedAt --------------
+
+    [Test]
+    public async Task REQ1419_SendMessageAsync_MatchResolvedExactlyAtOneHourCutoff_StillSucceeds()
+    {
+        var (match, aUserId, _) = await CreateMatchAsync();
+        var resolvedAt = FixedNow.UtcDateTime.AddHours(-1);
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt, null, null);
+
+        var result = await _service.SendMessageAsync(match.Id, aUserId, "right at the boundary");
+
+        Assert.That(result.Outcome, Is.EqualTo(ConnectChatOutcome.Success),
+            "REQ-1419: 'at or before ResolvedAt + 1h' is still accepted — only strictly AFTER 1h is rejected");
+    }
+
+    [Test]
+    public async Task REQ1419_SendMessageAsync_MatchResolvedJustUnderOneHourAgo_StillSucceeds()
+    {
+        var (match, aUserId, _) = await CreateMatchAsync();
+        var resolvedAt = FixedNow.UtcDateTime.AddHours(-1).AddMinutes(1);
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt, null, null);
+
+        var result = await _service.SendMessageAsync(match.Id, aUserId, "still within the window");
+
+        Assert.That(result.Outcome, Is.EqualTo(ConnectChatOutcome.Success));
+    }
+
+    [Test]
+    public async Task REQ1419_SendMessageAsync_MatchResolvedMoreThanOneHourAgo_ReturnsChatClosed_PersistsNothing()
+    {
+        var (match, aUserId, _) = await CreateMatchAsync();
+        var resolvedAt = FixedNow.UtcDateTime.AddHours(-1).AddMinutes(-1);
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt, null, null);
+
+        var result = await _service.SendMessageAsync(match.Id, aUserId, "too late");
+
+        Assert.That(result.Outcome, Is.EqualTo(ConnectChatOutcome.ChatClosed));
+        Assert.That(result.Message, Is.Null);
+        Assert.That(await _connectChatMessageRepository.GetMessagesForMatchAsync(match.Id), Is.Empty);
+    }
+
+    // Reading remains completely unaffected by the send-only cutoff — same
+    // "chat remains visible/readable" guarantee REQ-1410 already covers,
+    // now re-asserted specifically alongside a closed-to-sends match.
+    [Test]
+    public async Task REQ1419_GetMessagesAsync_MatchResolvedMoreThanOneHourAgo_StillReturnsExistingMessages()
+    {
+        var (match, aUserId, bUserId) = await CreateMatchAsync();
+        await _service.SendMessageAsync(match.Id, aUserId, "sent before resolution");
+        var resolvedAt = FixedNow.UtcDateTime.AddHours(-2);
+        await _connectMatchRepository.ResolveMatchAsync(match.Id, ConnectMatchOutcome.Draw, resolvedAt, null, null);
+
+        var result = await _service.GetMessagesAsync(match.Id, bUserId);
+
+        Assert.That(result.Outcome, Is.EqualTo(ConnectChatOutcome.Success));
+        Assert.That(result.Messages, Has.Count.EqualTo(1),
+            "REQ-1419's send cutoff never affects the read path or hides an already-sent message");
+    }
+
+    // A match that has never resolved (ResolvedAt null) is never subject to
+    // the cutoff, no matter how much time has passed since it was created.
+    [Test]
+    public async Task REQ1419_SendMessageAsync_MatchNeverResolved_CutoffNeverApplies()
+    {
+        var aUserId = Guid.NewGuid();
+        var bUserId = Guid.NewGuid();
+        var longAgo = FixedNow.UtcDateTime.AddDays(-30);
+        var match = await _connectMatchRepository.AddMatchAsync(new ConnectMatch
+        {
+            Id = Guid.NewGuid(),
+            PlayerAUserId = aUserId,
+            PlayerBUserId = bUserId,
+            CreatedAt = longAgo,
+            Status = ConnectMatchStatus.Active,
+        });
+
+        var result = await _service.SendMessageAsync(match.Id, aUserId, "still going");
+
+        Assert.That(result.Outcome, Is.EqualTo(ConnectChatOutcome.Success));
+    }
 }

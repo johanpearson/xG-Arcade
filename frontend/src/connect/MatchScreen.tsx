@@ -29,6 +29,15 @@ export interface MatchScreenProps {
 // eventually-accurate static timestamp, never a ticking clock.
 const POLL_INTERVAL_MS = 15_000;
 
+// REQ-1419: the send path (never the read path — chat history stays fully
+// visible/readable indefinitely, REQ-1410 unchanged) closes one hour after
+// a match resolves. Computed client-side purely so the UI can show the
+// read-only notice proactively, before ever attempting a send — the server
+// is still the real source of truth (a 409 rejects a send that lands right
+// at/after the boundary regardless of what the client computed a moment
+// earlier).
+const CHAT_CLOSE_WINDOW_MS = 60 * 60 * 1000;
+
 export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, onBack }: MatchScreenProps) {
   // useCallback is load-bearing here — see MatchChat.tsx's identical
   // comment for why an unmemoized fetchFn would retrigger useAuthedFetch's
@@ -118,7 +127,15 @@ export function MatchScreen({ matchId, accessToken, viewerUserId, onAuthError, o
 
           {detail.status === 'Resolved' && <MatchResolution detail={detail} />}
 
-          <MatchChat matchId={matchId} accessToken={accessToken} viewerUserId={viewerUserId} onAuthError={onAuthError} />
+          <MatchChat
+            matchId={matchId}
+            accessToken={accessToken}
+            viewerUserId={viewerUserId}
+            onAuthError={onAuthError}
+            // REQ-1419: null resolvedAt (never resolved) never triggers the
+            // cutoff — see CHAT_CLOSE_WINDOW_MS's own comment above.
+            chatClosed={detail.resolvedAt !== null && Date.now() - new Date(detail.resolvedAt).getTime() > CHAT_CLOSE_WINDOW_MS}
+          />
         </>
       )}
 

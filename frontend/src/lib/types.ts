@@ -1072,6 +1072,14 @@ export interface ConnectMatchDetail {
   opponentTerminalState: ConnectTerminalState;
   myScore: number | null;
   opponentScore: number | null;
+  // REQ-1418: the opponent's own completed chain — null/absent for every
+  // status other than "Resolved" (REQ-1406's mutual-invisibility rule is
+  // unchanged before resolution: only opponentTerminalState's three
+  // booleans are ever exposed while a match is still AwaitingTargetPicks or
+  // Active). Once "Resolved", populated with exactly the steps the
+  // opponent actually submitted before finishing/forfeiting — same shape as
+  // myChainSteps, rendered the same way via the shared ChainStepsList.tsx.
+  opponentChainSteps: ConnectChainStepView[] | null;
 }
 
 // REQ-1412/1413/ADR-0109: mirrors ChainStepDisputeResponse exactly

@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.94"
+version: "0.95"
 status: draft
-last_updated: 2026-09-06
+last_updated: 2026-09-07
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -3840,6 +3840,24 @@ remains correct for them.
   Challenge a friend or opt into matchmaking to start one." — pointing at
   the two tabs that actually create a match.
 
+  **REQ-1417 addition (2026-09-07): three sub-tabs, purely client-side.**
+  The fetched list is bucketed into "Not Started" (`AwaitingTargetPicks`),
+  "Ongoing" (`Active`), and "Completed" (`Resolved`), defaulting to "Not
+  Started" on mount. Reuses this same screen's own top-level
+  `friends-screen__tabs`/`friends-screen__tab` underline sub-tab pattern
+  (SCREEN-15's own convention, one level deeper — a small nested tab bar
+  inside this one tab, not a new control type), rather than three separate
+  `FetchListSection` fetches: `GET /matches` is still called exactly once
+  per mount, and switching sub-tabs only re-filters that same already-
+  fetched array, matching REQ-1417's own "no new request on switch"
+  acceptance criterion. Each sub-tab has its own empty-state text, distinct
+  from the whole-list empty state above, still pointing at the same two
+  match-creating actions: "No matches in this list. Challenge a friend or
+  opt into matchmaking to start one." — shown only when the overall list is
+  non-empty but that specific sub-tab has nothing in it; the whole-list
+  empty state above still owns the case where `GET /matches` itself
+  returned nothing, and the sub-tab bar isn't rendered at all in that case.
+
 - **Target-pick phase (`TargetPickPanel.tsx`, REQ-1404).** While `status`
   is `AwaitingTargetPicks`: a player-search form (`PlayerSearchField.tsx`,
   see below) submitting to `POST /matches/{matchId}/target-pick`. Freely
@@ -3899,13 +3917,30 @@ remains correct for them.
   in prose, **never as "0"**, since a forfeited player has no valid score at
   all and 0 would misread as an actual (if implausibly good) result — and,
   for context, the caller's own full completed chain via the same
-  `ChainStepsList.tsx` used by the Active phase above. The opponent's own
-  chain is never shown, even here (nothing in `ConnectMatchDetail` ever
-  carries it). **Added 2026-09-04 (bugfix, see addendum below):** a
-  `connect-match__success`/`role="status"` line, "Connected! Your chain is
-  complete.", shown whenever `myTerminalState.completed` is true — never
-  for a bust/timeout forfeit, which the outcome heading and "Forfeited"
-  score text already cover.
+  `ChainStepsList.tsx` used by the Active phase above. **Added 2026-09-04
+  (bugfix, see addendum below):** a `connect-match__success`/`role="status"`
+  line, "Connected! Your chain is complete.", shown whenever
+  `myTerminalState.completed` is true — never for a bust/timeout forfeit,
+  which the outcome heading and "Forfeited" score text already cover.
+
+  **REQ-1418 addition (2026-09-07): the opponent's own completed chain,
+  once resolved.** A second "Opponent's chain" section, directly below
+  "Your chain," rendered via the same `ChainStepsList.tsx` — this
+  superseded the previous line above ("The opponent's own chain is never
+  shown, even here"), which was accurate before this REQ and is no longer.
+  `ConnectMatchDetail.opponentChainSteps` is `null` for every status other
+  than `Resolved` (REQ-1406's mutual-invisibility rule is otherwise
+  unchanged — only `opponentTerminalState`'s three booleans are ever
+  exposed before resolution), so this section only renders once populated;
+  `MatchResolution.tsx` checks for its presence defensively rather than
+  assuming the API contract can't return `null` here even though, in
+  practice, this component itself is never mounted before `status ===
+  'Resolved'`. `ChainStepsList`'s `targetPlayerName`/`otherTargetPlayerName`
+  props are swapped relative to "Your chain" — the opponent's chain ran in
+  the opposite direction, starting at THEIR target pick and closing by
+  reaching the caller's own target pick. Shows exactly the steps that
+  player actually submitted, including a short or empty chain for a
+  forfeit (bust/timeout) — never fabricated or padded to imply more.
 
 - **Bugfix addendum (2026-09-04) — real product bug, the fourth genuine
   bug this story's own `play-connect.spec.ts` has caught, not a test-only
@@ -3957,6 +3992,23 @@ remains correct for them.
   pattern `useNotificationSummary.ts` already established — REQ-1410's own
   acceptance criteria explicitly says this "does not require a live push
   update."
+
+  **REQ-1419 addition (2026-09-07): closes to new messages one hour after
+  resolution.** The message-history list above is completely unaffected —
+  this only narrows the send path. `MatchScreen.tsx` computes a
+  `chatClosed` boolean (`resolvedAt !== null && Date.now() - resolvedAt >
+  CHAT_CLOSE_WINDOW_MS`, one hour) and threads it down as a prop, so
+  `MatchChat.tsx` can show the closed state proactively rather than only
+  reacting to a failed send. When closed, the `<textarea>` + "Send message"
+  form is replaced entirely by a plain text notice — "This match's chat
+  closed one hour after it ended." — never merely disabled, so it's
+  unambiguous why no form is offered. A 409 from an actual send attempt
+  (the client-computed cutoff racing the server's own, right at the
+  boundary) is handled the same way any other 409 in this codebase is
+  (TargetPickPanel's "already connected" precedent): the server's own
+  detail text surfaces inline via the existing error path, and the local
+  view switches to the same closed notice from then on, without needing a
+  refetch of `detail` to notice.
 
 - **Shared player search (`PlayerSearchField.tsx`).** The debounced
   (150ms)/2-character-minimum/keyboard-navigable suggestion list REQ-1406's

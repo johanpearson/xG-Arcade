@@ -253,6 +253,10 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // useAuthedFetch mount effect) instead of waiting out or racing that
       // poll, the fastest and least flaky way to observe this transition.
       await pageA.getByRole('button', { name: /Back to matches/ }).click()
+      // REQ-1417: the match is now Active, so it's bucketed under the
+      // "Ongoing" sub-tab, not the default "Not Started" one it was under a
+      // moment ago (before both target picks locked).
+      await pageA.getByRole('tab', { name: 'Ongoing' }).click()
       await expect(pageA.getByText('Active')).toBeVisible()
       await pageA.getByRole('button', { name: 'View match' }).click()
       await expect(pageA.getByText('Build your chain')).toBeVisible()
@@ -367,6 +371,10 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // its next poll or a fresh mount — same re-open technique as the
       // match-start transition above.
       await pageA.getByRole('button', { name: /Back to matches/ }).click()
+      // REQ-1417: the match is now Resolved, so it's bucketed under the
+      // "Completed" sub-tab rather than the "Ongoing" one it was under a
+      // moment ago.
+      await pageA.getByRole('tab', { name: 'Completed' }).click()
       await expect(pageA.getByText('Resolved')).toBeVisible()
       await expect(pageA.getByText('Draw')).toBeVisible()
       await pageA.getByRole('button', { name: 'View match' }).click()
@@ -388,6 +396,16 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // exactly that range, not a computed subset.
       await expect(pageA.getByText(`${seed.clubOverlappingWithA}, 2010-2012`)).toBeVisible()
       await expect(pageB.getByText(`${seed.clubOverlappingWithB}, 2015-2017`)).toBeVisible()
+
+      // ---- Opponent's completed chain (REQ-1418) --------------------------
+      // Once Resolved, each player also sees the OTHER's own completed
+      // chain — proven end-to-end by the fact that the OTHER's own
+      // club-overlap text (unique to their own submission) now also appears
+      // on the viewer's own screen, not just their own "Your chain" text.
+      await expect(pageA.getByText('Opponent’s chain')).toBeVisible()
+      await expect(pageA.getByText(`${seed.clubOverlappingWithB}, 2015-2017`)).toBeVisible()
+      await expect(pageB.getByText('Opponent’s chain')).toBeVisible()
+      await expect(pageB.getByText(`${seed.clubOverlappingWithA}, 2010-2012`)).toBeVisible()
 
       // ---- In-match chat (REQ-1410), bonus coverage given the same fixture -
       // Rendered unconditionally below every phase's own content, including a

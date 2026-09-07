@@ -196,8 +196,11 @@ describe('FriendsScreen', () => {
 
     // Switching back must remount MatchesTab and issue a fresh GET
     // /matches — the second (now-current) match should appear, and the
-    // first call's now-stale match should not.
+    // first call's now-stale match should not. matchV2 is "Active"
+    // (REQ-1417's "Ongoing" sub-tab), unlike matchV1's "AwaitingTargetPicks"
+    // ("Not Started", the default sub-tab), so switch there too.
     await user.click(screen.getByRole('tab', { name: 'Matches' }));
+    await user.click(await screen.findByRole('tab', { name: 'Ongoing' }));
     expect(await screen.findByText(/Opponent Priya/)).toBeVisible();
     expect(screen.queryByText(/Opponent Olivia/)).not.toBeInTheDocument();
     expect(matchesCallCount).toBe(2);

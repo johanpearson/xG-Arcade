@@ -104,6 +104,7 @@ public static class ConnectMatchQueryEndpoints
             detail.MyTargetPick is null ? null : ToResponse(detail.MyTargetPick),
             detail.OpponentTargetPick is null ? null : ToResponse(detail.OpponentTargetPick),
             detail.MyChainSteps.Select(ToResponse).ToList(),
+            detail.OpponentChainSteps?.Select(ToResponse).ToList(),
             ToResponse(detail.MyTerminalState),
             ToResponse(detail.OpponentTerminalState),
             detail.MyScore,
@@ -149,9 +150,12 @@ public record ConnectTerminalStateResponse(bool Busted, bool TimedOut, bool Comp
 // OpponentTargetPick is null both while the opponent hasn't picked yet and
 // (REQ-1404) whenever Status is still "AwaitingTargetPicks" — see
 // ConnectMatchDetail.OpponentTargetPick's own doc comment (Games.
-// XGConnect) for why. OpponentTerminalState never carries the opponent's
-// actual chain steps, only whether they've reached a terminal state — see
-// IConnectMatchQueryService's own doc comment.
+// XGConnect) for why. OpponentChainSteps is null while Status is
+// AwaitingTargetPicks/Active (REQ-1406's unchanged privacy rule during that
+// window) and populated with the opponent's full completed chain — same
+// shape/ordering as MyChainSteps — once Status reaches "Resolved"
+// (REQ-1418); see ConnectMatchDetail.OpponentChainSteps's own doc comment
+// (Games.XGConnect) for the full boundary.
 public record ConnectMatchDetailResponse(
     string Status,
     DateTime CreatedAt,
@@ -164,6 +168,7 @@ public record ConnectMatchDetailResponse(
     ConnectTargetPickResponse? MyTargetPick,
     ConnectTargetPickResponse? OpponentTargetPick,
     IReadOnlyList<ConnectChainStepDetailResponse> MyChainSteps,
+    IReadOnlyList<ConnectChainStepDetailResponse>? OpponentChainSteps,
     ConnectTerminalStateResponse MyTerminalState,
     ConnectTerminalStateResponse OpponentTerminalState,
     int? MyScore,

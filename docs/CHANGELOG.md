@@ -13,6 +13,54 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-07 — `docs/requirements-document.md` (REQ-1417 marked Built,
+  REQ-1418/1419 frontend halves appended to their existing backend status
+  notes, v2.75 → v2.76), `docs/design-document.md` (SCREEN-16's "Matches
+  tab", "Resolved phase", and "In-match chat" notes extended, v0.94 →
+  v0.95) — the frontend halves of three xG Connect requirements, built in
+  parallel with (and landing in the same branch as) the backend halves of
+  REQ-1418/1419 logged just below: REQ-1417 splits `MatchesTab.tsx`'s
+  single list into three client-side-filtered sub-tabs ("Not Started" /
+  "Ongoing" / "Completed"), reusing `FriendsScreen.tsx`'s own
+  `friends-screen__tabs` pattern, with no new fetch on switch; REQ-1418
+  adds `opponentChainSteps` to the `ConnectMatchDetail` frontend type and
+  renders it in `MatchResolution.tsx` as a second "Opponent's chain"
+  section (same `ChainStepsList.tsx`, target names swapped for the
+  opposite direction that chain ran); REQ-1419 threads a `chatClosed`
+  boolean (computed from `resolvedAt + 1h`) from `MatchScreen.tsx` into
+  `MatchChat.tsx`, which replaces the send form with a read-only notice
+  once closed and defensively catches a 409 send-race the same way
+  `TargetPickPanel.tsx`'s existing 409 handling does — the read path
+  (message history) is unaffected either way. New/updated Vitest coverage
+  in `MatchesTab.test.tsx`/`MatchResolution.test.tsx`/`MatchChat.test.tsx`/
+  `MatchScreen.test.tsx`/`FriendsScreen.test.tsx`, plus
+  `frontend/tests/e2e/play-connect.spec.ts` updated at its sub-tab-affected
+  checkpoints and extended with a REQ-1418 opponent-chain assertion. `npm
+  run test` (952/952), `tsc -b`, and `npm run lint` all pass locally; not
+  run against a real backend in this sandbox (no `dotnet`/Docker) — a CI
+  run is needed to verify the E2E spec end-to-end once both halves are on
+  the same branch.
+
+- 2026-09-07 — `docs/requirements-document.md` (REQ-1418/1419 backend
+  marked Built, v2.74 → v2.75), `docs/architecture-document.md` (COMP-17
+  row extended with the same backend delivery, v1.55 → v1.56) — backend
+  delivery for two xG Connect
+  requirements: REQ-1418 (opponent's completed chain becomes visible once
+  a match reaches `Resolved`) adds `OpponentChainSteps` to
+  `ConnectMatchDetail`/`ConnectMatchDetailResponse`
+  (`ConnectMatchQueryService.GetMatchDetailAsync`, null pre-resolution,
+  populated post-resolution with the same shape/ordering as
+  `MyChainSteps`); REQ-1419 (chat send rejected more than 1h after
+  `ResolvedAt`) adds a `ChatClosed` outcome to `ConnectChatService.
+  SendMessageAsync`, mapped to `409 Conflict` by `ConnectChatEndpoints.cs`
+  — the read path is untouched by either change. `REQ1418_...`/
+  `REQ1419_...`-named tests added to `ConnectMatchQueryServiceTests.cs`/
+  `ConnectMatchQueryEndpointTests.cs`/`ConnectChatServiceTests.cs`/
+  `ConnectChatEndpointTests.cs`; not run locally (no `dotnet` SDK in the
+  sandbox) — a CI run is needed to verify. REQ-1417 (frontend) is a
+  separate, parallel task and is untouched here. No new component or
+  boundary — both REQs extend COMP-17's existing read/chat surfaces.
+
 - 2026-09-06 — `docs/requirements-document.md` (new REQ-1415/1416, marked
   Built, v2.72 → v2.73), `docs/design-document.md` (SCREEN-09 amended,
   new SCREEN-17, v0.93 → v0.94), `docs/backlog.md` (new S-221 story),
