@@ -44,22 +44,25 @@ const TABS: Array<{ value: FriendsTabKey; label: string }> = [
 // fetch/loading/error state independently (FriendsTab/ChallengesTab/
 // MatchmakingTab) rather than one shared fetch, the same "independent
 // sections" shape AdminScreen.tsx already uses — switching tabs never
-// unmounts Friends/Challenges/Matchmaking (see the `hidden` attribute
-// below), so already-loaded data isn't refetched on every tab switch.
+// unmounts Friends/Matchmaking (see the `hidden` attribute below), so
+// already-loaded data isn't refetched on every tab switch.
 //
-// The "matches" tab is a deliberate exception to that (design-document.md
-// SCREEN-16, S-218 bugfix): its content is truly conditionally rendered
-// (mounted only while activeTab === 'matches'), not kept alive under
-// `hidden`, because a match's data can change from something the user did
-// elsewhere on this same screen (accepting a challenge in ChallengesTab, a
-// matchmaking sweep pairing) while MatchesTab sits mounted-but-hidden.
-// useAuthedFetch only fetches on mount, so a `hidden`-only MatchesTab would
-// capture its GET /matches response once — often before any match exists —
-// and never refetch it, leaving "View your matches" landing on stale
-// (usually empty) data. Remounting on every switch to this tab is what
-// makes it refetch each time, which is the correct behavior specifically
-// for this tab. Do not apply this pattern to the other three tabs without
-// a reason as concrete as this one.
+// The "matches" and "challenges" tabs are a deliberate exception to that
+// (design-document.md SCREEN-16, S-218 bugfix; extended to "challenges" by
+// the REQ-1402 sent-challenges visibility fix, S-230): their content is
+// truly conditionally rendered (mounted only while activeTab matches),
+// not kept alive under `hidden`, because their data can change from
+// something the user did elsewhere on this same screen — accepting a
+// challenge in ChallengesTab or a matchmaking sweep pairing changes
+// MatchesTab's data, and sending a challenge from FriendsTab's own
+// "Challenge" button changes ChallengesTab's sent-challenges list — while
+// each sits mounted-but-hidden. useAuthedFetch only fetches on mount, so a
+// `hidden`-only tab would capture its GET response once — often before the
+// triggering action happened — and never refetch it, leaving the tab
+// showing stale (usually empty) data. Remounting on every switch to either
+// tab is what makes it refetch each time, which is the correct behavior
+// specifically for these two. Do not apply this pattern to the remaining
+// two tabs without a reason as concrete as this one.
 //
 // `initialTab` (REQ-1411) and the S-218 "matches" tab/drill-down are
 // independent additions that landed in parallel (S-217's notification-
@@ -112,9 +115,9 @@ export function FriendsScreen({
       <div hidden={activeTab !== 'friends'}>
         <FriendsTab accessToken={accessToken} onAuthError={onAuthError} onSelectPlayer={onSelectPlayer} />
       </div>
-      <div hidden={activeTab !== 'challenges'}>
+      {activeTab === 'challenges' && (
         <ChallengesTab accessToken={accessToken} onAuthError={onAuthError} onViewMatches={handleViewMatches} />
-      </div>
+      )}
       <div hidden={activeTab !== 'matchmaking'}>
         <MatchmakingTab accessToken={accessToken} onAuthError={onAuthError} onViewMatches={handleViewMatches} />
       </div>

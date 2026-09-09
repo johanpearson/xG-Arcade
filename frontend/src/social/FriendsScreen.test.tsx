@@ -58,6 +58,51 @@ describe('FriendsScreen', () => {
     expect(screen.getByText('No pending friend requests.')).not.toBeVisible();
   });
 
+  // REQ-1402 visibility fix (S-230), same regression shape as the "Matches"
+  // tab's own S-218 fix below: ChallengesTab's "Sent challenges" section can
+  // change from something the user did elsewhere on this screen (sending a
+  // challenge from FriendsTab), so — unlike Friends/Matchmaking — it must
+  // not stay mounted-but-hidden across a tab switch, or it would show
+  // stale (often empty) data forever.
+  it('REQ-1402 (S-230): switching away from and back to the "Challenges" tab refetches, rather than reusing stale mount-once data', async () => {
+    let sentCallCount = 0;
+    const sentChallengeV2 = {
+      id: 'challenge-2',
+      challengerUserId: 'me',
+      challengerDisplayName: 'Me',
+      challengedUserId: 'b2c3d4e5-0000-0000-0000-000000000000',
+      challengedDisplayName: 'Robin',
+      status: 'Pending',
+      createdAt: '2026-09-02T00:00:00Z',
+      resolvedAt: null,
+      resultingMatchId: null,
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/challenges/sent')) {
+        sentCallCount += 1;
+        return jsonResponse(sentCallCount === 1 ? [] : [sentChallengeV2]);
+      }
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+    renderFriendsScreen(fetchMock);
+    await screen.findByText('No pending friend requests.');
+
+    await user.click(screen.getByRole('tab', { name: 'Challenges' }));
+    expect(await screen.findByText('No pending challenges sent.')).toBeVisible();
+    expect(sentCallCount).toBe(1);
+
+    // Switching to another tab unmounts the Challenges panel (unlike
+    // Friends/Matchmaking, which stay mounted under `hidden`).
+    await user.click(screen.getByRole('tab', { name: 'Friends' }));
+    expect(screen.queryByText('No pending challenges sent.')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Challenges' }));
+    expect(await screen.findByText('Waiting on Robin')).toBeVisible();
+    expect(sentCallCount).toBe(2);
+  });
+
   it('REQ-1403: selecting the "Matchmaking" tab shows its "Opt in" action', async () => {
     const user = userEvent.setup();
     renderFriendsScreen();
