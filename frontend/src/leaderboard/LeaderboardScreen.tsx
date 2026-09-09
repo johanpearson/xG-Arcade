@@ -25,12 +25,24 @@ import { PathScoringExplainer } from '../path/PathScoringExplainer';
 // or PathScoringExplainer.tsx (same reasoning PathScoringExplainer.tsx's own
 // comment already gives for being separate from ScoringExplainer.tsx).
 import { PredictScoringExplainer } from '../predict/PredictScoringExplainer';
+// REQ-1505/SCREEN-18 (S-228): xG Higher/Lower's own leaderboard explainer —
+// see that component's own doc comment for why this GameKey extension is
+// required (not optional scope creep) for HigherLowerScreen.tsx's
+// REQ-1210 onViewRoundLeaderboard wiring to even compile.
+import { HigherLowerScoringExplainer } from '../higherlower/HigherLowerScoringExplainer';
 // REQ-410/ADR-0043 (S-087), extended for xG Predict (REQ-404/ADR-0095,
-// S-198): the same client-side `GameKey` constants GameSelectScreen/
-// HeaderNav already use — no new/duplicate string literal per this repo's
-// own established convention (see GameSelectScreen.tsx's own comment on why
-// these stay plain constants rather than API-sourced).
-import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
+// S-198) and xG Higher/Lower (REQ-1505, S-228): the same client-side
+// `GameKey` constants GameSelectScreen/HeaderNav already use — no new/
+// duplicate string literal per this repo's own established convention (see
+// GameSelectScreen.tsx's own comment on why these stay plain constants
+// rather than API-sourced). xG Connect is deliberately never added here —
+// see the `GameKey` type's own comment below for why.
+import {
+  XG_GRID_GAME_KEY,
+  XG_PATH_GAME_KEY,
+  XG_PREDICT_GAME_KEY,
+  XG_HIGHER_LOWER_GAME_KEY,
+} from '../games/GameSelectScreen';
 import { AllTimeLeaderboard } from './AllTimeLeaderboard';
 import { LiveLeaderboard } from './LiveLeaderboard';
 import { PastRoundsLeaderboard } from './PastRoundsLeaderboard';
@@ -115,7 +127,18 @@ export type Scope = 'all-time' | 'live' | 'past' | 'window';
 // successfully but every xG Predict leaderboard will render empty
 // (REQ-404's zero-guess exclusion filters out every xG Predict player,
 // since none have `Guess` rows) until that backend story lands.
-export type GameKey = typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY | typeof XG_PREDICT_GAME_KEY;
+// REQ-1505/SCREEN-18 (S-228) extends this a fourth time, for xG
+// Higher/Lower — REQ-1505's own text is explicit that this game is "ranked
+// like every other GameKey," unlike xG Connect, which is deliberately never
+// added here: xG Connect is head-to-head/asynchronous-chain scored (REQ-14xx
+// series), not a per-Round FinalPoints total the way every GameKey in this
+// union is, so there is no leaderboard scope here it could meaningfully
+// join.
+export type GameKey =
+  | typeof XG_GRID_GAME_KEY
+  | typeof XG_PATH_GAME_KEY
+  | typeof XG_PREDICT_GAME_KEY
+  | typeof XG_HIGHER_LOWER_GAME_KEY;
 
 // REQ-1210/ADR-0083: the shape GridScreen.tsx/PathScreen.tsx's round-
 // completion banner hands to App.tsx to describe exactly one round's
@@ -141,6 +164,10 @@ const GAME_TABS: Array<{ value: GameKey; label: string }> = [
   // until `GetTotalPointsByInstanceIdAsync` is wired into
   // `LeaderboardService` (a still-open backend follow-up).
   { value: XG_PREDICT_GAME_KEY, label: 'xG Predict' },
+  // REQ-1505/SCREEN-18 (S-228): fourth tab, same order as GameSelectScreen's
+  // tiles/HeaderNav's "Games" list (skipping over xG Connect, which never
+  // gets a tab here at all — see the `GameKey` type's own comment above).
+  { value: XG_HIGHER_LOWER_GAME_KEY, label: 'xG Higher/Lower' },
 ];
 
 // REQ-404/ADR-0095 (S-198, quality-gate fix): an exhaustive switch, not an
@@ -154,6 +181,7 @@ function subtitleForGameKey(gameKey: GameKey): string {
     case XG_PATH_GAME_KEY:
       return 'Lowest total wins';
     case XG_PREDICT_GAME_KEY:
+    case XG_HIGHER_LOWER_GAME_KEY:
       return 'Highest total wins';
     default: {
       const _exhaustive: never = gameKey;
@@ -172,6 +200,8 @@ function explainerForGameKey(gameKey: GameKey, onClose: () => void) {
       return <PathScoringExplainer onClose={onClose} />;
     case XG_PREDICT_GAME_KEY:
       return <PredictScoringExplainer onClose={onClose} />;
+    case XG_HIGHER_LOWER_GAME_KEY:
+      return <HigherLowerScoringExplainer onClose={onClose} />;
     default: {
       const _exhaustive: never = gameKey;
       return _exhaustive;
