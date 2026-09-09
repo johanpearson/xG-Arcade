@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/requirements-document.md` (new §4.16, REQ-1501-1505,
+  v2.76 → v2.77) — design-only requirements for **xG Higher/Lower**, a
+  proposed fifth game: a single-player streak game comparing two real
+  players on one hidden/revealed numeric stat category, reusing
+  `PlayerAttribute`/`PlayerOverride` (COMP-06) with no new external data
+  source and no autocomplete surface (ADR-0007 doesn't apply — there's no
+  name-guessing). REQ-1501/1502 cover category/player/comparator
+  eligibility (no exact ties, no repeated player, pool-exhaustion ends the
+  session); REQ-1503/1504 cover session start and guess/streak
+  progression; REQ-1505 adopts personal-best streak length as the scoring
+  model instead of xG Grid's uniqueness scoring, which doesn't fit a
+  binary-choice mechanic. Flags one open structural question (in §4.16's
+  intro and in §7): whether a session fits the existing shared `Round`
+  model, needs a `ConnectMatch`-style new concept, or something else — not
+  resolved by this pass. No code, ADR, or architecture-document.md/COMP ID
+  added — consistent with how xG Path/xG Predict/xG Connect's own
+  requirements sections started, before any implementation existed.
+
 - 2026-09-07 — `docs/requirements-document.md` (REQ-1417 marked Built,
   REQ-1418/1419 frontend halves appended to their existing backend status
   notes, v2.75 → v2.76), `docs/design-document.md` (SCREEN-16's "Matches
