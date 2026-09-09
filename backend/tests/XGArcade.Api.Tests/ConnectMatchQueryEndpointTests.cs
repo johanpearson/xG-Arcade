@@ -364,6 +364,53 @@ public class ConnectMatchQueryEndpointTests
         Assert.That(body.OpponentChainSteps[0].ClosesChain, Is.True);
     }
 
+    // Gap-fill (2026-09-09, REQ-1406 addendum): over the real HTTP pipeline,
+    // a closing chain step's ClosingClubName/ClosingOverlapStartYear/
+    // ClosingOverlapEndYear must actually reach the response JSON as
+    // closingClubName/closingOverlapStartYear/closingOverlapEndYear — the
+    // service-level mapping is covered separately in
+    // ConnectMatchQueryServiceTests.cs; this proves the endpoint's own
+    // ToResponse projection doesn't drop the three new fields.
+    [Test]
+    public async Task REQ1406_GetMatchDetail_ClosingChainStep_ResponseJsonCarriesClosingClubNameAndOverlapYears()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var matchId = await CreateMatchAsync(userAId, userBId);
+        var candidateId = await AddPlayerAsync("Closing Candidate");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+            var now = DateTime.UtcNow;
+            await connectMatchRepository.StartMatchAsync(matchId, now, now.AddHours(6));
+            await connectMatchRepository.AddChainStepAsync(new ConnectChainStep
+            {
+                Id = Guid.NewGuid(), ConnectMatchId = matchId, UserId = userAId, Position = 1, AttemptNumber = 1,
+                CandidatePlayerId = candidateId, MatchedClubName = "Arsenal", IsValid = true, ClosesChain = true,
+                ClosingClubName = "Chelsea", ClosingOverlapStartYear = 2012, ClosingOverlapEndYear = 2019,
+                SubmittedAt = now,
+            });
+        }
+
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var response = await client.GetAsync($"/matches/{matchId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ConnectMatchDetailResponse>();
+        var step = body!.MyChainSteps!.Single();
+        Assert.That(step.ClosesChain, Is.True);
+        Assert.That(step.ClosingClubName, Is.EqualTo("Chelsea"));
+        Assert.That(step.ClosingOverlapStartYear, Is.EqualTo(2012));
+        Assert.That(step.ClosingOverlapEndYear, Is.EqualTo(2019));
+
+        var rawJson = await client.GetStringAsync($"/matches/{matchId}");
+        Assert.That(rawJson, Does.Contain("\"closingClubName\":\"Chelsea\""),
+            "the wire shape must be camelCase closingClubName, not the PascalCase C# property name");
+    }
+
     [Test]
     public async Task REQ1418_GetMatchDetail_ResolvedMatch_NonParticipant_StillReturnsForbidden()
     {
