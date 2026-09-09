@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/decisions/0110-xg-higher-lower-round-based-bounded-sequence.md`
+  (new ADR), `docs/architecture-document.md` (ADR log row, v1.56 → v1.57),
+  `docs/requirements-document.md` (REQ-1501-1505 revised, v2.77 → v2.78)
+  — resolves the open structural question the initial xG Higher/Lower
+  draft (below) deliberately left open, per direct product-owner
+  feedback: it should be Round-specific, not an anytime/unbounded
+  session. **ADR-0110** decides xG Higher/Lower fits the existing shared
+  `Round` model (like xG Grid/xG Path/xG Predict), not a `ConnectMatch`-
+  style new concept — `IGameModule.GenerateInstanceAsync` generates one
+  fixed stat category and one fixed, fully-ordered comparator sequence
+  once per Round, shared identically by every participant, with the
+  comparator count a per-`GameKey` config value (ADR-0051). REQ-1501/1502
+  move eligibility checking to Round-generation time and replace the old
+  runtime "pool-exhaustion ends the session" case with a generation-time
+  fail-closed case (mirroring REQ-101/REQ-1301); REQ-1503 describes
+  standard Round generation instead of an anytime session start;
+  REQ-1504 caps an attempt at the Round's configured length (reaching the
+  end of the sequence all-correct is now a terminal outcome, same as an
+  incorrect guess); REQ-1505 replaces the personal-best-streak model with
+  a per-Round `FinalPoints` streak length, closing the previously-open
+  "which leaderboard" question — it's the standard Global/custom-league
+  wiring every other `GameKey` already has. No code or COMP ID added yet.
+
 - 2026-09-09 — `docs/requirements-document.md` (new §4.16, REQ-1501-1505,
   v2.76 → v2.77) — design-only requirements for **xG Higher/Lower**, a
   proposed fifth game: a single-player streak game comparing two real

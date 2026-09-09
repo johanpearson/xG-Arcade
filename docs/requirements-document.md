@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.77"
+version: "2.78"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -12953,21 +12953,21 @@ message.
 `CLAUDE.md` and `architecture-document.md` for the platform/game boundary
 this section must not cross), alongside xG Grid (COMP-05), xG Path
 (COMP-11), xG Predict (COMP-15), and xG Connect (COMP-16/COMP-17). It is a
-single-player, session-based streak game: two real players are shown side
-by side, sharing one numeric stat category (e.g. international caps,
-career goals, market value, league titles won); the first player's value
-for that category is revealed, the second player's is hidden, and the
-player guesses whether the hidden value is Higher or Lower than the
-revealed one. A correct guess continues the streak — the just-revealed
-player becomes the new baseline and a third player is drawn as the next
-comparator — and an incorrect guess ends it. This section is entirely
-design-only — no xG Higher/Lower code exists yet, and no component ID is
-assigned (per `architecture-document.md`'s own established pattern for
-COMP-11/15/16/17, a component entry is added only once real code lands,
-not at pure-requirements stage). Every REQ below is written to the same
-standard as §4.12/§4.14/§4.15's xG Path/xG Predict/xG Connect
-requirements, but describes intended behavior for a game that has not
-been built, not a claim about current behavior.
+Round-based streak game (ADR-0110): two real players are shown side by
+side, sharing one numeric stat category (e.g. international caps, career
+goals, market value, league titles won); the first player's value for that
+category is revealed, the second player's is hidden, and the player
+guesses whether the hidden value is Higher or Lower than the revealed one.
+A correct guess continues the streak — the just-revealed player becomes
+the new baseline and the next player in the Round's fixed comparator
+sequence is shown — and an incorrect guess ends that participant's
+attempt. This section is entirely design-only — no xG Higher/Lower code
+exists yet, and no component ID is assigned (per `architecture-document.md`'s
+own established pattern for COMP-11/15/16/17, a component entry is added
+only once real code lands, not at pure-requirements stage). Every REQ
+below is written to the same standard as §4.12/§4.14/§4.15's xG Path/xG
+Predict/xG Connect requirements, but describes intended behavior for a
+game that has not been built, not a claim about current behavior.
 
 **Why this game, and what it deliberately reuses:** unlike xG Predict
 (needed a new live-match-result data source, football-data.org/ADR-0099)
@@ -12981,29 +12981,30 @@ never types a player's name — so ADR-0007's autocomplete/correctness split
 is not in play for this game the way it is for every other one: there is
 only ever a correctness-checking read here, never an autocomplete read.
 
-**Open structural question, not resolved by this section (see §7):** every
-existing game (xG Grid, xG Path, xG Predict) plugs into a shared, scheduled
-`Round` created for every participant at once (`Core.Rounds`, ADR-0003).
-xG Connect didn't fit that model either, and ADR-0103 introduced
-`ConnectMatch`, a pairwise, on-demand concept, instead. xG Higher/Lower's
-shape is different again: a single player starts a session independently
-of anyone else, plays it to a streak-ending guess (or the pool-exhaustion
-case in REQ-1502) in one sitting, and can immediately start another —
-closer to an anytime, replayable session than to either the shared-`Round`
-model or `ConnectMatch`'s pairwise one, since it isn't between two named
-players at all. Whether this should be modeled as a new first-class
-concept (most likely, by rough analogy to `ConnectMatch`), forced into the
-existing `Round` model on some on-demand basis, or something else entirely
-is a genuine architecture-level question this document does not resolve.
-No REQ below assumes an answer — each is written in terms of a plain
-"session," not `Round` or `ConnectMatch`.
+**Round-fit question — resolved by ADR-0110 (2026-09-09):** every existing
+game (xG Grid, xG Path, xG Predict) plugs into a shared, scheduled `Round`
+created for every participant at once (`Core.Rounds`, ADR-0003); xG
+Connect didn't fit that model and ADR-0103 introduced `ConnectMatch`, a
+pairwise, on-demand concept, instead. **xG Higher/Lower fits the existing
+`Round` model, the same way xG Grid/xG Path/xG Predict do — not a new
+first-class concept like `ConnectMatch`.** `IGameModule.GenerateInstanceAsync`
+for `"xg-higher-lower"` generates, once per Round via the same
+`RoundGenerationService`/`IRoundSchedulingOptionsResolver` path every
+other `GameKey` already uses (COMP-03), exactly one fixed stat category
+and one fixed, fully-ordered comparator sequence — one starting baseline
+plus a configured number of comparators — shared identically by every
+participant of that Round, the same "generate once, shared by all"
+pattern as xG Grid's grid and xG Predict's five matches. Every REQ below
+is written in terms of a Round (the shared, generated-once instance) and a
+participant's individual **attempt** at it, not a standalone "session" —
+see ADR-0110 for the full resolution, including the trade-off it accepts
+(loss of the original pitch's anytime/unlimited replayability).
 
 **REQ-1501 – Stat category and player-value eligibility**
 > As the system, I want every stat category offered in xG Higher/Lower to
 > be backed by real, comparable data, and every player shown against a
-> category to actually have a value for it, so a session is never
-> generated using a category or player it cannot resolve a correct answer
-> for.
+> category to actually have a value for it, so a Round is never generated
+> using a category or player it cannot resolve a correct answer for.
 
 - Given a candidate stat category (e.g. international caps, career goals,
   market value, league titles won) is being considered for use in xG
@@ -13015,154 +13016,201 @@ No REQ below assumes an answer — each is written in terms of a plain
   `PlayerNameIndex` (COMP-10), which is reserved for autocomplete/name
   matching and never used for correctness-checking (ADR-0007)
 - Given a specific player and a specific eligible stat category
-- When that player is considered for display against that category, either
-  as a baseline or as a comparator
+- When that player is considered for inclusion in the Round's sequence
+  against that category, either as the baseline or as a comparator
 - Then the player is valid for that category only if they have a non-null
   recorded value for it — a player with no recorded value for the active
   category is never selected while that category is active
+- Given a Round for the `"xg-higher-lower"` GameKey is being generated
+  (ADR-0110)
+- When category and sequence selection runs
+- Then both eligibility checks above are evaluated once, at
+  Round-generation time, before the Round and its fixed comparator
+  sequence are created — never re-evaluated per participant, since the
+  same generated sequence is shared by everyone who plays that Round
 
 **Test level:** Unit — category eligibility check across a range of
 `PlayerAttribute`/`PlayerOverride` value states (numeric, non-numeric,
-missing); player-value-presence check for a given category.
+missing); player-value-presence check for a given category; both checks
+run as part of Round generation, not per participant.
 
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
-> As a player, I want every Higher/Lower comparison to have exactly one
-> correct answer and never repeat a player I've already seen this
-> session, so the game is always fair to guess and never repeats itself
-> within one streak.
+> As a player, I want every Higher/Lower comparison in a Round's fixed
+> sequence to have exactly one correct answer and never repeat a player
+> already used earlier in that same sequence, so the game is always fair
+> to guess and never repeats itself within one Round.
 
-- Given a baseline player with a revealed value for the session's active
-  stat category, and a candidate player being considered as the next
-  comparator
-- When the candidate is evaluated for that comparison
+- Given a player at a given position in the Round's sequence (the starting
+  baseline, or an earlier comparator once it has become the baseline for
+  the next comparison) with a recorded value for the Round's active stat
+  category, and a candidate player being considered for the next position
+  in that sequence
+- When the candidate is evaluated for inclusion at that position, at
+  Round-generation time
 - Then the candidate is valid only if: they have a non-null recorded value
   for the active category (REQ-1501); that value is strictly different
-  from the baseline's value — an exact tie is never presented as a
-  comparison, since it has no valid Higher/Lower answer; and they have not
-  already appeared earlier in this same session, whether as a baseline or
-  as a comparator
-- Given the active category and current baseline, no remaining eligible
-  player in the pool satisfies all three conditions above
-- When the system attempts to select the next comparator
-- Then the session ends there, with the streak counted at its current
-  length — the same terminal outcome REQ-1504 defines for a correct final
-  guess, not an incorrect one — rather than presenting a tied or
-  already-seen comparison
+  from the immediately preceding player's value in the sequence — an exact
+  tie is never generated into a comparison, since it has no valid
+  Higher/Lower answer; and they have not already appeared earlier in the
+  same sequence, whether as the baseline or as an earlier comparator
+- Given a candidate stat category and the Round's configured comparator
+  count (the target sequence length)
+- When Round generation attempts to build a full baseline-plus-comparators
+  sequence of that length, satisfying the conditions above at every
+  position, for that category
+- Then generation for that category fails closed — the same
+  "abort/fail rather than produce a degraded instance" pattern REQ-101 and
+  REQ-1301 already establish for xG Grid and xG Predict — rather than
+  persisting a Round with a sequence shorter than its configured length
 
 **Test level:** Unit — a comparator whose value exactly equals the
-baseline's is excluded; a strictly higher or strictly lower value is not;
-already-seen-player exclusion; the pool-exhaustion terminal case.
+preceding player's is excluded; a strictly higher or strictly lower value
+is not; already-seen-player exclusion across the whole sequence; the
+generation-failure case when no valid full-length sequence can be built
+for a candidate category.
 
-**REQ-1503 – New session start: category and starting pair selection**
-> As a player, I want to start a new xG Higher/Lower session and
-> immediately see a starting player with one revealed stat value and a
-> second player with that same stat hidden, so I have something to guess
-> against right away.
+**REQ-1503 – Round generation: category and comparator sequence selection**
+> As a player, I want each xG Higher/Lower Round to be generated with one
+> fixed category, one fixed starting baseline, and one fixed comparator
+> sequence, so every participant sees the exact same starting point and
+> has something to guess against as soon as they begin their attempt.
 
-- Given a player starts a new xG Higher/Lower session
-- When the session is generated
-- Then exactly one eligible stat category (REQ-1501) is selected and
-  remains fixed for the entire session — the active category never
-  changes mid-session
-- And exactly one eligible player for that category (REQ-1501) is selected
-  as the starting baseline, with their real recorded value for the active
-  category revealed
-- And exactly one further player, valid as a comparator against that
-  baseline (REQ-1502), is selected and shown without their value revealed
-- Given a player starts a new session
+- Given a new Round is generated for the `"xg-higher-lower"` GameKey, via
+  the same `RoundGenerationService`/`IRoundSchedulingOptionsResolver` path
+  every other `GameKey` already uses (COMP-03, ADR-0110)
 - When generation runs
-- Then starting a new session never depends on, or is limited by, any
-  previous session that player has already completed — a player may start
-  a new session immediately after any previous one ends, win or lose
+- Then exactly one eligible stat category (REQ-1501) is selected and
+  fixed for that Round's entire lifetime — the active category never
+  changes within the Round
+- And exactly one eligible player for that category (REQ-1501) is selected
+  as the Round's starting baseline, with their real recorded value for the
+  active category fixed as part of the Round
+- And a full, ordered sequence of further players is selected as the
+  Round's comparators — one starting baseline plus a configured number of
+  comparators, the Round's comparator count being a per-`GameKey`
+  configuration value the same way `GridSize`/`PuzzleCount` already are
+  (ADR-0051) — with every position satisfying REQ-1502's eligibility rules
+  against the player immediately before it
+- And this category, baseline, and comparator sequence are generated
+  exactly once for the Round and are identical for every participant who
+  plays it — never regenerated or re-randomized per participant
 
-**Test level:** Unit/API — a generated session has exactly one fixed
-category, one revealed baseline value, and one hidden comparator, each
-satisfying REQ-1501/1502; starting a new session succeeds regardless of
-prior session history.
+**Test level:** Unit/API — a generated Round has exactly one fixed
+category, one fixed baseline value, and one fixed, ordered comparator
+sequence of the Round's configured length, each satisfying
+REQ-1501/1502; the same generated Round data is returned unchanged
+regardless of which participant requests it.
 
 **REQ-1504 – Guess submission and streak progression**
-> As a player mid-session, I want to guess Higher or Lower for the current
+> As a player mid-attempt, I want to guess Higher or Lower for the current
 > hidden comparator and immediately learn whether I was right, so my
-> streak either continues with a new comparison or ends there.
+> streak either continues with the next comparator in the Round's fixed
+> sequence or ends there.
 
-- Given an active session with a baseline player (value revealed) and a
-  comparator player (value hidden)
-- When the player submits a guess of "Higher" or "Lower"
+- Given a participant's active attempt at a Round, currently showing a
+  baseline player (value revealed) and the next comparator in the Round's
+  fixed sequence (value hidden)
+- When the participant submits a guess of "Higher" or "Lower"
 - Then the system compares the comparator's actual recorded value against
   the baseline's value: "Higher" is correct only if the comparator's value
   is strictly greater, "Lower" is correct only if strictly less — no third
   outcome is possible, since REQ-1502 already excludes an exact tie
-- Given the guess is correct
+  anywhere in the Round's sequence
+- Given the guess is correct and the comparator just resolved is not the
+  last position in the Round's fixed sequence
 - When the outcome is determined
-- Then the comparator's actual value is revealed, the session's streak
+- Then the comparator's actual value is revealed, the attempt's streak
   counter increments by one, the comparator becomes the new baseline, and
-  a new comparator is selected for the next comparison (REQ-1502)
+  the next comparator already fixed in the Round's sequence (REQ-1502/1503)
+  is shown as the next hidden value
+- Given the guess is correct and the comparator just resolved is the last
+  position in the Round's fixed sequence (every comparator in the Round
+  has now been guessed correctly)
+- When the outcome is determined
+- Then the comparator's actual value is revealed, the attempt ends with
+  its streak counted at the Round's full configured length, and no further
+  comparison is offered — the same terminal outcome as an incorrect guess
+  below, just reached at the Round's maximum length instead of a shorter
+  one; an attempt can never exceed the Round's configured comparator count
 - Given the guess is incorrect
 - When the outcome is determined
-- Then the comparator's actual value is revealed, the session ends with
+- Then the comparator's actual value is revealed, the attempt ends with
   its streak counted at the length reached before this guess, and no
-  further comparison is offered for that session
-- Given a session that has already ended, whether by an incorrect guess or
-  by REQ-1502's pool-exhaustion case
-- When a further guess is submitted against that session
-- Then it is rejected — an ended session accepts no further guesses
+  further comparison is offered for that attempt
+- Given an attempt that has already ended, whether by an incorrect guess or
+  by reaching the end of the Round's fixed sequence
+- When a further guess is submitted against that attempt
+- Then it is rejected — an ended attempt accepts no further guesses
 
 **Test level:** Unit/API — correctness determined against real underlying
 values in both directions; streak increment and baseline replacement on a
-correct guess; streak-ending on an incorrect guess; rejection of a guess
-against an already-ended session.
+correct guess before the sequence ends; the full-length terminal case when
+the last comparator in the sequence is guessed correctly; streak-ending on
+an incorrect guess; rejection of a guess against an already-ended attempt;
+no attempt can exceed the Round's configured comparator count.
 
-**REQ-1505 – Scoring: personal-best streak length, not uniqueness**
-> As a player, I want my best xG Higher/Lower streak recorded and ranked
-> against other players' best streaks, so there's a clear, meaningful way
-> to measure performance at this game.
+**REQ-1505 – Scoring: streak length as FinalPoints, ranked like every
+other GameKey**
+> As a player, I want my xG Higher/Lower streak length for a Round
+> recorded as my score for that Round and ranked the same way every other
+> game's round already is, so there's a clear, meaningful, and directly
+> comparable way to measure performance.
 
 xG Grid's uniqueness-scored model (ADR-0020/0021) measures how rare a
 free-text correct guess is among several possible correct answers for a
 fixed cell — it has no analogue here, since a Higher/Lower guess is a
 binary choice with exactly one correct answer per comparison, and nothing
 about a correct guess is more or less "unique" than another correct guess
-against the same comparison. The natural fit for a single-player streak
-game is instead the length of the longest streak reached in a session —
-the game's own built-in measure of skill. This REQ adopts that model
-rather than forcing xG Grid's uniqueness scoring onto a mechanic it
-doesn't suit.
+against the same comparison. The natural fit for this streak mechanic is
+the length of the streak a participant reaches in their attempt at the
+Round's fixed sequence — the game's own built-in measure of skill. Because
+that sequence is generated once and shared by every participant of the
+Round (ADR-0110), each participant's streak length is directly comparable
+to every other participant's in the same Round, exactly the shape
+`FinalPoints` already assumes for every other `GameKey` (COMP-04) — this
+REQ adopts that model rather than forcing xG Grid's uniqueness scoring
+onto a mechanic it doesn't suit.
 
-- Given a session ends, whether by an incorrect guess or by REQ-1502's
-  pool-exhaustion case
-- When the session ends
-- Then its final streak length is recorded as one completed xG
-  Higher/Lower session result for that player
-- Given a player has one or more completed xG Higher/Lower session results
-- When their personal best is computed
-- Then it is the single highest streak length among all of that player's
-  completed sessions
-- Given the xG Higher/Lower leaderboard
-- When it is displayed
-- Then players are ranked by personal-best streak length, highest first,
-  ties broken by display name — the same tie-break convention every other
-  leaderboard ranking in this document already uses (REQ-409)
+- Given a participant's attempt at a Round ends, whether by an incorrect
+  guess or by reaching the end of the Round's fixed sequence with every
+  guess correct (REQ-1504)
+- When the attempt ends
+- Then the streak length reached is recorded as that participant's
+  `FinalPoints` for the Round — a value from 0 up to the Round's
+  configured comparator count
+- Given a closed Round for the `"xg-higher-lower"` GameKey
+- When that Round's leaderboard is computed
+- Then participants are ranked by `FinalPoints` for that Round, highest
+  first, ties broken by display name — the same tie-break convention
+  every other leaderboard ranking in this document already uses (REQ-409)
+- Given the `"xg-higher-lower"` GameKey's Global League (REQ-401) and any
+  custom league a participant belongs to (REQ-402/403)
+- When leaderboards are displayed for those leagues
+- Then this Round's `FinalPoints` contributes to both the per-round
+  leaderboard and the all-time median-of-per-round leaderboard exactly the
+  way every other `GameKey`'s `FinalPoints` already does (REQ-409) — no
+  new leaderboard concept or placement decision is needed for this game
 
-**Which league(s) this leaderboard belongs to (Global, a custom league, or
-both) is not decided by this REQ** — it depends on this section's own open
-Round/League-fit question above and in §7; this REQ only fixes the ranking
-metric itself, not where it is displayed.
-
-**Test level:** Unit — personal-best computation across multiple sessions
-for one player; leaderboard ranking order and tie-break.
+**Test level:** Unit — `FinalPoints` computed correctly at 0, mid-range,
+and the Round's full configured length; leaderboard ranking order and
+tie-break for a closed Round.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the
-  same sequence, or comparing streaks directly) — this design pass only
-  covers the single-player session described above.
+  same sequence in real time, or comparing streaks live) — this design
+  pass only covers each participant's own independent attempt at the
+  shared Round sequence described above.
 - **Category weighting or difficulty tiers** (e.g. rarer/harder categories
   appearing only after a streak reaches some length) — v1 treats every
-  eligible category as equally likely to be chosen at session start.
-- **A daily-challenge, shared-seed mode** (every player gets the same
-  starting player, category, and comparator sequence on a given day, the
-  way Wordle's shared daily puzzle works) — a reasonable later addition
-  once the core anytime-replayable session above is proven, not part of
-  this initial pass.
+  eligible category as equally likely to be chosen at Round-generation
+  time.
+- **A specifically daily cadence:** ADR-0110 already makes every
+  participant's comparator sequence identical and shared within a Round —
+  the property a "daily shared-seed mode" would otherwise have needed to
+  add. What remains undecided is only how often a new xG Higher/Lower
+  Round is generated (daily, like Wordle, or some other cadence) — a
+  per-`GameKey` scheduling configuration choice (ADR-0051) for whoever
+  implements REQ-1503, not a gap in the scoring/gameplay model itself.
 
 ---
 
@@ -13469,22 +13517,17 @@ architecture-level "does xG Connect even fit the `Round` model" question
 §4.15's own opening note already flags back to `architecture-document.md`;
 this entry is the product-facing half of that same gap.
 
-**New (2026-09-09), unresolved, from §4.16's xG Higher/Lower design
-draft:** every existing game either plugs into a shared, scheduled `Round`
-created for every participant at once (xG Grid/xG Path/xG Predict,
-`Core.Rounds`, ADR-0003) or, where that didn't fit, gained its own new
-first-class concept instead (xG Connect's `ConnectMatch`, ADR-0103). xG
-Higher/Lower's single-player, anytime-replayable session fits neither
-shape cleanly: it has no shared schedule or set of participants the way a
-`Round` does, and it isn't pairwise between two named players the way a
-`ConnectMatch` is. Whether it needs its own new first-class concept
-(most likely, by rough analogy to `ConnectMatch`), can be represented as
-an on-demand `Round` generated per player instead, or should be modeled
-some other way is a genuine architecture-level question, not a technical
-default this document can safely fill in — the answer affects how session
-history, REQ-1505's leaderboard rollup, and any future daily-challenge
-mode (deferred, §4.16) would each be built. No REQ in §4.16 assumes an
-answer. Recorded here pending an architecture-level decision (likely a
-future ADR, in the style of ADR-0103, once this game is actually
-greenlit for building) — see §4.16's own "Open structural question" note
-for the full framing.
+The 2026-09-09 entry previously recorded here — whether xG Higher/Lower
+needed a new first-class concept (by analogy to xG Connect's
+`ConnectMatch`, ADR-0103) or could be forced into the existing `Round`
+model on some on-demand basis — was resolved the same day by ADR-0110:
+**xG Higher/Lower fits the existing `Round` model**, the same way xG
+Grid/xG Path/xG Predict do, generating one fixed stat category and one
+fixed, fully-ordered comparator sequence once per Round, shared by every
+participant, with an individual attempt capped at the Round's configured
+length. This also resolves REQ-1505's leaderboard-placement question as a
+direct consequence (standard `FinalPoints`-based Global/custom-league
+scope, nothing new to decide) and removes any need for a daily-challenge
+mode to provide sharing, since sharing is now built into the Round model
+itself (§4.16's own "Out of scope" note). See ADR-0110 and §4.16's REQ-1501
+through REQ-1505 for the full resolution.
