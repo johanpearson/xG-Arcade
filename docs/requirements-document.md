@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.84"
+version: "2.85"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13022,9 +13022,12 @@ landed in a separate later story (S-199/ADR-0100) — this story also adds
 `HigherLowerRoundScoreSource`, so a closed Round's `FinalPoints` for this
 `GameKey` IS now visible through every leaderboard read path in
 production, ranked and tie-broken the same way as every other `GameKey`
-(see REQ-1505's own Status note below). S-227 remains the story for this
-game's own gameplay-facing HTTP endpoints (current-round/attempt-state and
-guess submission), mirroring `PredictEndpoints`.
+(see REQ-1505's own Status note below). **Status (2026-09-09, S-227):**
+this game's own gameplay-facing HTTP endpoints — `GET /higher-lower/current`
+and `POST /higher-lower/guesses` (`HigherLowerEndpoints.cs`), mirroring
+`PredictEndpoints` — are now real and registered, giving
+`ScoreSubmissionAsync` its first real production caller (see REQ-1504/1505's
+own Status notes below).
 Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
 Path/xG Predict/xG Connect requirements; REQ-1501 through REQ-1505's text
 all now describes behavior that matches real, reachable code (see each
@@ -13343,6 +13346,35 @@ one `"xg-predict"` already has (ADR-0098): this game never writes per-cell
 S-227's own dedicated endpoints (`GET`/`POST` mirroring `PredictEndpoints`,
 which similarly bypasses this same allow-list), not this allow-list.
 
+**Status (2026-09-09, S-227):** `ScoreSubmissionAsync` now has that real,
+live caller — `POST /higher-lower/guesses`
+(`backend/src/XGArcade.Api/HigherLower/HigherLowerEndpoints.cs`), which
+resolves `IGameModuleResolver.Resolve("xg-higher-lower")` directly (never
+through `GuessEndpoints`/`IGuessSubmissionService`, per the permanent
+`GuessSubmissionAllowedGameKeys` exclusion noted in the S-226 note above)
+and translates `HigherLowerAttemptEndedException` to 409 and
+`HigherLowerScoringException` to a logged 404. A companion
+`GET /higher-lower/current` (same file) reads the active Round plus the
+caller's current `HigherLowerAttempt` — or the instance's fixed starting
+baseline when no attempt row exists yet, the same implicit default
+`ScoreSubmissionAsync` itself uses — and returns the current baseline
+(value revealed) and next comparator (identity only, no `Value` field on
+the DTO at all, enforcing this REQ's "value hidden until guessed" contract
+at the type level). This closes the "no caller yet" gap this REQ's S-225
+and S-226 notes both flagged; `HigherLowerGameModule.ScoreSubmissionAsync`
+is now reachable end to end in production, not just unit-tested. Covered
+by 8 `REQ1504_`/`REQ1505_`-prefixed tests plus 2 unprefixed auth-guardrail
+tests in the new `HigherLowerEndpointTests.cs`
+(`backend/tests/XGArcade.Api.Tests/`): 404 with no active round,
+fresh-attempt baseline/next-comparator shape, correct-guess streak
+advance, incorrect-guess terminal state, full-length terminal completion,
+409 on a guess against an already-ended attempt, and two users
+progressing independently against the same shared Round sequence. No ADR
+needed — `architecture-reviewer` and this story's own intake both
+confirmed this is wiring of already-decided shapes (this REQ's own S-226
+note already anticipated exactly this endpoint pair as the real caller),
+not a new structural decision.
+
 **REQ-1505 – Scoring: streak length as FinalPoints, ranked like every
 other GameKey**
 > As a player, I want my xG Higher/Lower streak length for a Round
@@ -13434,6 +13466,27 @@ eligibility per REQ-717/ADR-0036, zero-participant rounds, active vs.
 closed reads) and two new `REQ1505_`-prefixed API tests in
 `LeaderboardEndpointTests.cs` (descending `FinalPoints` order, display-name
 tie-break for equal streak lengths).
+
+**Status (2026-09-09, S-227):** This REQ's `FinalPoints` value now has a
+real write path feeding it in production, not just the round-generation/
+scoring-strategy/leaderboard-read machinery S-226 wired: `POST
+/higher-lower/guesses`
+(`backend/src/XGArcade.Api/HigherLower/HigherLowerEndpoints.cs`) is the
+real, live caller of `ScoreSubmissionAsync` that ends a participant's
+attempt (on an incorrect guess or on completing the Round's full
+configured sequence) and persists the resulting `HigherLowerAttempt
+.StreakLength` — the exact value `HigherLowerScoringStrategy.ScoreAttempt`
+maps 1:1 to `FinalPoints` and `HigherLowerRoundScoreSource` (S-226) already
+reads for the leaderboard. Before this story, a closed Round's
+`FinalPoints` for this `GameKey` was reachable and correctly ranked
+end-to-end only in tests that wrote a `HigherLowerAttempt` row directly;
+now a real participant attempt, driven through the new HTTP surface, is
+what produces that row. See REQ-1504's own S-227 status note above for the
+endpoint details and test coverage; no separate scoring/leaderboard logic
+changed in this story, so no new tests were needed against this REQ's own
+acceptance criteria beyond the `REQ1505_`-prefixed cases already in
+`HigherLowerEndpointTests.cs`. No ADR needed, same reasoning as REQ-1504's
+S-227 note.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the
