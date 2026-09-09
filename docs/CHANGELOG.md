@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/requirements-document.md` (REQ-1503 amended, v2.78 →
+  v2.79) — sets xG Higher/Lower's comparator count default at 10 per
+  Round, the per-`GameKey` config value ADR-0110 left open, with a short
+  rationale (leaderboard spread vs. REQ-1502 eligibility headroom for
+  narrower categories, closer to xG Predict's fixed round size than xG
+  Grid's). Not a fixed constant — same tuning-value status as
+  `GridSize`/`PuzzleCount` (ADR-0051).
+
 - 2026-09-09 — `docs/decisions/0110-xg-higher-lower-round-based-bounded-sequence.md`
   (new ADR), `docs/architecture-document.md` (ADR log row, v1.56 → v1.57),
   `docs/requirements-document.md` (REQ-1501-1505 revised, v2.77 → v2.78)

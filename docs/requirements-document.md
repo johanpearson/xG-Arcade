@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.78"
+version: "2.79"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13089,8 +13089,20 @@ for a candidate category.
   Round's comparators — one starting baseline plus a configured number of
   comparators, the Round's comparator count being a per-`GameKey`
   configuration value the same way `GridSize`/`PuzzleCount` already are
-  (ADR-0051) — with every position satisfying REQ-1502's eligibility rules
-  against the player immediately before it
+  (ADR-0051), **defaulting to 10 comparators per Round** — with every
+  position satisfying REQ-1502's eligibility rules against the player
+  immediately before it
+
+**Default comparator count — 10:** long enough for a Round's streak/
+`FinalPoints` spread to meaningfully rank participants (REQ-1505), short
+enough that REQ-1502's no-exact-tie/no-repeat constraints stay easy to
+satisfy at generation time even for a narrower stat category (e.g. league
+titles won, where fewer distinct values exist across the eligible player
+pool than for career goals). Closer to xG Predict's fixed, single-digit-
+to-low-double-digit round size (5 matches) than to xG Grid's larger grid.
+This is a tuning default, not a fixed constant this REQ mandates — like
+`GridSize`/`PuzzleCount`, it's a per-`GameKey` configuration value
+(ADR-0051) open to adjustment once real play data exists.
 - And this category, baseline, and comparator sequence are generated
   exactly once for the Round and are identical for every participant who
   plays it — never regenerated or re-randomized per participant
