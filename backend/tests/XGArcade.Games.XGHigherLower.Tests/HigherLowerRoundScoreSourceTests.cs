@@ -296,7 +296,7 @@ public class HigherLowerRoundScoreSourceTests
     }
 
     [Test]
-    public async Task GetActiveRoundTotalsByUserIdAsync_UserNeverAttempted_AbsentNotZero()
+    public async Task REQ407_GetActiveRoundTotalsByUserIdAsync_UserNeverAttempted_AbsentNotZero()
     {
         var userId = Guid.NewGuid();
         var instanceId = await SeedInstanceAsync();
