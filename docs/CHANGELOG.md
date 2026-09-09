@@ -42,6 +42,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   narrative was already not updated for ADR-0104/0105/0107/0109 either)
   — left untouched, consistent with that existing precedent.
 
+- 2026-09-09 — `docs/backlog.md` (new Epic 28, S-223 through S-229) —
+  story breakdown for building xG Higher/Lower's real logic on top of
+  S-223's already-merged ADR-0110/COMP-18 scaffold (PR #353): S-224
+  (Round generation, REQ-1501/1502/1503), S-225 (guess submission/streak
+  progression, REQ-1504), S-226 (scoring + `RoundSchedulingOptions`/
+  `IScoringStrategy` wiring, REQ-1505), S-227 (API endpoints), S-228
+  (frontend screen), S-229 (architecture review + quality gate +
+  doc-sync close-out). One story per session/PR, in dependency order.
+
 - 2026-09-09 — `docs/architecture-document.md` (new **COMP-18 |
   Games.XGHigherLower** row, v1.57 → v1.58) — scaffolded the xG
   Higher/Lower game module: `backend/src/XGArcade.Games.XGHigherLower`
