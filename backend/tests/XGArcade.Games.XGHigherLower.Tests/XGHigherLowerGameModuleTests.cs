@@ -9,18 +9,27 @@ namespace XGArcade.Games.XGHigherLower.Tests;
 // COMP-18/ADR-0110: REQ-1501 (stat-category/player-value eligibility),
 // REQ-1502 (comparator eligibility — no exact ties, no repeated player, fail
 // closed), REQ-1503 (Round generation — one fixed category/baseline/
-// comparator sequence), plus the trivial GetCellIdsAsync derivative. Follows
-// this repo's no-mocking-framework pattern (docs/coding-guidelines.md
-// "don't over-mock") — real, InMemory-backed HigherLowerInstanceRepository/
+// comparator sequence), REQ-1504 (guess submission/streak progression, this
+// story, S-225), plus the trivial GetCellIdsAsync derivative. Follows this
+// repo's no-mocking-framework pattern (docs/coding-guidelines.md "don't
+// over-mock") — real, InMemory-backed HigherLowerInstanceRepository/
 // PlayerOverrideRepository/PlayerAttributeRepository/PlayerRepository, same
 // "compose the real thing" shape XGPredictGameModuleTests/XGPathGameModuleTests
 // already use.
 //
-// ScoreSubmissionAsync/GetMaxAttemptsForCellAsync remain
-// NotImplementedException (S-225's job, not this story) — those tests are
-// unchanged from the original scaffold. GenerateInstanceAsync_
-// ThrowsNotImplementedException was removed — that method is no longer a
-// stub (this story).
+// REQ-1504's own tests seed a HigherLowerInstance directly (via
+// _instanceRepository.AddInstanceAsync, bypassing GenerateInstanceAsync's
+// randomized category/sequence selection) with hand-picked baseline/
+// comparator values, so each scenario's correctness outcome is deterministic
+// and legible from the test body itself, rather than depending on the fixed
+// Random seed used by the REQ-1501/1502/1503 tests above.
+//
+// GetMaxAttemptsForCellAsync remains NotImplementedException (still a
+// deliberately resolved "doesn't apply" decision — see that method's own
+// doc comment) — that test is unchanged from the original scaffold.
+// ScoreSubmissionAsync_ThrowsNotImplementedException was removed — that
+// method is no longer a stub (this story). REQ710_PurgeUserDataAsync_...
+// was rewritten — PurgeUserDataAsync is no longer a no-op either.
 public class XGHigherLowerGameModuleTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -206,13 +215,126 @@ public class XGHigherLowerGameModuleTests
             "an aborted generation must not persist a degraded (shorter-than-configured or otherwise invalid) instance");
     }
 
-    // ---- Unchanged from S-224's scaffold (deliberately still stubs) ----
+    // ---- REQ-1504: guess submission and streak progression -------------
 
     [Test]
-    public void ScoreSubmissionAsync_ThrowsNotImplementedException()
+    public async Task REQ1504_ScoreSubmissionAsync_CorrectHigherGuess_NotLastComparator_AdvancesStreakAndBaseline()
     {
-        Assert.ThrowsAsync<NotImplementedException>(
-            () => _module.ScoreSubmissionAsync(Guid.NewGuid(), Guid.NewGuid(), new object()));
+        var instanceId = await SeedInstanceAsync(baselineValue: 10, comparatorValues: [20, 5]);
+        var instance = await _instanceRepository.GetInstanceByIdAsync(instanceId);
+        var firstComparator = instance!.Comparators.Single(c => c.SequencePosition == 0);
+        var userId = Guid.NewGuid();
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+
+        Assert.That(result.IsCorrect, Is.True, "20 is strictly greater than baseline 10");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(firstComparator.PlayerId));
+
+        var attempt = await _instanceRepository.GetAttemptAsync(instanceId, userId);
+        Assert.That(attempt, Is.Not.Null);
+        Assert.That(attempt!.StreakLength, Is.EqualTo(1));
+        Assert.That(attempt.CurrentBaselinePlayerId, Is.EqualTo(firstComparator.PlayerId));
+        Assert.That(attempt.CurrentBaselineValue, Is.EqualTo(20));
+        Assert.That(attempt.HasEnded, Is.False);
+    }
+
+    [Test]
+    public async Task REQ1504_ScoreSubmissionAsync_CorrectLowerGuess_NotLastComparator_AdvancesStreakAndBaseline()
+    {
+        var instanceId = await SeedInstanceAsync(baselineValue: 10, comparatorValues: [3, 20]);
+        var instance = await _instanceRepository.GetInstanceByIdAsync(instanceId);
+        var firstComparator = instance!.Comparators.Single(c => c.SequencePosition == 0);
+        var userId = Guid.NewGuid();
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Lower));
+
+        Assert.That(result.IsCorrect, Is.True, "3 is strictly less than baseline 10");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(firstComparator.PlayerId));
+
+        var attempt = await _instanceRepository.GetAttemptAsync(instanceId, userId);
+        Assert.That(attempt, Is.Not.Null);
+        Assert.That(attempt!.StreakLength, Is.EqualTo(1));
+        Assert.That(attempt.CurrentBaselinePlayerId, Is.EqualTo(firstComparator.PlayerId));
+        Assert.That(attempt.CurrentBaselineValue, Is.EqualTo(3));
+        Assert.That(attempt.HasEnded, Is.False);
+    }
+
+    [Test]
+    public async Task REQ1504_ScoreSubmissionAsync_LastComparatorGuessedCorrectly_EndsAttemptAtFullConfiguredLength()
+    {
+        // _options.ComparatorCount == 3 (SetUp) — a strictly increasing
+        // baseline+3-comparator sequence, guessed "Higher" every time.
+        var instanceId = await SeedInstanceAsync(baselineValue: 1, comparatorValues: [2, 3, 4]);
+        var userId = Guid.NewGuid();
+
+        await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+        await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+        var finalResult = await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+
+        Assert.That(finalResult.IsCorrect, Is.True);
+
+        var attempt = await _instanceRepository.GetAttemptAsync(instanceId, userId);
+        Assert.That(attempt, Is.Not.Null);
+        Assert.That(attempt!.StreakLength, Is.EqualTo(_options.ComparatorCount),
+            "REQ-1504: every comparator guessed correctly ends the attempt at the Round's full configured length");
+        Assert.That(attempt.HasEnded, Is.True);
+    }
+
+    [Test]
+    public async Task REQ1504_ScoreSubmissionAsync_IncorrectGuess_EndsAttemptAtPreGuessStreakLength()
+    {
+        var instanceId = await SeedInstanceAsync(baselineValue: 10, comparatorValues: [20, 25]);
+        var instance = await _instanceRepository.GetInstanceByIdAsync(instanceId);
+        var secondComparator = instance!.Comparators.Single(c => c.SequencePosition == 1);
+        var userId = Guid.NewGuid();
+
+        // First guess correct (20 > 10) — streak advances to 1, baseline becomes 20.
+        await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+
+        // Second guess: comparator value 25 is actually Higher than the new
+        // baseline (20), so guessing "Lower" is incorrect.
+        var result = await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Lower));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(secondComparator.PlayerId), "the actual value is still revealed on an incorrect guess");
+
+        var attempt = await _instanceRepository.GetAttemptAsync(instanceId, userId);
+        Assert.That(attempt, Is.Not.Null);
+        Assert.That(attempt!.StreakLength, Is.EqualTo(1), "REQ-1504: streak is counted at the length reached BEFORE the incorrect guess");
+        Assert.That(attempt.HasEnded, Is.True);
+    }
+
+    [Test]
+    public async Task REQ1504_ScoreSubmissionAsync_AgainstAlreadyEndedAttempt_IncorrectEnded_ThrowsHigherLowerAttemptEndedException()
+    {
+        var instanceId = await SeedInstanceAsync(baselineValue: 10, comparatorValues: [5]);
+        var userId = Guid.NewGuid();
+
+        // Incorrect guess (5 is Lower, not Higher) ends the attempt.
+        await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+
+        Assert.ThrowsAsync<HigherLowerAttemptEndedException>(
+            () => _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Lower)));
+    }
+
+    [Test]
+    public async Task REQ1504_ScoreSubmissionAsync_AgainstAlreadyEndedAttempt_FullLengthEnded_ThrowsHigherLowerAttemptEndedException()
+    {
+        var instanceId = await SeedInstanceAsync(baselineValue: 1, comparatorValues: [2]); // ComparatorCount irrelevant here — instance has exactly 1 comparator
+        var userId = Guid.NewGuid();
+
+        // Only comparator guessed correctly — full-length terminal outcome.
+        await _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+
+        Assert.ThrowsAsync<HigherLowerAttemptEndedException>(
+            () => _module.ScoreSubmissionAsync(instanceId, userId, new HigherLowerSubmission(HigherLowerDirection.Higher)));
+    }
+
+    [Test]
+    public void REQ1504_ScoreSubmissionAsync_InstanceNotFound_ThrowsHigherLowerScoringException()
+    {
+        Assert.ThrowsAsync<HigherLowerScoringException>(
+            () => _module.ScoreSubmissionAsync(Guid.NewGuid(), Guid.NewGuid(), new HigherLowerSubmission(HigherLowerDirection.Higher)));
     }
 
     [Test]
@@ -260,16 +382,73 @@ public class XGHigherLowerGameModuleTests
     // ---- REQ-710: PurgeUserDataAsync -----------------------------------
 
     [Test]
-    public void REQ710_PurgeUserDataAsync_CompletesWithoutThrowing()
+    public void REQ710_PurgeUserDataAsync_CompletesWithoutThrowing_WhenUserHasNoAttempts()
     {
-        // No per-user data model exists for this game yet — a genuine no-op
-        // (see the method's own doc comment for why this must never throw,
-        // even though every other round-generation-shaped method above
-        // deliberately still does).
         Assert.DoesNotThrowAsync(() => _module.PurgeUserDataAsync(Guid.NewGuid()));
     }
 
+    [Test]
+    public async Task REQ710_PurgeUserDataAsync_AnonymizesUsersHigherLowerAttempts_LeavesOtherUsersUntouched()
+    {
+        var instanceId = await SeedInstanceAsync(baselineValue: 10, comparatorValues: [20]);
+        var targetUserId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+
+        await _module.ScoreSubmissionAsync(instanceId, targetUserId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+        await _module.ScoreSubmissionAsync(instanceId, otherUserId, new HigherLowerSubmission(HigherLowerDirection.Higher));
+
+        await _module.PurgeUserDataAsync(targetUserId);
+
+        Assert.That(await _instanceRepository.GetAttemptAsync(instanceId, targetUserId), Is.Null,
+            "the anonymized row no longer matches a lookup by the deleted user's id");
+        var otherAttempt = await _instanceRepository.GetAttemptAsync(instanceId, otherUserId);
+        Assert.That(otherAttempt, Is.Not.Null, "another user's attempt must be untouched by anonymizing a different user");
+        Assert.That(otherAttempt!.StreakLength, Is.EqualTo(1));
+    }
+
     // ---- helpers --------------------------------------------------
+
+    // Seeds a HigherLowerInstance directly (bypassing GenerateInstanceAsync's
+    // randomized category/sequence selection), with a fixed baseline value
+    // and an explicit, ordered list of comparator values — so REQ-1504's
+    // correctness/streak-progression tests above have a fully deterministic
+    // sequence to guess against. Real Player rows are created for the
+    // baseline and each comparator, mirroring every other test helper's own
+    // "seed real entities" pattern in this file.
+    private async Task<Guid> SeedInstanceAsync(int baselineValue, params int[] comparatorValues)
+    {
+        var baselinePlayer = new Player { Id = Guid.NewGuid(), FullName = $"Baseline {Guid.NewGuid()}" };
+        await _playerRepository.AddPlayerAsync(baselinePlayer);
+
+        var instanceId = Guid.NewGuid();
+        var comparators = new List<HigherLowerComparator>();
+        for (var i = 0; i < comparatorValues.Length; i++)
+        {
+            var comparatorPlayer = new Player { Id = Guid.NewGuid(), FullName = $"Comparator {i} {Guid.NewGuid()}" };
+            await _playerRepository.AddPlayerAsync(comparatorPlayer);
+            comparators.Add(new HigherLowerComparator
+            {
+                Id = Guid.NewGuid(),
+                HigherLowerInstanceId = instanceId,
+                SequencePosition = i,
+                PlayerId = comparatorPlayer.Id,
+                Value = comparatorValues[i],
+            });
+        }
+
+        var instance = new HigherLowerInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            StatCategory = "trophy",
+            BaselinePlayerId = baselinePlayer.Id,
+            BaselineValue = baselineValue,
+            Comparators = comparators,
+        };
+
+        await _instanceRepository.AddInstanceAsync(instance);
+        return instanceId;
+    }
 
     // Seeds one player per count in `counts`, each with exactly that many
     // distinct raw PlayerAttribute rows of `attributeType` — e.g. counts

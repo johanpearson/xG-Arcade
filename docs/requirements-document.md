@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.82"
+version: "2.83"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13006,11 +13006,13 @@ attempt. **Update (S-223/S-224):** this section is no longer design-only —
 `XGArcade.Games.XGHigherLower` (COMP-18) is a real, registered
 `IGameModule`, and as of S-224 (ADR-0111) `GenerateInstanceAsync`/
 `GetCellIdsAsync` are real, tested implementations against REQ-1501/1502/
-1503 below (see each REQ's own Status note). REQ-1504/1505 (guess
-submission, scoring/scheduling) remain unimplemented — S-225/226/227.
+1503 below, and as of S-225 `ScoreSubmissionAsync` is a real, tested
+implementation against REQ-1504 below (see each REQ's own Status note).
+REQ-1505 (scoring/leaderboard placement) and this `GameKey`'s round
+scheduling/wiring (S-226/S-227) remain unimplemented.
 Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
-Path/xG Predict/xG Connect requirements; REQ-1501/1502/1503's text
-describes behavior that now matches real code, REQ-1504/1505's still
+Path/xG Predict/xG Connect requirements; REQ-1501/1502/1503/1504's text
+describes behavior that now matches real code, REQ-1505's still
 describes intended behavior for a mechanic that has not been built yet.
 
 **Why this game, and what it deliberately reuses:** unlike xG Predict
@@ -13255,6 +13257,47 @@ correct guess before the sequence ends; the full-length terminal case when
 the last comparator in the sequence is guessed correctly; streak-ending on
 an incorrect guess; rejection of a guess against an already-ended attempt;
 no attempt can exceed the Round's configured comparator count.
+
+**Status (2026-09-09, S-225):** Implemented at the `IGameModule` level —
+`XGHigherLowerGameModule.ScoreSubmissionAsync`
+(`backend/src/XGArcade.Games.XGHigherLower/XGHigherLowerGameModule.cs`)
+compares the current hidden comparator's real value against the
+participant's current baseline, advances the streak and baseline on a
+correct non-terminal guess, ends the attempt at the Round's full configured
+comparator count on a correct guess that completes the sequence, ends the
+attempt at the pre-guess streak length on an incorrect guess, and rejects a
+guess against an already-ended attempt via the new
+`HigherLowerAttemptEndedException`. Backed by a new per-participant
+`HigherLowerAttempt` entity (one row per `(HigherLowerInstanceId, UserId)`,
+`StreakLength` doubling as the next `SequencePosition` to guess; migration
+`20260909160000_AddHigherLowerAttempt`) read/written via new
+`IHigherLowerInstanceRepository.GetAttemptAsync`/`SaveAttemptAsync`
+methods; a missing row is treated as the implicit "streak 0, baseline = the
+instance's own fixed starting baseline" state for a participant's
+first-ever guess, since no separate "start attempt" call exists. The
+submission payload is a new `HigherLowerSubmission` record
+(`Core.Games`, `Direction: Higher`/`Lower`) — deliberately no `CellId`,
+since progression is strictly sequential and server-determined, unlike
+`GuessSubmission`/`PredictionSubmission`. Unit-tested in
+`XGHigherLowerGameModuleTests`/`HigherLowerInstanceRepositoryTests`
+(correct guess both directions, the full-length terminal case,
+incorrect-ends-at-pre-guess-length, rejection against both terminal-path
+shapes, not-found instance). `GetMaxAttemptsForCellAsync` remains
+`NotImplementedException` — REQ-1504's whole-attempt cap is enforced
+directly inside `ScoreSubmissionAsync` via `HigherLowerAttempt.HasEnded`,
+not through that per-cell method, which nothing calls yet (mirrors
+`XGPredictGameModule.GetMaxAttemptsForCellAsync`'s identical still-open
+"no caller" case). REQ-710 account-deletion purge for the new
+`HigherLowerAttempt` table is also implemented this story
+(`XGHigherLowerGameModule.PurgeUserDataAsync` now anonymizes rather than
+no-opping). No ADR needed — reviewed and confirmed a mechanical
+implementation of already-decided ADR-0110/ADR-0041/ADR-0003 shapes, not a
+new structural decision. Not yet reachable in production —
+`ScoreSubmissionAsync` has no caller yet; `RoundSchedulingOptions`,
+`IRoundSchedulingOptionsResolver`, `GuessSubmissionAllowedGameKeys`, and
+`InternalRoundEndpoints`'s `gameKey` switch still do not include
+`"xg-higher-lower"` (S-226/S-227's scope). Do not treat this `GameKey` as
+schedulable yet.
 
 **REQ-1505 – Scoring: streak length as FinalPoints, ranked like every
 other GameKey**

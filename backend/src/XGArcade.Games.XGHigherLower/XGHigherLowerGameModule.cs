@@ -12,22 +12,36 @@ namespace XGArcade.Games.XGHigherLower;
 // ConnectMatch" reasoning, and docs/requirements-document.md §4.16
 // (REQ-1501 through REQ-1505) for the full Given/When/Then behavior.
 //
-// This story (S-224) implements REQ-1501/1502/1503: GenerateInstanceAsync's
-// real eligibility-checked category/baseline/comparator-sequence generation
-// algorithm, persisted via IHigherLowerInstanceRepository. GetCellIdsAsync
-// is also implemented for real (a trivial, obviously-needed derivative of
-// the entity shape, once it exists — same reasoning XGPredictGameModule.
+// S-224 implemented REQ-1501/1502/1503: GenerateInstanceAsync's real
+// eligibility-checked category/baseline/comparator-sequence generation
+// algorithm, persisted via IHigherLowerInstanceRepository, plus
+// GetCellIdsAsync (a trivial, obviously-needed derivative of the entity
+// shape, once it exists — same reasoning XGPredictGameModule.
 // GetCellIdsAsync's own doc comment gives for doing this before the game is
 // wired into scheduling).
 //
-// Deliberately NOT implemented here (S-225's job): ScoreSubmissionAsync
-// (REQ-1504's guess-submission/streak-progression data model and mechanics)
-// and GetMaxAttemptsForCellAsync (REQ-1504's whole-attempt cap — an open
-// question per that method's own doc comment). Also deliberately NOT wired
-// into RoundSchedulingOptions/IRoundSchedulingOptionsResolver/
-// GuessSubmissionAllowedGameKeys/InternalRoundEndpoints's gameKey switch —
-// that remains S-226/S-227, mirroring ADR-0096's precedent for xG Predict's
-// own staged rollout.
+// This story (S-225) implements REQ-1504: ScoreSubmissionAsync's real
+// correctness/streak-progression/terminal-attempt logic, reading and writing
+// the new per-participant HigherLowerAttempt row via
+// IHigherLowerInstanceRepository.GetAttemptAsync/SaveAttemptAsync, and wires
+// PurgeUserDataAsync to anonymize that new table (REQ-710). See
+// HigherLowerAttempt's own doc comment for the entity shape and the
+// nullable-UserId/anonymize decision. GetMaxAttemptsForCellAsync remains
+// NotImplementedException — see that method's own doc comment for why this
+// is now a resolved "doesn't apply the way ADR-0041 assumes" decision, not
+// an open question, mirroring XGPredictGameModule.GetMaxAttemptsForCellAsync's
+// own still-NotImplementedException case for the identical "no caller yet"
+// reason.
+//
+// Deliberately still NOT wired into RoundSchedulingOptions/
+// IRoundSchedulingOptionsResolver/GuessSubmissionAllowedGameKeys/
+// InternalRoundEndpoints's gameKey switch — that remains S-226/S-227,
+// mirroring ADR-0096's precedent for xG Predict's own staged rollout. This
+// game's guess-submission model does not fit GuessSubmissionService's
+// per-cell Guess-row shape at all (no submitted player name/disambiguation
+// concept — see HigherLowerSubmission's own doc comment), so S-227's
+// dedicated endpoints are expected to call ScoreSubmissionAsync directly,
+// mirroring PredictEndpoints' shape, not go through GuessSubmissionService.
 //
 // REQ-1501's numeric-stat-category resolution (ADR to be written separately
 // after this story lands — see this class's own history/PR description for
@@ -191,18 +205,98 @@ public class XGHigherLowerGameModule(
     }
 
     // REQ-1504: compare the current hidden comparator's real value against
-    // the current baseline, advance the streak on a correct guess (or end
-    // the attempt on an incorrect one, or on reaching the Round's full
-    // configured length), reject a guess against an already-ended attempt.
-    // Not implemented — the submission/streak-position data model this
-    // needs to read and write is undecided; that's S-225's job. Do not
-    // guess at this logic; implement against REQ-1504's text.
-    public Task<ScoreResult> ScoreSubmissionAsync(
-        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException(
-            "xG Higher/Lower guess submission is not yet implemented — see docs/requirements-document.md " +
-            "§4.16 REQ-1504 for the full correct/incorrect/streak-progression/attempt-capping behavior " +
-            "this must implement.");
+    // the participant's current baseline, advance the streak on a correct
+    // guess (or end the attempt on an incorrect one, or on reaching the
+    // Round's full configured length), reject a guess against an
+    // already-ended attempt.
+    //
+    // No separate "start attempt" call exists (HigherLowerAttempt's own doc
+    // comment) — a missing attempt row (GetAttemptAsync returns null) is
+    // treated as the implicit "streak 0, current baseline = the instance's
+    // own fixed starting baseline, not yet ended" state a participant's
+    // first-ever guess always begins from.
+    //
+    // instance.Comparators is NOT guaranteed pre-sorted by SequencePosition
+    // (HigherLowerComparator's own doc comment / this class's own
+    // GenerateInstanceAsync — EF does not order an owned collection on
+    // read) — sorted explicitly below before indexing into it.
+    public async Task<ScoreResult> ScoreSubmissionAsync(
+        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default)
+    {
+        var higherLowerSubmission = (HigherLowerSubmission)submission;
+
+        var instance = await higherLowerInstanceRepository.GetInstanceByIdAsync(instanceId, cancellationToken)
+            ?? throw new HigherLowerScoringException($"HigherLowerInstance '{instanceId}' not found.");
+
+        var attempt = await higherLowerInstanceRepository.GetAttemptAsync(instanceId, userId, cancellationToken);
+
+        var streakLength = attempt?.StreakLength ?? 0;
+        var currentBaselinePlayerId = attempt?.CurrentBaselinePlayerId ?? instance.BaselinePlayerId;
+        var currentBaselineValue = attempt?.CurrentBaselineValue ?? instance.BaselineValue;
+        var hasEnded = attempt?.HasEnded ?? false;
+
+        // REQ-1504's last Given/When/Then block: an ended attempt accepts no
+        // further guesses.
+        if (hasEnded)
+        {
+            throw new HigherLowerAttemptEndedException(
+                $"HigherLowerAttempt for instance '{instanceId}', user '{userId}' has already ended; " +
+                "no further guesses are accepted.");
+        }
+
+        var orderedComparators = instance.Comparators.OrderBy(c => c.SequencePosition).ToList();
+
+        // streakLength doubles as the 0-based SequencePosition of the next
+        // comparator still to guess (HigherLowerAttempt's own doc comment) —
+        // hasEnded being false above guarantees this index is always within
+        // bounds (a full-length correct run sets hasEnded = true in the same
+        // write that reaches the last position, so a subsequent call would
+        // have thrown above instead of reaching this line).
+        var currentComparator = orderedComparators[streakLength];
+
+        var isCorrect = higherLowerSubmission.Direction == HigherLowerDirection.Higher
+            ? currentComparator.Value > currentBaselineValue
+            : currentComparator.Value < currentBaselineValue;
+
+        int newStreakLength;
+        Guid newBaselinePlayerId;
+        int newBaselineValue;
+        bool newHasEnded;
+
+        if (isCorrect)
+        {
+            // REQ-1504: correct guess — reveal the comparator, increment the
+            // streak, the comparator becomes the new baseline. Terminal
+            // (newHasEnded = true) exactly when every comparator in the
+            // sequence has now been guessed correctly — an attempt can never
+            // exceed the Round's configured comparator count.
+            newStreakLength = streakLength + 1;
+            newBaselinePlayerId = currentComparator.PlayerId;
+            newBaselineValue = currentComparator.Value;
+            newHasEnded = newStreakLength >= orderedComparators.Count;
+        }
+        else
+        {
+            // REQ-1504: incorrect guess — the attempt ends with its streak
+            // counted at the length reached BEFORE this guess; the baseline
+            // does not advance (there is nothing further to show).
+            newStreakLength = streakLength;
+            newBaselinePlayerId = currentBaselinePlayerId;
+            newBaselineValue = currentBaselineValue;
+            newHasEnded = true;
+        }
+
+        await higherLowerInstanceRepository.SaveAttemptAsync(
+            instanceId, userId, newStreakLength, newBaselinePlayerId, newBaselineValue, newHasEnded, cancellationToken);
+
+        // PlayerAnswerId is always set (unlike xG Grid/xG Path's
+        // DisambiguationCandidates-driven null case) — the comparator's
+        // identity is revealed on both a correct AND an incorrect guess
+        // (REQ-1504), never withheld. DisambiguationCandidates does not
+        // apply to this game (no name-guessing concept, see
+        // ResolveWrongGuessPlayerAsync's own doc comment below) — left null.
+        return new ScoreResult { IsCorrect = isCorrect, PlayerAnswerId = currentComparator.PlayerId };
+    }
 
     // ADR-0021's round-close unanswered-cell handling needs every "cell" id
     // for a generated instance — for xG Higher/Lower that's one id per
@@ -220,21 +314,29 @@ public class XGHigherLowerGameModule(
         return instance.Comparators.Select(c => c.Id).ToList();
     }
 
-    // ADR-0041: xG Higher/Lower's own attempt-cap model is not decided —
-    // REQ-1504 caps an ATTEMPT at the Round's configured comparator count,
-    // not a per-cell attempt cap the way REQ-210 imposes one on xG Grid/xG
-    // Path (a Higher/Lower guess is a single Higher-or-Lower choice per
-    // comparator, not a bounded number of retries against it). Whether this
-    // method even applies to this game's shape, or whether REQ-1504's
-    // whole-attempt cap is enforced somewhere else entirely (mirroring how
-    // xG Predict's own GetMaxAttemptsForCellAsync remains an open question
-    // per its own doc comment), is left to whoever implements REQ-1504
-    // (S-225). Not implemented.
+    // ADR-0041/REQ-1504 — RESOLVED (S-225, not an open question): this
+    // method's per-cell retry-cap concept does not fit xG Higher/Lower's
+    // shape at all. A comparator is guessed exactly once ever (a correct
+    // guess reveals it and moves on; an incorrect guess reveals it and ends
+    // the whole attempt) — there is no "retry the same cell" concept the way
+    // REQ-210 imposes one on xG Grid/xG Path. REQ-1504's real cap is a
+    // whole-ATTEMPT terminal state (HigherLowerAttempt.HasEnded), enforced
+    // directly inside ScoreSubmissionAsync above (the "already-ended attempt
+    // rejects any further guess" branch), never through this per-cell
+    // method. Left NotImplementedException because nothing calls it yet:
+    // GuessSubmissionService is not wired to "xg-higher-lower"
+    // (GuessSubmissionAllowedGameKeys deliberately omits it — see this
+    // class's own doc comment above) and S-227's dedicated endpoints call
+    // ScoreSubmissionAsync directly instead, mirroring
+    // XGPredictGameModule.GetMaxAttemptsForCellAsync's own identical
+    // still-NotImplementedException case for the same "no caller yet"
+    // reason (that class's own doc comment).
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException(
-            "xG Higher/Lower's attempt-cap model is not yet decided — see docs/requirements-document.md " +
-            "§4.16 REQ-1504 for the Round-level (not per-cell) streak-capping behavior; whether this method " +
-            "applies to this game's shape at all is an open question for whoever implements it.");
+            "xG Higher/Lower has no per-cell attempt cap — REQ-1504's whole-attempt cap is enforced directly " +
+            "inside ScoreSubmissionAsync via HigherLowerAttempt.HasEnded, never through this method. Not " +
+            "implemented because nothing calls it yet (GuessSubmissionService is not wired to " +
+            "\"xg-higher-lower\"); see docs/requirements-document.md §4.16 REQ-1504.");
 
     // REQ-215/ADR-0053: xG Higher/Lower has no row/col category concept at
     // all — a comparison is a single numeric stat value against one fixed
@@ -258,22 +360,19 @@ public class XGHigherLowerGameModule(
         Guid instanceId, string submittedName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WrongGuessPlayerInfo?>(null);
 
-    // REQ-710: xG Higher/Lower currently owns no per-user persisted data at
-    // all — HigherLowerInstance/HigherLowerComparator (this story) are
-    // Round-shared, not per-user, so there is still nothing here for this
-    // module to purge. A genuine no-op for now, not a deferred TODO,
-    // mirroring GridGameModule's/XGPathGameModule's own identical reasoning
-    // for a game whose only per-user data would be Core.Scoring's own Guess
-    // row (already anonymized directly by AccountDeletionService before this
-    // loop runs). MUST be revisited once REQ-1504's real submission/streak-
-    // tracking data model is built (S-225) — if that model introduces its
-    // own per-user table (the way xG Predict's PredictMatchPrediction/
-    // PredictPlayerLock did), this method needs to anonymize/hard-delete it
-    // the same way XGPredictGameModule.PurgeUserDataAsync does. Deliberately
-    // NOT left throwing NotImplementedException: this module is registered
-    // as a real IGameModule below (COMP-01's AccountDeletionService calls
-    // this once per registered module for every deleted user), so throwing
-    // here would break account deletion for every user, not just flag a gap.
-    public Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
+    // REQ-710/S-225: xG Higher/Lower now owns one per-user table —
+    // HigherLowerAttempt (this story) — so this is no longer a genuine
+    // no-op. Anonymizes (UserId = NULL) rather than hard-deleting, mirroring
+    // XGPredictGameModule.PurgeUserDataAsync's call to
+    // AnonymizePredictionsByUserIdAsync for PredictMatchPrediction — see
+    // HigherLowerAttempt's own doc comment for why the nullable/anonymize
+    // shape (not PredictPlayerLock's hard-delete shape) is the right fit
+    // here. This is the one place in the codebase allowed to reference
+    // IHigherLowerInstanceRepository directly from outside
+    // Games.XGHigherLower's own boundary, because this class IS
+    // Games.XGHigherLower/COMP-18, not Core (same carve-out
+    // XGPredictGameModule.PurgeUserDataAsync's own doc comment documents for
+    // IPredictInstanceRepository).
+    public async Task PurgeUserDataAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        await higherLowerInstanceRepository.AnonymizeAttemptsByUserIdAsync(userId, cancellationToken);
 }
