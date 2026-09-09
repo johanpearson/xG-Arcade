@@ -7,6 +7,7 @@ import {
   XG_PATH_GAME_KEY,
   XG_PREDICT_GAME_KEY,
   XG_CONNECT_GAME_KEY,
+  XG_HIGHER_LOWER_GAME_KEY,
 } from './GameSelectScreen';
 
 // REQ-303 (S-021): the post-login game-selection landing screen.
@@ -50,7 +51,7 @@ describe('GameSelectScreen (S-085: xG Path tile)', () => {
       .getAllByRole('button')
       .map((button) => button.getAttribute('aria-label'));
 
-    expect(tileNames).toEqual(['xG Grid', 'xG Path', 'xG Predict', 'xG Connect']);
+    expect(tileNames).toEqual(['xG Grid', 'xG Path', 'xG Predict', 'xG Connect', 'xG Higher/Lower']);
   });
 
   it('REQ-303: selecting the xG Path tile calls onSelectGame with the xG Path game key', async () => {
@@ -95,7 +96,7 @@ describe('GameSelectScreen (REQ-1301: xG Predict tile)', () => {
 // REQ-1415 (SCREEN-17): the fourth tile added for xG Connect — mirrors the
 // xG Path/xG Predict describe blocks above, positioned last.
 describe('GameSelectScreen (REQ-1415: xG Connect tile)', () => {
-  it('REQ-1415: renders the xG Connect tile, with its name and one-line description visible, positioned last', () => {
+  it('REQ-1415: renders the xG Connect tile, with its name and one-line description visible, positioned fourth (before the later xG Higher/Lower tile)', () => {
     render(<GameSelectScreen onSelectGame={vi.fn()} />);
 
     expect(screen.getByRole('button', { name: 'xG Connect' })).toBeInTheDocument();
@@ -104,7 +105,7 @@ describe('GameSelectScreen (REQ-1415: xG Connect tile)', () => {
     const tileNames = screen
       .getAllByRole('button')
       .map((button) => button.getAttribute('aria-label'));
-    expect(tileNames[tileNames.length - 1]).toBe('xG Connect');
+    expect(tileNames[3]).toBe('xG Connect');
   });
 
   it('REQ-1415: selecting the xG Connect tile calls onSelectGame with the xG Connect game key', async () => {
@@ -115,6 +116,34 @@ describe('GameSelectScreen (REQ-1415: xG Connect tile)', () => {
     await user.click(screen.getByRole('button', { name: 'xG Connect' }));
 
     expect(onSelectGame).toHaveBeenCalledWith(XG_CONNECT_GAME_KEY);
+    expect(onSelectGame).toHaveBeenCalledTimes(1);
+  });
+});
+
+// REQ-1504/1505 (SCREEN-18, S-228): the fifth tile added for xG Higher/Lower
+// — mirrors the xG Path/xG Predict/xG Connect describe blocks above,
+// positioned last.
+describe('GameSelectScreen (REQ-1504/1505: xG Higher/Lower tile)', () => {
+  it('REQ-1504/1505: renders the xG Higher/Lower tile, with its name and one-line description visible, positioned last', () => {
+    render(<GameSelectScreen onSelectGame={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'xG Higher/Lower' })).toBeInTheDocument();
+    expect(screen.getByText('Guess whether the next player is higher or lower')).toBeInTheDocument();
+
+    const tileNames = screen
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+    expect(tileNames[tileNames.length - 1]).toBe('xG Higher/Lower');
+  });
+
+  it('REQ-1504/1505: selecting the xG Higher/Lower tile calls onSelectGame with the xG Higher/Lower game key', async () => {
+    const user = userEvent.setup();
+    const onSelectGame = vi.fn();
+
+    render(<GameSelectScreen onSelectGame={onSelectGame} />);
+    await user.click(screen.getByRole('button', { name: 'xG Higher/Lower' }));
+
+    expect(onSelectGame).toHaveBeenCalledWith(XG_HIGHER_LOWER_GAME_KEY);
     expect(onSelectGame).toHaveBeenCalledTimes(1);
   });
 });

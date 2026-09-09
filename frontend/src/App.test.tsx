@@ -1002,6 +1002,69 @@ describe('App (REQ-1415: xG Connect entry-point routing)', () => {
   });
 });
 
+// REQ-1504/1505 (SCREEN-18, S-228): App.tsx's routing for xG Higher/Lower's
+// own round screen — reached via GameSelectScreen's fifth tile or
+// HeaderNav's "Games" -> "xG Higher/Lower" entry, both added in the same
+// story (no SCREEN-14-style "tile wired, nav entry flagged as a gap" split
+// here). Mirrors the xG Predict routing describe block above exactly.
+describe('App (REQ-1504/1505: xG Higher/Lower routing)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function stubFetchForHigherLower() {
+    return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/higher-lower/current')) return jsonResponse(null, 404);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it('REQ-1504/1505: selecting the xG Higher/Lower tile reaches HigherLowerScreen and updates location.hash to #/higher-lower', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForHigherLower());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'xG Higher/Lower' }));
+
+    expect(await screen.findByText('No round to play right now')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/higher-lower');
+
+    // The title still routes back to GameSelectScreen from inside the new
+    // screen, same as every other game (REQ-720).
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+
+  it('REQ-1504/1505: Games → xG Higher/Lower reaches HigherLowerScreen, and the "xG Arcade" title still reaches GameSelectScreen unchanged', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForHigherLower());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    // Scoped to the nav: GameSelectScreen's own "xG Higher/Lower" tile also
+    // renders "xG Higher/Lower" text while game-select is showing, so an
+    // unscoped query here would match two elements.
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    await user.click(within(nav).getByRole('button', { name: 'xG Higher/Lower' }));
+
+    expect(await screen.findByText('No round to play right now')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/higher-lower');
+
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+});
+
 // REQ-721/ADR-0039: hash-based URL-per-screen support. E2E
 // (tests/e2e/url-routing.spec.ts) covers the full real-browser reload
 // round trip; this covers the ordering constraints that must hold
