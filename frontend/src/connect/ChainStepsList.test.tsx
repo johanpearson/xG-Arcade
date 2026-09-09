@@ -15,6 +15,9 @@ function step(overrides: Partial<ConnectChainStepView> = {}): ConnectChainStepVi
     matchedOverlapEndYear: 2015,
     isValid: true,
     closesChain: false,
+    closingClubName: null,
+    closingOverlapStartYear: null,
+    closingOverlapEndYear: null,
     submittedAt: '2026-09-03T00:00:00Z',
     ...overrides,
   };
@@ -47,7 +50,16 @@ describe('ChainStepsList', () => {
   });
 
   it('REQ-1406: marks the closing step and shows the other target as connected, not pending', () => {
-    const steps = [step({ position: 1, candidatePlayerName: 'Bridge Player', closesChain: true })];
+    const steps = [
+      step({
+        position: 1,
+        candidatePlayerName: 'Bridge Player',
+        closesChain: true,
+        closingClubName: 'Chelsea',
+        closingOverlapStartYear: 2012,
+        closingOverlapEndYear: 2019,
+      }),
+    ];
 
     render(
       <ChainStepsList targetPlayerName="Lionel Messi" otherTargetPlayerName="Cristiano Ronaldo" steps={steps} />,
@@ -57,6 +69,25 @@ describe('ChainStepsList', () => {
     const items = screen.getAllByRole('listitem').map((item) => item.textContent);
     expect(items[items.length - 1]).toBe('Cristiano Ronaldo');
     expect(items[items.length - 1]).not.toContain('not yet connected');
+  });
+
+  it('REQ-1406 gap-fill (2026-09-09): shows the closing club and overlap years, not a bare "connects to your target" label', () => {
+    const steps = [
+      step({
+        position: 1,
+        candidatePlayerName: 'Bridge Player',
+        closesChain: true,
+        closingClubName: 'Chelsea',
+        closingOverlapStartYear: 2012,
+        closingOverlapEndYear: 2019,
+      }),
+    ];
+
+    render(
+      <ChainStepsList targetPlayerName="Lionel Messi" otherTargetPlayerName="Cristiano Ronaldo" steps={steps} />,
+    );
+
+    expect(screen.getByText(/connects to your target \(Chelsea, 2012-2019\)/)).toBeInTheDocument();
   });
 
   it('REQ-1406: shows a bounded overlap as a year range, and an ongoing overlap as ending "present"', () => {

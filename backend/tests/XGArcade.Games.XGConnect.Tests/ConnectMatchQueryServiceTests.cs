@@ -86,7 +86,8 @@ public class ConnectMatchQueryServiceTests
 
     private Task AddStepAsync(
         Guid matchId, Guid? userId, int position, int attemptNumber, Guid candidatePlayerId,
-        string matchedClubName, bool isValid, bool closesChain, DateTime submittedAt) =>
+        string matchedClubName, bool isValid, bool closesChain, DateTime submittedAt,
+        string? closingClubName = null, int? closingOverlapStartYear = null, int? closingOverlapEndYear = null) =>
         _connectMatchRepository.AddChainStepAsync(new ConnectChainStep
         {
             Id = Guid.NewGuid(),
@@ -99,6 +100,9 @@ public class ConnectMatchQueryServiceTests
             MatchedOverlapStartYear = 2000,
             IsValid = isValid,
             ClosesChain = closesChain,
+            ClosingClubName = closingClubName,
+            ClosingOverlapStartYear = closingOverlapStartYear,
+            ClosingOverlapEndYear = closingOverlapEndYear,
             SubmittedAt = submittedAt,
         });
 
@@ -298,6 +302,33 @@ public class ConnectMatchQueryServiceTests
         Assert.That(result.Detail.MyChainSteps[0].CandidatePlayerName, Is.EqualTo("Candidate One"));
         Assert.That(result.Detail.MyChainSteps[1].CandidatePlayerId, Is.EqualTo(candidateTwoId));
         Assert.That(result.Detail.MyChainSteps[1].ClosesChain, Is.True);
+    }
+
+    // Gap-fill (2026-09-09, REQ-1406 addendum): ClosingClubName/
+    // ClosingOverlapStartYear/ClosingOverlapEndYear on the persisted
+    // ConnectChainStep must flow through BuildChainStepViews into
+    // ConnectChainStepView unchanged, the same way MatchedClubName/
+    // MatchedOverlapStartYear/MatchedOverlapEndYear already do.
+    [Test]
+    public async Task REQ1406_GetMatchDetailAsync_ClosingChainStep_MapsClosingClubNameAndOverlapYearsIntoView()
+    {
+        var callerId = Guid.NewGuid();
+        var opponentId = Guid.NewGuid();
+        var match = await CreateMatchAsync(callerId, opponentId, FixedNow.UtcDateTime);
+        await _connectMatchRepository.StartMatchAsync(match.Id, FixedNow.UtcDateTime, FixedNow.UtcDateTime.AddHours(6));
+        var candidateId = await AddPlayerAsync("Closing Candidate");
+        await AddStepAsync(
+            match.Id, callerId, position: 1, attemptNumber: 1, candidateId, "Arsenal", isValid: true, closesChain: true,
+            FixedNow.UtcDateTime, closingClubName: "Chelsea", closingOverlapStartYear: 2012, closingOverlapEndYear: 2019);
+        var service = BuildService(FixedNow);
+
+        var result = await service.GetMatchDetailAsync(match.Id, callerId);
+
+        var view = result.Detail!.MyChainSteps.Single();
+        Assert.That(view.ClosesChain, Is.True);
+        Assert.That(view.ClosingClubName, Is.EqualTo("Chelsea"));
+        Assert.That(view.ClosingOverlapStartYear, Is.EqualTo(2012));
+        Assert.That(view.ClosingOverlapEndYear, Is.EqualTo(2019));
     }
 
     // REQ-1406/1407/1408: the opponent's terminal state is exposed as three

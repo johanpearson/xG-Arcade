@@ -178,20 +178,32 @@ public class ConnectChainStepService(
         // recent one (latest OverlapStartYear). ConnectChainStep has one
         // MatchedClubName column, not a list, so a deterministic pick is
         // needed regardless of how the candidate itself was resolved.
-        var matchedOverlap = overlaps.OrderByDescending(o => o.OverlapStartYear).First();
+        // Non-null: the overlaps.Count == 0 branch above already returned,
+        // so overlaps is guaranteed non-empty here.
+        var matchedOverlap = PickRepresentativeOverlap(overlaps)!;
 
         // REQ-1406: chain-closing is checked against the OTHER participant's
         // target pick — never the one this chain started from — and against
-        // ANY shared overlapping club (the existing, unmodified
-        // HaveSharedClubOverlapAsync), not restricted to this step's own
+        // ANY shared overlapping club, not restricted to this step's own
         // matched club.
+        //
+        // Gap-fill (2026-09-09, REQ-1406 addendum): this used to call the
+        // boolean-only HaveSharedClubOverlapAsync, which threw away exactly
+        // the club-name/overlap-year detail a player needs to see for their
+        // closing step (it rendered as a bare "connects to your target"
+        // label — see ConnectChainStep.ClosingClubName's own doc comment for
+        // the full incident). GetSharedClubOverlapsAsync is the same
+        // underlying live lookup — HaveSharedClubOverlapAsync is itself just
+        // `(await GetSharedClubOverlapsAsync(...)).Count > 0` — so calling it
+        // here instead is not a second live lookup for this pair, just the
+        // detailed form of the same one.
         var otherUserId = match.PlayerAUserId == userId ? match.PlayerBUserId : match.PlayerAUserId;
         var otherTargetPick = await connectMatchRepository.GetTargetPickAsync(matchId, otherUserId, cancellationToken);
 
-        bool closesChain;
+        IReadOnlyList<SharedClubOverlap> closingOverlaps;
         try
         {
-            closesChain = await playerCareerOverlapService.HaveSharedClubOverlapAsync(
+            closingOverlaps = await playerCareerOverlapService.GetSharedClubOverlapsAsync(
                 candidateId, otherTargetPick!.TargetPlayerId, cancellationToken);
         }
         catch (LiveLookupUnavailableException)
@@ -202,6 +214,14 @@ public class ConnectChainStepService(
             // as accepted at all.
             return new SubmitChainStepResult(SubmitChainStepOutcome.LiveLookupUnavailable, null);
         }
+
+        var closesChain = closingOverlaps.Count > 0;
+
+        // Same deterministic tie-break as matchedOverlap above (latest
+        // OverlapStartYear) — only computed/persisted when the chain
+        // actually closes; ConnectChainStep.ClosingClubName's own doc
+        // comment covers the "all three null together otherwise" rule.
+        var closingOverlap = closesChain ? PickRepresentativeOverlap(closingOverlaps) : null;
 
         var acceptedStep = new ConnectChainStep
         {
@@ -216,6 +236,9 @@ public class ConnectChainStepService(
             MatchedOverlapEndYear = matchedOverlap.OverlapEndYear,
             IsValid = true,
             ClosesChain = closesChain,
+            ClosingClubName = closingOverlap?.ClubName,
+            ClosingOverlapStartYear = closingOverlap?.OverlapStartYear,
+            ClosingOverlapEndYear = closingOverlap?.OverlapEndYear,
             SubmittedAt = submittedAt,
         };
         var persistedAcceptedStep = await connectMatchRepository.AddChainStepAsync(acceptedStep, cancellationToken);
@@ -230,4 +253,14 @@ public class ConnectChainStepService(
             closesChain ? SubmitChainStepOutcome.ChainClosed : SubmitChainStepOutcome.StepAccepted,
             persistedAcceptedStep);
     }
+
+    // Extracted (2026-09-09, quality-architect code-health-budget follow-up):
+    // the same deterministic tie-break — most recent shared club by
+    // OverlapStartYear — was appearing twice in SubmitChainStepAsync above
+    // (the per-step matched-club computation and the chain-closing
+    // computation). Returns null only for an empty list; both call sites
+    // above already guarantee non-emptiness before/at the point they call
+    // this, so the null case is a defensive fallback, not a live path.
+    private static SharedClubOverlap? PickRepresentativeOverlap(IReadOnlyList<SharedClubOverlap> overlaps) =>
+        overlaps.Count > 0 ? overlaps.OrderByDescending(o => o.OverlapStartYear).First() : null;
 }

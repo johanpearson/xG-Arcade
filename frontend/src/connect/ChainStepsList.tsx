@@ -26,7 +26,9 @@ export function ChainStepsList({ targetPlayerName, steps, otherTargetPlayerName 
         <li key={step.position} className="connect-match__chain-item">
           {step.candidatePlayerName}
           <span className="connect-match__chain-club"> ({formatMatchedClub(step.matchedClubName, step.matchedOverlapStartYear, step.matchedOverlapEndYear)})</span>
-          {step.closesChain && <span className="connect-match__chain-closes"> — connects to your target</span>}
+          {step.closesChain && (
+            <span className="connect-match__chain-closes"> — connects to your target ({formatMatchedClub(step.closingClubName, step.closingOverlapStartYear, step.closingOverlapEndYear)})</span>
+          )}
         </li>
       ))}
       {validSteps.some((step) => step.closesChain) ? (

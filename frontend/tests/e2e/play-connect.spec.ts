@@ -394,18 +394,66 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // seeds the connector's overlap with each target at an identical
       // (StartYear, EndYear) pair on both sides, so the intersection is
       // exactly that range, not a computed subset.
-      await expect(pageA.getByText(`${seed.clubOverlappingWithA}, 2010-2012`)).toBeVisible()
-      await expect(pageB.getByText(`${seed.clubOverlappingWithB}, 2015-2017`)).toBeVisible()
+      //
+      // Scoped to `.connect-match__chain-club` (ChainStepsList.tsx's
+      // ordinary matched-club span), not a bare page-wide getByText.
+      // Reason: each player's single connector step both matches its OWN
+      // starting target (rendered here) AND closes against the OTHER
+      // player's target (REQ-1406's 2026-09-09 gap-fill addendum, asserted
+      // just below) — and because this fixture's connector genuinely
+      // overlaps BOTH targets (InternalConnectTestDataEndpoints.cs), those
+      // two club/year strings cross over: User A's own matched-club text
+      // ("clubOverlappingWithA, 2010-2012") is the SAME string as the
+      // OPPONENT's (User B's) own closing-club text once REQ-1418's
+      // opponent-chain section (below) is also on the page, and vice versa
+      // for User B. A bare getByText would resolve to both the ordinary
+      // `.connect-match__chain-club` span AND that unrelated
+      // `.connect-match__chain-closes` span and trip Playwright's strict
+      // mode — class-scoping picks out only the ordinary matched-club
+      // rendering this assertion is actually about.
+      const myChainClubA = pageA.locator('.connect-match__chain-club').filter({ hasText: `${seed.clubOverlappingWithA}, 2010-2012` })
+      await expect(myChainClubA).toBeVisible()
+      const myChainClubB = pageB.locator('.connect-match__chain-club').filter({ hasText: `${seed.clubOverlappingWithB}, 2015-2017` })
+      await expect(myChainClubB).toBeVisible()
+
+      // REQ-1406 gap-fill (2026-09-09): the closing step's own matched club
+      // and overlap years — previously a bare, unexplained "— connects to
+      // your target" label with no detail (the real playtesting bug this
+      // addendum fixes) — now render the same way an ordinary step's
+      // matched club does. Both players' single connector step in this
+      // fixture IS the closing step (REQ-1408's "1-connector minimum score"
+      // case, asserted just above), so `.connect-match__chain-closes` is
+      // exactly this step's own closing render: User A's candidate closes
+      // against User B's target (clubOverlappingWithB), and User B's closes
+      // against User A's target (clubOverlappingWithA) — the reverse pairing
+      // from each player's own matched-club assertion above. Scoped to this
+      // class for the identical cross-over reason described above.
+      const myChainClosesA = pageA.locator('.connect-match__chain-closes').filter({ hasText: `${seed.clubOverlappingWithB}, 2015-2017` })
+      await expect(myChainClosesA).toContainText('connects to your target')
+      await expect(myChainClosesA).toBeVisible()
+      const myChainClosesB = pageB.locator('.connect-match__chain-closes').filter({ hasText: `${seed.clubOverlappingWithA}, 2010-2012` })
+      await expect(myChainClosesB).toContainText('connects to your target')
+      await expect(myChainClosesB).toBeVisible()
 
       // ---- Opponent's completed chain (REQ-1418) --------------------------
       // Once Resolved, each player also sees the OTHER's own completed
       // chain — proven end-to-end by the fact that the OTHER's own
-      // club-overlap text (unique to their own submission) now also appears
+      // matched-club text (unique to their own submission) now also appears
       // on the viewer's own screen, not just their own "Your chain" text.
+      //
+      // Same `.connect-match__chain-club` scoping as this file's "my own
+      // chain" assertions above, and for the identical reason: on pageA,
+      // the opponent's (User B's) own matched-club text here
+      // ("clubOverlappingWithB, 2015-2017") is the SAME string as User A's
+      // OWN closing-club text asserted above (`myChainClosesA`), just under
+      // the unrelated `.connect-match__chain-closes` class — a bare
+      // getByText would resolve to both and trip strict mode the same way.
       await expect(pageA.getByText('Opponent’s chain')).toBeVisible()
-      await expect(pageA.getByText(`${seed.clubOverlappingWithB}, 2015-2017`)).toBeVisible()
+      const opponentChainClubOnA = pageA.locator('.connect-match__chain-club').filter({ hasText: `${seed.clubOverlappingWithB}, 2015-2017` })
+      await expect(opponentChainClubOnA).toBeVisible()
       await expect(pageB.getByText('Opponent’s chain')).toBeVisible()
-      await expect(pageB.getByText(`${seed.clubOverlappingWithA}, 2010-2012`)).toBeVisible()
+      const opponentChainClubOnB = pageB.locator('.connect-match__chain-club').filter({ hasText: `${seed.clubOverlappingWithA}, 2010-2012` })
+      await expect(opponentChainClubOnB).toBeVisible()
 
       // ---- In-match chat (REQ-1410), bonus coverage given the same fixture -
       // Rendered unconditionally below every phase's own content, including a

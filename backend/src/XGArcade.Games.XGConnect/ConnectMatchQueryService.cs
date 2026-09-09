@@ -214,6 +214,9 @@ public class ConnectMatchQueryService(
                 s.MatchedOverlapEndYear,
                 s.IsValid,
                 s.ClosesChain,
+                s.ClosingClubName,
+                s.ClosingOverlapStartYear,
+                s.ClosingOverlapEndYear,
                 s.SubmittedAt))
             .ToList();
 

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.79"
+version: "2.80"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -11655,6 +11655,29 @@ real person clicked resolves unambiguously server-side via the new shared
 ADR-0107 for the full decision, including the still-supported name-only
 fallback for a suggestion that predates the `WikidataQid` backfill.
 
+**Gap-fill status note (2026-09-09).** A real user playtesting the game
+reported that the chain-closing step — the one that connects a player's
+final candidate to the OPPONENT's target player, not just to the previous
+chain player — only ever renders as the bare text "— connects to your
+target" (`ChainStepsList.tsx`), with no club or year shown, even though
+every ordinary step already shows its matched club and overlap years (the
+2026-09-04/ADR-0104 design-change note above). The underlying data was
+already available: the closing check draws on the same
+`IPlayerCareerOverlapService` shared-club-overlap data as an ordinary
+step's own matched-club computation, but only a yes/no result was ever
+kept for the closing connection specifically — no club name or overlap
+years were computed or persisted for it. The acceptance criteria below add
+a bullet requiring that this closing connection's matched club and overlap
+years are computed and persisted the same way as for an ordinary step
+(same deterministic tie-break when more than one shared club exists), and
+rendered to the player the same way an ordinary step's own match is —
+never left as an unexplained bare label. This stays inside ADR-0104's
+boundary: still fully server-computed from real, verifiable career data,
+never a value the player types or claims, and still only the caller's OWN
+chain is ever exposed, consistent with this REQ's and REQ-1410's existing
+privacy rule that an opponent's chain (including any of its matched-club
+detail) is never returned or rendered to the other player.
+
 - Given an active match (REQ-1405) and a player building their chain,
   starting from one of the two fixed target-pick players
 - When the player submits a candidate player name (no club — see the
@@ -11674,6 +11697,18 @@ fallback for a suggestion that predates the `WikidataQid` backfill.
 - When that closing step is validated successfully
 - Then the player's chain is complete, no further steps may be submitted
   by that player for this match, and REQ-1408 (scoring) applies to them
+- Given that same closing connection (candidate to the OTHER target
+  player) has one or more shared, overlapping-time clubs — the same data
+  already checked to detect the close in the first place
+- When the closing step is persisted
+- Then the system also computes and records which club (and overlap
+  years) produced that closing connection, using the same "pick one
+  deterministically when more than one shared club exists" rule already
+  applied to an ordinary step's own matched club, and that club/year
+  detail is shown to the player the same way an ordinary step's matched
+  club is — never left as an unexplained bare label with no detail — still
+  fully server-computed, never a player-typed or player-claimed value
+  (ADR-0104)
 - Given a player is searching for a candidate name while building a step
 - When they type a partial name
 - Then suggested candidates are drawn from the platform's existing broad
@@ -11698,8 +11733,14 @@ fallback for a suggestion that predates the `WikidataQid` backfill.
 appended; a claim where the candidate played for the club but in a
 non-overlapping period is rejected; a claim naming a club the candidate
 never played for is rejected; a closing step is correctly detected against
-the OTHER target player, never the one the chain started from; candidate
-search returns players outside the curated reference tables.
+the OTHER target player, never the one the chain started from; a closing
+step's matched club and overlap years are computed and persisted for the
+connection to the OTHER target player (distinct from an ordinary step's
+matched club, which connects to the PREVIOUS chain player), using the same
+deterministic tie-break as an ordinary step when more than one shared club
+exists, and are available for the same rendering path an ordinary step's
+matched club already uses; candidate search returns players outside the
+curated reference tables.
 
 **REQ-1407 – Two-strikes-per-step penalty and bust rule**
 > As a player, I want one retry at any step I get wrong, with a small

@@ -102,6 +102,16 @@ public record ConnectTargetPickView(Guid TargetPlayerId, string TargetPlayerName
 // a player-typed claim. Null together only when IsValid is false (no club
 // was found at all).
 //
+// ClosingClubName/ClosingOverlapStartYear/ClosingOverlapEndYear (gap-fill,
+// 2026-09-09, REQ-1406 addendum): the closing-connection counterpart of
+// MatchedClubName/MatchedOverlapStartYear/MatchedOverlapEndYear above — the
+// club/years connecting this step's candidate to the OPPONENT's target
+// player (only meaningful when ClosesChain is true), rather than to the
+// preceding chain player. See ConnectChainStep.ClosingClubName's own doc
+// comment for the full "why" (a real playtester report — this used to
+// render as a bare "connects to your target" label with no detail). Null
+// together whenever ClosesChain is false.
+//
 // ChainStepId (REQ-1412/1413): the id a client needs to call
 // POST /matches/{matchId}/chain-steps/{chainStepId}/dispute against this
 // exact step — added alongside this REQ, since no prior xG Connect read
@@ -119,6 +129,9 @@ public record ConnectChainStepView(
     int? MatchedOverlapEndYear,
     bool IsValid,
     bool ClosesChain,
+    string? ClosingClubName,
+    int? ClosingOverlapStartYear,
+    int? ClosingOverlapEndYear,
     DateTime SubmittedAt);
 
 // The three terminal-reaching signals ConnectMatchLifecycleService already

@@ -86,7 +86,9 @@ public static class ConnectMatchQueryEndpoints
     private static ConnectChainStepDetailResponse ToResponse(ConnectChainStepView view) =>
         new(view.ChainStepId, view.Position, view.AttemptNumber, view.CandidatePlayerId, view.CandidatePlayerName,
             view.MatchedClubName, view.MatchedOverlapStartYear, view.MatchedOverlapEndYear,
-            view.IsValid, view.ClosesChain, view.SubmittedAt);
+            view.IsValid, view.ClosesChain,
+            view.ClosingClubName, view.ClosingOverlapStartYear, view.ClosingOverlapEndYear,
+            view.SubmittedAt);
 
     private static ConnectTerminalStateResponse ToResponse(ConnectTerminalState state) =>
         new(state.Busted, state.TimedOut, state.Completed);
@@ -132,6 +134,13 @@ public record ConnectMatchListItemResponse(
 
 public record ConnectTargetPickResponse(Guid TargetPlayerId, string TargetPlayerName, bool Locked);
 
+// ClosingClubName/ClosingOverlapStartYear/ClosingOverlapEndYear (gap-fill,
+// 2026-09-09, REQ-1406 addendum): mirror MatchedClubName/
+// MatchedOverlapStartYear/MatchedOverlapEndYear above, but for the closing
+// connection to the OPPONENT's target player (only meaningful/populated
+// when ClosesChain is true) — see ConnectChainStepView's own doc comment
+// (Games.XGConnect) for the full "why." camelCase on the wire:
+// closingClubName/closingOverlapStartYear/closingOverlapEndYear.
 public record ConnectChainStepDetailResponse(
     Guid ChainStepId,
     int Position,
@@ -143,6 +152,9 @@ public record ConnectChainStepDetailResponse(
     int? MatchedOverlapEndYear,
     bool IsValid,
     bool ClosesChain,
+    string? ClosingClubName,
+    int? ClosingOverlapStartYear,
+    int? ClosingOverlapEndYear,
     DateTime SubmittedAt);
 
 public record ConnectTerminalStateResponse(bool Busted, bool TimedOut, bool Completed);
