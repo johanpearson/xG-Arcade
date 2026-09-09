@@ -12,11 +12,14 @@ namespace XGArcade.Api.HigherLower;
 // ADR-0016/ADR-0048 already established for a second game module), plus one
 // write endpoint. Deliberately NOT routed through
 // POST /rounds/{roundId}/cells/{cellId}/guesses (GuessEndpoints) —
-// ADR-0096 rules this game out of GuessSubmissionAllowedGameKeys the same
-// way it already ruled out xG Predict: HigherLowerSubmission has no
-// CellId/submitted-name concept at all (see that record's own doc comment),
-// so there is nothing GuessSubmissionService's per-cell Guess-row shape
-// could even represent. Instead, the write endpoint below calls
+// ADR-0096 already establishes the underlying structural-incompatibility
+// reasoning (HigherLowerSubmission has no CellId/submitted-name concept at
+// all, see that record's own doc comment, so there is nothing
+// GuessSubmissionService's per-cell Guess-row shape could even represent);
+// the actual exclusion mechanism, GuessSubmissionAllowedGameKeys, was
+// introduced later (S-200/ADR-0098, see ServiceRegistration.cs) and omits
+// "xg-higher-lower" the same way it already omits "xg-predict". Instead,
+// the write endpoint below calls
 // IGameModuleResolver.Resolve("xg-higher-lower").ScoreSubmissionAsync
 // directly, the same way XGHigherLowerGameModule itself already expects to
 // be called (that class's own doc comment).
@@ -150,16 +153,6 @@ public static class HigherLowerEndpoints
                     statusCode: StatusCodes.Status404NotFound);
             }
 
-            // Read the pre-guess attempt state BEFORE calling
-            // ScoreSubmissionAsync, purely so this endpoint can independently
-            // resolve which SequencePosition was just guessed (and thus its
-            // real Value) once the call returns — ScoreResult itself only
-            // carries IsCorrect/PlayerAnswerId, not the streak/position.
-            // Mirrors XGHigherLowerGameModule.ScoreSubmissionAsync's own
-            // identical pre-read/defaulting.
-            var preGuessAttempt = await higherLowerInstanceRepository.GetAttemptAsync(round.GameInstanceId, user.Id, cancellationToken);
-            var preGuessStreakLength = preGuessAttempt?.StreakLength ?? 0;
-
             ScoreResult result;
             try
             {
@@ -190,18 +183,36 @@ public static class HigherLowerEndpoints
                 ?? throw new InvalidOperationException(
                     $"HigherLowerAttempt for instance '{round.GameInstanceId}', user '{user.Id}' was not persisted by ScoreSubmissionAsync.");
 
-            // The comparator just guessed is the one at the pre-guess streak
-            // length's SequencePosition — its real Value is revealed here
-            // regardless of whether the guess was correct (REQ-1504).
+            // The comparator just guessed is identified by PlayerId ==
+            // result.PlayerAnswerId — the identity the authoritative
+            // ScoreSubmissionAsync call itself just resolved from its own
+            // internal, unlocked read of the attempt — rather than by a
+            // SequencePosition snapshotted before the call. instance.
+            // Comparators is a fixed, immutable sequence set once at
+            // generation time (never mutated), and REQ-1502's no-repeat-
+            // within-sequence rule guarantees this lookup is unique. Looking
+            // up by a pre-call position instead would be race-prone: two
+            // overlapping requests for the same user (a double-tap, or a
+            // client retry after a timeout) could otherwise pair a correct
+            // RevealedPlayerId with a stale (wrong) RevealedValue.
             var instance = await higherLowerInstanceRepository.GetInstanceByIdAsync(round.GameInstanceId, cancellationToken)
                 ?? throw new InvalidOperationException(
                     $"Round '{round.Id}' references HigherLowerInstance '{round.GameInstanceId}' which does not exist.");
-            var guessedComparator = instance.Comparators.Single(c => c.SequencePosition == preGuessStreakLength);
+            // Always set here: ScoreSubmissionAsync's PlayerAnswerId is
+            // always non-null for this game (XGHigherLowerGameModule's own
+            // doc comment — unlike xG Grid/xG Path, there is no
+            // no-candidate-matched case).
+            var guessedComparator = instance.Comparators.Single(c => c.PlayerId == result.PlayerAnswerId!.Value);
 
+            // Safe: always sets PlayerAnswerId (ScoreResult's own doc
+            // comment / XGHigherLowerGameModule.ScoreSubmissionAsync's own
+            // doc comment).
             var players = await playerRepository.GetPlayersByIdsAsync([result.PlayerAnswerId!.Value], cancellationToken);
 
             return Results.Ok(new SubmitHigherLowerGuessResponse(
                 result.IsCorrect,
+                // Safe: always sets PlayerAnswerId (ScoreResult's own doc
+                // comment).
                 result.PlayerAnswerId!.Value,
                 players[result.PlayerAnswerId.Value].FullName,
                 guessedComparator.Value,
