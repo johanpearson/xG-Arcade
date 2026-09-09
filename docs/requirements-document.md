@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.83"
+version: "2.84"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13008,12 +13008,28 @@ attempt. **Update (S-223/S-224):** this section is no longer design-only —
 `GetCellIdsAsync` are real, tested implementations against REQ-1501/1502/
 1503 below, and as of S-225 `ScoreSubmissionAsync` is a real, tested
 implementation against REQ-1504 below (see each REQ's own Status note).
-REQ-1505 (scoring/leaderboard placement) and this `GameKey`'s round
-scheduling/wiring (S-226/S-227) remain unimplemented.
+**Status (2026-09-09, S-226):** this `GameKey`'s round scheduling/wiring is
+now real, too — `RoundSchedulingOptions`/`IScoringStrategy` are registered
+for `"xg-higher-lower"`, `InternalRoundEndpoints`'s `gameKey` switch routes
+it, and `LeaderboardEndpoints.ValidateGameKey` accepts it, so a Round for
+this `GameKey` can actually be generated end to end via
+`POST /internal/generate-round?gameKey=xg-higher-lower` (scheduled daily by
+`.github/workflows/generate-higher-lower-round.yml`), the same reachable
+shape REQ-1301 reached for xG Predict in S-196. REQ-1505's `ScoreAttempt`
+formula is implemented and unit-tested, but a closed Round's `FinalPoints`
+for this `GameKey` is not yet visible through any leaderboard read path in
+production — no `IRoundScoreSourceResolver` entry exists for
+`"xg-higher-lower"` yet, the same gap shape xG Predict itself had between
+S-196 and S-199/ADR-0100 (see REQ-1505's own Status note below). S-227
+remains the story for this game's own gameplay-facing HTTP endpoints
+(current-round/attempt-state and guess submission), mirroring
+`PredictEndpoints`.
 Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
 Path/xG Predict/xG Connect requirements; REQ-1501/1502/1503/1504's text
-describes behavior that now matches real code, REQ-1505's still
-describes intended behavior for a mechanic that has not been built yet.
+describes behavior that now matches real code, and REQ-1505's now
+describes behavior with a real, unit-tested scoring implementation behind
+it, though not yet a leaderboard-visible one in production (see its own
+Status note below).
 
 **Why this game, and what it deliberately reuses:** unlike xG Predict
 (needed a new live-match-result data source, football-data.org/ADR-0099)
@@ -13093,11 +13109,16 @@ ADR-0111 for the full derivation this resolves, since neither this REQ's
 text nor ADR-0110 answers it directly. A player absent from that method's
 result dictionary has no recorded value for the category and is never
 selected, per this REQ's own "non-null recorded value" rule. Unit-tested
-in `XGHigherLowerGameModuleTests`/`PlayerOverrideRepositoryTests`. Not yet
-reachable in production — `GenerateInstanceAsync` is not called by any
-scheduled or on-demand path yet (S-226/S-227 wires
-`RoundSchedulingOptions`/`InternalRoundEndpoints`); do not treat this
-`GameKey` as schedulable yet.
+in `XGHigherLowerGameModuleTests`/`PlayerOverrideRepositoryTests`.
+
+**Status (2026-09-09, S-226):** Now reachable in production —
+`RoundSchedulingOptions`/`IRoundSchedulingOptionsResolver` for
+`"xg-higher-lower"` are registered and `InternalRoundEndpoints`'s `gameKey`
+switch routes it, so `GenerateInstanceAsync` (and both eligibility checks
+above) run for real via
+`POST /internal/generate-round?gameKey=xg-higher-lower`, scheduled daily by
+`.github/workflows/generate-higher-lower-round.yml`. This `GameKey` can now
+be treated as schedulable.
 
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed
@@ -13144,8 +13165,13 @@ category exhausts its attempts, generation throws the new
 `HigherLowerGenerationException` rather than persisting a
 shorter-than-configured sequence, satisfying this REQ's fail-closed rule.
 Unit-tested in `XGHigherLowerGameModuleTests` (tie exclusion, repeat
-exclusion, the exhausted-attempts failure case). Not yet reachable in
-production — see REQ-1501's own status note above.
+exclusion, the exhausted-attempts failure case).
+
+**Status (2026-09-09, S-226):** Now reachable in production — see
+REQ-1501's own status note above; the same wiring covers this REQ's
+fail-closed generation path (the `HigherLowerGenerationException`
+abort case is also now exercised end to end via `RoundEndpointTests`,
+below `InternalRoundEndpoints`'s widened exception filter).
 
 **REQ-1503 – Round generation: category and comparator sequence selection**
 > As a player, I want each xG Higher/Lower Round to be generated with one
@@ -13203,12 +13229,22 @@ every participant, satisfying this REQ's Unit-level criteria.
 (a per-`GameKey` DI singleton, ADR-0051), not on `RoundSchedulingOptions`,
 per this REQ's own default-comparator-count note. `GetCellIdsAsync` is
 also implemented for real, returning one `HigherLowerComparator.Id` per
-sequence position. **Not yet implemented: this REQ's API-level test
-level.** `GenerateInstanceAsync` has no production caller yet —
-`RoundSchedulingOptions`, `IRoundSchedulingOptionsResolver`, and
-`InternalRoundEndpoints`'s `gameKey` switch do not include
-`"xg-higher-lower"` (S-226/S-227's scope). Do not treat this `GameKey` as
-schedulable, or this REQ as fully implemented, until that wiring lands.
+sequence position.
+
+**Status (2026-09-09, S-226):** This REQ's previously-missing API-level
+test level is now covered too — `RoundSchedulingOptions`,
+`IRoundSchedulingOptionsResolver`, and `InternalRoundEndpoints`'s `gameKey`
+switch all now include `"xg-higher-lower"` (the switch's arm returns a
+fresh, unvalidated `Guid` as `TemplateId` rather than resolving a
+template — `HigherLowerInstance.TemplateId`'s own doc comment confirms no
+`HigherLowerTemplate` concept exists, unlike xG Grid/xG Path/xG Predict),
+and new `REQ1505_`-prefixed `RoundEndpointTests` exercise round generation
+for this `GameKey` end to end via `POST /internal/generate-round?gameKey=xg-higher-lower`,
+including the exact-`ComparatorCount` assertion this REQ's own Unit-level
+criteria require. This `GameKey` can now be treated as schedulable, and
+this REQ as fully implemented at the round-generation level. What's still
+not implemented is REQ-1505's own leaderboard-visibility wiring — see that
+REQ's own Status note.
 
 **REQ-1504 – Guess submission and streak progression**
 > As a player mid-attempt, I want to guess Higher or Lower for the current
@@ -13292,12 +13328,21 @@ not through that per-cell method, which nothing calls yet (mirrors
 (`XGHigherLowerGameModule.PurgeUserDataAsync` now anonymizes rather than
 no-opping). No ADR needed — reviewed and confirmed a mechanical
 implementation of already-decided ADR-0110/ADR-0041/ADR-0003 shapes, not a
-new structural decision. Not yet reachable in production —
-`ScoreSubmissionAsync` has no caller yet; `RoundSchedulingOptions`,
-`IRoundSchedulingOptionsResolver`, `GuessSubmissionAllowedGameKeys`, and
-`InternalRoundEndpoints`'s `gameKey` switch still do not include
-`"xg-higher-lower"` (S-226/S-227's scope). Do not treat this `GameKey` as
-schedulable yet.
+new structural decision.
+
+**Status (2026-09-09, S-226):** Round generation/scheduling for this
+`GameKey` is now reachable in production — see REQ-1501's own status note
+above. `ScoreSubmissionAsync` itself still has no caller: unlike
+`RoundSchedulingOptions`/`IRoundSchedulingOptionsResolver`/
+`InternalRoundEndpoints`'s `gameKey` switch (now wired), `"xg-higher-lower"`
+was deliberately **not** added to `GuessSubmissionAllowedGameKeys` — that's
+not a remaining gap in this wiring, it's a permanent exclusion, the same
+one `"xg-predict"` already has (ADR-0098): this game never writes per-cell
+`Guess` rows (`HigherLowerSubmission` has no `CellId`), so
+`GuessSubmissionService` would have no `Guess` row to process even if the
+`GameKey` were allow-listed. A real caller for `ScoreSubmissionAsync` is
+S-227's own dedicated endpoints (`GET`/`POST` mirroring `PredictEndpoints`,
+which similarly bypasses this same allow-list), not this allow-list.
 
 **REQ-1505 – Scoring: streak length as FinalPoints, ranked like every
 other GameKey**
@@ -13344,6 +13389,34 @@ onto a mechanic it doesn't suit.
 **Test level:** Unit — `FinalPoints` computed correctly at 0, mid-range,
 and the Round's full configured length; leaderboard ranking order and
 tie-break for a closed Round.
+
+**Status (2026-09-09, S-226):** Partially implemented. Real and
+unit-tested: `HigherLowerScoringStrategy.ScoreAttempt(int streakLength)`
+(`backend/src/XGArcade.Core/Scoring/HigherLowerScoringStrategy.cs`) returns
+`FinalPoints = streakLength`, `FinalUniquenessScore = null`, and
+`LowerIsBetter => false` — the identity-mapping formula this REQ's first
+Given/When/Then describes, registered against `"xg-higher-lower"` in
+`ServiceRegistration.cs` alongside `RoundSchedulingOptions`
+(`RoundScheduling:XGHigherLower:RoundDurationHours`, default 48h), so a
+Round for this `GameKey` can now actually be generated and scheduled
+end to end (see REQ-1501/1503's own Status notes). `ScoreCorrectGuess`
+throws `NotSupportedException` — architecturally unreachable, the same
+carve-out `XGPredictScoringStrategy` already has (ADR-0095, amended
+2026-09-09 to confirm this second `GameKey`'s reuse of it is settled, not a
+gap). `LeaderboardEndpoints.ValidateGameKey`'s allow-list now accepts
+`"xg-higher-lower"` too. **Not yet implemented: this REQ's second and third
+Given/When/Then blocks** (leaderboard ranking and per-league placement) —
+no `IRoundScoreSourceResolver` entry (e.g. a `HigherLowerRoundScoreSource`)
+exists yet for `"xg-higher-lower"`, so a closed Round's `FinalPoints` (via
+`HigherLowerAttempt.StreakLength` and `ScoreAttempt`) is not actually
+readable through any leaderboard read path in production yet, even though
+`ValidateGameKey` now accepts the `GameKey` — requesting this `GameKey`'s
+leaderboard today returns an empty result set, not an error. This mirrors
+exactly how xG Predict's own `IRoundScoreSource` wiring landed in a
+*separate later story* (S-199/ADR-0100), not the story (S-196) that wired
+its round scheduling — same gap shape, deliberately deferred here too, not
+an oversight in this story. A future story (beyond S-227's own API
+endpoints) is needed to close it.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the

@@ -11519,6 +11519,54 @@ leaderboard ranking/tie-break; a Round for this `GameKey` generates and
 closes via the real scheduled path in a manual/API test.
 *Deps:* S-225.
 
+*Built as (2026-09-09):* `backend-implementer` added `HigherLowerScoringStrategy`
+(`Core.Scoring`, `FinalPoints = streakLength`, `FinalUniquenessScore = null`,
+`LowerIsBetter => false`, `ScoreCorrectGuess` throwing `NotSupportedException`
+since this game never writes `Guess` rows — same carve-out
+`XGPredictScoringStrategy` already has, ADR-0095), registered against
+`"xg-higher-lower"` in `ServiceRegistration.cs` alongside a fourth
+`RoundSchedulingOptions` singleton (`RoundScheduling:XGHigherLower:RoundDurationHours`,
+default 48h — real chain-math timing here, not xg-predict's dead fallback,
+since this module never sets `SuggestedStartTime`/`SuggestedEndTime`).
+`InternalRoundEndpoints`'s `gameKey` switch gained a fourth arm (a fresh,
+unvalidated `Guid` as `TemplateId` — no `HigherLowerTemplate` concept
+exists) and its exception filter now also catches
+`HigherLowerGenerationException`; `LeaderboardEndpoints.ValidateGameKey`'s
+allow-list gained `"xg-higher-lower"`; a new
+`.github/workflows/generate-higher-lower-round.yml` (daily cron) mirrors
+`generate-predict-round.yml`. Deliberately **not** added to
+`GuessSubmissionAllowedGameKeys` — that deviates from this story's own
+literal wording above (which listed it among the things to wire), but the
+deviation is deliberate and correct, not an oversight: this game never
+writes per-cell `Guess` rows (`HigherLowerSubmission` has no `CellId`), the
+same permanent exclusion `"xg-predict"` already has (ADR-0098). New/extended
+tests: `HigherLowerScoringStrategyTests`, `RoundSchedulingOptionsResolverTests`
+(a fourth `GameKey` case), `RoundEndpointTests` (generation end-to-end via
+`gameKey=xg-higher-lower`, plus the `HigherLowerGenerationException` abort
+case), `LeaderboardEndpointTests` (allow-list case) — all `REQ1505_`-prefixed.
+
+Quality gate (`architecture-reviewer` + `quality-architect`, run in
+parallel): `quality-architect` found one blocking issue — a new test method
+in `HigherLowerScoringStrategyTests` missing the `REQ1505_` naming prefix
+this repo's `docs/coding-guidelines.md` requires — the same recurring miss
+S-196 had for its own `RoundEndpointTests` additions; fixed in a
+same-session follow-up commit. `architecture-reviewer` returned PASS with
+one documentation gap, not a blocking finding: `HigherLowerScoringStrategy.ScoreCorrectGuess`
+reusing `XGPredictScoringStrategy`'s `NotSupportedException` carve-out
+needed to be recorded against ADR-0095 as a confirmed reuse, not left to be
+mistaken for unfinished work by a later reader — closed by amending
+`docs/decisions/0095-xg-predict-scoring-direction-exception.md` in the same
+session (a "Reused, not re-litigated" amendment, restating the ADR's own
+tripwire — a third such escape hatch is the point to re-examine
+`IScoringStrategy`'s shape, not this second one), not a new ADR.
+
+Testing: no local `dotnet` SDK available in-sandbox — hand-verified by the
+implementer and by both quality-gate reviewers reading the actual diff; a
+CI verification run (`ci.yml` `workflow_dispatch`) is needed before this is
+considered fully done — the orchestrating session triggers CI next, same
+recurring constraint as S-196 and every other recent backend story in this
+file.
+
 **S-227 · API endpoints**
 `GET` current-round/attempt-state and `POST` guess-submission endpoints,
 mirroring `PredictEndpoints`' shape, wired through `XGArcade.Api`.

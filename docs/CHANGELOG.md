@@ -13,6 +13,44 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/requirements-document.md` (§4.16 intro paragraph
+  reworded; new Status notes added to REQ-1501/1502/1503/1504 correcting
+  their stale "not yet reachable in production"/"do not treat as
+  schedulable" language; new Status note added to REQ-1505 itself, v2.83 →
+  v2.84), `docs/architecture-document.md` (COMP-18 row extended with a
+  dated S-226 note; §6.1's grid-generation-flow prose updated from three to
+  four registered `RoundSchedulingOptions` instances/cron files/`gameKey`-
+  switch arms, v1.61 → v1.62), `docs/backlog.md` (S-226 entry given a
+  "Built as" narrative paragraph) — doc sync for S-226 (xG Higher/Lower
+  scoring and round-scheduling wiring, REQ-1505). Mirroring S-196's
+  identical wiring for `"xg-predict"`: new `HigherLowerScoringStrategy`
+  (`Core.Scoring`, `FinalPoints = streakLength`, `LowerIsBetter => false`,
+  `ScoreCorrectGuess` throwing `NotSupportedException` — the same carve-out
+  `XGPredictScoringStrategy` already has, ADR-0095) is registered against
+  `"xg-higher-lower"` alongside a fourth `RoundSchedulingOptions` singleton
+  (`RoundScheduling:XGHigherLower:RoundDurationHours`, default 48h — real
+  chain-math timing here, not xg-predict's dead fallback);
+  `InternalRoundEndpoints`'s `gameKey` switch and exception filter, and
+  `LeaderboardEndpoints.ValidateGameKey`'s allow-list, are both widened; a
+  new `.github/workflows/generate-higher-lower-round.yml` schedules
+  generation daily. A Round for this `GameKey` can now actually be
+  generated and scheduled end to end in production. Deliberately **not**
+  added to `GuessSubmissionAllowedGameKeys` — a permanent exclusion (this
+  game never writes per-cell `Guess` rows), same as `"xg-predict"`'s own
+  (ADR-0098), not a gap. Still open, out of scope for this story: no
+  `IRoundScoreSourceResolver` entry exists for `"xg-higher-lower"` yet, so
+  a closed Round's `FinalPoints` is not yet visible through any leaderboard
+  read path in production — the identical gap shape xG Predict had between
+  S-196 and S-199/ADR-0100, deliberately deferred to a future story here
+  too. `docs/decisions/0095-xg-predict-scoring-direction-exception.md` was
+  separately amended this session (before this doc-sync pass) to confirm
+  `HigherLowerScoringStrategy.ScoreCorrectGuess` reusing that ADR's carve-out
+  is settled, not a gap — referenced above, not re-edited here.
+  `docs/implementation-document.md` checked — still has no xG Higher/Lower
+  content at all (project structure/data model sections were never
+  backfilled across S-223 through S-226), left untouched, same precedent as
+  the S-224/S-225 entries below; flagged as an open question for a future
+  pass, not fixed in this one.
 - 2026-09-09 — `docs/architecture-document.md` (COMP-18 row extended with a
   dated S-225 note, v1.60 → v1.61), `docs/requirements-document.md`
   (REQ-1504 Status note added, §4.16 intro paragraph reworded, v2.82 →
