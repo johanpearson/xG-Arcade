@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.95"
+version: "0.96"
 status: draft
-last_updated: 2026-09-07
+last_updated: 2026-09-09
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -3694,6 +3694,28 @@ above) — see "Friends tab" below for the new click-through to SCREEN-13.
     styled as an "invitation" the way the friends-list empty state above
     is (§5's "invitation" framing applies where there's a single action
     that resolves the emptiness; there isn't one here).
+  - **Added 2026-09-09, S-230 — "Sent challenges" section, direct user
+    feedback.** A real, reported gap: sending a challenge from "My friends"
+    (Friends tab) left the challenger with no way to confirm it existed
+    anywhere in the product — not on this tab (scoped to challenges
+    received), and not yet a match either (REQ-1404 only creates one on
+    accept). A second section below the one above, same card/heading/list
+    shell, fed by the new `GET /challenges/sent`: heading "Sent challenges"
+    with the same inline "(N)" count convention, each row reading "Waiting
+    on {challengedDisplayName}" with **no** Accept/Decline controls (only
+    the challenged party may resolve a challenge — REQ-1402 unchanged).
+    Empty state: "No pending challenges sent." — same plain, calm treatment
+    as the received-challenges empty state just above, for the same reason
+    (no single action resolves it from here). **Mounting fix, same day:**
+    this tab is now conditionally rendered (mounted only while active)
+    rather than kept alive under `hidden` — the same treatment the Matches
+    tab already got in S-218, and for the identical reason: the new "Sent
+    challenges" section's data can change from an action (sending a
+    challenge) taken on a *different* tab (Friends) of this same screen,
+    so a mounted-but-hidden Challenges tab would otherwise capture its GET
+    responses once and never refresh them on switch-back. Friends and
+    Matchmaking keep the original stay-mounted-under-`hidden` treatment —
+    neither has data that changes from elsewhere on this screen.
 
 - **Matchmaking tab.**
   - A short description ("Get matched with a random opponent for a new xG

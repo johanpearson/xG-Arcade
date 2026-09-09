@@ -145,6 +145,16 @@ public class ChallengeEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    [Test]
+    public async Task REQ1402_GetChallengesSent_Unauthenticated_ReturnsUnauthorized()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/challenges/sent");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
     // ---- Happy-path round trips: DTO shape + ADR-0103 orchestration over ---
     // ---- the real HTTP pipeline ----------------------------------------------
 
@@ -176,6 +186,16 @@ public class ChallengeEndpointTests
         Assert.That(pending.Single().ChallengerDisplayName, Is.EqualTo("Alex"));
         Assert.That(pending.Single().ChallengedDisplayName, Is.EqualTo("Blair"));
 
+        // REQ-1402 visibility fix (S-230): the challenger themselves can now
+        // also see the challenge they just sent, via the mirror-image
+        // endpoint — before this existed, A had no read path for it at all.
+        var sentListResponse = await clientA.GetAsync("/challenges/sent");
+        Assert.That(sentListResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var sentList = await sentListResponse.Content.ReadFromJsonAsync<List<ChallengeResponse>>();
+        Assert.That(sentList!.Select(c => c.Id), Is.EquivalentTo(new[] { sent.Id }));
+        Assert.That(sentList.Single().ChallengerDisplayName, Is.EqualTo("Alex"));
+        Assert.That(sentList.Single().ChallengedDisplayName, Is.EqualTo("Blair"));
+
         var acceptResponse = await clientB.PostAsync($"/challenges/{sent.Id}/accept", content: null);
         Assert.That(acceptResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var accepted = await acceptResponse.Content.ReadFromJsonAsync<ChallengeResponse>();
@@ -197,6 +217,10 @@ public class ChallengeEndpointTests
         var pendingForBAfterAccept = await clientB.GetAsync("/challenges/pending");
         var pendingAfterAccept = await pendingForBAfterAccept.Content.ReadFromJsonAsync<List<ChallengeResponse>>();
         Assert.That(pendingAfterAccept, Is.Empty, "resolved challenge must no longer appear in the challenged user's pending list");
+
+        var sentForAAfterAccept = await clientA.GetAsync("/challenges/sent");
+        var sentAfterAccept = await sentForAAfterAccept.Content.ReadFromJsonAsync<List<ChallengeResponse>>();
+        Assert.That(sentAfterAccept, Is.Empty, "resolved challenge must no longer appear in the challenger's sent list either");
     }
 
     [Test]

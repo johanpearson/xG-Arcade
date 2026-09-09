@@ -11679,3 +11679,60 @@ final diff.
 *Accept:* quality-gate passes; no open architecture-reviewer findings;
 docs match reality.
 *Deps:* S-228.
+
+**S-230 · xG Connect: sent-challenge visibility fix (REQ-1402), direct user
+feedback — Built, 2026-09-09.** Epic 27 follow-up, not part of the
+S-223-S-229 xG Higher/Lower sequence above (numbered after it purely
+because S-227-S-229 were already reserved for that epic when this fix
+landed). Reported directly: after sending a friend challenge and opting
+into random matchmaking, a player could see neither in the Matches tab
+(correct — REQ-1404 doesn't create a `ConnectMatch` until a challenge is
+accepted or a matchmaking pairing forms) nor anywhere else, yet a second
+attempt to challenge the same friend was rejected with "A pending
+challenge already exists between you and this user." The 409 was correct
+(REQ-1402's own duplicate-pending rule) — the real bug was that the
+challenge it referred to was otherwise invisible: `GET /challenges/pending`
+is scoped to the challenged party only, so the challenger had no read path
+for their own outgoing challenge at all.
+
+Backend: new `GET /challenges/sent` (`IChallengeRepository
+.GetSentChallengesForUserAsync`/`IChallengeService.GetSentChallengesAsync`/
+`ChallengeEndpoints`), the mirror image of the existing `/challenges/pending`
+— every Pending challenge where the caller is the challenger, same
+batch-display-name-resolution shape. Frontend: `ChallengesTab.tsx` gained a
+second, read-only "Sent challenges" section (no Accept/Decline — only the
+challenged party may resolve a challenge). Caught and fixed in the same
+story: extending Challenges tab's data this way reproduced the exact
+mounting bug S-218 already fixed once for the Matches tab — `FriendsTab`'s
+"Challenge" button lives on a different tab than the new section, and
+`FriendsScreen.tsx` originally kept Challenges mounted-but-`hidden` across
+switches, so a challenge sent from Friends would never appear once
+Challenges had already mounted. Fixed the same way S-218 fixed it:
+`ChallengesTab` is now conditionally rendered (mounted only while active),
+refetching both `/challenges/pending` and `/challenges/sent` on every
+switch to it; Friends and Matchmaking are untouched and keep the original
+stay-mounted treatment.
+
+New `REQ1402_`-prefixed test coverage: `ChallengeRepositoryTests.cs`,
+`ChallengeServiceTests.cs`, `ChallengeEndpointTests.cs` (backend — the
+last extended in place, since the existing send→accept round-trip test
+was the natural place to also assert the sent list populates then clears
+on accept), `ChallengesTab.test.tsx` (frontend — sent-section rendering,
+empty state, no accept/decline controls), `FriendsScreen.test.tsx`
+(frontend — the tab-remount-on-switch regression, mirroring the existing
+S-218 Matches-tab test exactly). `npm run test` (957 tests, full suite),
+`tsc -b`, and `npm run lint` all pass locally. Backend: no local `dotnet`
+SDK in this sandbox (same recurring constraint as every other recent
+backend story in this file) — hand-verified by reading the diff against
+the existing `ChallengeRepository`/`ChallengeService`/`ChallengeEndpoints`
+patterns it mirrors exactly; a CI run (`ci.yml` `workflow_dispatch`) is
+needed before this is considered fully verified end-to-end.
+
+`docs/requirements-document.md` (REQ-1402 status note + addendum, v2.85 →
+v2.86) and `docs/design-document.md` (SCREEN-15's "Challenges tab" note,
+v0.95 → v0.96) updated in the same iteration. No new ADR — additive
+endpoint/UI within `Core.Social` (COMP-16)'s existing boundary, and the
+tab-mounting fix reuses S-218's already-established pattern rather than
+introducing a new one.
+*Accept:* backend/frontend tests pass; docs updated; CI-verified.
+*Deps:* S-217.
