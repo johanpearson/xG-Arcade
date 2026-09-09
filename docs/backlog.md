@@ -11450,3 +11450,99 @@ verified in-sandbox (952/952 Vitest, `tsc -b` clean, lint clean); backend
 has no `dotnet` SDK in this sandbox to verify against — a `ci.yml`
 `workflow_dispatch` run is needed before this is considered fully
 verified end-to-end (CLAUDE.md's "Testing without a local dotnet SDK").
+
+## Epic 28 — xG Higher/Lower (proposed fifth game)
+
+Full requirements: `docs/requirements-document.md` §4.16 (REQ-1501-1505).
+Architecture: `docs/architecture-document.md` COMP-18. Structural
+decision: ADR-0110 (fits the existing `Round` model, like xG Grid/xG
+Path/xG Predict — not a `ConnectMatch`-style new concept; one fixed stat
+category and one fixed comparator sequence, defaulting to 10 comparators,
+generated once per Round and shared by every participant; an attempt is
+capped at the Round's configured length).
+
+**S-223 · ADR + `IGameModule` scaffold (REQ-1501-1505, ADR-0110) — Built,
+2026-09-09.**
+Resolved the Round-vs-new-concept structural question (ADR-0110) and
+scaffolded `XGArcade.Games.XGHigherLower` (COMP-18): `XGHigherLowerGameModule`
+registered as a real `IGameModule` for `GameKey = "xg-higher-lower"`.
+`GenerateInstanceAsync`/`ScoreSubmissionAsync`/`GetCellIdsAsync`/
+`GetMaxAttemptsForCellAsync` all throw `NotImplementedException` (genuinely
+unbuilt — this game does use the Round-generation slice of `IGameModule`,
+unlike xG Connect). `GetCellCategoryTypesAsync` throws `NotSupportedException`
+(permanently inapplicable — no row/col category concept).
+`ResolveWrongGuessPlayerAsync` returns `null` unconditionally (no
+name-guessing surface). `PurgeUserDataAsync` is a real no-op (no per-user
+data model exists yet; the module is wired into DI so `AccountDeletionService`
+calls it for every deleted user). Matching NUnit test project. Merged via
+PR #353, verified via `ci.yml workflow_dispatch` (all 7 jobs green, no
+`dotnet` SDK in the local sandbox).
+*Accept:* ADR merged; COMP-18 row in architecture-document.md matches it;
+`ci.yml` green.
+*Deps:* none.
+
+**S-224 · Round generation: category + comparator sequence (REQ-1501/1502/1503)**
+Design the persisted instance entity (mirroring `GridInstance`/
+`PathInstance`/`PredictInstance`) capturing a Round's fixed stat category,
+baseline, and ordered comparator sequence. Implement
+`XGHigherLowerGameModule.GenerateInstanceAsync`'s real eligibility-checked
+generation algorithm: no exact ties between consecutive players, no
+repeated player anywhere in the sequence, fail closed if a full-length
+sequence can't be built for a candidate category. Comparator count
+defaults to 10, configurable per-`GameKey` like `GridSize`/`PuzzleCount`
+(ADR-0051).
+*Accept:* `REQ1501_...`/`REQ1502_...`/`REQ1503_...`-named tests covering
+eligibility, tie/repeat exclusion, and the generation-failure case.
+*Deps:* S-223.
+
+**S-225 · Guess submission & streak progression (REQ-1504)**
+Implement `ScoreSubmissionAsync`'s real Higher/Lower guess logic and
+streak progression, including the per-participant in-progress
+attempt/position data model. An attempt is capped at the Round's
+configured comparator count — reaching the end of the sequence
+all-correct is a terminal outcome, the same as an incorrect guess.
+Guesses against an already-ended attempt are rejected.
+*Accept:* `REQ1504_...`-named tests covering correct/incorrect outcomes in
+both directions, the full-length terminal case, and rejection of a guess
+against an ended attempt.
+*Deps:* S-224.
+
+**S-226 · Scoring & Round-scheduling wiring (REQ-1505)**
+An `IScoringStrategy` implementation where `FinalPoints` = streak length
+reached. Wire `GameKey = "xg-higher-lower"` into `RoundSchedulingOptions`/
+`IScoringStrategy`/`GuessSubmissionAllowedGameKeys` and the internal
+round-generation endpoint's `gameKey` switch (mirroring xG Predict's
+S-196 story), so a Round can actually be generated and scored end-to-end
+in production.
+*Accept:* `REQ1505_...`-named tests for `FinalPoints` computation and
+leaderboard ranking/tie-break; a Round for this `GameKey` generates and
+closes via the real scheduled path in a manual/API test.
+*Deps:* S-225.
+
+**S-227 · API endpoints**
+`GET` current-round/attempt-state and `POST` guess-submission endpoints,
+mirroring `PredictEndpoints`' shape, wired through `XGArcade.Api`.
+*Accept:* API tests (WebApplicationFactory) covering both endpoints
+against a real generated Round.
+*Deps:* S-226.
+
+**S-228 · Frontend screen**
+Check `docs/design-document.md` §3 for an existing `SCREEN-xxx` spec
+first — add one if missing — then build the screen plus a
+`GameSelectScreen` tile against S-227's endpoints, following
+`ui-implementer`'s token-system rules.
+*Accept:* Vitest coverage for the new screen/tile; `tsc -b` and lint
+clean; `design-document.md` updated with the new SCREEN spec.
+*Deps:* S-227.
+
+**S-229 · Close-out: architecture review + quality gate + doc-sync**
+Run `architecture-reviewer` across the full feature (check the
+`PlayerAttribute`/`PlayerOverride` access pattern against boundary rule 1;
+confirm the entity/data model matches ADR-0110's "shared,
+generated-once-per-Round" requirement), then `/quality-gate`
+(quality-architect review + full test suite), then `/update-docs` to sync
+requirements/architecture/implementation docs and CHANGELOG against the
+final diff.
+*Accept:* quality-gate passes; no open architecture-reviewer findings;
+docs match reality.
+*Deps:* S-228.
