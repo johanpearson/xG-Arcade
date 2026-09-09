@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/requirements-document.md` (REQ-1406 gap-fill status
+  note added, v2.76 → v2.77 — already applied by requirements-writer),
+  `docs/architecture-document.md` (COMP-17 row extended with a short
+  dated note, v1.56 → v1.57) — a real playtester reported that xG
+  Connect's chain-closing step (the one connecting a player's final
+  candidate to the OPPONENT's target player) rendered as a bare
+  "connects to your target" label with no club or years, even though
+  every ordinary step already shows its matched club/overlap detail.
+  Fixed by extending the already-established server-computed
+  matched-club mechanism (ADR-0104) to the closing connection too:
+  `ConnectChainStep` gained `ClosingClubName`/`ClosingOverlapStartYear`/
+  `ClosingOverlapEndYear` (migration
+  `20260909100000_AddConnectChainStepClosingOverlap`), computed in
+  `ConnectChainStepService` off the same `GetSharedClubOverlapsAsync`
+  result `ClosesChain` already used (via a new shared
+  `PickRepresentativeOverlap` helper, replacing a duplicated tie-break),
+  exposed through `ConnectMatchQueryService`/`ConnectChainStepView`/
+  `ConnectMatchQueryEndpoints`, and rendered in `ChainStepsList.tsx`
+  next to the existing "connects to your target" text. No boundary/
+  component change — reviewed and explicitly judged not to need a new
+  ADR (architecture-reviewer pass). Backend + frontend + E2E test
+  coverage added/fixed across the branch's commits.
+  `docs/implementation-document.md` checked — its xG Connect coverage
+  lives only in §4's project-structure narrative (frozen as of its
+  original S-213/S-215 build entries; §5's Data Model and §6's Core
+  Algorithms sections have no xG Connect content at all, and the §4
+  narrative was already not updated for ADR-0104/0105/0107/0109 either)
+  — left untouched, consistent with that existing precedent.
+
 - 2026-09-07 — `docs/requirements-document.md` (REQ-1417 marked Built,
   REQ-1418/1419 frontend halves appended to their existing backend status
   notes, v2.75 → v2.76), `docs/design-document.md` (SCREEN-16's "Matches
