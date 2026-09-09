@@ -215,6 +215,45 @@ firm, non-negotiable rule.
 > restated here as the closing word on the standing item rather than an
 > open one.
 
+> **Reused, not re-litigated (2026-09-09, S-226):** `HigherLowerScoringStrategy.ScoreCorrectGuess`
+> (`GameKey = "xg-higher-lower"`, REQ-1505) now throws `NotSupportedException`
+> too, for the identical reason `XGPredictScoringStrategy.ScoreCorrectGuess`
+> does — xG Higher/Lower also never persists a `Guess` row (attempts live in
+> `HigherLowerAttempt` instead, per ADR-0110), so `ScoreLockingService.
+> LockRoundScoresAsync` can never reach this method for this `GameKey`
+> either. REQ-1505's real scoring rule (`FinalPoints` = streak length
+> reached) lives in a new `ScoreAttempt(int streakLength)` method on the
+> same class, mirroring `ScorePrediction`'s exact role — exercised directly
+> by unit tests, no production caller yet (the future story that computes/
+> persists this `GameKey`'s leaderboard total, mirroring how
+> `ScorePrediction`'s own real caller, `PredictGradingService`, landed in a
+> separate later story, ADR-0097/S-197, not the story that added the
+> method).
+>
+> This is the "third such escape hatch" the "Confirmed, permanent" amendment
+> above named as the tripwire for revisiting `IScoringStrategy`'s shape —
+> except counted precisely, it is the *second* (`XGPredictScoringStrategy`
+> is the first; `UniquenessScoringStrategy`/`ClueEfficiencyScoringStrategy`
+> are the two real, non-carve-out implementations). Re-examined against the
+> bar that amendment set ("a real third game needs a fundamentally
+> different `IScoringStrategy` input shape"): xG Higher/Lower does not need
+> a different shape — `ScoreAttempt(int)` is a single-int input, arguably
+> simpler than `ScorePrediction`'s four-int one, and both sit alongside
+> `IScoringStrategy` as a concrete-class second entry point via the exact
+> mechanism ADR-0097 already chose and justified (don't widen a shared
+> interface for one caller). No fundamentally different shape is needed, so
+> no revisit is triggered — this is confirmed as the same "permanent,
+> narrow, per-`GameKey` carve-out" pattern the amendment above already
+> established for xG Predict, extended to a second `GameKey` on identical
+> reasoning, not a new decision. **The tripwire itself is restated more
+> precisely for whoever reads this next:** the count that matters is
+> `NotSupportedException` escape hatches on `ScoreCorrectGuess`, now at two
+> (xg-predict, xg-higher-lower). A third one (a game beyond these two
+> reusing this same shape) is still the point at which
+> `IScoringStrategy`'s shape itself must be re-examined before adding a
+> fourth — do not let that revisit keep sliding just because each
+> individual addition looks like a small, precedent-following mirror.
+
 ## For AI agents
 
 Do not assume ADR-0021's lower-is-better rule applies to
@@ -226,9 +265,14 @@ that game having its own equivalent ADR — this is a single, named
 `LeaderboardService`'s three `OrderBy` call sites are migrated to resolve
 direction per `GameKey`, do not hardcode `OrderBy`/`OrderByDescending` for
 any new leaderboard read path — resolve it from the strategy the same way.
-Do not treat `XGPredictScoringStrategy.ScoreCorrectGuess`'s
+Do not treat `XGPredictScoringStrategy.ScoreCorrectGuess`'s (or, as of
+S-226, `HigherLowerScoringStrategy.ScoreCorrectGuess`'s)
 `NotSupportedException` as unfinished work or a reason to reshape
-`IScoringStrategy` — its permanence, and `ScorePrediction`'s status as the
-confirmed, permanent second entry point for this `GameKey`, are settled;
-see the "Standing item closed" amendment above before proposing either an
-interface change or a fix to that method.
+`IScoringStrategy` — their permanence, and `ScorePrediction`'s/
+`ScoreAttempt`'s status as each `GameKey`'s confirmed, permanent second
+entry point, are settled; see the "Standing item closed" and "Reused, not
+re-litigated" amendments above before proposing either an interface change
+or a fix to either method. Two such escape hatches exist today
+(`"xg-predict"`, `"xg-higher-lower"`) — a third would be the point to
+re-examine `IScoringStrategy`'s shape before adding it, per the "Reused,
+not re-litigated" amendment's restated tripwire.
