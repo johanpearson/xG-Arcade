@@ -1032,6 +1032,17 @@ export interface ConnectChainStepView {
   matchedOverlapEndYear: number | null;
   isValid: boolean;
   closesChain: boolean;
+  // closingClubName/closingOverlapStartYear/closingOverlapEndYear
+  // (gap-fill addendum, 2026-09-09, REQ-1406): the club(s) the candidate
+  // shares with the OTHER target player — the closing connection itself,
+  // not the connection to the previous chain player (that's
+  // matchedClubName/*). Computed and persisted only when closesChain is
+  // true, using the same deterministic tie-break as matchedClubName/* when
+  // more than one shared club exists. Null together only when closesChain
+  // is false, same convention as matchedClubName/* above.
+  closingClubName: string | null;
+  closingOverlapStartYear: number | null;
+  closingOverlapEndYear: number | null;
   submittedAt: string;
 }
 
