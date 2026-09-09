@@ -11,6 +11,7 @@ using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGHigherLower;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
 
@@ -680,6 +681,26 @@ public class LeaderboardEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
         Assert.That(body!.Rows, Is.Empty, "no xg-predict rounds were seeded in this test");
+    }
+
+    // REQ-1505/S-226: proves ValidateGameKey's allow-list now accepts
+    // "xg-higher-lower" too — mirrors
+    // REQ410_LeaderboardGet_WithGameKeyXgPredict_IsNoLongerRejectedByTheGameKeyAllowlist
+    // above exactly; the widened allow-list is the only thing under test
+    // here, not any scoring/ranking behavior (the actual per-round score
+    // source wiring for this GameKey is a later story).
+    [Test]
+    public async Task REQ1505_LeaderboardGet_WithGameKeyXgHigherLower_IsNoLongerRejectedByTheGameKeyAllowlist()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard?gameKey={XGHigherLowerGameModule.XGHigherLowerGameKey}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows, Is.Empty, "no xg-higher-lower rounds were seeded in this test");
     }
 
     // ADR-0100/S-199: end-to-end proof that a closed "xg-predict" round's

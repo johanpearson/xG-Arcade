@@ -77,6 +77,40 @@ public class RoundSchedulingOptionsResolverTests
         Assert.That(resolvedPredict, Is.Not.SameAs(resolvedPath));
     }
 
+    // This story (wiring "xg-higher-lower" into round scheduling, REQ-1505/
+    // S-226): a fourth GameKey, each with its own distinct RoundDuration,
+    // registered alongside the three above — proves GameKey matching still
+    // discriminates correctly once a fourth registration exists, same
+    // shape as REQ1301_Resolve_ResolvesEachOfThreeGameKeysOwnRoundDuration_IndependentlyOfTheOthers
+    // above. Unlike "xg-predict"'s own RoundDuration (ADR-0102's dead
+    // fallback), "xg-higher-lower"'s RoundDuration IS the real round-timing
+    // path (chain-math, same as xg-grid/xg-path) — this test doesn't need
+    // to know that either way; it only proves registration/resolution
+    // completeness, same as the other three GameKeys' own tests above.
+    [Test]
+    public void REQ1505_Resolve_ResolvesEachOfFourGameKeysOwnRoundDuration_IndependentlyOfTheOthers()
+    {
+        var gridOptions = new RoundSchedulingOptions { GameKey = "xg-grid", RoundDuration = TimeSpan.FromHours(48) };
+        var pathOptions = new RoundSchedulingOptions { GameKey = "xg-path", RoundDuration = TimeSpan.FromHours(30) };
+        var predictOptions = new RoundSchedulingOptions { GameKey = "xg-predict", RoundDuration = TimeSpan.FromHours(48) };
+        var higherLowerOptions = new RoundSchedulingOptions { GameKey = "xg-higher-lower", RoundDuration = TimeSpan.FromHours(36) };
+        var resolver = new RoundSchedulingOptionsResolver([gridOptions, pathOptions, predictOptions, higherLowerOptions]);
+
+        var resolvedGrid = resolver.Resolve("xg-grid");
+        var resolvedPath = resolver.Resolve("xg-path");
+        var resolvedPredict = resolver.Resolve("xg-predict");
+        var resolvedHigherLower = resolver.Resolve("xg-higher-lower");
+
+        Assert.That(resolvedGrid, Is.SameAs(gridOptions));
+        Assert.That(resolvedPath, Is.SameAs(pathOptions));
+        Assert.That(resolvedPredict, Is.SameAs(predictOptions));
+        Assert.That(resolvedHigherLower, Is.SameAs(higherLowerOptions));
+        Assert.That(resolvedHigherLower.RoundDuration, Is.EqualTo(TimeSpan.FromHours(36)));
+        Assert.That(resolvedHigherLower, Is.Not.SameAs(resolvedGrid));
+        Assert.That(resolvedHigherLower, Is.Not.SameAs(resolvedPath));
+        Assert.That(resolvedHigherLower, Is.Not.SameAs(resolvedPredict));
+    }
+
     [Test]
     public void Resolve_PicksTheMatchingOptions_AmongSeveralRegistered()
     {
