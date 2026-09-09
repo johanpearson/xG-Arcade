@@ -47,13 +47,38 @@ namespace XGArcade.Data.Entities;
 //
 // ClosesChain (S-213/REQ-1406): true only on a step that is ALSO IsValid,
 // where the candidate additionally has a valid overlapping-time shared-club
-// connection (checked via IPlayerCareerOverlapService.HaveSharedClubOverlapAsync
-// — any shared club, not restricted to this step's own MatchedClubName) to
-// the match's OTHER target pick — never the one this player's chain started
-// from. Never true when IsValid is false. Once a step with ClosesChain=true
-// exists for a (ConnectMatchId, UserId) pair, that player's chain is
-// complete and no further steps may be submitted for this match
-// (ConnectChainStepService enforces this, not this entity).
+// connection (checked via IPlayerCareerOverlapService.GetSharedClubOverlapsAsync
+// — any shared club, not restricted to this step's own MatchedClubName; see
+// ClosingClubName's own comment below for the 2026-09-09 gap-fill change
+// away from the boolean-only HaveSharedClubOverlapAsync) to the match's
+// OTHER target pick — never the one this player's chain started from. Never
+// true when IsValid is false. Once a step with ClosesChain=true exists for a
+// (ConnectMatchId, UserId) pair, that player's chain is complete and no
+// further steps may be submitted for this match (ConnectChainStepService
+// enforces this, not this entity).
+//
+// ClosingClubName/ClosingOverlapStartYear/ClosingOverlapEndYear (gap-fill,
+// 2026-09-09, REQ-1406 addendum — see requirements-document.md's "Gap-fill
+// status note (2026-09-09)" under this REQ): a real playtester found the
+// chain-closing step — the one connecting the candidate to the OPPONENT's
+// target player rather than to the previous chain player — rendered as a
+// bare "connects to your target" label with no club or years, even though
+// every ORDINARY step already shows its MatchedClubName/*OverlapYear detail.
+// The underlying data was always available (the same GetSharedClubOverlapsAsync
+// result ClosesChain itself is derived from), it just was never persisted
+// for the closing connection specifically. These three columns are the
+// closing-connection counterpart of MatchedClubName/MatchedOverlapStartYear/
+// MatchedOverlapEndYear above — same nullability shape, same deterministic
+// "pick the overlap with the latest OverlapStartYear" tie-break when the
+// pair shares more than one club — but they describe the connection to the
+// OTHER target player, never the preceding chain player. All three are null
+// together whenever ClosesChain is false (nothing to record — this step
+// either didn't close the chain, or wasn't even valid); when ClosesChain is
+// true, ClosingClubName and ClosingOverlapStartYear are always populated
+// (ClosingOverlapEndYear may be null — "ongoing," the same convention
+// MatchedOverlapEndYear/PlayerCareerStint.EndYear already use). Still fully
+// server-computed from real, verifiable career data (ADR-0104's boundary is
+// unchanged) — never a value the player types or claims.
 //
 // Index on (ConnectMatchId, UserId, Position, AttemptNumber) matches a
 // future chain-reconstruction read's natural shape — deliberately NOT
@@ -90,6 +115,9 @@ public class ConnectChainStep
     public int? MatchedOverlapEndYear { get; set; }
     public required bool IsValid { get; set; }
     public required bool ClosesChain { get; set; }
+    public string? ClosingClubName { get; set; }
+    public int? ClosingOverlapStartYear { get; set; }
+    public int? ClosingOverlapEndYear { get; set; }
     public required DateTime SubmittedAt { get; set; }
     public bool HasPendingDispute { get; set; }
 }

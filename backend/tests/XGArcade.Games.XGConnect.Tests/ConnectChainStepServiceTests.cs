@@ -185,8 +185,10 @@ public class ConnectChainStepServiceTests
         var candidate = await SeedPlayerAsync("Closing Link Player");
         _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
         // Closes against the OTHER target (B's), not the one the chain
-        // started from (A's) — HaveSharedClubOverlapAsync is the "any shared
-        // club" check, called against candidate vs. bTargetPlayerId.
+        // started from (A's) — gap-fill (2026-09-09): the closing check now
+        // calls GetSharedClubOverlapsAsync (OverlapCalls below), not the
+        // boolean-only HaveSharedClubOverlapAsync (Calls), against candidate
+        // vs. bTargetPlayerId.
         _overlapService.SetOverlap(candidate.Id, bTargetPlayerId, overlaps: true);
         var service = BuildService(FixedNow);
 
@@ -195,13 +197,48 @@ public class ConnectChainStepServiceTests
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainClosed));
         Assert.That(result.ChainStep!.IsValid, Is.True);
         Assert.That(result.ChainStep.ClosesChain, Is.True);
-        Assert.That(_overlapService.Calls, Has.Count.EqualTo(1));
-        Assert.That(_overlapService.Calls[0], Is.EqualTo((candidate.Id, bTargetPlayerId)),
+        Assert.That(_overlapService.OverlapCalls, Has.Count.EqualTo(2), "the main check and the closing check are each one GetSharedClubOverlapsAsync call");
+        Assert.That(_overlapService.OverlapCalls[1], Is.EqualTo((candidate.Id, bTargetPlayerId)),
             "the closing check must run against the OTHER participant's target pick");
 
         var persisted = await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId);
         Assert.That(persisted, Has.Count.EqualTo(1));
         Assert.That(persisted[0].ClosesChain, Is.True);
+    }
+
+    // Gap-fill (2026-09-09, REQ-1406 addendum): the closing connection's own
+    // club/years, computed and persisted the same way the ordinary matched
+    // club is — see ConnectChainStep.ClosingClubName's own doc comment.
+    [Test]
+    public async Task REQ1406_SubmitChainStepAsync_CandidateConnectsToOtherTarget_PersistsClosingClubNameAndOverlapYears()
+    {
+        var (match, aUserId, _, aTargetPlayerId, bTargetPlayerId) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Closing Link Player");
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
+        // Two shared clubs with the OTHER target — proves the closing
+        // connection picks the same deterministic "latest OverlapStartYear"
+        // representative the ordinary matched club already uses, not just
+        // the first one found.
+        _overlapService.SetSharedClubOverlaps(
+            candidate.Id, bTargetPlayerId,
+            new SharedClubOverlap("Inter", 2009, 2010),
+            new SharedClubOverlap("Paris Saint-Germain", 2012, 2016));
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Closing Link Player");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.ChainClosed));
+        Assert.That(result.ChainStep!.ClosesChain, Is.True);
+        Assert.That(result.ChainStep.ClosingClubName, Is.EqualTo("Paris Saint-Germain"),
+            "the latest-starting overlap wins deterministically, same rule as the ordinary matched club");
+        Assert.That(result.ChainStep.ClosingOverlapStartYear, Is.EqualTo(2012));
+        Assert.That(result.ChainStep.ClosingOverlapEndYear, Is.EqualTo(2016));
+
+        var persisted = await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId);
+        Assert.That(persisted, Has.Count.EqualTo(1));
+        Assert.That(persisted[0].ClosingClubName, Is.EqualTo("Paris Saint-Germain"));
+        Assert.That(persisted[0].ClosingOverlapStartYear, Is.EqualTo(2012));
+        Assert.That(persisted[0].ClosingOverlapEndYear, Is.EqualTo(2016));
     }
 
     // ---- REQ-1406 GWT#4's own "never the starting target" guard: a
@@ -224,8 +261,35 @@ public class ConnectChainStepServiceTests
 
         Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
         Assert.That(result.ChainStep!.ClosesChain, Is.False);
-        Assert.That(_overlapService.Calls[0], Is.EqualTo((candidate.Id, bTargetPlayerId)),
+        Assert.That(_overlapService.OverlapCalls[1], Is.EqualTo((candidate.Id, bTargetPlayerId)),
             "the closing check must be against B's target, never A's (the starting target)");
+    }
+
+    // Gap-fill (2026-09-09, REQ-1406 addendum): all three closing-connection
+    // columns stay null together when the step doesn't close the chain — same
+    // "null together" convention MatchedClubName/*OverlapYear already use for
+    // an invalid step.
+    [Test]
+    public async Task REQ1406_SubmitChainStepAsync_CandidateDoesNotCloseChain_LeavesClosingClubDetailNull()
+    {
+        var (match, aUserId, _, aTargetPlayerId, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Non-Closing Link Player");
+        _overlapService.SetSharedClubOverlaps(candidate.Id, aTargetPlayerId, new SharedClubOverlap("Arsenal", 1999, 2007));
+        // Deliberately not configuring an overlap against bTargetPlayerId.
+        var service = BuildService(FixedNow);
+
+        var result = await service.SubmitChainStepAsync(match.Id, aUserId, "Non-Closing Link Player");
+
+        Assert.That(result.Outcome, Is.EqualTo(SubmitChainStepOutcome.StepAccepted));
+        Assert.That(result.ChainStep!.ClosesChain, Is.False);
+        Assert.That(result.ChainStep.ClosingClubName, Is.Null);
+        Assert.That(result.ChainStep.ClosingOverlapStartYear, Is.Null);
+        Assert.That(result.ChainStep.ClosingOverlapEndYear, Is.Null);
+
+        var persisted = await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId);
+        Assert.That(persisted[0].ClosingClubName, Is.Null);
+        Assert.That(persisted[0].ClosingOverlapStartYear, Is.Null);
+        Assert.That(persisted[0].ClosingOverlapEndYear, Is.Null);
     }
 
     // ---- REQ-1406: no further steps after the chain has closed -------------
