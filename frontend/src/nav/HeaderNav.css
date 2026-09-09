@@ -87,6 +87,14 @@
   top: calc(100% + var(--space-1));
   left: 0;
   min-width: 140px;
+  /* Same unbounded-shrink-to-fit-width risk as .header-nav__menu--open's
+     own fix below, and the same fix: cap to the viewport (minus
+     .app__header's own --space-4 inset) so this flyout can't grow past the
+     viewport edge either, regardless of how many/how long future "Games"
+     entries get. Not exercised by REQ-720's failing case (that's the
+     nested/mobile-stacked variant below, ~480px+ only), but the same latent
+     bug applies here since this rule has no width ceiling of its own. */
+  max-width: calc(100vw - var(--space-4) * 2);
   padding: var(--space-1);
   background: var(--color-surface-card);
   border: 1px solid var(--color-border-hairline);
@@ -131,6 +139,16 @@
     right: 0;
     left: auto;
     min-width: 180px;
+    /* REQ-720/S-228 fix: without a ceiling, this box's auto width is
+       shrink-to-fit around its widest unwrapped line of content — which
+       grows every time a longer "Games" entry is added (now "xG
+       Higher/Lower") — and can exceed the actual viewport regardless of
+       how narrow the `.header-nav` toggle anchoring it is. Capping to the
+       viewport minus the same --space-4 inset `.app__header`'s own padding
+       already uses on each side forces text to wrap inside instead, so
+       this can never reintroduce horizontal overflow no matter how many/
+       how long future entries get. */
+    max-width: calc(100vw - var(--space-4) * 2);
     padding: var(--space-2);
     background: var(--color-surface-card);
     border: 1px solid var(--color-border-hairline);
