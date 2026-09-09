@@ -178,7 +178,9 @@ public class ConnectChainStepService(
         // recent one (latest OverlapStartYear). ConnectChainStep has one
         // MatchedClubName column, not a list, so a deterministic pick is
         // needed regardless of how the candidate itself was resolved.
-        var matchedOverlap = overlaps.OrderByDescending(o => o.OverlapStartYear).First();
+        // Non-null: the overlaps.Count == 0 branch above already returned,
+        // so overlaps is guaranteed non-empty here.
+        var matchedOverlap = PickRepresentativeOverlap(overlaps)!;
 
         // REQ-1406: chain-closing is checked against the OTHER participant's
         // target pick — never the one this chain started from — and against
@@ -219,9 +221,7 @@ public class ConnectChainStepService(
         // OverlapStartYear) — only computed/persisted when the chain
         // actually closes; ConnectChainStep.ClosingClubName's own doc
         // comment covers the "all three null together otherwise" rule.
-        var closingOverlap = closesChain
-            ? closingOverlaps.OrderByDescending(o => o.OverlapStartYear).First()
-            : null;
+        var closingOverlap = closesChain ? PickRepresentativeOverlap(closingOverlaps) : null;
 
         var acceptedStep = new ConnectChainStep
         {
@@ -253,4 +253,14 @@ public class ConnectChainStepService(
             closesChain ? SubmitChainStepOutcome.ChainClosed : SubmitChainStepOutcome.StepAccepted,
             persistedAcceptedStep);
     }
+
+    // Extracted (2026-09-09, quality-architect code-health-budget follow-up):
+    // the same deterministic tie-break — most recent shared club by
+    // OverlapStartYear — was appearing twice in SubmitChainStepAsync above
+    // (the per-step matched-club computation and the chain-closing
+    // computation). Returns null only for an empty list; both call sites
+    // above already guarantee non-emptiness before/at the point they call
+    // this, so the null case is a defensive fallback, not a live path.
+    private static SharedClubOverlap? PickRepresentativeOverlap(IReadOnlyList<SharedClubOverlap> overlaps) =>
+        overlaps.Count > 0 ? overlaps.OrderByDescending(o => o.OverlapStartYear).First() : null;
 }
