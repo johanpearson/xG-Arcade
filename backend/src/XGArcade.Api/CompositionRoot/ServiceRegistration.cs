@@ -326,14 +326,18 @@ public static class ServiceRegistration
         // GetCellCategoryTypesAsync throws NotSupportedException
         // (permanently inapplicable) and ResolveWrongGuessPlayerAsync
         // returns null, mirroring xG Path/xG Predict's own precedent.
-        // PurgeUserDataAsync is a real no-op (no per-user data model exists
-        // for this game yet — HigherLowerInstance/HigherLowerComparator are
-        // Round-shared, not per-user) so REQ-710 account deletion is never
-        // broken by registering this module. Deliberately NOT added to
-        // RoundSchedulingOptions/IScoringStrategy/
-        // GuessSubmissionAllowedGameKeys registrations above/below yet —
-        // nothing calls GenerateInstanceAsync/ScoreSubmissionAsync in
-        // production until S-226/227 wires scheduling.
+        // PurgeUserDataAsync anonymizes HigherLowerAttempt (REQ-710, S-225).
+        // This story (S-226) wires RoundSchedulingOptions and IScoringStrategy
+        // below so a Round can actually be generated and scored end-to-end —
+        // see HigherLowerScoringStrategy's own registration and the
+        // RoundSchedulingOptions registration further down. GameKey remains
+        // permanently excluded from GuessSubmissionAllowedGameKeys, though
+        // (see that registration's own comment below) — unlike
+        // RoundSchedulingOptions/IScoringStrategy, this is not a "yet"; xG
+        // Higher/Lower structurally has no per-cell Guess rows to submit
+        // (HigherLowerSubmission has no CellId — see that record's own doc
+        // comment), the same permanent exclusion "xg-predict" already has
+        // (S-200/ADR-0098).
         builder.Services.AddScoped<IHigherLowerInstanceRepository, HigherLowerInstanceRepository>();
         builder.Services.AddScoped<IGameModule, XGHigherLowerGameModule>();
         // REQ-1503: ComparatorCount's default (10) is fine as-is, no
@@ -369,6 +373,17 @@ public static class ServiceRegistration
         builder.Services.AddScoped<IScoringStrategy>(_ => new XGPredictScoringStrategy
         {
             GameKey = XGPredictGameModule.XGPredictGameKey,
+        });
+        // REQ-1505: xG Higher/Lower's streak-length-is-points formula,
+        // registered against "xg-higher-lower" the same way the strategies
+        // above are registered — GameKey supplied here, never hardcoded
+        // inside XGArcade.Core (ADR-0003). Like XGPredictScoringStrategy
+        // immediately above, this strategy's ScoreCorrectGuess is
+        // unreachable in production (xG Higher/Lower never writes Guess
+        // rows) — see that method's own doc comment.
+        builder.Services.AddScoped<IScoringStrategy>(_ => new HigherLowerScoringStrategy
+        {
+            GameKey = XGHigherLowerGameModule.XGHigherLowerGameKey,
         });
         builder.Services.AddScoped<IScoringStrategyResolver, ScoringStrategyResolver>();
 
@@ -443,6 +458,28 @@ public static class ServiceRegistration
             GameKey = XGPredictGameModule.XGPredictGameKey,
             RoundDuration = TimeSpan.FromHours(xgPredictRoundDurationHours),
         });
+        // xG Higher/Lower's own RoundSchedulingOptions instance, resolved
+        // independently of the three above via IRoundSchedulingOptionsResolver
+        // (registered below) — a distinct config key
+        // (RoundScheduling:XGHigherLower:RoundDurationHours), same
+        // "independent config key per GameKey" reasoning as xG Path's/xG
+        // Predict's own registrations above. Unlike xg-predict's own
+        // registration immediately above, this GameKey's RoundDuration is
+        // NOT a dead fallback: XGHigherLowerGameModule.GenerateInstanceAsync
+        // never sets GameInstance.SuggestedStartTime/SuggestedEndTime, so
+        // RoundGenerationService's chain-math (startTime + RoundDuration) is
+        // the real timing path here, same as xg-grid/xg-path. Default is
+        // also 48h — no product reason yet for xG Higher/Lower to run on a
+        // different cadence; change independently via this key (or the
+        // deployed Container App's
+        // RoundScheduling__XGHigherLower__RoundDurationHours env var) if
+        // that changes.
+        var xgHigherLowerRoundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:XGHigherLower:RoundDurationHours") ?? 48;
+        builder.Services.AddSingleton(new RoundSchedulingOptions
+        {
+            GameKey = XGHigherLowerGameModule.XGHigherLowerGameKey,
+            RoundDuration = TimeSpan.FromHours(xgHigherLowerRoundDurationHours),
+        });
         builder.Services.AddScoped<IRoundSchedulingOptionsResolver, RoundSchedulingOptionsResolver>();
         builder.Services.AddScoped<IRoundRepository, RoundRepository>();
         builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
@@ -458,6 +495,14 @@ public static class ServiceRegistration
         // deliberately absent, closing the risk ADR-0098's Consequences
         // section flagged (REQ-1306's confirm-lock, enforced only in
         // PredictEndpoints, must never become reachable through this path).
+        // "xg-higher-lower" (REQ-1505, S-226) is deliberately absent for the
+        // identical reason: it never writes Guess rows either (attempts live
+        // in HigherLowerAttempt), and HigherLowerSubmission has no CellId —
+        // GuessSubmissionService would have no per-cell Guess row to process
+        // for this GameKey even if it were allow-listed. S-227's own
+        // dedicated endpoints call XGHigherLowerGameModule.
+        // ScoreSubmissionAsync directly instead, mirroring how PredictEndpoints
+        // bypasses this same allow-list for "xg-predict".
         builder.Services.AddSingleton(new GuessSubmissionAllowedGameKeys
         {
             GameKeys = [GridGameModule.XGGridGameKey, XGPathGameModule.XGPathGameKey],
