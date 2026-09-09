@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/requirements-document.md` (v2.86 → v2.87) — doc-sync
+  check for S-228 (xG Higher/Lower frontend screen, REQ-1504/1505): added a
+  brief status note to §4.16's intro recording that
+  `HigherLowerScreen.tsx`/SCREEN-18 now gives REQ-1504/1505 a matching
+  frontend consumer, mirroring REQ-1301's own S-197 note for
+  `PredictScreen.tsx`. Checked and confirmed unchanged: REQ-1210
+  (completion banner) — SCREEN-18's application of it to a third,
+  single-attempt game follows REQ-1210's existing generic trigger text,
+  not a divergence needing its own resolution note (unlike xG Predict's
+  explicit exclusion); REQ-409 (leaderboard ranking) — no per-game frontend
+  status notes exist there for any prior game's UI (xG Predict's own
+  leaderboard/stats tabs, S-198, got none either), consistent with that
+  precedent. `docs/architecture-document.md` checked and left unchanged —
+  COMP-18's row and the rest of this document never detail per-game
+  frontend screens (only §6 flow diagrams occasionally do, e.g. §6.11's
+  `PredictScreen.tsx` citation), and no §6.x flow section exists yet for
+  `"xg-higher-lower"` at all (backend stories S-224–S-227 didn't add one
+  either, same as xG Connect/COMP-17) — nothing here for a frontend-only
+  story to update. `docs/design-document.md`/`docs/backlog.md`/
+  `docs/CHANGELOG.md` were already updated correctly by the implementer;
+  no residual duplication found against the concurrent S-230 entry.
 - 2026-09-09 — `docs/design-document.md` (new SCREEN-18 entry, v0.95 →
   v0.96; SCREEN-09's own status-note list extended with the new fifth
   tile), `docs/backlog.md` (S-228 entry given a "Built as" narrative

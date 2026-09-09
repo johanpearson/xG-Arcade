@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.86"
+version: "2.87"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13065,7 +13065,16 @@ this game's own gameplay-facing HTTP endpoints — `GET /higher-lower/current`
 and `POST /higher-lower/guesses` (`HigherLowerEndpoints.cs`), mirroring
 `PredictEndpoints` — are now real and registered, giving
 `ScoreSubmissionAsync` its first real production caller (see REQ-1504/1505's
-own Status notes below).
+own Status notes below). **Status (2026-09-09, S-228):** those endpoints
+now have a matching frontend screen too —
+`frontend/src/higherlower/HigherLowerScreen.tsx` (`docs/design-document.md`
+SCREEN-18) — reachable via `GameSelectScreen`'s fifth tile and
+`HeaderNav`'s "Games" list, the same way REQ-1301's own S-197 note records
+for `PredictScreen.tsx`. REQ-1504/1505 are now playable end to end in
+production, not merely HTTP-reachable; see SCREEN-18 for the UI-level
+judgment calls (e.g. sourcing the terminal-incorrect reveal from the POST
+response, and REQ-1210's completion banner applying here unlike xG
+Predict) this status note doesn't restate.
 Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
 Path/xG Predict/xG Connect requirements; REQ-1501 through REQ-1505's text
 all now describes behavior that matches real, reachable code (see each
