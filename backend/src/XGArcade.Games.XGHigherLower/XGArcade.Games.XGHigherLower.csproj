@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
+         ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo) live in
+         XGArcade.Core. -->
+    <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- ADR-0110/REQ-1501: xG Higher/Lower reuses the existing
+         PlayerAttribute/PlayerOverride store (COMP-06) for stat-category/
+         player-value eligibility — no new external data source, no
+         autocomplete surface. Boundary rule 1: Games.XGHigherLower may only
+         reach player data through XGArcade.Data's repository interfaces,
+         never a DbContext directly. Referenced now because
+         GenerateInstanceAsync's real implementation will need it (REQ-1501/
+         1502/1503) — this scaffold step's stub does not call it yet, and no
+         xG-Higher/Lower-specific entity/repository exists yet either (that
+         shape is undecided — see XGHigherLowerGameModule's own doc comment). -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

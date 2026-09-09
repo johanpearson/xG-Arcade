@@ -17,6 +17,7 @@ using XGArcade.DataSync.FootballData;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGConnect;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGHigherLower;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
 using XGArcade.Storage.Supabase;
@@ -312,6 +313,25 @@ public static class ServiceRegistration
         // reason ChallengeEndpoints' own accept handler does its
         // ConnectMatch write here rather than in ChallengeService.
         builder.Services.AddScoped<MatchmakingSweepService>();
+
+        // COMP-18/ADR-0110, scaffold step: IGameModuleResolver.Resolve
+        // ("xg-higher-lower") now returns a real module — every
+        // Round-generation-shaped method (GenerateInstanceAsync/
+        // ScoreSubmissionAsync/GetCellIdsAsync/GetMaxAttemptsForCellAsync)
+        // still throws NotImplementedException (unlike xG Connect's
+        // NotSupportedException — this game DOES fit the Round model per
+        // ADR-0110, it just isn't built yet); GetCellCategoryTypesAsync
+        // throws NotSupportedException (permanently inapplicable) and
+        // ResolveWrongGuessPlayerAsync returns null, mirroring xG Path/xG
+        // Predict's own precedent. PurgeUserDataAsync is a real no-op (no
+        // per-user data model exists for this game yet) so REQ-710 account
+        // deletion is never broken by registering this module. Deliberately
+        // NOT added to RoundSchedulingOptions/IScoringStrategy/
+        // GuessSubmissionAllowedGameKeys registrations above/below yet —
+        // nothing calls GenerateInstanceAsync/ScoreSubmissionAsync in
+        // production until REQ-1501-1505's real implementation lands and
+        // deliberately wires those in.
+        builder.Services.AddScoped<IGameModule, XGHigherLowerGameModule>();
 
         builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
         // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into

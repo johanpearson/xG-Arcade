@@ -13,6 +13,34 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/architecture-document.md` (new **COMP-18 |
+  Games.XGHigherLower** row, v1.57 → v1.58) — scaffolded the xG
+  Higher/Lower game module: `backend/src/XGArcade.Games.XGHigherLower`
+  (`XGHigherLowerGameModule`, a real registered `IGameModule` for
+  `GameKey = "xg-higher-lower"`) and its matching
+  `backend/tests/XGArcade.Games.XGHigherLower.Tests` NUnit project. Per
+  ADR-0110, this game DOES fit the `Round` model, so
+  `GenerateInstanceAsync`/`ScoreSubmissionAsync`/`GetCellIdsAsync`/
+  `GetMaxAttemptsForCellAsync` all throw `NotImplementedException`
+  (genuinely unbuilt, to be implemented against REQ-1501-1505), not
+  `NotSupportedException` (reserved for `GetCellCategoryTypesAsync`,
+  which permanently doesn't apply — no row/col category concept).
+  `ResolveWrongGuessPlayerAsync` returns `null` unconditionally (no
+  name-guessing surface). `PurgeUserDataAsync` is a real no-op, not a
+  throw, since the module is wired into DI and `AccountDeletionService`
+  calls it for every deleted user. Also updated:
+  `backend/src/XGArcade.Api/XGArcade.Api.csproj` (project reference),
+  `backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs`
+  (`IGameModule` DI registration, deliberately not wired into
+  `RoundSchedulingOptions`/`IScoringStrategy`/
+  `GuessSubmissionAllowedGameKeys` yet), `backend/XGArcade.sln` (both
+  projects), and `backend/Dockerfile` (restore-layer `COPY` line for the
+  new project, the same gap that broke two prior deploys for earlier
+  games). `docs/requirements-document.md` §4.16 was not touched — REQ-
+  1501-1505 were already complete. No `dotnet` SDK in this sandbox to
+  verify the build locally; a CI run is needed before relying on this
+  compiling cleanly.
+
 - 2026-09-09 — `docs/requirements-document.md` (REQ-1503 amended, v2.78 →
   v2.79) — sets xG Higher/Lower's comparator count default at 10 per
   Round, the per-`GameKey` config value ADR-0110 left open, with a short
