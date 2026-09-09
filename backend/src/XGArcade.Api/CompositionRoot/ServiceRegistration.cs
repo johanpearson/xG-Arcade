@@ -536,8 +536,16 @@ public static class ServiceRegistration
         // is constructed twice (once per GameKey it serves, mirroring
         // UniquenessScoringStrategy/ClueEfficiencyScoringStrategy's own two
         // registrations above); PredictRoundScoreSource once, wrapping only
-        // IPredictInstanceRepository (registered above, COMP-15) — never
+        // IPredictInstanceRepository (registered above, COMP-15); and
+        // HigherLowerRoundScoreSource once (REQ-1505/S-226), wrapping only
+        // IHigherLowerInstanceRepository (registered above, COMP-18) — never
         // IRoundRepository/IUserRepository (ADR-0100's "For AI agents" rule).
+        // Every GameKey LeaderboardEndpoints.ValidateGameKey accepts MUST
+        // have an entry here — RoundScoreSourceResolver.Resolve throws
+        // InvalidOperationException for any accepted GameKey missing one
+        // (this is exactly the bug this story's own quality-gate follow-up
+        // fixed: widening ValidateGameKey's allow-list without a matching
+        // entry here is a live 500, not a harmless gap).
         builder.Services.AddScoped<IRoundScoreSourceResolver>(sp =>
         {
             var guessRoundScoreSource = new GuessRoundScoreSource(
@@ -551,12 +559,14 @@ public static class ServiceRegistration
                 GameKey = XGPathGameModule.XGPathGameKey,
             };
             var predictRoundScoreSource = new PredictRoundScoreSource(sp.GetRequiredService<IPredictInstanceRepository>());
+            var higherLowerRoundScoreSource = new HigherLowerRoundScoreSource(sp.GetRequiredService<IHigherLowerInstanceRepository>());
 
             return new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
             {
                 [GridGameModule.XGGridGameKey] = guessRoundScoreSource,
                 [XGPathGameModule.XGPathGameKey] = xgPathGuessRoundScoreSource,
                 [XGPredictGameModule.XGPredictGameKey] = predictRoundScoreSource,
+                [XGHigherLowerGameModule.XGHigherLowerGameKey] = higherLowerRoundScoreSource,
             });
         });
 

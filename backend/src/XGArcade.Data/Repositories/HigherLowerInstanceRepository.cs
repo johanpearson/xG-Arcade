@@ -23,6 +23,33 @@ public class HigherLowerInstanceRepository(XGArcadeDbContext dbContext) : IHighe
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.HigherLowerInstanceId == higherLowerInstanceId && a.UserId == userId, cancellationToken);
 
+    // ADR-0100 §3/REQ-1505/S-226: see IHigherLowerInstanceRepository's own
+    // doc comment for the "participation, not points" role this plays.
+    public async Task<IReadOnlyCollection<Guid>> GetParticipantUserIdsByInstanceIdAsync(
+        Guid higherLowerInstanceId, CancellationToken cancellationToken = default) =>
+        await dbContext.HigherLowerAttempts
+            .AsNoTracking()
+            .Where(a => a.HigherLowerInstanceId == higherLowerInstanceId && a.UserId != null)
+            .Select(a => a.UserId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+    // ADR-0100 §4/REQ-1505/S-226: see IHigherLowerInstanceRepository's own
+    // doc comment for why every attempt row unconditionally contributes its
+    // StreakLength (no Graded/Pending distinction the way predict's
+    // FinalPoints has).
+    public async Task<IReadOnlyDictionary<Guid, int>> GetStreakLengthsByInstanceIdAsync(
+        Guid higherLowerInstanceId, CancellationToken cancellationToken = default)
+    {
+        var streaks = await dbContext.HigherLowerAttempts
+            .AsNoTracking()
+            .Where(a => a.HigherLowerInstanceId == higherLowerInstanceId && a.UserId != null)
+            .Select(a => new { UserId = a.UserId!.Value, a.StreakLength })
+            .ToListAsync(cancellationToken);
+
+        return streaks.ToDictionary(s => s.UserId, s => s.StreakLength);
+    }
+
     public async Task SaveAttemptAsync(
         Guid higherLowerInstanceId,
         Guid? userId,

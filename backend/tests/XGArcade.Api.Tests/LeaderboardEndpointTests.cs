@@ -335,6 +335,62 @@ public class LeaderboardEndpointTests
         return round.Id;
     }
 
+    // REQ-1505/S-226: the xg-higher-lower counterpart to
+    // SeedClosedPredictRoundWithGradedPredictionAsync above — a closed
+    // "xg-higher-lower" Round backed by a real HigherLowerInstance and one
+    // HigherLowerAttempt row per (UserId, StreakLength) pair supplied,
+    // every attempt already ended. Unlike predict's own seed helper, there
+    // is no separate "grade" step to model — HigherLowerAttempt.StreakLength
+    // is always a real, current value the instant a row exists (see
+    // HigherLowerRoundScoreSource's own doc comment), so this writes the
+    // attempt rows directly with their final StreakLength.
+    private async Task<Guid> SeedClosedHigherLowerRoundAsync(IReadOnlyList<(Guid UserId, int StreakLength)> attempts)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var instanceId = Guid.NewGuid();
+        dbContext.HigherLowerInstances.Add(new HigherLowerInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            StatCategory = "trophy",
+            BaselinePlayerId = Guid.NewGuid(),
+            BaselineValue = 1,
+            Comparators = [],
+        });
+
+        foreach (var (userId, streakLength) in attempts)
+        {
+            dbContext.HigherLowerAttempts.Add(new HigherLowerAttempt
+            {
+                Id = Guid.NewGuid(),
+                HigherLowerInstanceId = instanceId,
+                UserId = userId,
+                StreakLength = streakLength,
+                CurrentBaselinePlayerId = Guid.NewGuid(),
+                CurrentBaselineValue = 0,
+                HasEnded = true,
+            });
+        }
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = XGHigherLowerGameModule.XGHigherLowerGameKey,
+            GameInstanceId = instanceId,
+            SequenceNumber = 1,
+            StartTime = DateTime.UtcNow.AddDays(-3),
+            EndTime = DateTime.UtcNow.AddDays(-1),
+            AllowGuessChange = true,
+            ClosedAt = DateTime.UtcNow.AddDays(-1),
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return round.Id;
+    }
+
     private async Task<Guid> SeedRoundNotYetClosedAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -729,6 +785,62 @@ public class LeaderboardEndpointTests
         var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
         Assert.That(body!.Rows.Single().DisplayName, Is.EqualTo("You"));
         Assert.That(body.Rows.Single().TotalPoints, Is.EqualTo(9));
+    }
+
+    // REQ-1505/S-226 (quality-gate follow-up, CI run #866): end-to-end proof
+    // that a closed "xg-higher-lower" round's HigherLowerAttempt.StreakLength
+    // totals are now visible through ILeaderboardService/LeaderboardEndpoints
+    // and ranked correctly — the gap this story's own S-226 initially left
+    // open (no HigherLowerRoundScoreSource/IRoundScoreSourceResolver entry,
+    // caught by CI as a real 500 on
+    // REQ1505_LeaderboardGet_WithGameKeyXgHigherLower_IsNoLongerRejectedByTheGameKeyAllowlist
+    // above once ValidateGameKey's allow-list widened ahead of it). Uses the
+    // real, DI-registered HigherLowerRoundScoreSource (via
+    // IRoundScoreSourceResolver) through the full HTTP pipeline, not a fake
+    // — the Core-level participation/eligibility edge cases are already
+    // exhaustively covered by HigherLowerRoundScoreSourceTests
+    // (Games.XGHigherLower.Tests); this test only proves the wiring reaches
+    // all the way through the real composition root, including
+    // HigherLowerScoringStrategy.LowerIsBetter (registered above) driving
+    // the descending sort direction.
+    [Test]
+    public async Task REQ1505_LeaderboardGet_ClosedRoundWithGameKeyXgHigherLower_RanksByStreakLengthDescending()
+    {
+        var lowerScoreAuthProviderUserId = Guid.NewGuid();
+        var lowerScoreUserId = await SeedMemberAsync(lowerScoreAuthProviderUserId, "You");
+        var higherScoreUserId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
+        var roundId = await SeedClosedHigherLowerRoundAsync([(lowerScoreUserId, 6), (higherScoreUserId, 9)]);
+        var client = CreateAuthenticatedClient(lowerScoreAuthProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows[0].DisplayName, Is.EqualTo("Alex"), "REQ-1505: ranked by FinalPoints (streak length), highest first");
+        Assert.That(body.Rows[0].TotalPoints, Is.EqualTo(9));
+        Assert.That(body.Rows[1].DisplayName, Is.EqualTo("You"));
+        Assert.That(body.Rows[1].TotalPoints, Is.EqualTo(6));
+    }
+
+    // REQ-1505's own Given/When/Then: "ties broken by display name — the
+    // same tie-break convention every other leaderboard ranking in this
+    // document already uses (REQ-409)" — StringComparer.OrdinalIgnoreCase
+    // ascending, per LeaderboardService's shared RankByTotalPoints helper.
+    [Test]
+    public async Task REQ1505_LeaderboardGet_ClosedRoundWithGameKeyXgHigherLower_EqualStreakLengths_TiesBrokenByDisplayNameAscending()
+    {
+        var bravoAuthProviderUserId = Guid.NewGuid();
+        var bravoUserId = await SeedMemberAsync(bravoAuthProviderUserId, "Bravo");
+        var alphaUserId = await SeedMemberAsync(Guid.NewGuid(), "Alpha");
+        var roundId = await SeedClosedHigherLowerRoundAsync([(bravoUserId, 5), (alphaUserId, 5)]);
+        var client = CreateAuthenticatedClient(bravoAuthProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows[0].DisplayName, Is.EqualTo("Alpha"), "equal FinalPoints (5 == 5) tie-broken by display name, ascending");
+        Assert.That(body.Rows[1].DisplayName, Is.EqualTo("Bravo"));
     }
 
     // Smoke-test coverage for one other gameKey-accepting route (closed-rounds)
