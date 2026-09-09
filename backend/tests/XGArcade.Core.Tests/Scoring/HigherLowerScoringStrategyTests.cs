@@ -53,7 +53,7 @@ public class HigherLowerScoringStrategyTests
     }
 
     [Test]
-    public void ScoreCorrectGuess_ThrowsNotSupportedException()
+    public void REQ1505_ScoreCorrectGuess_ThrowsNotSupportedException()
     {
         // xG Higher/Lower never writes Guess rows, so
         // ScoreLockingService.LockRoundScoresAsync can never call this
