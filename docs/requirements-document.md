@@ -13016,20 +13016,19 @@ this `GameKey` can actually be generated end to end via
 `POST /internal/generate-round?gameKey=xg-higher-lower` (scheduled daily by
 `.github/workflows/generate-higher-lower-round.yml`), the same reachable
 shape REQ-1301 reached for xG Predict in S-196. REQ-1505's `ScoreAttempt`
-formula is implemented and unit-tested, but a closed Round's `FinalPoints`
-for this `GameKey` is not yet visible through any leaderboard read path in
-production — no `IRoundScoreSourceResolver` entry exists for
-`"xg-higher-lower"` yet, the same gap shape xG Predict itself had between
-S-196 and S-199/ADR-0100 (see REQ-1505's own Status note below). S-227
-remains the story for this game's own gameplay-facing HTTP endpoints
-(current-round/attempt-state and guess submission), mirroring
-`PredictEndpoints`.
+formula is implemented and unit-tested, and — unlike xG Predict's own
+staged rollout, where the equivalent `IRoundScoreSourceResolver` entry
+landed in a separate later story (S-199/ADR-0100) — this story also adds
+`HigherLowerRoundScoreSource`, so a closed Round's `FinalPoints` for this
+`GameKey` IS now visible through every leaderboard read path in
+production, ranked and tie-broken the same way as every other `GameKey`
+(see REQ-1505's own Status note below). S-227 remains the story for this
+game's own gameplay-facing HTTP endpoints (current-round/attempt-state and
+guess submission), mirroring `PredictEndpoints`.
 Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
-Path/xG Predict/xG Connect requirements; REQ-1501/1502/1503/1504's text
-describes behavior that now matches real code, and REQ-1505's now
-describes behavior with a real, unit-tested scoring implementation behind
-it, though not yet a leaderboard-visible one in production (see its own
-Status note below).
+Path/xG Predict/xG Connect requirements; REQ-1501 through REQ-1505's text
+all now describes behavior that matches real, reachable code (see each
+REQ's own Status note).
 
 **Why this game, and what it deliberately reuses:** unlike xG Predict
 (needed a new live-match-result data source, football-data.org/ADR-0099)
@@ -13404,19 +13403,37 @@ throws `NotSupportedException` — architecturally unreachable, the same
 carve-out `XGPredictScoringStrategy` already has (ADR-0095, amended
 2026-09-09 to confirm this second `GameKey`'s reuse of it is settled, not a
 gap). `LeaderboardEndpoints.ValidateGameKey`'s allow-list now accepts
-`"xg-higher-lower"` too. **Not yet implemented: this REQ's second and third
-Given/When/Then blocks** (leaderboard ranking and per-league placement) —
-no `IRoundScoreSourceResolver` entry (e.g. a `HigherLowerRoundScoreSource`)
-exists yet for `"xg-higher-lower"`, so a closed Round's `FinalPoints` (via
-`HigherLowerAttempt.StreakLength` and `ScoreAttempt`) is not actually
-readable through any leaderboard read path in production yet, even though
-`ValidateGameKey` now accepts the `GameKey` — requesting this `GameKey`'s
-leaderboard today returns an empty result set, not an error. This mirrors
-exactly how xG Predict's own `IRoundScoreSource` wiring landed in a
-*separate later story* (S-199/ADR-0100), not the story (S-196) that wired
-its round scheduling — same gap shape, deliberately deferred here too, not
-an oversight in this story. A future story (beyond S-227's own API
-endpoints) is needed to close it.
+`"xg-higher-lower"` too — and, unlike xG Predict's own staged rollout
+(where accepting the `GameKey` in S-196 briefly outran its
+`IRoundScoreSource` wiring in S-199/ADR-0100), this story closes that gap
+in the same iteration: a CI run caught exactly this landmine (accepting a
+`GameKey` with `IRoundScoreSourceResolver.Resolve` unregistered for it
+throws, since that resolver — unlike back when S-196 ran — already exists
+today and is called unconditionally for every accepted `GameKey`), so
+`HigherLowerRoundScoreSource`
+(`backend/src/XGArcade.Games.XGHigherLower/HigherLowerRoundScoreSource.cs`)
+was built as a same-story fix rather than deferred. It wraps
+`IHigherLowerInstanceRepository`'s two new methods
+(`GetParticipantUserIdsByInstanceIdAsync`/`GetStreakLengthsByInstanceIdAsync`)
+and is registered against `"xg-higher-lower"` in `ServiceRegistration.cs`'s
+`IRoundScoreSourceResolver` factory, mirroring `PredictRoundScoreSource`
+exactly except for one deliberate simplification: `StreakLength` is always
+a current, real value the instant an attempt row exists (never
+null-until-graded the way `PredictMatchPrediction.FinalPoints` is), so
+`GetActiveRoundTotalsByUserIdAsync`/`GetTotalsByRoundAsync` both read it
+directly with no separate live-vs-graded formula. **This REQ's second and
+third Given/When/Then blocks (leaderboard ranking and per-league
+placement) are now implemented and reachable in production**, not merely
+unit-tested — a closed Round's `FinalPoints` is visible through every
+leaderboard read path (`GetActiveRoundLeaderboardAsync`/
+`GetClosedRoundLeaderboardAsync`/`GetWindowedLeaderboardAsync`/
+`GetGlobalLeaderboardAsync`), ranked descending with the standard
+display-name tie-break (REQ-409), same as every other `GameKey`. Tested in
+`HigherLowerRoundScoreSourceTests.cs` (participation, guest/claimed-account
+eligibility per REQ-717/ADR-0036, zero-participant rounds, active vs.
+closed reads) and two new `REQ1505_`-prefixed API tests in
+`LeaderboardEndpointTests.cs` (descending `FinalPoints` order, display-name
+tie-break for equal streak lengths).
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the

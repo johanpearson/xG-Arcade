@@ -11567,6 +11567,36 @@ considered fully done — the orchestrating session triggers CI next, same
 recurring constraint as S-196 and every other recent backend story in this
 file.
 
+**CI-caught fix (2026-09-09, same session):** the first CI run (`ci.yml`
+`workflow_dispatch`, run #866) failed for real, not as a flake —
+`REQ1505_LeaderboardGet_WithGameKeyXgHigherLower_IsNoLongerRejectedByTheGameKeyAllowlist`
+got a 500 instead of 200: `LeaderboardService` calls
+`IRoundScoreSourceResolver.Resolve(gameKey)` unconditionally for any
+`GameKey` `ValidateGameKey` accepts, and no `IRoundScoreSource` was
+registered for `"xg-higher-lower"`. The orchestrating session had
+originally scoped that registration out, reasoning by (incorrect) analogy
+to xG Predict's own two-story split (S-196 wired `ValidateGameKey` before
+`IRoundScoreSourceResolver` existed at all in this codebase; S-199/
+ADR-0100 added the resolver mechanism itself, later) — but
+`IRoundScoreSourceResolver` already exists today and is mandatory for
+every accepted `GameKey`, so the analogy didn't hold, and this story's own
+`*Accept*` line above already required leaderboard ranking/tie-break test
+coverage regardless. Root-caused and fixed in the same session (commit
+`9f2d6a1`): `HigherLowerRoundScoreSource` (`Games.XGHigherLower`), two new
+`IHigherLowerInstanceRepository` methods
+(`GetParticipantUserIdsByInstanceIdAsync`/`GetStreakLengthsByInstanceIdAsync`),
+registered in `ServiceRegistration.cs`'s `IRoundScoreSourceResolver`
+factory — mirroring `PredictRoundScoreSource` exactly except that
+`StreakLength` is always current (never null-until-graded), so the
+active-round and closed-round reads both delegate to the same query with
+no separate live formula. New `HigherLowerRoundScoreSourceTests` plus two
+`REQ1505_`-prefixed `LeaderboardEndpointTests` cases (descending
+`FinalPoints` order, display-name tie-break) close the ranking/tie-break
+acceptance gap the original diff had left untested. A second
+`architecture-reviewer`/`quality-architect` pass ran against this
+follow-up commit specifically (see their verdicts recorded in this same
+session) before CI was re-triggered.
+
 **S-227 · API endpoints**
 `GET` current-round/attempt-state and `POST` guess-submission endpoints,
 mirroring `PredictEndpoints`' shape, wired through `XGArcade.Api`.
