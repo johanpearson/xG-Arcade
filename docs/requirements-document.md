@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.81"
+version: "2.82"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13002,13 +13002,16 @@ guesses whether the hidden value is Higher or Lower than the revealed one.
 A correct guess continues the streak — the just-revealed player becomes
 the new baseline and the next player in the Round's fixed comparator
 sequence is shown — and an incorrect guess ends that participant's
-attempt. This section is entirely design-only — no xG Higher/Lower code
-exists yet, and no component ID is assigned (per `architecture-document.md`'s
-own established pattern for COMP-11/15/16/17, a component entry is added
-only once real code lands, not at pure-requirements stage). Every REQ
-below is written to the same standard as §4.12/§4.14/§4.15's xG Path/xG
-Predict/xG Connect requirements, but describes intended behavior for a
-game that has not been built, not a claim about current behavior.
+attempt. **Update (S-223/S-224):** this section is no longer design-only —
+`XGArcade.Games.XGHigherLower` (COMP-18) is a real, registered
+`IGameModule`, and as of S-224 (ADR-0111) `GenerateInstanceAsync`/
+`GetCellIdsAsync` are real, tested implementations against REQ-1501/1502/
+1503 below (see each REQ's own Status note). REQ-1504/1505 (guess
+submission, scoring/scheduling) remain unimplemented — S-225/226/227.
+Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
+Path/xG Predict/xG Connect requirements; REQ-1501/1502/1503's text
+describes behavior that now matches real code, REQ-1504/1505's still
+describes intended behavior for a mechanic that has not been built yet.
 
 **Why this game, and what it deliberately reuses:** unlike xG Predict
 (needed a new live-match-result data source, football-data.org/ADR-0099)

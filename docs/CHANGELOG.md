@@ -44,7 +44,12 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   xG Higher/Lower content at all yet, so left untouched (same "not touched"
   precedent as the REQ-1406 entry below for xG Connect's implementation-
   document.md gap). `docs/backlog.md` checked — its S-224 entry already
-  matches, no acceptance-criteria change needed.
+  matches, no acceptance-criteria change needed. Follow-up (same session,
+  v2.81 → v2.82): §4.16's own intro paragraph still said "no xG Higher/
+  Lower code exists yet, and no component ID is assigned" — stale since
+  COMP-18 was assigned back in S-223's scaffold, now doubly stale after
+  S-224; reworded to reflect that REQ-1501/1502/1503 now match real code
+  while REQ-1504/1505 remain design-only.
 
 - 2026-09-09 — `docs/requirements-document.md` (REQ-1406 gap-fill status
   note added, v2.76 → v2.77 — already applied by requirements-writer),
