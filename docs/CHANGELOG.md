@@ -13,6 +13,34 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/design-document.md` (new SCREEN-18 entry, v0.95 →
+  v0.96; SCREEN-09's own status-note list extended with the new fifth
+  tile), `docs/backlog.md` (S-228 entry given a "Built as" narrative
+  paragraph, mirroring S-227's) — S-228, xG Higher/Lower's frontend screen
+  (REQ-1504/1505). New `frontend/src/higherlower/HigherLowerScreen.tsx`
+  (+`.css`/`.test.tsx`) against S-227's endpoints, structurally closer to a
+  single always-current `PathScreen` puzzle than to `PredictScreen`'s
+  whole-slate layout (exactly one attempt per round, ADR-0110). New
+  `frontend/src/lib/higherLower.ts` + matching `types.ts` additions,
+  mirroring `predict.ts`'s/`CurrentPredictResponse`'s exact pattern —
+  `HigherLowerDirection` modeled as a const-object numeric union (not a TS
+  `enum`/string union) since the backend enum has no
+  `JsonStringEnumConverter` and serializes as a raw integer.
+  `GameSelectScreen.tsx` gained a fifth tile and `HeaderNav.tsx` a matching
+  fifth "Games" entry, both wired in `App.tsx` in the same story (no
+  SCREEN-14-style tile/nav-entry parity gap here). REQ-1210/ADR-0083's
+  completion banner was wired — a deliberate divergence from SCREEN-14/xG
+  Predict, since this game's `HasEnded` is synchronous, not graded
+  asynchronously — which in turn required extending `LeaderboardScreen.tsx`'s
+  and `UserStatsScreen.tsx`'s own `GameKey` unions (new
+  `HigherLowerScoringExplainer.tsx` + a real fourth tab/subtitle each,
+  backed by S-226/S-227's already-landed backend allow-list/
+  `IRoundScoreSourceResolver` wiring, so neither tab renders empty) purely
+  to keep the app compiling against `LeaderboardRoundTarget.gameKey` — see
+  SCREEN-18's own status note for the full reasoning. No new REQ or ADR
+  needed — pure UI against already-decided REQ-1504/1505 text, same
+  precedent S-197/198 (xG Predict) and S-086 (xG Path) already set for
+  their own frontend stories.
 - 2026-09-09 — `docs/requirements-document.md` (§4.16 intro paragraph
   updated to reflect S-227 as done rather than pending; new Status notes
   added to REQ-1504 and REQ-1505, v2.84 → v2.85), `docs/architecture-
