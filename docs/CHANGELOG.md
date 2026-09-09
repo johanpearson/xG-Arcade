@@ -42,6 +42,83 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   narrative was already not updated for ADR-0104/0105/0107/0109 either)
   — left untouched, consistent with that existing precedent.
 
+- 2026-09-09 — `docs/architecture-document.md` (new **COMP-18 |
+  Games.XGHigherLower** row, v1.57 → v1.58) — scaffolded the xG
+  Higher/Lower game module: `backend/src/XGArcade.Games.XGHigherLower`
+  (`XGHigherLowerGameModule`, a real registered `IGameModule` for
+  `GameKey = "xg-higher-lower"`) and its matching
+  `backend/tests/XGArcade.Games.XGHigherLower.Tests` NUnit project. Per
+  ADR-0110, this game DOES fit the `Round` model, so
+  `GenerateInstanceAsync`/`ScoreSubmissionAsync`/`GetCellIdsAsync`/
+  `GetMaxAttemptsForCellAsync` all throw `NotImplementedException`
+  (genuinely unbuilt, to be implemented against REQ-1501-1505), not
+  `NotSupportedException` (reserved for `GetCellCategoryTypesAsync`,
+  which permanently doesn't apply — no row/col category concept).
+  `ResolveWrongGuessPlayerAsync` returns `null` unconditionally (no
+  name-guessing surface). `PurgeUserDataAsync` is a real no-op, not a
+  throw, since the module is wired into DI and `AccountDeletionService`
+  calls it for every deleted user. Also updated:
+  `backend/src/XGArcade.Api/XGArcade.Api.csproj` (project reference),
+  `backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs`
+  (`IGameModule` DI registration, deliberately not wired into
+  `RoundSchedulingOptions`/`IScoringStrategy`/
+  `GuessSubmissionAllowedGameKeys` yet), `backend/XGArcade.sln` (both
+  projects), and `backend/Dockerfile` (restore-layer `COPY` line for the
+  new project, the same gap that broke two prior deploys for earlier
+  games). `docs/requirements-document.md` §4.16 was not touched — REQ-
+  1501-1505 were already complete. No `dotnet` SDK in this sandbox to
+  verify the build locally; a CI run is needed before relying on this
+  compiling cleanly.
+
+- 2026-09-09 — `docs/requirements-document.md` (REQ-1503 amended, v2.78 →
+  v2.79) — sets xG Higher/Lower's comparator count default at 10 per
+  Round, the per-`GameKey` config value ADR-0110 left open, with a short
+  rationale (leaderboard spread vs. REQ-1502 eligibility headroom for
+  narrower categories, closer to xG Predict's fixed round size than xG
+  Grid's). Not a fixed constant — same tuning-value status as
+  `GridSize`/`PuzzleCount` (ADR-0051).
+
+- 2026-09-09 — `docs/decisions/0110-xg-higher-lower-round-based-bounded-sequence.md`
+  (new ADR), `docs/architecture-document.md` (ADR log row, v1.56 → v1.57),
+  `docs/requirements-document.md` (REQ-1501-1505 revised, v2.77 → v2.78)
+  — resolves the open structural question the initial xG Higher/Lower
+  draft (below) deliberately left open, per direct product-owner
+  feedback: it should be Round-specific, not an anytime/unbounded
+  session. **ADR-0110** decides xG Higher/Lower fits the existing shared
+  `Round` model (like xG Grid/xG Path/xG Predict), not a `ConnectMatch`-
+  style new concept — `IGameModule.GenerateInstanceAsync` generates one
+  fixed stat category and one fixed, fully-ordered comparator sequence
+  once per Round, shared identically by every participant, with the
+  comparator count a per-`GameKey` config value (ADR-0051). REQ-1501/1502
+  move eligibility checking to Round-generation time and replace the old
+  runtime "pool-exhaustion ends the session" case with a generation-time
+  fail-closed case (mirroring REQ-101/REQ-1301); REQ-1503 describes
+  standard Round generation instead of an anytime session start;
+  REQ-1504 caps an attempt at the Round's configured length (reaching the
+  end of the sequence all-correct is now a terminal outcome, same as an
+  incorrect guess); REQ-1505 replaces the personal-best-streak model with
+  a per-Round `FinalPoints` streak length, closing the previously-open
+  "which leaderboard" question — it's the standard Global/custom-league
+  wiring every other `GameKey` already has. No code or COMP ID added yet.
+
+- 2026-09-09 — `docs/requirements-document.md` (new §4.16, REQ-1501-1505,
+  v2.76 → v2.77) — design-only requirements for **xG Higher/Lower**, a
+  proposed fifth game: a single-player streak game comparing two real
+  players on one hidden/revealed numeric stat category, reusing
+  `PlayerAttribute`/`PlayerOverride` (COMP-06) with no new external data
+  source and no autocomplete surface (ADR-0007 doesn't apply — there's no
+  name-guessing). REQ-1501/1502 cover category/player/comparator
+  eligibility (no exact ties, no repeated player, pool-exhaustion ends the
+  session); REQ-1503/1504 cover session start and guess/streak
+  progression; REQ-1505 adopts personal-best streak length as the scoring
+  model instead of xG Grid's uniqueness scoring, which doesn't fit a
+  binary-choice mechanic. Flags one open structural question (in §4.16's
+  intro and in §7): whether a session fits the existing shared `Round`
+  model, needs a `ConnectMatch`-style new concept, or something else — not
+  resolved by this pass. No code, ADR, or architecture-document.md/COMP ID
+  added — consistent with how xG Path/xG Predict/xG Connect's own
+  requirements sections started, before any implementation existed.
+
 - 2026-09-07 — `docs/requirements-document.md` (REQ-1417 marked Built,
   REQ-1418/1419 frontend halves appended to their existing backend status
   notes, v2.75 → v2.76), `docs/design-document.md` (SCREEN-16's "Matches
