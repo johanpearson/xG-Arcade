@@ -13,6 +13,45 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/architecture-document.md` (COMP-18 row extended with a
+  dated S-225 note, v1.60 → v1.61), `docs/requirements-document.md`
+  (REQ-1504 Status note added, §4.16 intro paragraph reworded, v2.82 →
+  v2.83) — doc sync for S-225 (xG Higher/Lower guess submission and streak
+  progression). `XGHigherLowerGameModule.ScoreSubmissionAsync` (REQ-1504)
+  is now a real, tested implementation (replacing S-224's
+  `NotImplementedException` scaffold): it compares the current hidden
+  comparator's real value against the participant's current baseline,
+  advances the streak/baseline on a correct non-terminal guess, ends the
+  attempt at the Round's full configured comparator count on a correct
+  guess that completes the sequence, ends it at the pre-guess streak length
+  on an incorrect guess, and rejects a guess against an already-ended
+  attempt via a new `HigherLowerAttemptEndedException`. Backed by a new
+  per-participant `HigherLowerAttempt` entity (one row per
+  `(HigherLowerInstanceId, UserId)`, nullable `UserId` mirroring
+  `Guess`/`PredictMatchPrediction`'s REQ-710 anonymize precedent; migration
+  `20260909160000_AddHigherLowerAttempt`) and new
+  `IHigherLowerInstanceRepository.GetAttemptAsync`/`SaveAttemptAsync`/
+  `AnonymizeAttemptsByUserIdAsync` methods — the last of which
+  `XGHigherLowerGameModule.PurgeUserDataAsync` (REQ-710) now calls,
+  replacing S-224's genuine no-op now that this game owns per-user data.
+  New `HigherLowerSubmission` record + `HigherLowerDirection` enum
+  (`Core.Games`) is the `object submission` payload, deliberately with no
+  `CellId` (progression is server-determined/sequential, unlike
+  `GuessSubmission`/`PredictionSubmission`). `GetMaxAttemptsForCellAsync`
+  remains `NotImplementedException`, now a resolved decision rather than an
+  open question — REQ-1504's whole-attempt cap is enforced via
+  `HigherLowerAttempt.HasEnded` inside `ScoreSubmissionAsync`, never
+  through that per-cell method, which has no caller yet. Still not wired
+  into `RoundSchedulingOptions`/`IRoundSchedulingOptionsResolver`/
+  `GuessSubmissionAllowedGameKeys`/`InternalRoundEndpoints` — S-226/S-227's
+  scope. Not schedulable in production yet. No ADR needed —
+  `architecture-reviewer` confirmed this is a mechanical implementation of
+  already-decided ADR-0110/ADR-0041/ADR-0003 shapes, not a new structural
+  decision. `docs/implementation-document.md` checked — still has no xG
+  Higher/Lower content at all, so left untouched (same precedent as the
+  S-224 entry below). `docs/backlog.md` checked — its S-225 entry already
+  matches, no acceptance-criteria change needed.
+
 - 2026-09-09 — `docs/architecture-document.md` (COMP-18 row rewritten to
   match current state, v1.59 → v1.60), `docs/requirements-document.md`
   (REQ-1501/1502/1503 Status notes added, v2.80 → v2.81),
