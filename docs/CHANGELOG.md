@@ -14,6 +14,51 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-09-09 — `docs/requirements-document.md` (§4.16 intro paragraph
+  updated to reflect S-227 as done rather than pending; new Status notes
+  added to REQ-1504 and REQ-1505, v2.84 → v2.85), `docs/architecture-
+  document.md` (COMP-18 row extended with a dated S-227 note, v1.62 →
+  v1.63), `docs/backlog.md` (S-227 entry given a "Built as" narrative
+  paragraph, mirroring S-226's) — doc sync for S-227 (xG Higher/Lower's own
+  HTTP surface, REQ-1504/1505). New `XGArcade.Api.HigherLower.
+  HigherLowerEndpoints` (`GET /higher-lower/current`, `POST
+  /higher-lower/guesses`, registered in `EndpointMapping.cs`) mirrors
+  `PredictEndpoints`' shape/auth exactly (same ADR-0016/ADR-0048
+  per-game-direct-read precedent for the GET; same "bypass
+  `GuessEndpoints`/`IGuessSubmissionService`, call
+  `IGameModuleResolver.Resolve(...).ScoreSubmissionAsync` directly" shape
+  for the POST, per the pre-existing `GuessSubmissionAllowedGameKeys`
+  exclusion, ADR-0098/S-200) and is `ScoreSubmissionAsync`'s first real,
+  live production caller — closing REQ-1504's "no caller yet" status note
+  from S-225/S-226, and giving REQ-1505's leaderboard chain (S-226) a real
+  participant-attempt write path feeding `FinalPoints`, not just the
+  round-generation/scoring-strategy/leaderboard-read machinery that story
+  wired. The GET's `HigherLowerNextComparatorResponse` DTO carries no
+  `Value` field at all, enforcing REQ-1504's "next comparator identity
+  shown, value hidden until guessed" contract at the type level rather
+  than by convention. New `HigherLowerEndpointTests.cs` (8
+  `REQ1504_`/`REQ1505_`-prefixed tests plus 2 unprefixed auth-guardrail
+  tests). No new REQ or ADR needed — confirmed by both
+  `architecture-reviewer` and this orchestration's own intake as pure
+  wiring of shapes REQ-1504/1505 already anticipated in their own
+  S-225/S-226 status notes as this story's job, not a new structural
+  decision. Quality gate caught and a same-session follow-up commit fixed
+  two things: a wrong ADR citation in a doc comment (ADR-0096 cited where
+  ADR-0098/S-200 is the actual `GuessSubmissionAllowedGameKeys` mechanism,
+  found by `architecture-reviewer`), and a real race condition in the POST
+  handler — it derived the revealed comparator from a pre-call
+  `SequencePosition` snapshot that could go stale under two overlapping
+  requests from the same user, fixed by looking the comparator up by
+  `PlayerId == result.PlayerAnswerId` instead (found by
+  `quality-architect`). `docs/implementation-document.md` checked again —
+  still has no xG Higher/Lower content at all (project structure/data
+  model sections were never backfilled across S-223 through S-227), left
+  untouched, same precedent as every S-224 through S-226 entry above;
+  still flagged as an open question for a future pass, not fixed here.
+  Testing: no local `dotnet` SDK in this sandbox — a CI verification run
+  (`ci.yml` `workflow_dispatch`) was triggered on this branch by the
+  orchestrating session and is unverified as of this entry, same recurring
+  constraint as S-224/S-225/S-226's own CHANGELOG entries.
+- 2026-09-09 — `docs/requirements-document.md` (§4.16 intro paragraph
   reworded; new Status notes added to REQ-1501/1502/1503/1504 correcting
   their stale "not yet reachable in production"/"do not treat as
   schedulable" language; new Status note added to REQ-1505 itself, v2.83 →

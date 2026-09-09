@@ -6,6 +6,7 @@ using XGArcade.Api.Avatars;
 using XGArcade.Api.Connect;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
+using XGArcade.Api.HigherLower;
 using XGArcade.Api.Incidents;
 using XGArcade.Api.Leagues;
 using XGArcade.Api.Notifications;
@@ -89,6 +90,14 @@ public static class EndpointMapping
         // incompatible with Guess/IGuessSubmissionService). See
         // PredictEndpoints.cs's own doc comment.
         app.MapPredictEndpoints();
+        // REQ-1504/1505/S-227: xG Higher/Lower's own read/write surface (GET
+        // /higher-lower/current, POST /higher-lower/guesses) — same
+        // deliberately-not-routed-through-MapGuessEndpoints reasoning as
+        // MapPredictEndpoints above (ADR-0096: HigherLowerSubmission has no
+        // CellId/submitted-name concept GuessSubmissionService's per-cell
+        // Guess-row shape could represent). See HigherLowerEndpoints.cs's
+        // own doc comment.
+        app.MapHigherLowerEndpoints();
         // REQ-215 (S-089): the submission-only half — REQ-509/510's admin review/
         // commit/reject half is MapAdminSuggestionEndpoints below.
         app.MapSuggestionEndpoints();

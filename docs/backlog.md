@@ -11610,6 +11610,55 @@ mirroring `PredictEndpoints`' shape, wired through `XGArcade.Api`.
 against a real generated Round.
 *Deps:* S-226.
 
+*Built as (2026-09-09):* `backend-implementer` added
+`XGArcade.Api.HigherLower.HigherLowerEndpoints` (`GET /higher-lower/current`,
+`POST /higher-lower/guesses`), registered in `EndpointMapping.cs`, mirroring
+`PredictEndpoints`' shape/auth pattern exactly — same per-game
+direct-repository-read precedent (ADR-0016/ADR-0048) for the GET, same
+"bypass `GuessEndpoints`/`IGuessSubmissionService`, call
+`IGameModuleResolver.Resolve("xg-higher-lower").ScoreSubmissionAsync`
+directly" shape for the POST, per the permanent `GuessSubmissionAllowedGameKeys`
+exclusion (ADR-0098/S-200). The GET returns round info, `StatCategory`,
+`ComparatorCount`, `StreakLength`, `HasEnded`, the current baseline
+(value always revealed), and the next comparator as a DTO with no `Value`
+field at all — enforcing REQ-1504's "value hidden until guessed" contract
+at the type level, not just convention; null `NextComparator` once the
+attempt has ended. The POST takes `{ Direction }`, calls
+`ScoreSubmissionAsync`, maps `HigherLowerAttemptEndedException` to 409 and
+`HigherLowerScoringException` to a logged 404, and returns
+`{ IsCorrect, RevealedPlayerId, RevealedPlayerName, RevealedValue,
+StreakLength, HasEnded }`. This is `ScoreSubmissionAsync`'s first real,
+live production caller — closing REQ-1504's "no caller yet" status note
+from S-226, and giving REQ-1505's leaderboard chain a real write path, not
+just the round-generation/scoring-strategy/leaderboard-read machinery
+S-226 wired. New `HigherLowerEndpointTests.cs` (8 `REQ1504_`/`REQ1505_`-
+prefixed tests plus 2 unprefixed auth-guardrail tests, matching
+`PredictEndpointTests.cs`'s convention): 404 with no active round,
+fresh-attempt baseline/next-comparator shape, correct-guess streak
+advance, incorrect-guess terminal state, full-length terminal completion,
+409 on a guess against an already-ended attempt, and two users
+progressing independently. No new REQ or ADR — confirmed by both
+`architecture-reviewer` and this orchestration's intake: pure wiring of
+shapes REQ-1504/1505 already anticipated in their own S-225/S-226 status
+notes.
+
+Quality gate (`architecture-reviewer` + `quality-architect`, run in
+parallel): `architecture-reviewer` found one doc-comment defect — a wrong
+ADR citation for the `GuessSubmissionAllowedGameKeys` exclusion mechanism
+(cited ADR-0096, which is xG Predict's scoring-direction-exception ADR,
+where ADR-0098/S-200 is the actual mechanism) — fixed in a same-session
+follow-up commit. `quality-architect` found one real bug: the POST handler
+derived the revealed comparator from a pre-call `SequencePosition`
+snapshot that could go stale under two overlapping requests from the same
+user (a double-tap or client retry) — fixed by looking the comparator up
+by `PlayerId == result.PlayerAnswerId`, the identity the authoritative
+`ScoreSubmissionAsync` call itself just resolved, instead of a
+pre-snapshotted position.
+
+Testing: no local `dotnet` SDK available in-sandbox — a CI verification
+run (`ci.yml` `workflow_dispatch`) is needed before this is considered
+fully done, same recurring constraint as S-224/S-225/S-226.
+
 **S-228 · Frontend screen**
 Check `docs/design-document.md` §3 for an existing `SCREEN-xxx` spec
 first — add one if missing — then build the screen plus a
