@@ -52,6 +52,18 @@ public interface IChallengeService
     // party — lets a player see who's challenged them.
     Task<IReadOnlyList<Challenge>> GetPendingChallengesAsync(
         Guid userId, CancellationToken cancellationToken = default);
+
+    // REQ-1402 visibility fix (S-230): every Pending challenge where userId
+    // is the CHALLENGER — lets a player see who they've challenged that
+    // hasn't been accepted/declined yet. Before this existed, a sent
+    // challenge was invisible everywhere in the product: it isn't in
+    // GetPendingChallengesAsync above (that's scoped to the challenged
+    // party), and it isn't a ConnectMatch yet either (REQ-1404's match only
+    // exists after acceptance) — the only observable signal was a 409
+    // "Duplicate pending challenge" if the same challenger tried to send it
+    // again.
+    Task<IReadOnlyList<Challenge>> GetSentChallengesAsync(
+        Guid userId, CancellationToken cancellationToken = default);
 }
 
 public enum SendChallengeOutcome

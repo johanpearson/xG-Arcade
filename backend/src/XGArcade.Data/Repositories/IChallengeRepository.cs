@@ -16,6 +16,15 @@ public interface IChallengeRepository
     Task<IReadOnlyList<Challenge>> GetPendingChallengesForUserAsync(
         Guid challengedUserId, CancellationToken cancellationToken = default);
 
+    // REQ-1402 visibility fix (S-230): the mirror image of
+    // GetPendingChallengesForUserAsync above — every Pending challenge where
+    // userId is the CHALLENGER, not the challenged party. Added because a
+    // challenger otherwise had no read path at all for a challenge they sent
+    // (the only signal was a 409 "Duplicate pending challenge" if they tried
+    // to send it again) — see IChallengeService.GetSentChallengesAsync.
+    Task<IReadOnlyList<Challenge>> GetSentChallengesForUserAsync(
+        Guid challengerUserId, CancellationToken cancellationToken = default);
+
     // Load-then-save. resultingMatchId is optional so this one method can
     // serve both a plain accept/decline transition and, on acceptance, the
     // same call folding in the newly-created ConnectMatch's opaque id

@@ -39,3 +39,11 @@ export async function declineChallenge(accessToken: string, id: string): Promise
 export async function fetchPendingChallenges(accessToken: string): Promise<ChallengeResponse[]> {
   return apiRequest<ChallengeResponse[]>(accessToken, '/challenges/pending');
 }
+
+// REQ-1402 visibility fix (S-230): every challenge currently Pending where
+// the caller is the CHALLENGER (GET /challenges/sent) — lets a player
+// confirm a challenge they sent actually exists, rather than the only
+// signal being a 409 "Duplicate pending challenge" on a second send attempt.
+export async function fetchSentChallenges(accessToken: string): Promise<ChallengeResponse[]> {
+  return apiRequest<ChallengeResponse[]>(accessToken, '/challenges/sent');
+}

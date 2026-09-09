@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.85"
+version: "2.86"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -11117,6 +11117,44 @@ challenger's real name.
 **Test level:** Unit/API — challenge send/accept/decline; duplicate-pending
 rejection; non-friend rejection; the accepted-challenge-creates-a-match
 transition.
+
+**Status note (2026-09-09, S-230 — sent-challenge visibility fix, direct
+user feedback).** A real, reported gap: a challenger had no way to see a
+challenge they had just sent anywhere in the product. `GET
+/challenges/pending` above is deliberately scoped to the *challenged*
+party (this REQ's own "visible to User B" clause never claimed the
+reverse), and REQ-1404's `ConnectMatch` doesn't exist yet either at that
+point (it's only created once the challenge is accepted) — so the only
+observable signal a challenger had that their challenge existed at all was
+a 409 "Duplicate pending challenge" if they tried sending it again. Fixed:
+a new, symmetric `GET /challenges/sent` (`IChallengeRepository
+.GetSentChallengesForUserAsync`/`IChallengeService.GetSentChallengesAsync`)
+returns every Pending challenge where the caller is the challenger — same
+shape and same batch-display-name-resolution pattern as the existing
+pending-list endpoint, just with the challenger/challenged roles swapped.
+`ChallengesTab.tsx` (design-document.md SCREEN-15) gained a second, read-only
+"Sent challenges" section below the existing one (no Accept/Decline — only
+the challenged party may resolve a challenge, unchanged). This is a strict
+visibility addition: no existing send/accept/decline/duplicate-pending rule
+changed, and `GET /challenges/pending`'s own scope is unchanged. See
+SCREEN-15's own updated "Challenges tab" note for the frontend shape,
+including the tab-mounting fix that had to go with it (below).
+
+**Status note addendum (2026-09-09, same day — S-230's frontend-mounting
+fix).** Fixing the backend/UI gap above exposed a second, related bug of
+the same shape S-218 already fixed once for the Matches tab: `FriendsTab`'s
+"Challenge" button lives on a *different* tab (Friends) than the new "Sent
+challenges" section (Challenges), and `FriendsScreen.tsx` originally kept
+Friends/Challenges/Matchmaking mounted-but-`hidden` on tab switches (so
+already-loaded data isn't refetched every time) — meaning a challenge sent
+from the Friends tab would never appear in an already-mounted, hidden
+Challenges tab, defeating the very fix this note describes. `ChallengesTab`
+is now conditionally rendered (mounted only while its tab is active, same
+treatment `MatchesTab` already has since S-218) rather than kept alive
+under `hidden`, so switching to it always issues a fresh `GET
+/challenges/pending` + `GET /challenges/sent`. Friends and Matchmaking are
+unaffected and keep the original stay-mounted behavior — neither has data
+that can change from an action taken on another tab of this screen.
 
 **REQ-1403 – Random matchmaking with a 12-hour pairing window**
 > As a player, I want to opt into random matchmaking and be automatically

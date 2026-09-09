@@ -41,6 +41,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   needed — pure UI against already-decided REQ-1504/1505 text, same
   precedent S-197/198 (xG Predict) and S-086 (xG Path) already set for
   their own frontend stories.
+- 2026-09-09 — `docs/requirements-document.md` (REQ-1402 status note +
+  addendum, v2.85 → v2.86), `docs/design-document.md` (SCREEN-15's
+  "Challenges tab" note, v0.95 → v0.96), `docs/backlog.md` (new S-230
+  entry) — doc sync for S-230 (xG Connect sent-challenge visibility fix,
+  REQ-1402, direct user feedback). Reported: after sending a friend
+  challenge and opting into random matchmaking, neither showed up in the
+  Matches tab (correct — no `ConnectMatch` exists until accept/pairing),
+  and a second challenge attempt to the same friend was rejected as
+  duplicate-pending with no way to see the pending challenge the rejection
+  referred to. New `GET /challenges/sent` (mirrors the existing
+  `/challenges/pending`, scoped to the challenger instead of the
+  challenged party) plus a new read-only "Sent challenges" section in
+  `ChallengesTab.tsx`. Also fixed in the same story: giving Challenges tab
+  data that can change from an action on a different tab (Friends)
+  reproduced S-218's already-fixed Matches-tab mounting bug — Challenges
+  is now conditionally rendered (remounts and refetches on every switch to
+  it) instead of staying mounted-but-hidden, the same treatment Matches
+  already has.
 - 2026-09-09 — `docs/requirements-document.md` (§4.16 intro paragraph
   updated to reflect S-227 as done rather than pending; new Status notes
   added to REQ-1504 and REQ-1505, v2.84 → v2.85), `docs/architecture-

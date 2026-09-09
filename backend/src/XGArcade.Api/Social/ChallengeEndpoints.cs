@@ -158,6 +158,38 @@ public static class ChallengeEndpoints
                 .Select(c => ToResponse(c, FriendEndpoints.GetDisplayName(challengerDisplayNamesById, c.ChallengerUserId), requestingUser.DisplayName))
                 .ToList());
         }).RequireAuthorization();
+
+        // REQ-1402 visibility fix (S-230): every challenge currently Pending
+        // where the caller is the CHALLENGER — the mirror image of
+        // /challenges/pending above. Before this endpoint existed, a sent
+        // challenge was invisible everywhere: not here (that GET is scoped
+        // to the challenged party), and not in GET /matches either (REQ-1404
+        // only creates a ConnectMatch once the challenge is accepted) — a
+        // player who sent a challenge had no way to confirm it existed
+        // short of trying to send it again and reading the 409.
+        app.MapGet("/challenges/sent", async (
+            ClaimsPrincipal principal,
+            IUserRepository userRepository,
+            IChallengeService challengeService,
+            CancellationToken cancellationToken) =>
+        {
+            var requestingUser = await RequestingUserResolver.ResolveAsync(principal, userRepository, cancellationToken);
+            if (requestingUser is null)
+                return Results.Unauthorized();
+
+            var sent = await challengeService.GetSentChallengesAsync(requestingUser.Id, cancellationToken);
+
+            // The caller is always the challenger of every row here, so
+            // only the varying challenged-party ids need a batch lookup —
+            // same "one query for the whole page" shape /challenges/pending
+            // already uses.
+            var challengedDisplayNamesById = await FriendEndpoints.ResolveDisplayNamesAsync(
+                userRepository, sent.Select(c => c.ChallengedUserId), cancellationToken);
+
+            return Results.Ok(sent
+                .Select(c => ToResponse(c, requestingUser.DisplayName, FriendEndpoints.GetDisplayName(challengedDisplayNamesById, c.ChallengedUserId)))
+                .ToList());
+        }).RequireAuthorization();
     }
 
     private static IResult ToProblem(ResolveChallengeOutcome outcome) => outcome switch

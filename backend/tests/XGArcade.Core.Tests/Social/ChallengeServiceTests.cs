@@ -144,6 +144,44 @@ public class ChallengeServiceTests
         Assert.That(await _service.GetPendingChallengesAsync(userB), Is.Empty);
     }
 
+    // ---- REQ-1402 visibility fix (S-230): GetSentChallengesAsync -------------
+
+    [Test]
+    public async Task REQ1402_GetSentChallengesAsync_PendingChallengeExists_IsVisibleToTheChallenger()
+    {
+        var userA = await CreateUserAsync("Alex");
+        var userB = await CreateUserAsync("Blair");
+        await MakeFriendsAsync(userA, userB);
+        var sendResult = await _service.SendChallengeAsync(userA, userB);
+
+        var sentByA = await _service.GetSentChallengesAsync(userA);
+
+        Assert.That(sentByA.Select(c => c.Id), Is.EquivalentTo(new[] { sendResult.Challenge!.Id }));
+    }
+
+    [Test]
+    public async Task REQ1402_GetSentChallengesAsync_ChallengeAccepted_NoLongerAppearsInTheSentList()
+    {
+        var userA = await CreateUserAsync("Alex");
+        var userB = await CreateUserAsync("Blair");
+        await MakeFriendsAsync(userA, userB);
+        var sendResult = await _service.SendChallengeAsync(userA, userB);
+        await _service.AcceptChallengeAsync(sendResult.Challenge!.Id, userB, Guid.NewGuid());
+
+        Assert.That(await _service.GetSentChallengesAsync(userA), Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ1402_GetSentChallengesAsync_CalledByTheChallengedUserRatherThanTheChallenger_ReturnsEmpty()
+    {
+        var userA = await CreateUserAsync("Alex");
+        var userB = await CreateUserAsync("Blair");
+        await MakeFriendsAsync(userA, userB);
+        await _service.SendChallengeAsync(userA, userB);
+
+        Assert.That(await _service.GetSentChallengesAsync(userB), Is.Empty);
+    }
+
     // ---- REQ-1402 GWT#2: accept ----------------------------------------------
 
     [Test]
