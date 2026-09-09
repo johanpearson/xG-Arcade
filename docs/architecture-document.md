@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.56"
+version: "1.57"
 status: draft
-last_updated: 2026-09-07
+last_updated: 2026-09-09
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1533,6 +1533,7 @@ new ADR that references the old one.
 | ADR-0107 | xG Connect candidate resolution uses the clicked autocomplete suggestion's WikidataQid to resolve the exact real person, instead of a name-only lookup that guesses on a same-name collision | Accepted |
 | ADR-0108 | `WikidataClient` sanitizes raw ASCII control characters out of the response body before JSON parsing, fixing a confirmed malformed-SPARQL-response failure that blocked `import-player-name-index` | Accepted |
 | ADR-0109 | xG Connect's dispute-a-ruling flow reintroduces a player-claimed club, narrowly scoped to disputing a rejected chain-step failure only — never ordinary submission, which ADR-0104 still governs unchanged | Accepted |
+| ADR-0110 | xG Higher/Lower (proposed fifth game) fits the existing `Round` model like xG Grid/xG Path/xG Predict, not a `ConnectMatch`-style new concept — one fixed stat category and one fixed comparator sequence generated once per Round and shared by every participant, individual attempts capped at the Round's configured length, scored as a standard `FinalPoints` streak length | Accepted |
 
 ## 11. Glossary
 
