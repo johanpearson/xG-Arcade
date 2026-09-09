@@ -125,6 +125,83 @@ public class PlayerOverrideRepositoryTests
         Assert.That(matchesOverrideValue, Is.True);
     }
 
+    // ---- REQ-1501 (xG Higher/Lower, ADR-0110): GetEffectivePlayerCountsByAttributeTypeAsync ----
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerCountsByAttributeTypeAsync_ReturnsDistinctRawAttributeValueCount_WhenNoOverrideExists()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Premier League" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "FA Cup" });
+
+        var counts = await _repository.GetEffectivePlayerCountsByAttributeTypeAsync("trophy");
+
+        Assert.That(counts[player.Id], Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerCountsByAttributeTypeAsync_PlayerWithOverride_EffectiveCountIsExactlyOne_RegardlessOfRawRowCount()
+    {
+        // ADR-0015 extended to counting: an override for (PlayerId, attributeType)
+        // replaces the whole effective value set with exactly {Override.Value}
+        // — always exactly 1, no matter how many raw rows exist.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Premier League" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "FA Cup" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Champions League" });
+        await _repository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "trophy", Value = "Corrected Trophy",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        });
+
+        var counts = await _repository.GetEffectivePlayerCountsByAttributeTypeAsync("trophy");
+
+        Assert.That(counts[player.Id], Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerCountsByAttributeTypeAsync_PlayerWithOnlyAnOverride_NoRawRows_EffectiveCountIsOne()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _repository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "trophy", Value = "Corrected Trophy",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        });
+
+        var counts = await _repository.GetEffectivePlayerCountsByAttributeTypeAsync("trophy");
+
+        Assert.That(counts[player.Id], Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerCountsByAttributeTypeAsync_PlayerWithNeitherOverrideNorRawRows_IsAbsentFromResult()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+
+        var counts = await _repository.GetEffectivePlayerCountsByAttributeTypeAsync("trophy");
+
+        Assert.That(counts.ContainsKey(player.Id), Is.False,
+            "no value for this category means absent from the dictionary, never present with 0 — REQ-1501's non-null-value eligibility rule");
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerCountsByAttributeTypeAsync_ScopedToRequestedAttributeType_OnlyReturnsFieldMatchingType()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+
+        var trophyCounts = await _repository.GetEffectivePlayerCountsByAttributeTypeAsync("trophy");
+
+        Assert.That(trophyCounts.ContainsKey(player.Id), Is.False, "a 'club' row must never count toward the 'trophy' category");
+    }
+
     // ---- S-012: admin data correction (PlayerOverride CRUD's read/update/delete) ----
 
     [Test]

@@ -71,6 +71,13 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // flag — its own table, deliberately not a column on
     // PredictMatchPrediction above (see that ADR for the full reasoning).
     public DbSet<PredictPlayerLock> PredictPlayerLocks => Set<PredictPlayerLock>();
+    // COMP-18 (Games.XGHigherLower)/ADR-0110 — REQ-1501/1502/1503's fixed
+    // stat-category/baseline/comparator-sequence shape. Same Template-less
+    // Instance/child-collection shape as PredictInstance/PredictMatch above,
+    // minus a *Template DbSet — see HigherLowerInstance's own doc comment
+    // for why no HigherLowerTemplate concept exists yet.
+    public DbSet<HigherLowerInstance> HigherLowerInstances => Set<HigherLowerInstance>();
+    public DbSet<HigherLowerComparator> HigherLowerComparators => Set<HigherLowerComparator>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
@@ -402,6 +409,44 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasForeignKey(l => l.PredictInstanceId)
             .OnDelete(DeleteBehavior.Cascade)
             .IsRequired();
+
+        // HigherLowerComparator/HigherLowerInstance are Games.XGHigherLower's
+        // (COMP-18) own entities — same normal owned-collection FK as
+        // PredictMatch/PredictInstance above, no ADR-0003 boundary concern
+        // (ADR-0110).
+        modelBuilder.Entity<HigherLowerComparator>()
+            .HasOne<HigherLowerInstance>()
+            .WithMany(hli => hli.Comparators)
+            .HasForeignKey(hlc => hlc.HigherLowerInstanceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1503: SequencePosition is unique within a given instance — a
+        // generated sequence never has two comparators sharing a position.
+        // Same "guards a generation-time insert" role as GridCell's own
+        // (GridInstanceId, Row, Col) unique index.
+        modelBuilder.Entity<HigherLowerComparator>()
+            .HasIndex(hlc => new { hlc.HigherLowerInstanceId, hlc.SequencePosition })
+            .IsUnique();
+
+        // REQ-1501/ADR-0110: BaselinePlayerId is a real FK into Player's
+        // table (COMP-06) — same "a game module referencing shared player
+        // data" precedent PathPuzzle.TargetPlayerId's own doc comment
+        // explains is fine (a different boundary than ADR-0003's Core/game
+        // FK omission). Cascade mirrors every other Player-referencing FK;
+        // there is no player-row-deletion pathway in the codebase today.
+        modelBuilder.Entity<HigherLowerInstance>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(hli => hli.BaselinePlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Same reasoning as BaselinePlayerId above, for each comparator's
+        // own PlayerId.
+        modelBuilder.Entity<HigherLowerComparator>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(hlc => hlc.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
         // every scheduled generation invocation — the hot path for this table.

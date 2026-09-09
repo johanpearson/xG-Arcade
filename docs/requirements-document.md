@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.80"
+version: "2.82"
 status: draft
 last_updated: 2026-09-09
 owner: Johan
@@ -13002,13 +13002,16 @@ guesses whether the hidden value is Higher or Lower than the revealed one.
 A correct guess continues the streak — the just-revealed player becomes
 the new baseline and the next player in the Round's fixed comparator
 sequence is shown — and an incorrect guess ends that participant's
-attempt. This section is entirely design-only — no xG Higher/Lower code
-exists yet, and no component ID is assigned (per `architecture-document.md`'s
-own established pattern for COMP-11/15/16/17, a component entry is added
-only once real code lands, not at pure-requirements stage). Every REQ
-below is written to the same standard as §4.12/§4.14/§4.15's xG Path/xG
-Predict/xG Connect requirements, but describes intended behavior for a
-game that has not been built, not a claim about current behavior.
+attempt. **Update (S-223/S-224):** this section is no longer design-only —
+`XGArcade.Games.XGHigherLower` (COMP-18) is a real, registered
+`IGameModule`, and as of S-224 (ADR-0111) `GenerateInstanceAsync`/
+`GetCellIdsAsync` are real, tested implementations against REQ-1501/1502/
+1503 below (see each REQ's own Status note). REQ-1504/1505 (guess
+submission, scoring/scheduling) remain unimplemented — S-225/226/227.
+Every REQ below is written to the same standard as §4.12/§4.14/§4.15's xG
+Path/xG Predict/xG Connect requirements; REQ-1501/1502/1503's text
+describes behavior that now matches real code, REQ-1504/1505's still
+describes intended behavior for a mechanic that has not been built yet.
 
 **Why this game, and what it deliberately reuses:** unlike xG Predict
 (needed a new live-match-result data source, football-data.org/ADR-0099)
@@ -13075,6 +13078,25 @@ see ADR-0110 for the full resolution, including the trade-off it accepts
 missing); player-value-presence check for a given category; both checks
 run as part of Round generation, not per participant.
 
+**Status (2026-09-09, S-224, ADR-0111):** Implemented —
+`XGHigherLowerGameModule.GenerateInstanceAsync`
+(`backend/src/XGArcade.Games.XGHigherLower/XGHigherLowerGameModule.cs`)
+evaluates both eligibility checks once per generation call, never per
+participant. "Numeric and directly comparable" is realized as a COUNT of
+a player's effective `PlayerAttribute` rows for one `AttributeType` —
+`"trophy"` or `"club"` (`"nationality"` permanently excluded) — read via
+the new `IPlayerOverrideRepository.GetEffectivePlayerCountsByAttributeTypeAsync`
+(`backend/src/XGArcade.Data/Repositories/PlayerOverrideRepository.cs`); see
+ADR-0111 for the full derivation this resolves, since neither this REQ's
+text nor ADR-0110 answers it directly. A player absent from that method's
+result dictionary has no recorded value for the category and is never
+selected, per this REQ's own "non-null recorded value" rule. Unit-tested
+in `XGHigherLowerGameModuleTests`/`PlayerOverrideRepositoryTests`. Not yet
+reachable in production — `GenerateInstanceAsync` is not called by any
+scheduled or on-demand path yet (S-226/S-227 wires
+`RoundSchedulingOptions`/`InternalRoundEndpoints`); do not treat this
+`GameKey` as schedulable yet.
+
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed
 > sequence to have exactly one correct answer and never repeat a player
@@ -13109,6 +13131,19 @@ preceding player's is excluded; a strictly higher or strictly lower value
 is not; already-seen-player exclusion across the whole sequence; the
 generation-failure case when no valid full-length sequence can be built
 for a candidate category.
+
+**Status (2026-09-09, S-224, ADR-0111):** Implemented —
+`XGHigherLowerGameModule.GenerateInstanceAsync`'s `TryBuildSequence` helper
+greedily builds a full-length sequence (random baseline, then a random
+remaining player whose value differs from the current tail's), retrying up
+to `HigherLowerGenerationOptions.MaxAttemptsPerCategory` (default 20) times
+per candidate category before moving to the next one; if every candidate
+category exhausts its attempts, generation throws the new
+`HigherLowerGenerationException` rather than persisting a
+shorter-than-configured sequence, satisfying this REQ's fail-closed rule.
+Unit-tested in `XGHigherLowerGameModuleTests` (tie exclusion, repeat
+exclusion, the exhausted-attempts failure case). Not yet reachable in
+production — see REQ-1501's own status note above.
 
 **REQ-1503 – Round generation: category and comparator sequence selection**
 > As a player, I want each xG Higher/Lower Round to be generated with one
@@ -13153,6 +13188,25 @@ category, one fixed baseline value, and one fixed, ordered comparator
 sequence of the Round's configured length, each satisfying
 REQ-1501/1502; the same generated Round data is returned unchanged
 regardless of which participant requests it.
+
+**Status (2026-09-09, S-224, ADR-0111):** Implemented at the
+`IGameModule` level — `XGHigherLowerGameModule.GenerateInstanceAsync`
+persists exactly one `HigherLowerInstance` (category + baseline) and its
+owned `Comparators` sequence (`backend/src/XGArcade.Data/Entities/
+HigherLowerInstance.cs`, `HigherLowerComparator.cs`, migration
+`20260909150000_AddHigherLowerInstance`) via the new
+`IHigherLowerInstanceRepository`, generated once and shared unchanged by
+every participant, satisfying this REQ's Unit-level criteria.
+`ComparatorCount` (default 10) lives on `HigherLowerGenerationOptions`
+(a per-`GameKey` DI singleton, ADR-0051), not on `RoundSchedulingOptions`,
+per this REQ's own default-comparator-count note. `GetCellIdsAsync` is
+also implemented for real, returning one `HigherLowerComparator.Id` per
+sequence position. **Not yet implemented: this REQ's API-level test
+level.** `GenerateInstanceAsync` has no production caller yet —
+`RoundSchedulingOptions`, `IRoundSchedulingOptionsResolver`, and
+`InternalRoundEndpoints`'s `gameKey` switch do not include
+`"xg-higher-lower"` (S-226/S-227's scope). Do not treat this `GameKey` as
+schedulable, or this REQ as fully implemented, until that wiring lands.
 
 **REQ-1504 – Guess submission and streak progression**
 > As a player mid-attempt, I want to guess Higher or Lower for the current

@@ -50,4 +50,43 @@ public class PlayerOverrideRepository(XGArcadeDbContext dbContext) : IPlayerOver
             .AsNoTracking()
             .AnyAsync(pa => pa.PlayerId == playerId && pa.AttributeType == attributeType && pa.AttributeValue == attributeValue, cancellationToken);
     }
+
+    // REQ-1501 (xG Higher/Lower, ADR-0110): see this method's own doc
+    // comment on IPlayerOverrideRepository for the full "why" — extends
+    // HasEffectiveAttributeAsync's override-wins-for-the-whole-type rule
+    // (ADR-0015) from a single value check to a count.
+    public async Task<IReadOnlyDictionary<Guid, int>> GetEffectivePlayerCountsByAttributeTypeAsync(
+        string attributeType, CancellationToken cancellationToken = default)
+    {
+        // PlayerAttribute's composite key (PlayerId, AttributeType,
+        // AttributeValue) already guarantees no duplicate rows, so a plain
+        // per-player row count is the same as a distinct-value count here —
+        // no separate Distinct() needed.
+        var attributeRows = await dbContext.PlayerAttributes
+            .AsNoTracking()
+            .Where(pa => pa.AttributeType == attributeType)
+            .Select(pa => pa.PlayerId)
+            .ToListAsync(cancellationToken);
+
+        var counts = attributeRows
+            .GroupBy(playerId => playerId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // REQ-203/REQ-501/ADR-0015 extended to counting: an override for
+        // this (PlayerId, attributeType) REPLACES the whole effective value
+        // set with exactly {Override.Value} — always exactly 1, regardless
+        // of how many raw PlayerAttribute rows this player has of this type
+        // (even if that's 0 — an override alone is enough to make a player
+        // eligible).
+        var overriddenPlayerIds = await dbContext.PlayerOverrides
+            .AsNoTracking()
+            .Where(o => o.Field == attributeType)
+            .Select(o => o.PlayerId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var playerId in overriddenPlayerIds)
+            counts[playerId] = 1;
+
+        return counts;
+    }
 }

@@ -13,6 +13,44 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-09 — `docs/architecture-document.md` (COMP-18 row rewritten to
+  match current state, v1.59 → v1.60), `docs/requirements-document.md`
+  (REQ-1501/1502/1503 Status notes added, v2.80 → v2.81),
+  `docs/decisions/0111-higher-lower-stat-categories-derived-from-attribute-counts.md`
+  (new ADR, referenced from both docs above) — doc sync for S-224 (xG
+  Higher/Lower Round generation). `XGHigherLowerGameModule.
+  GenerateInstanceAsync`/`GetCellIdsAsync` are now real, tested
+  implementations (replacing S-223's `NotImplementedException` scaffold),
+  persisted via new `HigherLowerInstance`/`HigherLowerComparator` entities
+  and a new `IHigherLowerInstanceRepository` (migration
+  `20260909150000_AddHigherLowerInstance`). ADR-0111 resolves the design
+  question S-224 needed but REQ-1501/ADR-0110 didn't answer directly: since
+  `PlayerAttribute`/`PlayerOverride` (COMP-06) has no numeric stat field,
+  REQ-1501's "numeric, comparable stat category" is realized as a COUNT of
+  a player's effective `PlayerAttribute` rows per `AttributeType`
+  (`"trophy"` or `"club"`; `"nationality"` permanently excluded), read via
+  a new `IPlayerOverrideRepository.GetEffectivePlayerCountsByAttributeTypeAsync`
+  method that extends ADR-0015's override-replaces-the-whole-type rule from
+  a single value to a count. Generation fails closed
+  (`HigherLowerGenerationException`, never persisting a shorter-than-
+  configured sequence) if every candidate category exhausts
+  `HigherLowerGenerationOptions.MaxAttemptsPerCategory` retries.
+  `ScoreSubmissionAsync`/`GetMaxAttemptsForCellAsync` (REQ-1504) still throw
+  `NotImplementedException` — S-225's scope, not this story's — and this
+  `GameKey` is still not wired into `RoundSchedulingOptions`/
+  `IRoundSchedulingOptionsResolver`/`GuessSubmissionAllowedGameKeys`/
+  `InternalRoundEndpoints` — S-226/S-227's scope. Not schedulable in
+  production yet. `docs/implementation-document.md` checked — it has no
+  xG Higher/Lower content at all yet, so left untouched (same "not touched"
+  precedent as the REQ-1406 entry below for xG Connect's implementation-
+  document.md gap). `docs/backlog.md` checked — its S-224 entry already
+  matches, no acceptance-criteria change needed. Follow-up (same session,
+  v2.81 → v2.82): §4.16's own intro paragraph still said "no xG Higher/
+  Lower code exists yet, and no component ID is assigned" — stale since
+  COMP-18 was assigned back in S-223's scaffold, now doubly stale after
+  S-224; reworded to reflect that REQ-1501/1502/1503 now match real code
+  while REQ-1504/1505 remain design-only.
+
 - 2026-09-09 — `docs/requirements-document.md` (REQ-1406 gap-fill status
   note added, v2.76 → v2.77 — already applied by requirements-writer),
   `docs/architecture-document.md` (COMP-17 row extended with a short

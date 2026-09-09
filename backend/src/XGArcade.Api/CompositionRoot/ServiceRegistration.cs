@@ -314,24 +314,33 @@ public static class ServiceRegistration
         // ConnectMatch write here rather than in ChallengeService.
         builder.Services.AddScoped<MatchmakingSweepService>();
 
-        // COMP-18/ADR-0110, scaffold step: IGameModuleResolver.Resolve
-        // ("xg-higher-lower") now returns a real module — every
-        // Round-generation-shaped method (GenerateInstanceAsync/
-        // ScoreSubmissionAsync/GetCellIdsAsync/GetMaxAttemptsForCellAsync)
-        // still throws NotImplementedException (unlike xG Connect's
-        // NotSupportedException — this game DOES fit the Round model per
-        // ADR-0110, it just isn't built yet); GetCellCategoryTypesAsync
-        // throws NotSupportedException (permanently inapplicable) and
-        // ResolveWrongGuessPlayerAsync returns null, mirroring xG Path/xG
-        // Predict's own precedent. PurgeUserDataAsync is a real no-op (no
-        // per-user data model exists for this game yet) so REQ-710 account
-        // deletion is never broken by registering this module. Deliberately
-        // NOT added to RoundSchedulingOptions/IScoringStrategy/
+        // COMP-18/ADR-0110: IGameModuleResolver.Resolve("xg-higher-lower")
+        // now returns a real module — GenerateInstanceAsync (REQ-1501/1502/
+        // 1503) and GetCellIdsAsync are real, persisting through
+        // IHigherLowerInstanceRepository below and reading effective stat
+        // counts via IPlayerOverrideRepository (already registered above).
+        // ScoreSubmissionAsync/GetMaxAttemptsForCellAsync (REQ-1504) still
+        // throw NotImplementedException — that's S-225's job (unlike xG
+        // Connect's NotSupportedException — this game DOES fit the Round
+        // model per ADR-0110, it just isn't fully built yet).
+        // GetCellCategoryTypesAsync throws NotSupportedException
+        // (permanently inapplicable) and ResolveWrongGuessPlayerAsync
+        // returns null, mirroring xG Path/xG Predict's own precedent.
+        // PurgeUserDataAsync is a real no-op (no per-user data model exists
+        // for this game yet — HigherLowerInstance/HigherLowerComparator are
+        // Round-shared, not per-user) so REQ-710 account deletion is never
+        // broken by registering this module. Deliberately NOT added to
+        // RoundSchedulingOptions/IScoringStrategy/
         // GuessSubmissionAllowedGameKeys registrations above/below yet —
         // nothing calls GenerateInstanceAsync/ScoreSubmissionAsync in
-        // production until REQ-1501-1505's real implementation lands and
-        // deliberately wires those in.
+        // production until S-226/227 wires scheduling.
+        builder.Services.AddScoped<IHigherLowerInstanceRepository, HigherLowerInstanceRepository>();
         builder.Services.AddScoped<IGameModule, XGHigherLowerGameModule>();
+        // REQ-1503: ComparatorCount's default (10) is fine as-is, no
+        // override needed here — mirrors GridGenerationOptions'/
+        // PathGenerationOptions'/PredictGenerationOptions' own singleton
+        // registration precedent immediately above/below.
+        builder.Services.AddSingleton(new HigherLowerGenerationOptions());
 
         builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
         // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
