@@ -51,6 +51,33 @@ public interface IHigherLowerInstanceRepository
         bool hasEnded,
         CancellationToken cancellationToken = default);
 
+    // ADR-0100 §3/REQ-1505/S-226: every user who has ever submitted >=1
+    // guess for this instance (a HigherLowerAttempt row exists for them),
+    // regardless of whether that attempt has ended — participation, not
+    // points. Used only to decide qualifying-round membership (REQ-409),
+    // same role as IPredictInstanceRepository.
+    // GetParticipantUserIdsByInstanceIdAsync — HigherLowerRoundScoreSource
+    // (Games.XGHigherLower) pairs this with GetStreakLengthsByInstanceIdAsync
+    // below to build each qualifying round's contributed value. The
+    // UserId != null filter excludes any attempt already anonymized by
+    // REQ-710 (AnonymizeAttemptsByUserIdAsync below) — an anonymized
+    // attempt has no user left to attribute participation to.
+    Task<IReadOnlyCollection<Guid>> GetParticipantUserIdsByInstanceIdAsync(
+        Guid higherLowerInstanceId, CancellationToken cancellationToken = default);
+
+    // ADR-0100 §4/REQ-1505/S-226: UserId -> StreakLength for every attempt
+    // row with a non-null UserId. Unlike
+    // IPredictInstanceRepository.GetTotalPointsByInstanceIdAsync (which
+    // excludes ungraded matches — PredictMatchPrediction.FinalPoints is
+    // null until a grading job runs), there is no "not yet graded" gap to
+    // model here: HigherLowerAttempt.StreakLength is ALWAYS a real, current
+    // value the instant a row exists at all (REQ-1504 — it doubles as
+    // "current progress," ended or in-progress alike; see that entity's own
+    // doc comment). So every attempt row unconditionally contributes its
+    // StreakLength, with no Graded/Pending distinction to filter on.
+    Task<IReadOnlyDictionary<Guid, int>> GetStreakLengthsByInstanceIdAsync(
+        Guid higherLowerInstanceId, CancellationToken cancellationToken = default);
+
     // REQ-710: severs every one of this user's HigherLowerAttempt rows from
     // them (UserId = NULL) without deleting the rows themselves — same
     // reasoning as Guess/PredictMatchPrediction (REQ-710): nothing else in

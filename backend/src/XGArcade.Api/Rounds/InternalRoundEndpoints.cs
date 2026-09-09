@@ -8,6 +8,7 @@ using XGArcade.Core.Scoring;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGHigherLower;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
 
@@ -39,13 +40,14 @@ public static class InternalRoundEndpoints
             // S-084/REQ-1202: defaults to xG Grid's GameKey when omitted so
             // any existing caller that doesn't pass it keeps today's
             // behavior unchanged — generate-grid-round.yml/
-            // generate-path-round.yml/generate-predict-round.yml (split
-            // from a single generate-round.yml, S-136/ADR-0072; extended to
-            // a third file for "xg-predict" per that ADR's 2026-08-30
-            // amendment) each always pass it explicitly for their own
-            // GameKey, but a stray/older manual call (e.g. a bookmarked
-            // workflow_dispatch run) must not silently start generating an
-            // unexpected game's rounds.
+            // generate-path-round.yml/generate-predict-round.yml/
+            // generate-higher-lower-round.yml (split from a single
+            // generate-round.yml, S-136/ADR-0072; extended to a third file
+            // for "xg-predict" per that ADR's 2026-08-30 amendment, and a
+            // fourth for "xg-higher-lower" by REQ-1505/S-226) each always
+            // pass it explicitly for their own GameKey, but a stray/older
+            // manual call (e.g. a bookmarked workflow_dispatch run) must not
+            // silently start generating an unexpected game's rounds.
             string gameKey = GridGameModule.XGGridGameKey,
             CancellationToken cancellationToken = default) =>
         {
@@ -87,7 +89,7 @@ public static class InternalRoundEndpoints
             // roundDurationHours check above already uses, rather than
             // relying on the switch below's defensive throw to fall through
             // into the generic 500 catch-all.
-            if (gameKey is not (GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey or XGPredictGameModule.XGPredictGameKey))
+            if (gameKey is not (GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey or XGPredictGameModule.XGPredictGameKey or XGHigherLowerGameModule.XGHigherLowerGameKey))
             {
                 return Results.Problem(
                     title: "Invalid gameKey",
@@ -106,10 +108,11 @@ public static class InternalRoundEndpoints
                 // gets the same problem-details treatment as everything
                 // below instead of an opaque, empty 500.
                 //
-                // S-084/REQ-1202 (extended to a third arm for "xg-predict" by
-                // this story; see ADR-0051's 2026-08-30 amendment for the
-                // re-derivation confirming this switch is still preferable to
-                // a fully-generic IGameModule alternative): this switch is
+                // S-084/REQ-1202 (extended to a third arm for "xg-predict",
+                // then a fourth for "xg-higher-lower" by REQ-1505/S-226; see
+                // ADR-0051's 2026-08-30 amendment for the re-derivation
+                // confirming this switch is still preferable to a
+                // fully-generic IGameModule alternative): this switch is
                 // the ONLY place that branches on gameKey in this handler —
                 // its sole job is producing the opaque TemplateId RoundConfig
                 // carries; everything else below (auth, duration validation,
@@ -127,6 +130,23 @@ public static class InternalRoundEndpoints
                         pathInstanceRepository, pathGenerationOptions.PuzzleCount, cancellationToken)).Id,
                     XGPredictGameModule.XGPredictGameKey => (await PredictTemplateResolver.GetOrCreateByMatchCountAsync(
                         predictInstanceRepository, predictGenerationOptions.MatchCount, cancellationToken)).Id,
+                    // Unlike the three arms above, xG Higher/Lower has no
+                    // *Template concept at all and no template-resolution
+                    // repository call to make here — HigherLowerInstance.
+                    // TemplateId's own doc comment (XGArcade.Data/Entities/
+                    // HigherLowerInstance.cs) explicitly says S-224
+                    // deliberately does not introduce a HigherLowerTemplate
+                    // concept: ComparatorCount is fixed generation config on
+                    // HigherLowerGenerationOptions (a per-GameKey DI
+                    // singleton), not a per-template value the way
+                    // GridSize/PuzzleCount/MatchCount are.
+                    // XGHigherLowerGameModule.GenerateInstanceAsync stores
+                    // whatever RoundConfig.TemplateId it's given here
+                    // unvalidated and unread, purely so the entity's shape
+                    // doesn't need another migration if a real template
+                    // concept is ever added later — so a fresh, opaque Guid
+                    // is all this arm needs to produce.
+                    XGHigherLowerGameModule.XGHigherLowerGameKey => Guid.NewGuid(),
                     _ => throw new ArgumentException($"Unknown gameKey '{gameKey}'."),
                 };
 
@@ -135,19 +155,22 @@ public static class InternalRoundEndpoints
 
                 return Results.Ok(new GenerateRoundResponse(round.Id, round.SequenceNumber, round.GameKey, round.StartTime, round.EndTime));
             }
-            catch (Exception ex) when (ex is GridGenerationException or PathGenerationException or PredictGenerationException)
+            catch (Exception ex) when (ex is GridGenerationException or PathGenerationException or PredictGenerationException or HigherLowerGenerationException)
             {
-                // REQ-101/REQ-1202/REQ-1301's abort paths, surfacing through
-                // round generation — GridGenerationException (xg-grid),
-                // PathGenerationException (xg-path), and
+                // REQ-101/REQ-1202/REQ-1301/REQ-1502's abort paths, surfacing
+                // through round generation — GridGenerationException
+                // (xg-grid), PathGenerationException (xg-path),
                 // PredictGenerationException (xg-predict, thrown by
                 // XGPredictGameModule.GenerateInstanceAsync's "PredictTemplate
-                // not found"/"not enough upcoming fixtures" abort paths)
-                // don't share a base type (unlike GameEntityNotFoundException,
-                // which only covers the scoring-side "id doesn't resolve"
-                // failure mode), so all three are caught here via a
-                // type-pattern filter rather than three near-identical catch
-                // blocks — same precedent as
+                // not found"/"not enough upcoming fixtures" abort paths), and
+                // HigherLowerGenerationException (xg-higher-lower, thrown by
+                // XGHigherLowerGameModule.GenerateInstanceAsync's "no
+                // candidate stat category has enough eligible players" fail-
+                // closed abort path) don't share a base type (unlike
+                // GameEntityNotFoundException, which only covers the
+                // scoring-side "id doesn't resolve" failure mode), so all
+                // four are caught here via a type-pattern filter rather than
+                // four near-identical catch blocks — same precedent as
                 // XGArcade.DataSync.Wikidata.WikidataClient's
                 // `catch (Exception ex) when (ex is HttpRequestException or
                 // JsonException)`.

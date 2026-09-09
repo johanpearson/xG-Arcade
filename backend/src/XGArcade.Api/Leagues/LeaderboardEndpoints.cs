@@ -3,6 +3,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Core.Leagues;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGHigherLower;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
 
@@ -289,7 +290,14 @@ public static class LeaderboardEndpoints
     // for the whole Api layer, not two that could silently drift apart.
     internal static IResult? ValidateGameKey(string? gameKey)
     {
-        if (gameKey is not (null or GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey or XGPredictGameModule.XGPredictGameKey))
+        // REQ-1505/S-226: "xg-higher-lower" added to the allow-list —
+        // REQ-1505's own text says this GameKey's leaderboard placement
+        // works "exactly the way every other GameKey's FinalPoints already
+        // does," so the allow-list recognizes it now even though the actual
+        // per-round score source wiring (IRoundScoreSourceResolver) is a
+        // later story, mirroring how "xg-predict" was added here (S-196)
+        // ahead of its own IRoundScoreSource wiring (S-199/ADR-0100).
+        if (gameKey is not (null or GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey or XGPredictGameModule.XGPredictGameKey or XGHigherLowerGameModule.XGHigherLowerGameKey))
         {
             return Results.Problem(
                 title: "Invalid gameKey",

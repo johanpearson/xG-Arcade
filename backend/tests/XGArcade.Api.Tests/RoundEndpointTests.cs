@@ -18,6 +18,7 @@ using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.DataSync.FootballData;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGHigherLower;
 using XGArcade.Games.XGPath;
 using XGArcade.Games.XGPredict;
 
@@ -194,6 +195,39 @@ public class RoundEndpointTests
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = seededClubName, StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = secondSeededClubName, StartYear = 2013, EndYear = 2016, SequenceOrder = 1 },
                 new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Another Unseeded Club", StartYear = 2016, EndYear = null, SequenceOrder = 2 });
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    // This story (wiring "xg-higher-lower" into round scheduling, REQ-1505/
+    // S-226): eligible xG Higher/Lower players for the "trophy" stat
+    // category — mirrors XGHigherLowerGameModuleTests.
+    // SeedPlayersWithAttributeCountsAsync's exact fixture shape (one
+    // distinct trophy-count value per player, via real PlayerAttribute
+    // rows) rather than reinventing it, since that's the file that already
+    // established what "eligible" means for this game at a fixture level.
+    // "club" (this game's other candidate category) is left unseeded on
+    // purpose — REQ-1502's own "skip a category that can't possibly work"
+    // rule means it's simply never selected here, not a failure.
+    private async Task SeedEligibleHigherLowerPlayersAsync(int count, WebApplicationFactory<Program>? factory = null)
+    {
+        using var scope = (factory ?? _factory).Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        for (var i = 1; i <= count; i++)
+        {
+            var player = new Player { Id = Guid.NewGuid(), FullName = $"Higher/Lower Player {i}", WikidataQid = $"Qhigherlowerplayer-{i}-{Guid.NewGuid()}" };
+            dbContext.Players.Add(player);
+            for (var j = 0; j < i; j++)
+            {
+                dbContext.PlayerAttributes.Add(new PlayerAttribute
+                {
+                    PlayerId = player.Id,
+                    AttributeType = "trophy",
+                    AttributeValue = $"trophy-{j}-{player.Id}",
+                });
+            }
         }
 
         await dbContext.SaveChangesAsync();
@@ -779,6 +813,105 @@ public class RoundEndpointTests
         Assert.That(problem.Detail, Does.Contain("Not enough upcoming fixtures"));
 
         using var scope = xgPredictFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an aborted generation must never create a round");
+    }
+
+    // ---- This story (wiring "xg-higher-lower" into round scheduling, ------
+    // REQ-1505/S-226): generate-round is genuinely GameKey-parameterized ----
+    // for "xg-higher-lower" too, end-to-end through the real endpoint ------
+
+    [Test]
+    public async Task REQ1505_GenerateRound_Post_WithGameKeyXgHigherLower_GeneratesAnXgHigherLowerRound_UsingItsOwnConfiguredRoundDuration()
+    {
+        // A dedicated layered factory adds xg-higher-lower's own
+        // RoundSchedulingOptions (36h — deliberately distinct from SetUp's
+        // xg-grid 72h) and a smaller HigherLowerGenerationOptions.
+        // ComparatorCount so only a few eligible players need seeding,
+        // mirroring the GridGenerationOptions.GridSize=3/
+        // PathGenerationOptions.PuzzleCount=3 overrides SetUp/
+        // REQ1202_GenerateRound_Post_WithGameKeyXgPath_... already do for
+        // their own games. Unlike xg-predict's own test above, timing here
+        // IS real chain-math (XGHigherLowerGameModule.GenerateInstanceAsync
+        // never sets SuggestedStartTime/SuggestedEndTime) — this is the
+        // API-level proof that gameKey=xg-higher-lower is no longer
+        // rejected by InternalRoundEndpoints' up-front gameKey-allowlist
+        // check, needs no template-resolution repository call (see that
+        // switch arm's own comment — HigherLowerInstance.TemplateId is
+        // stored unvalidated), and runs a real
+        // XGHigherLowerGameModule.GenerateInstanceAsync against real
+        // PlayerAttribute seed data.
+        var xgHigherLowerFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<HigherLowerGenerationOptions>();
+                services.AddSingleton(new HigherLowerGenerationOptions { ComparatorCount = 3, MaxAttemptsPerCategory = 20 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGHigherLowerGameModule.XGHigherLowerGameKey,
+                    RoundDuration = TimeSpan.FromHours(36),
+                });
+            });
+        });
+        await SeedEligibleHigherLowerPlayersAsync(count: 5, factory: xgHigherLowerFactory);
+        var client = xgHigherLowerFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-higher-lower", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.GameKey, Is.EqualTo(XGHigherLowerGameModule.XGHigherLowerGameKey));
+        Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(36)),
+            "must use xg-higher-lower's own configured RoundDuration (36h), never xg-grid's (72h, per this class's SetUp)");
+
+        using var scope = xgHigherLowerFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(1));
+        var instance = await dbContext.HigherLowerInstances.Include(hli => hli.Comparators).SingleAsync();
+        Assert.That(instance.Comparators, Has.Count.EqualTo(3), "REQ-1503: exactly ComparatorCount comparators");
+    }
+
+    [Test]
+    public async Task REQ1505_GenerateRound_Post_WithGameKeyXgHigherLower_NoCandidateCategoryHasEnoughEligiblePlayers_ReturnsProblemDetails()
+    {
+        // REQ-1502's abort-and-log case surfacing through this endpoint's
+        // catch filter, now extended to include HigherLowerGenerationException
+        // alongside GridGenerationException/PathGenerationException/
+        // PredictGenerationException — mirrors
+        // REQ1301_GenerateRound_Post_WithGameKeyXgPredict_TooFewUpcomingFixtures_...'s
+        // "Round generation failed" 500 assertion above, for xg-higher-lower's
+        // own abort path instead: nothing at all is seeded for either
+        // candidate stat category ("trophy"/"club") — neither can possibly
+        // satisfy ComparatorCount + 1 eligible players.
+        var xgHigherLowerFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<HigherLowerGenerationOptions>();
+                services.AddSingleton(new HigherLowerGenerationOptions { ComparatorCount = 3, MaxAttemptsPerCategory = 20 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGHigherLowerGameModule.XGHigherLowerGameKey,
+                    RoundDuration = TimeSpan.FromHours(36),
+                });
+            });
+        });
+        var client = xgHigherLowerFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-higher-lower", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Round generation failed"));
+        Assert.That(problem.Detail, Does.Contain("Could not build a full-length"));
+
+        using var scope = xgHigherLowerFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an aborted generation must never create a round");
     }
