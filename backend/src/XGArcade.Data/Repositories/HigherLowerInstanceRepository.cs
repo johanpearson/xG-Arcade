@@ -17,4 +17,68 @@ public class HigherLowerInstanceRepository(XGArcadeDbContext dbContext) : IHighe
             .AsNoTracking()
             .Include(hli => hli.Comparators)
             .FirstOrDefaultAsync(hli => hli.Id == id, cancellationToken);
+
+    public async Task<HigherLowerAttempt?> GetAttemptAsync(Guid higherLowerInstanceId, Guid? userId, CancellationToken cancellationToken = default) =>
+        await dbContext.HigherLowerAttempts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.HigherLowerInstanceId == higherLowerInstanceId && a.UserId == userId, cancellationToken);
+
+    public async Task SaveAttemptAsync(
+        Guid higherLowerInstanceId,
+        Guid? userId,
+        int streakLength,
+        Guid currentBaselinePlayerId,
+        int currentBaselineValue,
+        bool hasEnded,
+        CancellationToken cancellationToken = default)
+    {
+        // Load-then-save (coding-guidelines.md — never ExecuteUpdateAsync,
+        // the InMemory test provider can't translate it), tracked this time
+        // (unlike the AsNoTracking reads above) since this call may update
+        // an existing row in place.
+        var existing = await dbContext.HigherLowerAttempts
+            .FirstOrDefaultAsync(a => a.HigherLowerInstanceId == higherLowerInstanceId && a.UserId == userId, cancellationToken);
+
+        if (existing is not null)
+        {
+            existing.StreakLength = streakLength;
+            existing.CurrentBaselinePlayerId = currentBaselinePlayerId;
+            existing.CurrentBaselineValue = currentBaselineValue;
+            existing.HasEnded = hasEnded;
+        }
+        else
+        {
+            dbContext.HigherLowerAttempts.Add(new HigherLowerAttempt
+            {
+                Id = Guid.NewGuid(),
+                HigherLowerInstanceId = higherLowerInstanceId,
+                UserId = userId,
+                StreakLength = streakLength,
+                CurrentBaselinePlayerId = currentBaselinePlayerId,
+                CurrentBaselineValue = currentBaselineValue,
+                HasEnded = hasEnded,
+            });
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    // Load-then-save rather than ExecuteUpdateAsync: this codebase's tests
+    // run against EF Core's InMemory provider (docs/coding-guidelines.md),
+    // which doesn't support translating bulk ExecuteUpdate/ExecuteDelete
+    // calls — same reason PredictInstanceRepository.
+    // AnonymizePredictionsByUserIdAsync does too.
+    public async Task AnonymizeAttemptsByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var attempts = await dbContext.HigherLowerAttempts
+            .Where(a => a.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var attempt in attempts)
+        {
+            attempt.UserId = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

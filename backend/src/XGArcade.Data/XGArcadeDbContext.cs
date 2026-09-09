@@ -78,6 +78,11 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // for why no HigherLowerTemplate concept exists yet.
     public DbSet<HigherLowerInstance> HigherLowerInstances => Set<HigherLowerInstance>();
     public DbSet<HigherLowerComparator> HigherLowerComparators => Set<HigherLowerComparator>();
+    // REQ-1504/S-225: one participant's independent, in-progress (or ended)
+    // attempt at a HigherLowerInstance's fixed comparator sequence — a
+    // separate top-level table, not owned by HigherLowerInstance.Comparators
+    // above. See HigherLowerAttempt's own doc comment for the full shape.
+    public DbSet<HigherLowerAttempt> HigherLowerAttempts => Set<HigherLowerAttempt>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
@@ -447,6 +452,38 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .WithMany()
             .HasForeignKey(hlc => hlc.PlayerId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1504/S-225: HigherLowerAttempt is Games.XGHigherLower's
+        // (COMP-18) own per-participant progress table — a real FK to its
+        // parent HigherLowerInstance, cascade, same "own-component FK"
+        // precedent PredictMatchPrediction.PredictMatchId's own registration
+        // above sets. Deliberately NO FK for UserId — mirrors Guess.UserId's/
+        // PredictMatchPrediction.UserId's own unconstrained shape (REQ-710
+        // anonymization precedent).
+        modelBuilder.Entity<HigherLowerAttempt>()
+            .HasOne<HigherLowerInstance>()
+            .WithMany()
+            .HasForeignKey(hla => hla.HigherLowerInstanceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Same "a game module referencing shared player data" precedent as
+        // HigherLowerInstance.BaselinePlayerId/HigherLowerComparator.PlayerId
+        // above — CurrentBaselinePlayerId is always one of this instance's
+        // own baseline/comparator players, so the same FK/cascade shape
+        // applies.
+        modelBuilder.Entity<HigherLowerAttempt>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(hla => hla.CurrentBaselinePlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1504: at most one HigherLowerAttempt row per (instance, user)
+        // — a further guess updates this row, never inserts a second one.
+        // Same precedent as PredictMatchPrediction's own (PredictMatchId,
+        // UserId) unique index.
+        modelBuilder.Entity<HigherLowerAttempt>()
+            .HasIndex(hla => new { hla.HigherLowerInstanceId, hla.UserId })
+            .IsUnique();
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
         // every scheduled generation invocation — the hot path for this table.
