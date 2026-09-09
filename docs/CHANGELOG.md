@@ -51,6 +51,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   backfilled across S-223 through S-226), left untouched, same precedent as
   the S-224/S-225 entries below; flagged as an open question for a future
   pass, not fixed in this one.
+- 2026-09-09 — `docs/requirements-document.md` (§4.16 intro and REQ-1505
+  Status note corrected), `docs/architecture-document.md` (COMP-18 row's
+  "still open" leaderboard note corrected), `docs/backlog.md` (S-226 entry
+  extended with the CI-caught-bug/fix narrative) — same-session correction
+  to the entry immediately above. A CI run caught that the "no
+  `IRoundScoreSourceResolver` entry yet, deliberately deferred" claim was
+  actively wrong, not merely incomplete: `LeaderboardEndpoints.ValidateGameKey`
+  accepting `"xg-higher-lower"` with no matching `IRoundScoreSource`
+  registered threw a 500 (`IRoundScoreSourceResolver.Resolve` is called
+  unconditionally for every accepted `GameKey`, and — unlike when
+  `"xg-predict"`'s own `ValidateGameKey` entry landed in S-196, before this
+  resolver mechanism existed at all — it already exists today, so the
+  xg-predict-era two-story split doesn't transfer safely). Fixed same
+  session: new `HigherLowerRoundScoreSource` (`Games.XGHigherLower`,
+  mirrors `PredictRoundScoreSource`), two new `IHigherLowerInstanceRepository`
+  methods, registered against `"xg-higher-lower"` in `ServiceRegistration.cs`'s
+  `IRoundScoreSourceResolver` factory — closing REQ-1505's leaderboard
+  ranking/tie-break acceptance criteria for real, with new
+  `HigherLowerRoundScoreSourceTests` and two `REQ1505_`-prefixed
+  `LeaderboardEndpointTests` ranking/tie-break cases.
 - 2026-09-09 — `docs/architecture-document.md` (COMP-18 row extended with a
   dated S-225 note, v1.60 → v1.61), `docs/requirements-document.md`
   (REQ-1504 Status note added, §4.16 intro paragraph reworded, v2.82 →

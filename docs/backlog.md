@@ -11594,8 +11594,14 @@ no separate live formula. New `HigherLowerRoundScoreSourceTests` plus two
 `FinalPoints` order, display-name tie-break) close the ranking/tie-break
 acceptance gap the original diff had left untested. A second
 `architecture-reviewer`/`quality-architect` pass ran against this
-follow-up commit specifically (see their verdicts recorded in this same
-session) before CI was re-triggered.
+follow-up commit specifically: `architecture-reviewer` PASSed clean (no
+ADR-0100 boundary issues, `HigherLowerRoundScoreSource` never injects
+`IRoundRepository`/`IUserRepository`, `Core.Scoring`/`Core.Leagues` never
+reference a `Games.XGHigherLower` type directly); `quality-architect`
+found one more blocking naming-convention miss — a test in the new
+`HigherLowerRoundScoreSourceTests` missing its `REQ407_` prefix, the same
+recurring failure mode as this story's first quality-gate round — fixed in
+a same-session follow-up commit before CI was re-triggered.
 
 **S-227 · API endpoints**
 `GET` current-round/attempt-state and `POST` guess-submission endpoints,
