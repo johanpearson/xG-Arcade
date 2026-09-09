@@ -22,6 +22,13 @@ public class ChallengeRepository(XGArcadeDbContext dbContext) : IChallengeReposi
             .Where(c => c.ChallengedUserId == challengedUserId && c.Status == ChallengeStatus.Pending)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Challenge>> GetSentChallengesForUserAsync(
+        Guid challengerUserId, CancellationToken cancellationToken = default) =>
+        await dbContext.Challenges
+            .AsNoTracking()
+            .Where(c => c.ChallengerUserId == challengerUserId && c.Status == ChallengeStatus.Pending)
+            .ToListAsync(cancellationToken);
+
     public async Task UpdateChallengeStatusAsync(
         Guid challengeId, ChallengeStatus status, DateTime resolvedAt, Guid? resultingMatchId = null,
         CancellationToken cancellationToken = default)

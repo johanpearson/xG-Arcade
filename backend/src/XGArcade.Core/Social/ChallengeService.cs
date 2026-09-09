@@ -95,6 +95,10 @@ public class ChallengeService(
         Guid userId, CancellationToken cancellationToken = default) =>
         challengeRepository.GetPendingChallengesForUserAsync(userId, cancellationToken);
 
+    public Task<IReadOnlyList<Challenge>> GetSentChallengesAsync(
+        Guid userId, CancellationToken cancellationToken = default) =>
+        challengeRepository.GetSentChallengesForUserAsync(userId, cancellationToken);
+
     // Accept/decline share every precondition check (found, responder is
     // the challenged user, still Pending) but differ in which final Status
     // is written and whether a resultingMatchId is ever supplied — unlike

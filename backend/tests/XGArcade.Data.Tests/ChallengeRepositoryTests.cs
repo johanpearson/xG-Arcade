@@ -90,6 +90,33 @@ public class ChallengeRepositoryTests
     }
 
     [Test]
+    public async Task REQ1402_GetSentChallengesForUserAsync_ReturnsOnlyPendingChallengesFromThatChallenger()
+    {
+        var challengerId = Guid.NewGuid();
+        var otherChallengerId = Guid.NewGuid();
+        var pending = new Challenge
+        {
+            Id = Guid.NewGuid(), ChallengerUserId = challengerId, ChallengedUserId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow,
+        };
+        var resolved = new Challenge
+        {
+            Id = Guid.NewGuid(), ChallengerUserId = challengerId, ChallengedUserId = Guid.NewGuid(),
+            Status = ChallengeStatus.Accepted, CreatedAt = DateTime.UtcNow, ResolvedAt = DateTime.UtcNow,
+        };
+        var otherUsers = new Challenge
+        {
+            Id = Guid.NewGuid(), ChallengerUserId = otherChallengerId, ChallengedUserId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow,
+        };
+        await _repository.AddChallengeAsync(pending);
+        await _repository.AddChallengeAsync(resolved);
+        await _repository.AddChallengeAsync(otherUsers);
+
+        var result = await _repository.GetSentChallengesForUserAsync(challengerId);
+
+        Assert.That(result.Select(c => c.Id), Is.EquivalentTo(new[] { pending.Id }));
+    }
+
+    [Test]
     public async Task UpdateChallengeStatusAsync_SetsStatusAndResolvedAt_LeavesResultingMatchIdNull_WhenNotSupplied()
     {
         var challenge = new Challenge
