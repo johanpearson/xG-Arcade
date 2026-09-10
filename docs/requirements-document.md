@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.89"
+version: "2.90"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13208,6 +13208,42 @@ acceptance criteria. See also REQ-1506 below for the additional
 caps-based pool-eligibility floor this same round of feedback introduced —
 a separate, additional rule, not a replacement for anything in this REQ.
 
+**Status (2026-09-10, S-231, ADR-0112):** Implemented — the above is no
+longer only planned. `HigherLowerGenerationService.CandidateStatCategories`
+(`backend/src/XGArcade.Games.XGHigherLower/HigherLowerGenerationService.cs`)
+is now `["trophy", "international-caps", "international-goals"]` — `"club"`
+removed entirely. A new
+`IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync`
+(`backend/src/XGArcade.Data/Repositories/PlayerOverrideRepository.cs`)
+implements ADR-0112's single-recorded-value derivation (mirroring
+`GetEffectivePlayerCountsByAttributeTypeAsync`'s absent-not-zero contract,
+override-replaces-the-value semantics); `GetEffectivePlayerValuesForCategoryAsync`
+dispatches `"trophy"` to the existing count method and
+`"international-caps"`/`"international-goals"` to the new single-value
+method. Sourcing: a new `IPlayerInternationalStatsRefreshService`/
+`PlayerInternationalStatsRefreshService`
+(`backend/src/XGArcade.DataSync/Wikidata/`) fetches
+`P1350`/`P1351` qualifiers on a player's national-team `P54` statement
+(`IWikidataClient.QueryInternationalStatsByQidsAsync`, any team carrying
+truthy `wdt:P1532`, highest-recorded-caps-value tie-break per ADR-0112
+point 4), and a new `PlayerInternationalStatsBackfillService` drives it
+across every already-known Player row missing an `"international-caps"`
+row, via the new `dotnet run -- backfill-player-international-stats` CLI
+verb (`.github/workflows/backfill-player-international-stats.yml`,
+manual `workflow_dispatch` only) — this is what populates the candidate
+pool BEFORE `HigherLowerGenerationService` ever runs, the same
+precondition `"club"`/`"trophy"` data already has via
+`prefetch-player-careers.yml`. Unit-tested in
+`PlayerOverrideRepositoryTests`, `WikidataClientTests`,
+`PlayerInternationalStatsRefreshServiceTests`,
+`PlayerInternationalStatsBackfillServiceTests`, and
+`HigherLowerGenerationServiceTests`. Real Wikidata query correctness/
+coverage is NOT verified from the implementing sandbox (no network egress
+to `query.wikidata.org`) — see ADR-0112's Consequences section; needs a
+real `ci.yml` `workflow_dispatch` run and a real dev-environment
+`backfill-player-international-stats` run before this category's real-data
+coverage is trusted.
+
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed
 > sequence to have exactly one correct answer and never repeat a player
@@ -13647,6 +13683,27 @@ exact derivation of "international caps count" for a given player is the
 same single-recorded-value shape as REQ-1501's international-caps category
 and is covered by ADR-0112 (forthcoming, an extension of ADR-0111), not
 restated here.
+
+**Status (2026-09-10, S-231, ADR-0112):** Implemented —
+`HigherLowerGenerationService.GenerateInstanceAsync`
+(`backend/src/XGArcade.Games.XGHigherLower/HigherLowerGenerationService.cs`)
+now reads
+`IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps", ...)`
+exactly once per generation call (never per participant), builds the
+caps>=10 (`HigherLowerGenerationOptions.MinimumInternationalCaps`, default
+10) eligible-player set, and intersects every candidate category's own
+pool against it before REQ-1502's length/tie-building logic runs — applied
+regardless of which category is actually active, including when the
+active category is itself `"international-caps"`/`"international-goals"`.
+An absent caps value (no `PlayerAttribute` row and no `PlayerOverride`)
+is never treated as satisfying the floor, per this REQ's own "absent is
+never treated as satisfying it" rule. Unit-tested in
+`HigherLowerGenerationServiceTests` (`REQ1506_`-prefixed cases: below-floor
+exclusion alongside an otherwise-valid trophy value, absent-vs-recorded-
+zero-to-nine exclusion, the floor applying when caps or goals is itself
+the active category). See REQ-1501's own 2026-09-10 status note for the
+sourcing/data-population side this REQ's floor depends on, including the
+real-data-verification caveat.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the

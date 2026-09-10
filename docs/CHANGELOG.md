@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (§4.16 REQ-1501/REQ-1506
+  status notes, v2.89 → v2.90), `docs/architecture-document.md` (COMP-18
+  row, v1.64 → v1.65), `docs/backlog.md` (S-231 "Built as" note),
+  `NOTES.md` (resolution update appended to the 2026-09-10 "club count"
+  follow-up entry), `docs/decisions/0112-*.md` (built against, no changes
+  to the ADR itself)
+  — S-231 implemented: `"club"` removed from
+  `HigherLowerGenerationService.CandidateStatCategories`;
+  `"international-caps"`/`"international-goals"` added, sourced via a new
+  `IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync`
+  (single-recorded-value derivation, ADR-0112) dispatched alongside the
+  existing `"trophy"` count derivation (ADR-0111). New REQ-1506 pool-wide
+  caps>=10 floor implemented and wired into generation, applied regardless
+  of active category. New Wikidata sourcing:
+  `IWikidataClient.QueryInternationalStatsByQidsAsync` (P1350/P1351
+  qualifiers on a national-team P54 statement, any P1532-bearing team),
+  `PlayerInternationalStatsRefreshService` (batch refresh, mirrors
+  `IPlayerCareerStintRefreshService`'s shape), and
+  `PlayerInternationalStatsBackfillService` (drives the refresh service
+  across the full existing player pool — a backfill cursor, not a
+  `PlayerCareerPrefetchService`-style country/club discovery sweep) behind
+  a new `dotnet run -- backfill-player-international-stats` CLI verb
+  (`.github/workflows/backfill-player-international-stats.yml`). No local
+  `dotnet` SDK in this sandbox — hand-traced against the diff; real
+  Wikidata query correctness/coverage NOT verified live (no network egress
+  to query.wikidata.org from this sandbox), per ADR-0112's own
+  Consequences section — needs a `ci.yml` `workflow_dispatch` run and a
+  real dev-environment `backfill-player-international-stats` run before
+  trusting real-data coverage. `frontend/src/lib/higherLower.ts`'s
+  display-label map is explicitly NOT updated by this change (out of
+  scope for this story, handled separately).
 - 2026-09-10 — `docs/requirements-document.md` (§4.16, v2.88 → v2.89):
   direct product-owner decision (not open-question resolution) — "club" is
   being removed as an xG Higher/Lower stat category and replaced with
