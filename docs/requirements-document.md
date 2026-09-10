@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.92"
+version: "2.93"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13277,6 +13277,27 @@ for the new coverage (a no-qualifying-data player gets the marker but no
 fabricated attribute row; a failed batch gets neither; a resolved player
 gets both; a second backfill run doesn't re-attempt an already-checked
 "no data" player).
+
+**Status note (2026-09-10, direct product-owner follow-up, scoped to
+S-232, ADR-0113):** REQ-1507's own real coverage numbers surfaced a
+pre-existing gap, not something S-231 introduced: only 20 of 170,678
+players have any `"trophy"` value at all. Root cause: `"trophy"`
+`PlayerAttribute` rows have only ever been written as a byproduct of xG
+Grid's Trophy×Country/Trophy×Club candidate-search queries
+(`WikidataLookupService`), never swept broadly across the pool the way
+club/nationality (`PlayerCareerPrefetchService`) or, as of S-231, caps/
+goals now are — not a "too few trophies" problem (the 3 seeded
+`TrophyDefinition`s already include FIFA World Cup and UEFA Champions
+League, not just Ballon d'Or). ADR-0113 (extends ADR-0061/ADR-0111/
+ADR-0112) adds a broad per-player-batch trophy sweep,
+`IPlayerTrophyStatsRefreshService`/`PlayerTrophyStatsBackfillService`,
+mirroring the caps/goals sweep's own shape exactly — including its
+`PlayerData` "checked"-marker idempotency mechanism from the first
+commit, not retrofitted after the fact a second time. No change to this
+REQ's own text or to ADR-0111's COUNT-of-rows derivation — this is a new
+sourcing path for the same `"trophy"` data shape, not a new category or
+a new eligibility rule. See ADR-0113 for the full query design and
+`docs/backlog.md`'s S-232 entry for scope.
 
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed

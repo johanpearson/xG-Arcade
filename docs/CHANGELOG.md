@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/decisions/0113-*.md` (new ADR), `docs/backlog.md`
+  (new S-232 entry), `docs/requirements-document.md` (REQ-1501 status
+  note, v2.92 → v2.93) — REQ-1507's real coverage numbers surfaced that
+  only 20 of 170,678 players have any `"trophy"` value (vs. 31,509 for
+  caps) — a pre-existing gap (trophy data was only ever a byproduct of
+  xG Grid's candidate-search queries, never broadly swept), not
+  something S-231 introduced, and not fixed by adding more trophies to
+  the seeded list. ADR-0113 scopes a broad per-player trophy sweep
+  mirroring ADR-0112's caps/goals sweep exactly — S-232, groundwork only
+  in this commit, implementation to follow.
+
 - 2026-09-10 — `docs/requirements-document.md` (REQ-1507 status note,
   v2.91 → v2.92) — added `report-international-stats-coverage` as a
   second access path to REQ-1507's coverage numbers
