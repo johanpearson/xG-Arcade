@@ -11753,7 +11753,18 @@ into a `HigherLowerGenerationService` in a future refactor — not acted on
 this story, recorded in `NOTES.md` instead of silently dropped. Full CI
 (`ci.yml` via `workflow_dispatch`) had already passed green on `main`
 before these two fix commits; a follow-up run to verify them was in
-progress as of this doc-sync pass. `docs/requirements-document.md`
+progress as of this doc-sync pass — that follow-up run (`ci.yml` #883)
+did catch a real bug, confined to the new E2E spec itself: the
+completion-banner test clicked `.leaderboard-screen__round-list-button`,
+but the banner's "View leaderboard" link seeds `initialRoundId`
+(`App.tsx`'s `handleViewRoundLeaderboard`), which makes
+`PastRoundsLeaderboard` auto-drill straight into the round's detail view
+and skip the round list entirely — so that button never renders on this
+path and the click timed out. Fixed in `7f1a62c` (waits on the round
+detail's own fetch instead of a click that was never reachable); no
+product code changed. Re-run (`ci.yml` #884) passed green — backend build
++ tests, frontend unit tests, and the full E2E suite including the fixed
+spec. `docs/requirements-document.md`
 checked against ADR-0110's "Follow-up" note (§4.16's REQ-1501 through
 REQ-1505 text) — already fully updated across S-224-S-227's own status
 notes, no further edit needed. `docs/architecture-document.md` checked —

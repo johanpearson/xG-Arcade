@@ -49,8 +49,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   since backfilling it was explicitly out of this close-out story's scope
   and the new seed endpoint has no existing section to attach to without
   that larger backfill. Full CI (`ci.yml` `workflow_dispatch`) had already
-  passed on `main` before the two fix commits above; a verification run for
-  them was in progress as of this doc-sync pass, not yet confirmed.
+  passed on `main` before the two fix commits above; the follow-up
+  verification run (#883) caught a genuine bug confined to the new E2E spec
+  itself — `play-higher-lower.spec.ts`'s completion-banner test clicked
+  `.leaderboard-screen__round-list-button`, but the banner's "View
+  leaderboard" link seeds `initialRoundId`, which makes
+  `PastRoundsLeaderboard` auto-drill straight into the round's detail view
+  and skip the round list, so that button never renders on this path. Fixed
+  in `7f1a62c` (waits on the round detail's own fetch instead); no product
+  code changed. Re-run (#884) passed green across backend, frontend unit,
+  and the full E2E suite.
 - 2026-09-09 — `docs/requirements-document.md` (v2.86 → v2.87) — doc-sync
   check for S-228 (xG Higher/Lower frontend screen, REQ-1504/1505): added a
   brief status note to §4.16's intro recording that
