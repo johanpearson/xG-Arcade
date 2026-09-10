@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.90"
+version: "2.91"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13244,6 +13244,40 @@ real `ci.yml` `workflow_dispatch` run and a real dev-environment
 `backfill-player-international-stats` run before this category's real-data
 coverage is trusted.
 
+**Status (2026-09-10, follow-up to S-231/PR #367 — bug fix, found by
+running `backfill-player-international-stats.yml` twice in the dev
+environment):** the backfill above was not actually idempotent in
+practice. `PlayerInternationalStatsRefreshService` only ever wrote the
+`"international-caps"` `PlayerAttribute` row `IPlayerBackfillRepository
+.GetPlayersMissingInternationalStatsAsync` used as its sole "already
+processed" signal when Wikidata actually resolved a usable caps value —
+so a player Wikidata genuinely has no international-stats data for (the
+large majority of any football player pool) never got that row and looked
+identically "missing" on every future run, forever. Real numbers: a
+same-day re-run (retrying ~2,600 batches that failed with transient
+502s/timeouts on the first run) attempted 139,639 players instead of the
+expected ~2,600 — ~137,000 needless re-queries. Fixed by adding a second,
+`PlayerData`-only bookkeeping marker
+(`PlayerInternationalStatsRefreshService.CheckedMarkerField`,
+`"international-stats-checked"` — deliberately never written to
+`PlayerAttribute`, so it can never leak into game-eligibility logic, which
+only ever reads `PlayerAttribute`/`PlayerOverride`, per `PlayerData`'s own
+doc comment) written for every player in a successfully-queried batch,
+regardless of whether that batch resolved usable data for them; a failed
+batch (`WikidataQueryException`) writes no marker, so those players
+correctly stay retryable.
+`GetPlayersMissingInternationalStatsAsync` now excludes a player who has
+EITHER the real `"international-caps"` row OR the new marker — checking
+both (not marker-only) is deliberate, so a player who already has real
+data from before this fix shipped (and so has no marker) isn't treated as
+"missing" again. See `NOTES.md`'s 2026-09-10 entry for the full
+investigation and `PlayerInternationalStatsRefreshServiceTests`/
+`PlayerInternationalStatsBackfillServiceTests`/`PlayerBackfillRepositoryTests`
+for the new coverage (a no-qualifying-data player gets the marker but no
+fabricated attribute row; a failed batch gets neither; a resolved player
+gets both; a second backfill run doesn't re-attempt an already-checked
+"no data" player).
+
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed
 > sequence to have exactly one correct answer and never repeat a player
@@ -13704,6 +13738,65 @@ zero-to-nine exclusion, the floor applying when caps or goals is itself
 the active category). See REQ-1501's own 2026-09-10 status note for the
 sourcing/data-population side this REQ's floor depends on, including the
 real-data-verification caveat.
+
+**REQ-1507 – Admin visibility into international-caps/goals data coverage**
+> As an admin, I want to see how many players in the pool actually have a
+> real international-caps/international-goals value, and specifically how
+> many clear REQ-1506's caps>=10 floor, so I can judge whether the eligible
+> pool for xG Higher/Lower is actually healthy rather than trusting an
+> untested assumption.
+
+- Given the current player pool, with whatever `PlayerAttribute`/
+  `PlayerOverride` (COMP-06) international-caps/international-goals/trophy
+  data has been synced so far
+- When an admin requests this coverage view
+- Then it reports: the total player count; how many players have a real
+  effective international-caps value; how many have a real effective
+  international-goals value; how many have a real effective trophy value
+  (for comparison against the two new categories); and how many players'
+  effective international-caps value meets REQ-1506's floor
+  (`HigherLowerGenerationOptions.MinimumInternationalCaps`), with that
+  threshold echoed back in the same response
+- And every count reflects the EFFECTIVE value (an admin `PlayerOverride`
+  takes precedence over a raw `PlayerAttribute` row, same precedence every
+  other correctness-checking path in this system already enforces,
+  ADR-0015/ADR-0111/ADR-0112) — never a raw row count that could
+  double-count or miscount an overridden player
+- And this view is a pure read of already-persisted state — it never
+  itself triggers Round generation, a Wikidata query, or the
+  international-stats backfill (`PlayerInternationalStatsBackfillService`)
+- Given a non-admin token
+- When the underlying endpoint for this view is called
+- Then it responds 403, the same policy-gating every other admin endpoint
+  already enforces
+
+**Test level:** API — a mix of well-covered/below-floor/trophy-only/
+no-data players produces the correct counts for each figure; an admin
+override on a player's international-caps value is reflected in the
+floor count instead of that player's raw, overridden-away value; an empty
+pool returns all-zero counts; 403s a non-admin token; the endpoint stays
+registered (including in Production, since this reads real operational
+data, not seeded/test data).
+
+**Status (2026-09-10, follow-up to S-231):** Implemented — `GET
+/admin/xg-higher-lower/international-stats-coverage`
+(`XGArcade.Api.Admin.AdminXGHigherLowerEndpoints`), gated on the same
+`"Admin"` policy and registered unconditionally, mirroring
+`AdminXGPathEndpoints.cs`'s (REQ-1209) exact shape. Directly answers
+ADR-0112's own "get real Wikidata coverage numbers before fully trusting
+this" open risk (that ADR's Consequences section). Reuses
+`IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync`
+(caps/goals) and `GetEffectivePlayerCountsByAttributeTypeAsync` (trophy) —
+both already override-aware and already used by
+`HigherLowerGenerationService` itself — rather than a new raw query, so
+this view can never drift out of sync with what generation-time
+eligibility actually sees. `IPlayerRepository.CountPlayersAsync` (new,
+mirrors `IUserRepository.CountUsersAsync`) supplies the total-player
+denominator. API-tested in `AdminXGHigherLowerEndpointTests.cs`. This
+endpoint reports counts on demand; it does not itself change how many
+players are eligible — actually improving low real-world coverage, if the
+next real run of this endpoint shows it's low, remains a separate,
+not-yet-scoped follow-up.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the
