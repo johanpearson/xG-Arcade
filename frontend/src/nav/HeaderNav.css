@@ -189,7 +189,19 @@
   /* REQ-720: inside the already-vertical mobile dropdown, the nested
      "Games" list stacks in normal flow (indented under its own toggle)
      rather than floating as an absolute flyout over the other entries —
-     the absolute-flyout treatment above is a desktop-row-only concern. */
+     the absolute-flyout treatment above is a desktop-row-only concern.
+     `.header-nav__games` itself also needs to switch to column flow here:
+     its base rule above is `display: flex` with no direction (fine at/above
+     the breakpoint, since the list there is `position: absolute` and out of
+     flow), but once the list below is put back into normal flow by the next
+     rule, an un-redirected row would place the toggle and the now-block
+     list as side-by-side flex siblings instead of the list stacking under
+     its toggle. */
+  .header-nav__menu--open .header-nav__games {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .header-nav__menu--open .header-nav__games-list--open {
     position: static;
     min-width: 0;

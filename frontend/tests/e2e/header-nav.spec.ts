@@ -210,9 +210,20 @@ test.describe('REQ-720: header nav "Games" entry', () => {
     // on the game-select screen, which already renders its own "xG Grid"
     // tile in <main> — an unscoped getByRole would match both and fail with
     // a strict-mode violation.
-    await expect(
-      page.locator('#header-nav-games-list').getByRole('button', { name: 'xG Grid' }),
-    ).toBeVisible()
+    const gridEntry = page.locator('#header-nav-games-list').getByRole('button', { name: 'xG Grid' })
+    await expect(gridEntry).toBeVisible()
+
+    // Regression check for the row-layout bug this test previously missed:
+    // `expectNoHorizontalOverflow` alone doesn't catch the "Games" toggle
+    // and its revealed list rendering as side-by-side flex siblings instead
+    // of stacked (the row was narrow enough not to overflow, just visually
+    // wrong/overlapping). The first games-list entry must sit below the
+    // toggle it's disclosed from, not beside it.
+    const toggleBox = await gamesToggle.boundingBox()
+    const gridEntryBox = await gridEntry.boundingBox()
+    expect(toggleBox).not.toBeNull()
+    expect(gridEntryBox).not.toBeNull()
+    expect(gridEntryBox!.y).toBeGreaterThanOrEqual(toggleBox!.y + toggleBox!.height)
 
     await expectNoHorizontalOverflow(page)
   })
