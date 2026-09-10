@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `NOTES.md` (appended a resolution note to the 2026-09-10
+  entry) — pure structural refactor, no requirement/architecture change:
+  split `XGHigherLowerGameModule.cs`'s REQ-1501/1502/1503 generation logic
+  into new `HigherLowerGenerationService.cs`/`IHigherLowerGenerationService.cs`,
+  mirroring `GridGameModule`'s own S-119 split into `GridGenerationService`
+  (`ScoreSubmissionAsync` stayed inline, same as `GridGameModule`'s did).
+  Updated `ServiceRegistration.cs`'s DI registration and split
+  `XGHigherLowerGameModuleTests.cs` into itself plus new
+  `HigherLowerGenerationServiceTests.cs`, closing the non-blocking
+  `quality-architect` finding from S-229's close-out.
 - 2026-09-10 — `docs/backlog.md` (S-229 entry given a "Built as" narrative
   paragraph), `NOTES.md` (new 2026-09-10 entry) — doc-sync for S-229, the
   xG Higher/Lower close-out story (Epic 28). `architecture-reviewer` found
