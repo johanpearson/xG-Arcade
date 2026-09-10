@@ -639,6 +639,21 @@ export interface HigherLowerBaseline {
   playerId: string;
   name: string;
   value: number;
+  // REQ-1508 (S-233): a nullable Wikidata P18 photo URL for the baseline
+  // player — the same already-backfilled `Player.PhotoUrl` field REQ-214/
+  // S-045 already carries for Grid, exposed on this screen's responses for
+  // the first time (no new sourcing/backfill work). Field name confirmed
+  // against the backend half (`HigherLowerBaselineResponse.PhotoUrl` in
+  // `XGArcade.Api.HigherLower.HigherLowerEndpoints`). Deliberately optional
+  // (`?:`), not just nullable, so an older cached response that predates
+  // this field still degrades safely to "no photo" — same convention
+  // `CurrentRoundGuess.resolvedPlayerPhotoUrl` above already establishes.
+  // Unlike that REQ-214 precedent, this is rendered unconditionally whenever
+  // present, never gated behind a reveal/click — a Higher/Lower player's
+  // identity (name) is already always shown, so a photo only confirms an
+  // already-known identity, never leaks a hidden one (REQ-1508's own
+  // "genuinely different trigger shape" scope note).
+  photoUrl?: string | null;
 }
 
 // REQ-1504 (S-227): mirrors `HigherLowerNextComparatorResponse` exactly —
@@ -648,6 +663,12 @@ export interface HigherLowerBaseline {
 export interface HigherLowerNextComparator {
   playerId: string;
   name: string;
+  // REQ-1508 (S-233): same field/contract as HigherLowerBaseline.photoUrl
+  // above — always-visible identity confirmation, unconditional, never a
+  // reveal/click gate. Showing this has no effect on this interface's own
+  // "no value field" enforcement above: only the hidden stat *value* stays
+  // withheld, never the identity a photo confirms.
+  photoUrl?: string | null;
 }
 
 // REQ-1504/1505 (S-227): mirrors `CurrentHigherLowerResponse` exactly — the
@@ -693,6 +714,17 @@ export interface SubmitHigherLowerGuessResponse {
   revealedValue: number;
   streakLength: number;
   hasEnded: boolean;
+  // REQ-1508 (S-233): a nullable Wikidata P18 photo URL for the just-
+  // guessed comparator — populated on both a correct AND an incorrect
+  // guess, mirroring revealedPlayerName/revealedValue's own "always
+  // populated either way" contract above (unlike resolvedPlayerPhotoUrl
+  // elsewhere in this file, which is correct-guess-only). Field name
+  // confirmed against the backend half
+  // (`SubmitHigherLowerGuessResponse.RevealedPlayerPhotoUrl`, mirroring
+  // `ResolvedPlayerPhotoUrl`'s naming precedent). Deliberately optional
+  // (`?:`), same older-cached-response-degrades-safely reason as the other
+  // photo fields on this file.
+  revealedPlayerPhotoUrl?: string | null;
 }
 
 // REQ-509/510 (S-090)/ADR-0053: a single pending PlayerSuggestion row, as

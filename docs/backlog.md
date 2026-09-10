@@ -12138,3 +12138,17 @@ CI-verified (no local `dotnet` SDK in this sandbox — verify via `ci.yml`
 endpoints and `HigherLowerScreen.tsx` this extends), REQ-214/S-043/S-044
 (the `Player.PhotoUrl` field and its existing frontend graceful-fallback
 pattern this reuses, no new backend data-sourcing work).
+
+**Status (2026-09-10): frontend half implemented, built in parallel with
+the backend half (both scoped in this same story).** `HigherLowerScreen.tsx`/
+`.css` and `types.ts` updated exactly per this story's own scope note
+above; Vitest passing locally (`REQ1508_`-scoped cases in
+`HigherLowerScreen.test.tsx`), `tsc -b`/`npm run build`/`npm run lint`
+clean. The backend half
+(`HigherLowerBaselineResponse.PhotoUrl`/`HigherLowerNextComparatorResponse.PhotoUrl`/
+`SubmitHigherLowerGuessResponse.RevealedPlayerPhotoUrl` on
+`HigherLowerEndpoints.cs`) was not confirmed merged as of this note — the
+field names above match this story's own spec, but have not yet been
+cross-checked against the real, merged backend DTOs; that reconciliation
+and a real CI run (this sandbox has no `dotnet` SDK) are still needed
+before this story is fully Done.

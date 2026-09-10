@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HigherLowerScreen } from './HigherLowerScreen';
@@ -335,6 +335,206 @@ describe('HigherLowerScreen', () => {
 
       await screen.findByText('You’ve completed this round.');
       expect(screen.queryByText('Round complete')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('REQ-1508: side-by-side Baseline/Next cards, with player photos', () => {
+    it('renders Baseline and Next side by side (a single .higher-lower-screen__cards row containing both) whenever both are present', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/higher-lower/current')) return jsonResponse(roundResponse());
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      const row = document.querySelector('.higher-lower-screen__cards');
+      expect(row).toBeInTheDocument();
+      const baselineCard = row?.querySelector('.higher-lower-screen__card--baseline');
+      const nextCard = row?.querySelector('.higher-lower-screen__card--next');
+      expect(baselineCard).toHaveTextContent('Pelé');
+      expect(nextCard).toHaveTextContent('Zico');
+      // No swipe/gesture handler of any kind — REQ-1508's own declined-idea
+      // scope note. There is no library/marker to assert directly, so this
+      // asserts on the one thing that would exist if one had been wired in:
+      // a touch-handler attribute nothing in this component ever sets.
+      expect(document.querySelector('[data-swipeable]')).not.toBeInTheDocument();
+    });
+
+    it('renders the Baseline card standalone (not inside .higher-lower-screen__cards) in the terminal state, unaffected by the side-by-side layout', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/higher-lower/current')) {
+            return jsonResponse(roundResponse({ hasEnded: true, nextComparator: null }));
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('You’ve completed this round.');
+
+      expect(document.querySelector('.higher-lower-screen__cards')).not.toBeInTheDocument();
+      const baselineCard = document.querySelector('.higher-lower-screen__card--baseline');
+      expect(baselineCard).toHaveTextContent('Pelé');
+      expect(document.querySelector('.higher-lower-screen__card--next')).not.toBeInTheDocument();
+    });
+
+    it('shows a photo next to the name on the Baseline card and the Next card when photoUrl is present', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/higher-lower/current')) {
+            return jsonResponse(
+              roundResponse({
+                baseline: { playerId: 'p-baseline', name: 'Pelé', value: 100, photoUrl: 'https://example.com/pele.jpg' },
+                nextComparator: { playerId: 'p-next', name: 'Zico', photoUrl: 'https://example.com/zico.jpg' },
+              }),
+            );
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      const baselineCard = document.querySelector('.higher-lower-screen__card--baseline');
+      const nextCard = document.querySelector('.higher-lower-screen__card--next');
+      const baselineImg = baselineCard?.querySelector('img.higher-lower-screen__player-photo');
+      const nextImg = nextCard?.querySelector('img.higher-lower-screen__player-photo');
+      expect(baselineImg).toHaveAttribute('src', 'https://example.com/pele.jpg');
+      expect(baselineImg).toHaveAttribute('alt', '');
+      expect(baselineImg).toHaveAttribute('aria-hidden', 'true');
+      expect(nextImg).toHaveAttribute('src', 'https://example.com/zico.jpg');
+    });
+
+    it('falls back to name-only on the Baseline/Next cards when photoUrl is absent (null)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/higher-lower/current')) {
+            return jsonResponse(
+              roundResponse({
+                baseline: { playerId: 'p-baseline', name: 'Pelé', value: 100, photoUrl: null },
+                nextComparator: { playerId: 'p-next', name: 'Zico', photoUrl: null },
+              }),
+            );
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      expect(document.querySelector('img.higher-lower-screen__player-photo')).not.toBeInTheDocument();
+      expect(screen.getByText('Pelé')).toBeInTheDocument();
+      expect(screen.getByText('Zico')).toBeInTheDocument();
+    });
+
+    it('falls back to name-only on the Baseline card, with no broken-image icon, when a present photoUrl fails to load client-side', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/higher-lower/current')) {
+            return jsonResponse(
+              roundResponse({
+                baseline: { playerId: 'p-baseline', name: 'Pelé', value: 100, photoUrl: 'https://example.com/broken.jpg' },
+              }),
+            );
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      const baselineCard = document.querySelector('.higher-lower-screen__card--baseline');
+      const img = baselineCard?.querySelector('img.higher-lower-screen__player-photo');
+      expect(img).toBeInTheDocument();
+
+      fireEvent.error(img as HTMLImageElement);
+
+      await waitFor(() =>
+        expect(document.querySelector('.higher-lower-screen__card--baseline img.higher-lower-screen__player-photo')).not.toBeInTheDocument(),
+      );
+      expect(screen.getByText('Pelé')).toBeInTheDocument();
+    });
+
+    it('shows a photo next to the revealed name on the post-guess outcome line when revealedPlayerPhotoUrl is present, and falls back to name-only when absent', async () => {
+      const user = userEvent.setup();
+      let getCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/higher-lower/current')) {
+          getCount += 1;
+          if (getCount === 1) return jsonResponse(roundResponse());
+          return jsonResponse(
+            roundResponse({
+              streakLength: 1,
+              baseline: { playerId: 'p-next', name: 'Zico', value: 120, photoUrl: 'https://example.com/zico.jpg' },
+              nextComparator: { playerId: 'p-next-2', name: 'Ronaldo' },
+            }),
+          );
+        }
+        if (String(url).includes('/higher-lower/guesses') && init?.method === 'POST') {
+          return jsonResponse({
+            isCorrect: true,
+            revealedPlayerId: 'p-next',
+            revealedPlayerName: 'Zico',
+            revealedValue: 120,
+            streakLength: 1,
+            hasEnded: false,
+            revealedPlayerPhotoUrl: 'https://example.com/zico.jpg',
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      await user.click(screen.getByRole('button', { name: 'Higher' }));
+
+      const outcome = await screen.findByText(/Correct\./);
+      const outcomeLine = outcome.closest('.higher-lower-screen__outcome');
+      const outcomeImg = outcomeLine?.querySelector('img.higher-lower-screen__player-photo');
+      expect(outcomeImg).toHaveAttribute('src', 'https://example.com/zico.jpg');
+      expect(outcomeImg).toHaveAttribute('alt', '');
+    });
+
+    it('falls back to name-only on the outcome line when revealedPlayerPhotoUrl is absent', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/higher-lower/current')) return jsonResponse(roundResponse());
+        if (String(url).includes('/higher-lower/guesses') && init?.method === 'POST') {
+          return jsonResponse({
+            isCorrect: false,
+            revealedPlayerId: 'p-next',
+            revealedPlayerName: 'Zico',
+            revealedValue: 80,
+            streakLength: 0,
+            hasEnded: true,
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      await user.click(screen.getByRole('button', { name: 'Lower' }));
+
+      const outcome = await screen.findByText(/Incorrect\./);
+      const outcomeLine = outcome.closest('.higher-lower-screen__outcome');
+      expect(outcomeLine?.querySelector('img.higher-lower-screen__player-photo')).not.toBeInTheDocument();
     });
   });
 });

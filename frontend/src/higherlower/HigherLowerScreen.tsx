@@ -183,6 +183,23 @@ export function HigherLowerScreen({ accessToken, onAuthError, onViewRoundLeaderb
   const round = state.round;
   const roundEndTime = state.roundEndTime;
 
+  // REQ-1508: Baseline card content, shared between the side-by-side
+  // (non-terminal) and standalone (terminal) layouts below rather than
+  // duplicated — only the wrapper around it differs per the JSX branches
+  // further down.
+  const baselineCard = (
+    <div className="higher-lower-screen__card higher-lower-screen__card--baseline">
+      <p className="higher-lower-screen__card-label">Baseline</p>
+      <div className="higher-lower-screen__player-row">
+        <HigherLowerPlayerPhoto key={round.baseline.playerId} photoUrl={round.baseline.photoUrl} />
+        <p className="higher-lower-screen__player-name">{round.baseline.name}</p>
+      </div>
+      <p className="higher-lower-screen__player-value mono-figure">
+        {higherLowerValueLabel(round.statCategory, round.baseline.value)}
+      </p>
+    </div>
+  );
+
   return (
     <div className="higher-lower-screen">
       <div className="higher-lower-screen__header">
@@ -255,6 +272,17 @@ export function HigherLowerScreen({ accessToken, onAuthError, onViewRoundLeaderb
           // is all this needs.
           aria-live="polite"
         >
+          {/* REQ-1508: the just-guessed comparator's photo, confirming their
+              revealed identity — always visible whenever present, same
+              graceful name-only fallback as the two cards below. Keyed on
+              revealedPlayerId so a second guess (a fresh player, a fresh
+              photoUrl or none at all) gets its own mount and its own
+              load-failure state rather than inheriting the previous guess's
+              outcome-photo failure. */}
+          <HigherLowerPlayerPhoto
+            key={lastGuessResult.revealedPlayerId}
+            photoUrl={lastGuessResult.revealedPlayerPhotoUrl}
+          />
           {lastGuessResult.isCorrect ? 'Correct.' : 'Incorrect.'} {lastGuessResult.revealedPlayerName}:{' '}
           <span className="mono-figure">
             {higherLowerValueLabel(round.statCategory, lastGuessResult.revealedValue)}
@@ -262,19 +290,25 @@ export function HigherLowerScreen({ accessToken, onAuthError, onViewRoundLeaderb
         </p>
       )}
 
-      <div className="higher-lower-screen__card higher-lower-screen__card--baseline">
-        <p className="higher-lower-screen__card-label">Baseline</p>
-        <p className="higher-lower-screen__player-name">{round.baseline.name}</p>
-        <p className="higher-lower-screen__player-value mono-figure">
-          {higherLowerValueLabel(round.statCategory, round.baseline.value)}
-        </p>
-      </div>
-
       {round.hasEnded ? (
-        <p className="higher-lower-screen__complete">You&rsquo;ve completed this round.</p>
-      ) : (
-        round.nextComparator && (
-          <>
+        // REQ-1508's own terminal-state carve-out: no Next card exists to
+        // place side by side, so this branch is visually unchanged from
+        // before this REQ — the Baseline card renders standalone, exactly
+        // as it always has.
+        <>
+          {baselineCard}
+          <p className="higher-lower-screen__complete">You&rsquo;ve completed this round.</p>
+        </>
+      ) : round.nextComparator ? (
+        <>
+          {/* REQ-1508: Baseline (left) and Next (right) side by side, at
+              every viewport width — not gated to a breakpoint, since the
+              REQ itself specifies this unconditionally. No swipe/gesture
+              handler anywhere here — considered and explicitly declined for
+              this iteration (REQ-1508's own scope note); both cards are
+              simply laid out in a two-column flex row. */}
+          <div className="higher-lower-screen__cards">
+            {baselineCard}
             {/* REQ-1504: identity only — deliberately no value/placeholder
                 rendered here at all, not even a "?" glyph, matching the
                 backend DTO's own "no Value field on the wire, not just
@@ -282,32 +316,74 @@ export function HigherLowerScreen({ accessToken, onAuthError, onViewRoundLeaderb
                 value field to render even if this component wanted to). */}
             <div className="higher-lower-screen__card higher-lower-screen__card--next">
               <p className="higher-lower-screen__card-label">Next</p>
-              <p className="higher-lower-screen__player-name">{round.nextComparator.name}</p>
+              <div className="higher-lower-screen__player-row">
+                <HigherLowerPlayerPhoto key={round.nextComparator.playerId} photoUrl={round.nextComparator.photoUrl} />
+                <p className="higher-lower-screen__player-name">{round.nextComparator.name}</p>
+              </div>
             </div>
+          </div>
 
-            <div className="higher-lower-screen__actions">
-              <button
-                type="button"
-                className="higher-lower-screen__guess-button"
-                onClick={() => handleGuess(HigherLowerDirection.Higher)}
-                disabled={submitting}
-              >
-                Higher
-              </button>
-              <button
-                type="button"
-                className="higher-lower-screen__guess-button"
-                onClick={() => handleGuess(HigherLowerDirection.Lower)}
-                disabled={submitting}
-              >
-                Lower
-              </button>
-            </div>
-          </>
-        )
+          <div className="higher-lower-screen__actions">
+            <button
+              type="button"
+              className="higher-lower-screen__guess-button"
+              onClick={() => handleGuess(HigherLowerDirection.Higher)}
+              disabled={submitting}
+            >
+              Higher
+            </button>
+            <button
+              type="button"
+              className="higher-lower-screen__guess-button"
+              onClick={() => handleGuess(HigherLowerDirection.Lower)}
+              disabled={submitting}
+            >
+              Lower
+            </button>
+          </div>
+        </>
+      ) : (
+        // Defensive fallback only — the backend contract guarantees
+        // `nextComparator` is non-null whenever `hasEnded` is false
+        // (types.ts's own doc comment), so this branch shouldn't be
+        // reachable in practice. Still renders the Baseline card alone
+        // rather than nothing, mirroring this component's pre-REQ-1508
+        // behavior of always rendering it unconditionally.
+        baselineCard
       )}
 
       {error && <p className="higher-lower-screen__error">{error}</p>}
     </div>
+  );
+}
+
+// REQ-1508 (S-233): a small, decorative player-photo slot reused on the
+// Baseline card, the Next card, and the post-guess outcome line — three
+// independent instances (each call site above passes its own `key`, so each
+// gets its own mount and its own `failed` state; a load failure on one can
+// never affect another, the same independence CellState.tsx's own
+// photoFailed/incorrectMatchedPhotoFailed pair already documents for its two
+// photo slots). Renders nothing at all (not a broken-image icon, not a
+// placeholder silhouette — REQ-1508 deliberately mirrors REQ-214's
+// name-only fallback, not REQ-216's placeholder-avatar one, since there is
+// no "guess submitted, but wrong" state on this screen for a placeholder to
+// signal) whenever `photoUrl` is absent or a load already failed this
+// mount. `alt=""`/`aria-hidden="true"`: decorative only, matching
+// CellPhoto's/PlayerAvatar's own convention — the adjacent name text is what
+// carries this player's accessible identity (§6). 64x64px reuses the
+// existing avatar-thumbnail dimension PlayerAvatar.tsx/design-document.md
+// SCREEN-08 already document, rather than inventing a new size for this
+// card context.
+function HigherLowerPlayerPhoto({ photoUrl }: { photoUrl?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!photoUrl || failed) return null;
+  return (
+    <img
+      className="higher-lower-screen__player-photo"
+      src={photoUrl}
+      alt=""
+      aria-hidden="true"
+      onError={() => setFailed(true)}
+    />
   );
 }
