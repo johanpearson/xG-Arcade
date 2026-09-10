@@ -123,8 +123,8 @@ public interface IPlayerBackfillRepository
     // "international-stats-checked" PlayerData bookkeeping marker
     // PlayerInternationalStatsRefreshService now writes for every player in
     // a successfully-queried batch, regardless of whether that batch
-    // resolved usable data for them (see that class's own
-    // CheckedMarkerField doc comment). Checking BOTH, not just the marker,
+    // resolved usable data for them (see PlayerData.InternationalStatsCheckedField's
+    // own doc comment). Checking BOTH, not just the marker,
     // is deliberate: it keeps this query correct for every "international-caps"
     // row that already exists from before this fix shipped, which has no
     // corresponding marker — checking the marker alone would make every

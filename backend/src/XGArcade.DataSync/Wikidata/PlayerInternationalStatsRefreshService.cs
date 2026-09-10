@@ -48,17 +48,13 @@ public class PlayerInternationalStatsRefreshService(
     // played internationally) on every single future run — see
     // PlayerInternationalStatsBackfillService's own doc comment and
     // NOTES.md's 2026-09-10 entry for the real-world numbers that surfaced
-    // this. This exact literal must stay in sync with
-    // PlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync's
-    // own marker-absence check — same plain-string-literal convention this
-    // class's own AttributeType comment above already documents for
-    // "international-caps"/"international-goals".
-    internal const string CheckedMarkerField = "international-stats-checked";
-
-    // Placeholder, not real data — reads clearly as "this row is a marker"
-    // to anyone browsing PlayerData directly (e.g. via the admin review
-    // view), never as a genuine Field/Value pair like ("club", "Arsenal").
-    internal const string CheckedMarkerValue = "checked";
+    // this. UNLIKE CapsAttributeType/GoalsAttributeType above, this is a
+    // shared constant (PlayerData.InternationalStatsCheckedField/Value),
+    // not a plain string literal — see PlayerData.cs's own doc comment on
+    // those constants for why this specific literal doesn't fit this
+    // codebase's usual "no shared constants" convention (a typo divergence
+    // here would silently reproduce the exact writer/reader-disagreement
+    // bug this marker exists to fix).
 
     // Reuses WikidataLookupService's own WikidataSource/VerifiedConfidence
     // (made internal for exactly this) instead of redeclaring a second
@@ -118,7 +114,8 @@ public class PlayerInternationalStatsRefreshService(
         // early here without writing anything, which is exactly the bug:
         // "never checked" and "checked, no data" both looked like "no
         // international-caps row," so this population was re-queried on
-        // every future run. See CheckedMarkerField's own doc comment.
+        // every future run. See PlayerData.InternationalStatsCheckedField's
+        // own doc comment.
         var checkedPlayerIds = qidToPlayerId.Values.ToList();
 
         // Never overwrites an already-processed player — see
@@ -141,13 +138,22 @@ public class PlayerInternationalStatsRefreshService(
             // The "checked" marker: written unconditionally for every
             // player in this successfully-queried batch, in addition to
             // (not instead of) the real PlayerAttribute/PlayerData writes
-            // below for players whose data actually resolved.
+            // below for players whose data actually resolved. No
+            // already-marked defensive re-check here (unlike alreadyHasCaps
+            // below) — this method's only production caller
+            // (PlayerInternationalStatsBackfillService) always filters
+            // through GetPlayersMissingInternationalStatsAsync first, which
+            // already excludes anyone with this marker, so a duplicate
+            // marker row can't occur via that path; and even if it did, the
+            // missing-query only checks row EXISTENCE (.Any()), never
+            // uniqueness, so a duplicate would be inert, not a correctness
+            // bug — quality-architect review, 2026-09-10.
             playerDataToAdd.Add(new PlayerData
             {
                 Id = Guid.NewGuid(),
                 PlayerId = playerId,
-                Field = CheckedMarkerField,
-                Value = CheckedMarkerValue,
+                Field = PlayerData.InternationalStatsCheckedField,
+                Value = PlayerData.InternationalStatsCheckedValue,
                 Source = WikidataDataSource,
                 Confidence = VerifiedConfidence,
                 SyncedAt = syncedAt,

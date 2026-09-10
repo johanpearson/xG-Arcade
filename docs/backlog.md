@@ -11979,7 +11979,7 @@ Wikidata genuinely has no data" for the large majority of players who
 never played internationally, so a same-day re-run attempted 139,639
 players instead of the expected ~2,600. Fixed with a `PlayerData`-only
 `"international-stats-checked"` bookkeeping marker
-(`PlayerInternationalStatsRefreshService.CheckedMarkerField`), written for
+(`PlayerData.InternationalStatsCheckedField`), written for
 every player in a successfully-queried batch regardless of outcome, never
 a `PlayerAttribute` row. (2) New REQ-1507: `GET
 /admin/xg-higher-lower/international-stats-coverage`

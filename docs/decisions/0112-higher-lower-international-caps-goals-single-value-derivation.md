@@ -171,7 +171,7 @@ the same session:
    player pool). Proven in production: a same-day re-run attempted
    139,639 players instead of the expected ~2,600. Fixed by adding a
    `PlayerData`-only "checked" marker
-   (`PlayerInternationalStatsRefreshService.CheckedMarkerField`) written
+   (`PlayerData.InternationalStatsCheckedField`) written
    for every player in a successfully-queried batch regardless of outcome
    — deliberately never a `PlayerAttribute` row, so it can never leak
    into eligibility logic. `GetPlayersMissingInternationalStatsAsync` now

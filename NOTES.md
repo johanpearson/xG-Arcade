@@ -2149,8 +2149,8 @@ exists to catch for query correctness, just for a different property
 (termination/cost) this time.
 
 Fixed the same day: a second, `PlayerData`-only bookkeeping marker
-(`"international-stats-checked"`, `PlayerInternationalStatsRefreshService
-.CheckedMarkerField`) is now written for every player in a
+(`"international-stats-checked"`, `PlayerData
+.InternationalStatsCheckedField`) is now written for every player in a
 successfully-queried batch, regardless of whether Wikidata had usable
 data for them — deliberately on `PlayerData`, never `PlayerAttribute`,
 since `PlayerData` is explicitly documented as "never read directly for

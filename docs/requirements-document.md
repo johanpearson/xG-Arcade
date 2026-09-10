@@ -13258,7 +13258,7 @@ same-day re-run (retrying ~2,600 batches that failed with transient
 502s/timeouts on the first run) attempted 139,639 players instead of the
 expected ~2,600 — ~137,000 needless re-queries. Fixed by adding a second,
 `PlayerData`-only bookkeeping marker
-(`PlayerInternationalStatsRefreshService.CheckedMarkerField`,
+(`PlayerData.InternationalStatsCheckedField`,
 `"international-stats-checked"` — deliberately never written to
 `PlayerAttribute`, so it can never leak into game-eligibility logic, which
 only ever reads `PlayerAttribute`/`PlayerOverride`, per `PlayerData`'s own

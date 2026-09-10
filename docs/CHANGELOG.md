@@ -26,7 +26,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   so every future run re-queried that whole population — proven in
   production (a same-day re-run attempted 139,639 players instead of the
   expected ~2,600). Fixed by adding a `PlayerData`-only "checked" marker
-  (`PlayerInternationalStatsRefreshService.CheckedMarkerField`,
+  (`PlayerData.InternationalStatsCheckedField`,
   `"international-stats-checked"`) written for every player in a
   successfully-queried batch regardless of outcome, deliberately never a
   `PlayerAttribute` row so it can't leak into eligibility logic; the
