@@ -3285,6 +3285,221 @@ public class WikidataClientTests
             "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 
+    // ---- QueryInternationalStatsByQidsAsync (REQ-1501/REQ-1506, xG
+    // Higher/Lower, S-231, ADR-0112) --------------------------------------
+    // Batched, direct-by-QID lookup — a VALUES clause, not an intersection
+    // query, same throw-on-failure contract as QueryPlayerCareerStintsByQidsAsync.
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_SentQuery_ContainsValuesClauseOverEveryQid()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryInternationalStatsByQidsAsync(["Q1519", "Q9617", "Q7156"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("VALUES ?player { wd:Q1519 wd:Q9617 wd:Q7156 }"));
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_SentQuery_UsesFullP54StatementPath_NotTruthyShortcut()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?statement."));
+        Assert.That(sentQuery, Does.Contain("?statement ps:P54 ?team."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?statement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Not.Contain("?player wdt:P54"));
+    }
+
+    // ADR-0112 Decision point 3: any P1532-bearing team (truthy shortcut is
+    // fine for P1532, unlike P54) — NOT joined against one caller-supplied
+    // target country, unlike QueryNationalTeamClubIntersectionAsync/
+    // QueryTeamTrophyNationalTeamIntersectionAsync's own P1532 joins.
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_SentQuery_JoinsAnyP1532Team_NotOneSpecificCountry()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?team wdt:P1532 ?anyCountry."));
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_SentQuery_HasOptionalCapsAndGoalsQualifiers()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?statement pq:P1350 ?caps. }"));
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?statement pq:P1351 ?goals. }"));
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_SentQuery_NeverContainsOrderByLimitOrOffset()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("ORDER BY"));
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+        Assert.That(sentQuery, Does.Not.Contain("OFFSET"));
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_ReturnsCapsAndGoals_ForSingleStatement()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "team": { "type": "uri", "value": "http://www.wikidata.org/entity/Q47774" }, "caps": { "type": "literal", "value": "123" }, "goals": { "type": "literal", "value": "51" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Is.EqualTo(new WikidataInternationalStatsEntry(123, 51)));
+    }
+
+    // ADR-0112 point 4: among multiple qualifying national-team statements,
+    // the one with the HIGHEST recorded caps value wins, and its OWN goals
+    // value travels with it — never a max(caps) paired with goals from a
+    // different statement.
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_MultipleStatements_HighestCapsStatementWins()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "team": { "type": "uri", "value": "http://www.wikidata.org/entity/Q47774" }, "caps": { "type": "literal", "value": "10" }, "goals": { "type": "literal", "value": "2" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "team": { "type": "uri", "value": "http://www.wikidata.org/entity/Q47791" }, "caps": { "type": "literal", "value": "123" }, "goals": { "type": "literal", "value": "51" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Is.EqualTo(new WikidataInternationalStatsEntry(123, 51)),
+            "the 123-cap statement's own goals value (51) must travel with it, not the 10-cap statement's (2)");
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_RowWithNoCaps_IsSkipped_CannotWinSelection()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "team": { "type": "uri", "value": "http://www.wikidata.org/entity/Q47774" }, "goals": { "type": "literal", "value": "5" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        Assert.That(result.ContainsKey("Q1519"), Is.False,
+            "a statement with no usable caps value can never win the tie-break, so a QID with no such statement at all is absent from the result");
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_RowWithCapsButNoGoals_ReturnsNullGoals()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "team": { "type": "uri", "value": "http://www.wikidata.org/entity/Q47774" }, "caps": { "type": "literal", "value": "80" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Is.EqualTo(new WikidataInternationalStatsEntry(80, null)));
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_QidWithNoInternationalStatementAtAll_IsAbsentFromResult()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryInternationalStatsByQidsAsync(["Q1519"]);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task ADR0112_QueryInternationalStatsByQidsAsync_EmptyQidList_ReturnsEmptyDictionaryWithoutSendingARequest()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryInternationalStatsByQidsAsync([]);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(handler.LastRequest, Is.Null);
+    }
+
+    [Test]
+    public void ADR0112_QueryInternationalStatsByQidsAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryInternationalStatsByQidsAsync(["Q1519"]));
+    }
+
+    [Test]
+    public void ADR0112_QueryInternationalStatsByQidsAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryInternationalStatsByQidsAsync(["Q1519"]));
+    }
+
+    [Test]
+    public void ADR0112_QueryInternationalStatsByQidsAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryInternationalStatsByQidsAsync(["Q1519"]));
+    }
+
+    [Test]
+    public void ADR0112_QueryInternationalStatsByQidsAsync_RejectsNonQidValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryInternationalStatsByQidsAsync(["Q1519", "Arsenal"]));
+    }
+
     // ---- QueryPlayerPoolByNationalityAsync (ADR-0055, xG Path candidate-pool
     // widening) -------------------------------------------------------------
     // The nationality-scoped sibling of QueryPlayerPoolBirthYearAsync — same

@@ -32,4 +32,14 @@ public class HigherLowerGenerationOptions
     // so a bounded attempt count alone is sufficient to guarantee
     // termination.
     public int MaxAttemptsPerCategory { get; set; } = 20;
+
+    // REQ-1506 (S-231, ADR-0112): a player is never selected as baseline or
+    // comparator, for ANY active category, unless their international caps
+    // count is 10 or greater — REQ-1506's own Given/When/Then text fixes
+    // this number. Exposed as a DI-configurable option (same "tuning
+    // default, not a fixed constant" posture as ComparatorCount's own doc
+    // comment above) rather than a hardcoded const, matching this class's
+    // established shape for every other generation-time knob — not because
+    // REQ-1506 itself calls this out as adjustable.
+    public int MinimumInternationalCaps { get; set; } = 10;
 }

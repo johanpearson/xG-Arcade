@@ -1,0 +1,58 @@
+name: backfill-player-international-stats
+
+# REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): fills
+# international-caps/international-goals PlayerAttribute rows for every
+# Player row that doesn't have one yet — the batch population mechanism
+# HigherLowerGenerationService's "international-caps"/"international-goals"
+# candidate categories, and REQ-1506's caps>=10 pool-wide floor, both
+# require to already be populated BEFORE generation runs (the same
+# precondition "club"/"trophy" PlayerAttribute rows already have via
+# prefetch-player-careers.yml). See PlayerInternationalStatsBackfillService's
+# own doc comment for the full "why a backfill cursor over the ALREADY-KNOWN
+# player pool, not a PlayerCareerPrefetchService-style country/club
+# discovery sweep" design choice.
+#
+# A plain CLI job (`dotnet run -- backfill-player-international-stats`), not
+# an HTTP endpoint — same ADR-0024 reasoning as every other bulk Wikidata
+# job in this codebase.
+#
+# Manual trigger only, no recurring schedule, same posture as
+# backfill-player-photos.yml — idempotent and safe to re-run (only ever
+# writes rows still missing an "international-caps" PlayerAttribute row,
+# IPlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync's own
+# WHERE filter), so run it once to build initial coverage, and again later
+# only if a fresh prefetch-player-careers/warm-grid-cache run adds more
+# Player rows in the meantime. Unlike Position/BirthYear/PhotoUrl,
+# international caps/goals are NOT re-synced once a row exists (see
+# PlayerInternationalStatsRefreshService's own doc comment on its
+# never-overwrite behavior) — a capped player's real-world caps count
+# rising over time is a known, accepted staleness limitation, not fixed by
+# re-running this workflow. Flagged as a Follow-up in ADR-0112/this story's
+# own PR, not solved here.
+#
+# Real-data coverage cannot be verified from the implementing sandbox (no
+# network egress to query.wikidata.org) — the FIRST real run of this
+# workflow is also this story's own real-data verification step (ADR-0112's
+# Consequences section), not just routine population.
+
+on:
+  workflow_dispatch: {}
+
+# Same "queue, never cancel" posture as every other bulk Wikidata job in
+# this codebase (REQ-110/ADR-0088/S-186) — a burst of re-dispatches
+# concurrently sweeping the same pool is a confirmed past incident cause.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  backfill-player-international-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Backfill player international stats
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: backfill-player-international-stats
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

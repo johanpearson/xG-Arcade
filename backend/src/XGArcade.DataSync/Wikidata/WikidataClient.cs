@@ -783,6 +783,30 @@ public class WikidataClient(
             SparqlResponseParsers.ParseCareerStintBindings, cancellationToken);
     }
 
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): batched,
+    // direct-by-QID international-caps/international-goals lookup — see
+    // IWikidataClient's own doc comment for the full "why this query shape"
+    // reasoning. S-118-style thin wrapper over the shared
+    // RunThrowingQueryAsync driver — same throw-on-failure contract as
+    // QueryPlayerCareerStintsByQidsAsync.
+    public async Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (wikidataQids.Count == 0)
+            return new Dictionary<string, WikidataInternationalStatsEntry>();
+
+        foreach (var qid in wikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(wikidataQids));
+        }
+
+        var query = SparqlQueryBuilders.BuildInternationalStatsByQidsQuery(wikidataQids);
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata international-stats batch query for {wikidataQids.Count} QID(s)",
+            SparqlResponseParsers.ParseInternationalStatsBindings, cancellationToken);
+    }
+
     // ADR-0056: xG Path's own familiarity signal — batched, direct-by-QID
     // Wikipedia sitelink-count lookup, the same VALUES-clause-over-a-
     // bounded-batch shape as QueryPlayerPhotosByQidsAsync/

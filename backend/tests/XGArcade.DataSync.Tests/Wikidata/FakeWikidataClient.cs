@@ -121,6 +121,38 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(result);
     }
 
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112):
+    // QueryInternationalStatsByQidsAsync support — same "configured
+    // per-QID, plus one shared fail-next-N-calls counter" shape as
+    // QueryPlayerCareerStintsByQidsAsync above.
+    private readonly Dictionary<string, WikidataInternationalStatsEntry> _internationalStatsByQid = new();
+    private int _remainingInternationalStatsBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedInternationalStatsBatches { get; } = [];
+
+    public void SetInternationalStats(string wikidataQid, int caps, int? goals = null) =>
+        _internationalStatsByQid[wikidataQid] = new WikidataInternationalStatsEntry(caps, goals);
+
+    public void FailNextInternationalStatsBatches(int batches) => _remainingInternationalStatsBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedInternationalStatsBatches.Add(wikidataQids);
+
+        if (_remainingInternationalStatsBatchFailures > 0)
+        {
+            _remainingInternationalStatsBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for an international-stats batch");
+        }
+
+        IReadOnlyDictionary<string, WikidataInternationalStatsEntry> result = wikidataQids
+            .Where(qid => _internationalStatsByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _internationalStatsByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
     // ADR-0055: QueryPlayerPoolByNationalityAsync support — same
     // "configured per-QID, plus one shared fail-next-N-calls counter" shape
     // as every other batch-style method above.

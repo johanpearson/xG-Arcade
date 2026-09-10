@@ -51,4 +51,28 @@ public interface IPlayerOverrideRepository
     // own in-memory GroupBy.
     Task<IReadOnlyDictionary<Guid, int>> GetEffectivePlayerCountsByAttributeTypeAsync(
         string attributeType, CancellationToken cancellationToken = default);
+
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112 — extends
+    // ADR-0111's count derivation with a second, single-recorded-value
+    // shape): every player's EFFECTIVE VALUE for a given single-recorded-
+    // value AttributeType ("international-caps"/"international-goals" —
+    // each player has AT MOST ONE PlayerAttribute row of that type, unlike
+    // "trophy"/former-"club"'s one-row-per-distinct-value shape
+    // GetEffectivePlayerCountsByAttributeTypeAsync above reads). A
+    // PlayerOverride for (PlayerId, attributeType) IS the effective value
+    // (ADR-0015 applied directly, no count normalization needed the way
+    // ADR-0111's count derivation required — see ADR-0112's own "Decision"
+    // section, point 2) — the override's own Value is int.Parse'd and
+    // returned in place of whatever raw PlayerAttribute row(s) exist. A
+    // player with NEITHER an override NOR a raw row of that type is simply
+    // absent from the returned dictionary (never present with value 0),
+    // same "absent means no recorded value, a third state distinct from
+    // zero" contract as GetEffectivePlayerCountsByAttributeTypeAsync's own
+    // doc comment — REQ-1501's "non-null recorded value" eligibility rule
+    // and REQ-1506's "absent caps is never treated as satisfying the floor"
+    // rule both depend on this distinction. Same Tier-0-scale in-memory
+    // read as GetEffectivePlayerCountsByAttributeTypeAsync — see that
+    // method's own doc comment for the "why this is fine" reasoning.
+    Task<IReadOnlyDictionary<Guid, int>> GetEffectivePlayerValuesByAttributeTypeAsync(
+        string attributeType, CancellationToken cancellationToken = default);
 }

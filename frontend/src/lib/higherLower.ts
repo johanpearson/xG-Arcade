@@ -2,19 +2,25 @@ import type { CurrentHigherLowerResponse, HigherLowerDirection, SubmitHigherLowe
 import { ApiError, apiRequest } from './apiClient';
 
 // Gap-fill (2026-09-10, user-tester report): `StatCategory` on the wire is
-// the raw PlayerAttribute.AttributeType string ADR-0111 derives counts
-// from ("club" | "trophy", see HigherLowerGenerationService's own
-// CandidateStatCategories) — never human copy. HigherLowerScreen.tsx used
-// to render it and its bare numeric value verbatim ("Comparing club" / a
-// lone "1"), which a real player correctly read as meaningless. This map
-// is the only place that knows the two current category strings; an
-// unrecognized one (a future category added to CandidateStatCategories
-// without a matching entry here) still renders — the raw string / bare
-// number — rather than blocking the screen, same "never a hard block on
-// an unknown value" posture as countryFlags.tsx's unknown-country case.
+// the raw PlayerAttribute.AttributeType string ADR-0111/ADR-0112 derive
+// values from ("trophy" | "international-caps" | "international-goals",
+// see HigherLowerGenerationService's own CandidateStatCategories) — never
+// human copy. HigherLowerScreen.tsx used to render it and its bare numeric
+// value verbatim ("Comparing club" / a lone "1"), which a real player
+// correctly read as meaningless. This map is the only place that knows the
+// current category strings; an unrecognized one (a future category added
+// to CandidateStatCategories without a matching entry here) still renders
+// — the raw string / bare number — rather than blocking the screen, same
+// "never a hard block on an unknown value" posture as countryFlags.tsx's
+// unknown-country case.
+//
+// S-231 (direct product-owner feedback, ADR-0112): "club" removed —
+// replaced with "international-caps"/"international-goals". "trophy" is
+// unchanged.
 const STAT_CATEGORY_UNITS: Record<string, { comparing: string; singular: string; plural: string }> = {
-  club: { comparing: 'number of clubs played for', singular: 'club', plural: 'clubs' },
   trophy: { comparing: 'number of trophies won', singular: 'trophy', plural: 'trophies' },
+  'international-caps': { comparing: 'number of international caps', singular: 'cap', plural: 'caps' },
+  'international-goals': { comparing: 'number of international goals', singular: 'goal', plural: 'goals' },
 };
 
 export function higherLowerCategoryLabel(statCategory: string): string {

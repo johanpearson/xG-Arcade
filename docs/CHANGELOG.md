@@ -13,6 +13,60 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (§4.16 REQ-1501/REQ-1506
+  status notes, v2.89 → v2.90), `docs/architecture-document.md` (COMP-18
+  row, v1.64 → v1.65), `docs/backlog.md` (S-231 "Built as" note),
+  `NOTES.md` (resolution update appended to the 2026-09-10 "club count"
+  follow-up entry), `docs/decisions/0112-*.md` (built against, no changes
+  to the ADR itself)
+  — S-231 implemented: `"club"` removed from
+  `HigherLowerGenerationService.CandidateStatCategories`;
+  `"international-caps"`/`"international-goals"` added, sourced via a new
+  `IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync`
+  (single-recorded-value derivation, ADR-0112) dispatched alongside the
+  existing `"trophy"` count derivation (ADR-0111). New REQ-1506 pool-wide
+  caps>=10 floor implemented and wired into generation, applied regardless
+  of active category. New Wikidata sourcing:
+  `IWikidataClient.QueryInternationalStatsByQidsAsync` (P1350/P1351
+  qualifiers on a national-team P54 statement, any P1532-bearing team),
+  `PlayerInternationalStatsRefreshService` (batch refresh, mirrors
+  `IPlayerCareerStintRefreshService`'s shape), and
+  `PlayerInternationalStatsBackfillService` (drives the refresh service
+  across the full existing player pool — a backfill cursor, not a
+  `PlayerCareerPrefetchService`-style country/club discovery sweep) behind
+  a new `dotnet run -- backfill-player-international-stats` CLI verb
+  (`.github/workflows/backfill-player-international-stats.yml`). No local
+  `dotnet` SDK in this sandbox — hand-traced against the diff; real
+  Wikidata query correctness/coverage NOT verified live (no network egress
+  to query.wikidata.org from this sandbox), per ADR-0112's own
+  Consequences section — needs a `ci.yml` `workflow_dispatch` run and a
+  real dev-environment `backfill-player-international-stats` run before
+  trusting real-data coverage. `frontend/src/lib/higherLower.ts`'s
+  display-label map was updated for this story in a same-branch follow-up
+  commit (`b87efee`) — see the entry below.
+- 2026-09-10 — `frontend/src/lib/higherLower.ts` (no separate doc change;
+  this entry is the record) — S-231 follow-up commit `b87efee`: synced the
+  display-label map to the story's new `"international-caps"`/
+  `"international-goals"` `AttributeType` strings (replacing the old
+  `"club"`/`"trophy"` map), humanizing the caps/goals labels shown on the
+  xG Higher/Lower screen. User-facing copy change, no structural/data
+  change — 979/979 frontend tests passed with it in place. REQ-1501/
+  REQ-1504.
+- 2026-09-10 — `docs/requirements-document.md` (§4.16, v2.88 → v2.89):
+  direct product-owner decision (not open-question resolution) — "club" is
+  being removed as an xG Higher/Lower stat category and replaced with
+  "international caps"/"international goals" (still sourced from
+  `PlayerAttribute`/`PlayerOverride`, COMP-06, no new external source), and
+  a new pool-wide eligibility floor (caps >= 10, regardless of active
+  category) is required. Added a status note under REQ-1501 explaining why
+  its own Given/When/Then text does not need to change (the derivation-shape
+  extension and "club" removal are ADR/status-note-level, not
+  acceptance-criteria-level) and flagging the forthcoming ADR-0112
+  (extension of ADR-0111, not written here). Added new **REQ-1506** (pool-wide
+  caps >= 10 eligibility floor) in Given/When/Then form, not yet
+  implemented — scoped to **S-231** (next `docs/backlog.md` entry, not added
+  in this pass; Johan to coordinate the full story). REQ-1502/1503/1504/1505
+  reviewed and confirmed category-agnostic — no status notes needed there.
 - 2026-09-10 — `docs/requirements-document.md` (REQ-1504 gap-fill status
   note, v2.87 → v2.88), `NOTES.md` (new entry, ADR-0111 follow-up flagged
   as now confirmed by real user feedback) — direct user-tester report: xG

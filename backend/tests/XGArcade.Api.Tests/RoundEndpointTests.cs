@@ -207,9 +207,14 @@ public class RoundEndpointTests
     // distinct trophy-count value per player, via real PlayerAttribute
     // rows) rather than reinventing it, since that's the file that already
     // established what "eligible" means for this game at a fixture level.
-    // "club" (this game's other candidate category) is left unseeded on
-    // purpose — REQ-1502's own "skip a category that can't possibly work"
-    // rule means it's simply never selected here, not a failure.
+    // "international-caps"/"international-goals" (this game's other
+    // candidate categories, S-231) are left unseeded on purpose —
+    // REQ-1502's own "skip a category that can't possibly work" rule means
+    // they're simply never selected here, not a failure. Every player also
+    // gets a uniform "international-caps" row of 10 (S-231, REQ-1506 —
+    // exactly HigherLowerGenerationOptions.MinimumInternationalCaps'
+    // default) so the pool-wide caps floor added in S-231 doesn't exclude
+    // this fixture's "trophy"-eligible players.
     private async Task SeedEligibleHigherLowerPlayersAsync(int count, WebApplicationFactory<Program>? factory = null)
     {
         using var scope = (factory ?? _factory).Services.CreateScope();
@@ -228,6 +233,12 @@ public class RoundEndpointTests
                     AttributeValue = $"trophy-{j}-{player.Id}",
                 });
             }
+            dbContext.PlayerAttributes.Add(new PlayerAttribute
+            {
+                PlayerId = player.Id,
+                AttributeType = "international-caps",
+                AttributeValue = "10",
+            });
         }
 
         await dbContext.SaveChangesAsync();
@@ -884,9 +895,10 @@ public class RoundEndpointTests
         // PredictGenerationException — mirrors
         // REQ1301_GenerateRound_Post_WithGameKeyXgPredict_TooFewUpcomingFixtures_...'s
         // "Round generation failed" 500 assertion above, for xg-higher-lower's
-        // own abort path instead: nothing at all is seeded for either
-        // candidate stat category ("trophy"/"club") — neither can possibly
-        // satisfy ComparatorCount + 1 eligible players.
+        // own abort path instead: nothing at all is seeded for any candidate
+        // stat category ("trophy"/"international-caps"/"international-goals",
+        // S-231) — none can possibly satisfy ComparatorCount + 1 eligible
+        // players.
         var xgHigherLowerFactory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>

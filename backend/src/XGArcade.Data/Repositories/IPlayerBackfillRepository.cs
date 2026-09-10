@@ -94,6 +94,35 @@ public interface IPlayerBackfillRepository
     // full reasoning.
     Task UpdatePlayerPositionsAndBirthYearsAsync(
         IReadOnlyDictionary<Guid, PlayerPositionBirthYearUpdate> updatesByPlayerId, CancellationToken cancellationToken = default);
+
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231): PlayerInternationalStatsBackfillService's
+    // read cursor — the exact mirror of GetPlayersMissingPositionOrBirthYearAsync
+    // above, just for the "international-caps" PlayerAttribute row instead
+    // of Position/BirthYear. Unlike those two (set once at Player-row
+    // creation, REQ-1207), international caps/goals are never set at
+    // creation at all — every Player row, however old, is a genuine
+    // candidate here, discovered entirely by this backfill.
+    //
+    // "Missing" is defined by the ABSENCE of an "international-caps"
+    // PlayerAttribute row specifically, not "international-goals" — caps is
+    // the value REQ-1506's floor and the tie-break selection in
+    // ParseInternationalStatsBindings both key off, and ADR-0112's "highest
+    // recorded caps value wins" rule means a player with a resolvable caps
+    // value always gets a caps row written even when goals never resolves
+    // (see PlayerInternationalStatsRefreshService's own comment) — so
+    // "has an international-caps row" is a reliable "already processed"
+    // signal on its own, unlike Position/BirthYear's genuinely-independent
+    // OR. A player Wikidata genuinely has no qualifying national-team P54
+    // statement for keeps no row and is accepted to be re-queried on every
+    // future run — same known/accepted limitation as
+    // GetPlayersMissingPositionOrBirthYearAsync's own doc comment (an
+    // "occasional job, not a tight recurring schedule").
+    //
+    // excludingPlayerIds/batchSize: same "guaranteed run-termination via a
+    // this-run-attempted set, no Skip/Take" reasoning as
+    // GetPlayersMissingPhotoAsync's own doc comment.
+    Task<IReadOnlyList<Player>> GetPlayersMissingInternationalStatsAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default);
 }
 
 // REQ-1207 backfill (bug-bundle fix, 2026-08-02): one player's worth of what

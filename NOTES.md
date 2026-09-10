@@ -61,6 +61,28 @@ Neither is a blocking defect — both are gameplay-design judgment calls the
 ADR itself deferred to a human. Flagging here rather than silently
 picking a direction.
 
+**Update (2026-09-10, same day, S-231, ADR-0112):** both acted on, by
+direct product-owner sign-off (not this session's own judgment call — see
+`docs/requirements-document.md`'s REQ-1501/REQ-1506 2026-09-10 status
+notes). (1) `"club"` removed from `CandidateStatCategories` entirely;
+international caps/goals added as real, sourced replacements (P1350/P1351
+Wikidata qualifiers), per ADR-0111's own pre-approved one-line rollback.
+(2) Partially addressed, not fully solved: REQ-1506's new pool-wide
+"international caps >= 10" floor is a real, if narrow, recognizability
+signal — a player with zero recorded international appearances is
+excluded outright, for any category, not just when caps/goals is active.
+This is NOT the general "fame/popularity" signal item 2 above describes
+(no Wikipedia-sitelink-style broad familiarity check the way
+`PlayerFamiliarityService`/ADR-0056 gives xG Path) — a highly capped
+international player can still be a relatively obscure name outside their
+home country, and a real real-data coverage check (per ADR-0112's own
+Follow-up: "if real data shows international caps/goals coverage is
+sparse even among genuinely well-known players... worth a real coverage
+check against actual synced data before this ships to real players") has
+not happened yet, since this sandbox cannot query live Wikidata. Revisit
+once a real `backfill-player-international-stats` run against the dev
+environment shows actual coverage numbers.
+
 ### 2026-09-10 — `XGHigherLowerGameModule.cs` inlines generation and scoring; splitting it into a dedicated service is a reasonable future refactor, not done yet
 
 Found by `quality-architect` during S-229's close-out pass (Epic 28, xG

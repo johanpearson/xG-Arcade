@@ -11833,3 +11833,139 @@ tab-mounting fix reuses S-218's already-established pattern rather than
 introducing a new one.
 *Accept:* backend/frontend tests pass; docs updated; CI-verified.
 *Deps:* S-217.
+
+**S-231 · xG Higher/Lower: real international stats + obscurity floor
+(REQ-1501/1506, ADR-0112), direct user feedback — Epic 28 follow-up.**
+Not part of the original S-223-S-229 sequence (that epic already closed
+out at S-229) — numbered after S-230 for the same reason S-230 itself was:
+a direct user-feedback fix landing after the epic's own close-out, not a
+gap in the original plan. Reported directly, immediately after the game
+first became reachable (S-228's own fix, see this file's S-230 neighbor
+for the unrelated xG Connect report from the same day): "club" as a stat
+category reads as boring, and the eligible player pool feels too obscure
+to actually reason about.
+
+Two decisions confirmed by direct product-owner sign-off (not this
+session's own judgment call — see `docs/requirements-document.md`'s
+2026-09-10 status notes under REQ-1501 and the new REQ-1506):
+1. Remove `"club"` as a candidate stat category (ADR-0111's own
+   Follow-up section pre-approved this exact rollback). Add
+   **international caps** and **international goals** — sourced from
+   Wikidata's `P1350`/`P1351` qualifiers on a player's national-team `P54`
+   statement, per ADR-0112 (extends ADR-0111 with a second, single-
+   recorded-value derivation shape, since caps/goals are each one number
+   per player, not a count of rows the way club/trophy are). Keep
+   `"trophy"` unchanged. Explicitly deferred, not built this story: career
+   club goals (would need summing across every club stint) and World
+   Cup-specific goals (Wikidata doesn't cleanly separate World Cup goals
+   from all-time national-team goals) — both real data-availability
+   questions, not just effort, per ADR-0112's own Alternatives table.
+2. New REQ-1506: a pool-wide eligibility floor — a player is never
+   selected as baseline or comparator, for any category, unless their
+   international caps count is 10 or greater. Applies in addition to, not
+   instead of, REQ-1501's existing per-category non-null-value rule.
+
+*Scope for this story:* `IPlayerOverrideRepository`'s new single-value
+sibling method (ADR-0112) to `GetEffectivePlayerCountsByAttributeTypeAsync`;
+a new Wikidata batch sourcing path for `international-caps`/
+`international-goals` `PlayerAttribute` rows, mirroring whichever existing
+batch-population mechanism already populates `"club"`/`"trophy"` rows
+today (not a per-round just-in-time refresh — this pool must already be
+populated before `HigherLowerGenerationService` runs, the same
+precondition club/trophy data already has); `HigherLowerGenerationService`'s
+`CandidateStatCategories` swap plus a value-lookup dispatch by derivation
+shape (count vs. single-value); REQ-1506's caps>=10 pool-wide filter
+wired into generation; matching test coverage; the `frontend/src/lib/
+higherLower.ts` display-label map (2026-09-10 gap-fill, REQ-1504) updated
+to match the new category set, replacing its `"club"` entry.
+
+*Accept:* new categories generate correctly and fail closed per REQ-1502
+when a category can't fill a full sequence; REQ-1506's floor is provably
+applied regardless of active category (including when caps/goals is
+itself the active category); `"club"` no longer appears anywhere in
+generation; tests pass; docs updated; CI-verified (no local `dotnet` SDK
+in this sandbox, same recurring constraint as every other backend story in
+this file — verify via `ci.yml` `workflow_dispatch` before considering
+this done, per CLAUDE.md's "Testing without a local dotnet SDK" section).
+*Deps:* S-229 (the epic this extends).
+
+*Built as (2026-09-10):* `backend-implementer` built the full backend
+side. `IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync`
+(`PlayerOverrideRepository.cs`) mirrors `GetEffectivePlayerCountsByAttributeTypeAsync`'s
+exact absent-not-zero/override-wins contract for ADR-0112's single-
+recorded-value shape. `HigherLowerGenerationService.CandidateStatCategories`
+is now `["trophy", "international-caps", "international-goals"]`, with a
+small explicit `GetEffectivePlayerValuesForCategoryAsync` dispatch (count
+vs. single-value) rather than a plugin abstraction, per ADR-0112's own
+"smallest change that fits" call; REQ-1506's caps>=10 floor
+(`HigherLowerGenerationOptions.MinimumInternationalCaps`, default 10) is
+computed once per generation call and intersected into every candidate
+category's pool before REQ-1502's tie-building logic runs. Sourcing: a new
+`IWikidataClient.QueryInternationalStatsByQidsAsync` (P1350/P1351
+qualifiers on a player's national-team P54 statement, joined to any team
+carrying truthy `wdt:P1532` — a batch fetch over an already-known player
+pool, not an intersection search for new candidates, per ADR-0112's own
+reasoning for why this differs from `QueryNationalTeamClubIntersectionAsync`'s
+caller-supplied-country join), with `SparqlResponseParsers.ParseInternationalStatsBindings`
+implementing ADR-0112 point 4's "highest recorded caps value wins"
+tie-break across a player's multiple qualifying statements. Population
+mechanism (the task's own point 6 decision): neither extending
+`PlayerCareerPrefetchService` (which discovers new players by sweeping
+seeded `CountryDefinition`/`ClubDefinition` rows — a fundamentally
+different iteration shape) nor inventing something new from scratch —
+instead, a new `PlayerInternationalStatsBackfillService` mirrors
+`PlayerPositionBirthYearBackfillService`'s cursor-over-the-existing-Player-
+pool shape (via a new `IPlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync`
+read cursor keyed on "missing an `international-caps` row"), delegating
+the actual Wikidata fetch+write to a new `IPlayerInternationalStatsRefreshService`/
+`PlayerInternationalStatsRefreshService` that mirrors
+`IPlayerCareerStintRefreshService`'s exact batch-by-player-IDs/
+`throwOnFailure` shape, per ADR-0112's own explicit interface mandate —
+international caps/goals apply to a player regardless of which seeded
+country/club originally pooled them, so there's no country/club to sweep
+by; a backfill cursor over players already known to this codebase is the
+closer fit. Exposed as `dotnet run -- backfill-player-international-stats`
+(`.github/workflows/backfill-player-international-stats.yml`, manual
+`workflow_dispatch` only, same ADR-0024 reasoning as every sibling bulk
+Wikidata job). A known, documented limitation (not fixed this story,
+flagged in the new CLI workflow's own comment and ADR-0112): unlike
+Position/BirthYear, an already-backfilled player's caps/goals are never
+re-synced, so a real-world caps count rising over time goes stale —
+accepted for this initial population pass, same "occasional job" posture
+every sibling backfill in this codebase already carries.
+
+Every existing `HigherLowerGenerationServiceTests`/`XGHigherLowerGameModuleTests`/
+`RoundEndpointTests` fixture that seeded only `"trophy"` (or, for one new
+proof test, `"club"`) data needed a companion `"international-caps"` row
+added so REQ-1506's new floor didn't silently exclude every pre-existing
+fixture — done via each file's own seed helper, not a fixture-by-fixture
+patch, so the fix reads as one deliberate change per file rather than
+scattered edits. New `REQ1501_`/`REQ1506_`/`S231_`-prefixed tests added
+across `PlayerOverrideRepositoryTests.cs`, `WikidataClientTests.cs`
+(`ADR0112_`-prefixed), `PlayerBackfillRepositoryTests.cs`,
+`PlayerInternationalStatsRefreshServiceTests.cs` (new file),
+`PlayerInternationalStatsBackfillServiceTests.cs` (new file), and
+`HigherLowerGenerationServiceTests.cs`, covering: both new categories
+generating correctly; `"club"` proven unusable even against a rich,
+otherwise-valid pool; the caps floor excluding a low/no-cap player who'd
+otherwise be REQ-1501-eligible for the active category; the floor holding
+when caps or goals is itself the active category; REQ-1502's existing
+fail-closed behavior; the ADR-0112 tie-break's "winning statement's own
+goals travels with it" rule at the client-parser level. `docs/requirements-document.md`
+(REQ-1501/REQ-1506 status notes, v2.89 → v2.90) and
+`docs/architecture-document.md` (COMP-18 row, v1.64 → v1.65) updated in
+the same iteration; `frontend/src/lib/higherLower.ts`'s display-label map
+WAS updated for this story, in a same-branch follow-up commit (`b87efee`,
+orchestrating session) rather than the delivery commits above — it now
+maps `"trophy"`/`"international-caps"`/`"international-goals"` and no
+longer mentions `"club"`, and 979/979 frontend tests passed with the
+change in place. No local `dotnet` SDK in this sandbox (same recurring
+constraint as every other backend story in this file) — hand-verified by
+reading the diff against `GetEffectivePlayerCountsByAttributeTypeAsync`/
+`IPlayerCareerStintRefreshService`/`PlayerPositionBirthYearBackfillService`'s
+own established patterns; a `ci.yml` `workflow_dispatch` run is needed
+before this is considered fully verified end-to-end, and real Wikidata
+query correctness/coverage for the two new P1350/P1351-based categories
+specifically needs a real dev-environment `backfill-player-international-stats`
+run before being trusted (no network egress to query.wikidata.org from
+this sandbox — ADR-0112's own Consequences section flags this explicitly).

@@ -679,4 +679,61 @@ public interface IWikidataClient
     Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
         string wikidataQid,
         CancellationToken cancellationToken = default);
+
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): batched,
+    // direct-by-QID international-caps/international-goals lookup for
+    // PlayerInternationalStatsRefreshService — the P1350 ("number of
+    // matches played")/P1351 ("number of goals scored") qualifiers on a
+    // player's national-team P54 ("member of sports team") statement,
+    // where "national team" is any team carrying truthy wdt:P1532
+    // ("country for sport") — deliberately NOT joined against one specific,
+    // caller-known country the way QueryNationalTeamClubIntersectionAsync/
+    // QueryTeamTrophyNationalTeamIntersectionAsync are: this is a batch
+    // fetch over an already-known player pool (every QID here is an
+    // existing Player row this codebase already created), not an
+    // intersection search for new candidates, so there is no "target
+    // country" to join against — see ADR-0112's Alternatives table for why
+    // requiring one first (via P27/citizenship) was rejected. Same
+    // VALUES-clause-over-a-bounded-QID-batch shape as
+    // QueryPlayerCareerStintsByQidsAsync — full P54 statement path
+    // (p:P54/ps:P54, excluding deprecated rank), never the truthy wdt:P54
+    // shortcut (same non-negotiable "ever represented," not "currently
+    // represents," reasoning as every other P54 use in this file).
+    //
+    // ADR-0112 point 4: a player capped for more than one representative
+    // side (or a Wikidata item modeling youth vs. senior levels as
+    // separate P54 statements against P1532-bearing teams) resolves to the
+    // SINGLE statement with the highest recorded caps value — see
+    // WikidataInternationalStatsEntry's own doc comment for the full
+    // selection rule this method's parser applies. Accepted as an
+    // approximation, not proven correct for every player (ADR-0112's own
+    // Consequences/Follow-up).
+    //
+    // Returns a dictionary keyed by QID, present only for QIDs with at
+    // least one candidate statement whose pq:P1350 value resolved — a QID
+    // with no such statement (never represented their national team on
+    // Wikidata's own data, or Wikidata simply never recorded a caps
+    // qualifier for them) is simply absent from the result, never an
+    // error, same "absent means none" contract as
+    // QueryPlayerCareerStintsByQidsAsync.
+    //
+    // Error contract — same throw-on-failure shape as
+    // QueryPlayerCareerStintsByQidsAsync/QueryPlayerPhotosByQidsAsync (not
+    // the five swallow-to-[] intersection queries): this is a batch job
+    // whose success metric is a backfilled-row count, so a swallowed
+    // failure would be indistinguishable from "none of these QIDs have
+    // this data." The caller (PlayerInternationalStatsRefreshService) is
+    // responsible for deciding whether a failed refresh should ever block
+    // its own caller (see that service's own throwOnFailure doc comment,
+    // mirroring IPlayerCareerStintRefreshService's identical parameter).
+    //
+    // Real-data verification note (ADR-0112 Consequences): this query's
+    // correctness and real-world P1350/P1351 coverage cannot be verified
+    // live from the implementing sandbox (no network egress to
+    // query.wikidata.org) — must be confirmed via a real `ci.yml`
+    // `workflow_dispatch` run, and ideally a real dev-environment sync run,
+    // before being trusted.
+    Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
+        IReadOnlyList<string> wikidataQids,
+        CancellationToken cancellationToken = default);
 }
