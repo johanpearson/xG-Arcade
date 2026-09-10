@@ -11833,3 +11833,58 @@ tab-mounting fix reuses S-218's already-established pattern rather than
 introducing a new one.
 *Accept:* backend/frontend tests pass; docs updated; CI-verified.
 *Deps:* S-217.
+
+**S-231 · xG Higher/Lower: real international stats + obscurity floor
+(REQ-1501/1506, ADR-0112), direct user feedback — Epic 28 follow-up.**
+Not part of the original S-223-S-229 sequence (that epic already closed
+out at S-229) — numbered after S-230 for the same reason S-230 itself was:
+a direct user-feedback fix landing after the epic's own close-out, not a
+gap in the original plan. Reported directly, immediately after the game
+first became reachable (S-228's own fix, see this file's S-230 neighbor
+for the unrelated xG Connect report from the same day): "club" as a stat
+category reads as boring, and the eligible player pool feels too obscure
+to actually reason about.
+
+Two decisions confirmed by direct product-owner sign-off (not this
+session's own judgment call — see `docs/requirements-document.md`'s
+2026-09-10 status notes under REQ-1501 and the new REQ-1506):
+1. Remove `"club"` as a candidate stat category (ADR-0111's own
+   Follow-up section pre-approved this exact rollback). Add
+   **international caps** and **international goals** — sourced from
+   Wikidata's `P1350`/`P1351` qualifiers on a player's national-team `P54`
+   statement, per ADR-0112 (extends ADR-0111 with a second, single-
+   recorded-value derivation shape, since caps/goals are each one number
+   per player, not a count of rows the way club/trophy are). Keep
+   `"trophy"` unchanged. Explicitly deferred, not built this story: career
+   club goals (would need summing across every club stint) and World
+   Cup-specific goals (Wikidata doesn't cleanly separate World Cup goals
+   from all-time national-team goals) — both real data-availability
+   questions, not just effort, per ADR-0112's own Alternatives table.
+2. New REQ-1506: a pool-wide eligibility floor — a player is never
+   selected as baseline or comparator, for any category, unless their
+   international caps count is 10 or greater. Applies in addition to, not
+   instead of, REQ-1501's existing per-category non-null-value rule.
+
+*Scope for this story:* `IPlayerOverrideRepository`'s new single-value
+sibling method (ADR-0112) to `GetEffectivePlayerCountsByAttributeTypeAsync`;
+a new Wikidata batch sourcing path for `international-caps`/
+`international-goals` `PlayerAttribute` rows, mirroring whichever existing
+batch-population mechanism already populates `"club"`/`"trophy"` rows
+today (not a per-round just-in-time refresh — this pool must already be
+populated before `HigherLowerGenerationService` runs, the same
+precondition club/trophy data already has); `HigherLowerGenerationService`'s
+`CandidateStatCategories` swap plus a value-lookup dispatch by derivation
+shape (count vs. single-value); REQ-1506's caps>=10 pool-wide filter
+wired into generation; matching test coverage; the `frontend/src/lib/
+higherLower.ts` display-label map (2026-09-10 gap-fill, REQ-1504) updated
+to match the new category set, replacing its `"club"` entry.
+
+*Accept:* new categories generate correctly and fail closed per REQ-1502
+when a category can't fill a full sequence; REQ-1506's floor is provably
+applied regardless of active category (including when caps/goals is
+itself the active category); `"club"` no longer appears anywhere in
+generation; tests pass; docs updated; CI-verified (no local `dotnet` SDK
+in this sandbox, same recurring constraint as every other backend story in
+this file — verify via `ci.yml` `workflow_dispatch` before considering
+this done, per CLAUDE.md's "Testing without a local dotnet SDK" section).
+*Deps:* S-229 (the epic this extends).
