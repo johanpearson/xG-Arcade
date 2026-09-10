@@ -117,4 +117,28 @@ public class PlayerBackfillRepository(XGArcadeDbContext dbContext) : IPlayerBack
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231): "international-caps" is
+    // the exact AttributeType literal PlayerInternationalStatsRefreshService
+    // writes (and the one REQ-1506's floor / ADR-0112's tie-break both key
+    // off) — see this method's own doc comment on
+    // IPlayerBackfillRepository for why the presence of THIS row
+    // specifically is the "already processed" signal, not
+    // "international-goals".
+    public async Task<IReadOnlyList<Player>> GetPlayersMissingInternationalStatsAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Players
+            .AsNoTracking()
+            .Where(p => p.WikidataQid != null
+                && !dbContext.PlayerAttributes.Any(pa => pa.PlayerId == p.Id && pa.AttributeType == "international-caps"));
+
+        if (excludingPlayerIds.Count > 0)
+            query = query.Where(p => !excludingPlayerIds.Contains(p.Id));
+
+        return await query
+            .OrderBy(p => p.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+    }
 }

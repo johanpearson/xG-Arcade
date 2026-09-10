@@ -48,6 +48,7 @@ public static class CliVerbDispatcher
         ["import-player-name-index"] = HandleImportPlayerNameIndexAsync,
         ["backfill-player-photos"] = HandleBackfillPlayerPhotosAsync,
         ["backfill-player-position-birthyear"] = HandleBackfillPlayerPositionBirthYearAsync,
+        ["backfill-player-international-stats"] = HandleBackfillPlayerInternationalStatsAsync,
         ["prefetch-player-careers"] = HandlePrefetchPlayerCareersAsync,
         ["sweep-recent-transfers"] = HandleSweepRecentTransfersAsync,
         ["verify-wikidata-player-data"] = HandleVerifyWikidataPlayerDataAsync,
@@ -321,6 +322,50 @@ public static class CliVerbDispatcher
         Console.WriteLine(
             $"backfill-player-position-birthyear: complete — {positionBirthYearBackfillResult.BatchesProcessed} batch(es) processed, " +
             $"{positionBirthYearBackfillResult.PlayersBackfilled} player(s) backfilled, {positionBirthYearBackfillResult.BatchesFailed} batch(es) failed.");
+        return true;
+    }
+
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): `dotnet run --
+    // backfill-player-international-stats` — same shape as
+    // backfill-player-position-birthyear above (builds its dependencies
+    // directly rather than the full DI container, since it runs before
+    // WebApplication.CreateBuilder). See PlayerInternationalStatsBackfillService's
+    // own doc comment for the full "why a backfill cursor, not a
+    // PlayerCareerPrefetchService-style country/club discovery sweep"
+    // reasoning — this is the mechanism that must run (via
+    // backfill-player-international-stats.yml) BEFORE
+    // HigherLowerGenerationService can ever select "international-caps"/
+    // "international-goals" as an eligible category, or apply REQ-1506's
+    // floor, the same precondition prefetch-player-careers already
+    // establishes for "club"/"trophy".
+    private static async Task<bool> HandleBackfillPlayerInternationalStatsAsync(string[] args)
+    {
+        if (args.Length != 1)
+            return false;
+
+        using var internationalStatsLoggerFactory = BuildLoggerFactory();
+
+        await using var internationalStatsDbContext = BuildDbContext();
+        var internationalStatsPlayerRepository = new PlayerRepository(internationalStatsDbContext);
+        var internationalStatsPlayerAttributeRepository = new PlayerAttributeRepository(internationalStatsDbContext);
+        var internationalStatsPlayerDataRepository = new PlayerDataRepository(internationalStatsDbContext);
+        var internationalStatsPlayerBackfillRepository = new PlayerBackfillRepository(internationalStatsDbContext);
+
+        var internationalStatsWikidataClient = BuildWikidataClient(internationalStatsLoggerFactory);
+
+        var internationalStatsRefreshService = new PlayerInternationalStatsRefreshService(
+            internationalStatsWikidataClient, internationalStatsPlayerRepository, internationalStatsPlayerAttributeRepository,
+            internationalStatsPlayerDataRepository, internationalStatsLoggerFactory.CreateLogger<PlayerInternationalStatsRefreshService>());
+
+        var internationalStatsBackfillService = new PlayerInternationalStatsBackfillService(
+            internationalStatsPlayerBackfillRepository, internationalStatsRefreshService,
+            internationalStatsLoggerFactory.CreateLogger<PlayerInternationalStatsBackfillService>());
+
+        var internationalStatsResult = await internationalStatsBackfillService.BackfillAsync();
+
+        Console.WriteLine(
+            $"backfill-player-international-stats: complete — {internationalStatsResult.BatchesProcessed} batch(es) processed, " +
+            $"{internationalStatsResult.PlayersAttempted} player(s) attempted, {internationalStatsResult.BatchesFailed} batch(es) failed.");
         return true;
     }
 

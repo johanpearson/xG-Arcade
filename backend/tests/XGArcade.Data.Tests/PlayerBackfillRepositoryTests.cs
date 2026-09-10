@@ -19,6 +19,7 @@ public class PlayerBackfillRepositoryTests
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerBackfillRepository _repository = null!;
     private IPlayerRepository _playerRepository = null!;
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
 
     [SetUp]
     public void SetUp()
@@ -29,6 +30,7 @@ public class PlayerBackfillRepositoryTests
         _dbContext = new XGArcadeDbContext(options);
         _repository = new PlayerBackfillRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
     }
 
     [TearDown]
@@ -324,5 +326,80 @@ public class PlayerBackfillRepositoryTests
         {
             [Guid.NewGuid()] = new PlayerPositionBirthYearUpdate("forward", 1990),
         }));
+    }
+
+    // ---- GetPlayersMissingInternationalStatsAsync ----
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231): PlayerInternationalStatsBackfillService's
+    // read cursor — mirrors GetPlayersMissingPhotoAsync's own coverage
+    // above, adapted for the "presence of an 'international-caps'
+    // PlayerAttribute row" missing-signal (see that method's own doc
+    // comment on IPlayerBackfillRepository for why caps alone, not goals).
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_ReturnsOnlyPlayersWithQidAndNoCapsRow()
+    {
+        var missingStats = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var alreadyHasStats = new Player { Id = Guid.NewGuid(), FullName = "Didier Drogba", WikidataQid = "Q42233" };
+        var noQid = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
+        await _playerRepository.AddPlayerAsync(missingStats);
+        await _playerRepository.AddPlayerAsync(alreadyHasStats);
+        await _playerRepository.AddPlayerAsync(noQid);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = alreadyHasStats.Id, AttributeType = "international-caps", AttributeValue = "50",
+        });
+
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { missingStats.Id }));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_OtherAttributeTypesDoNotCountAsAlreadyProcessed()
+    {
+        // A player with "trophy"/"club" rows but no "international-caps" row
+        // yet must still surface as a backfill candidate.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Premier League",
+        });
+
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { player.Id }));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_RespectsBatchSize()
+    {
+        for (var i = 0; i < 5; i++)
+            await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
+
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([], batchSize: 3);
+
+        Assert.That(result, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_ExcludesGivenPlayerIds()
+    {
+        var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        await _playerRepository.AddPlayerAsync(first);
+        await _playerRepository.AddPlayerAsync(second);
+
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([first.Id], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { second.Id }));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_NoMissingStatsPlayers_ReturnsEmpty()
+    {
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([], batchSize: 200);
+
+        Assert.That(result, Is.Empty);
     }
 }
