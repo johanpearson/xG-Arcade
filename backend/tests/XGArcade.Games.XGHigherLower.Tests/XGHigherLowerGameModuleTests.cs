@@ -103,8 +103,9 @@ public class XGHigherLowerGameModuleTests
     public void GenerateInstanceAsync_NoCategoryHasEnoughEligiblePlayers_ThrowsHigherLowerGenerationException()
     {
         // ComparatorCount=3 needs 4 eligible players; nothing at all is
-        // seeded for either candidate category ("trophy"/"club") — neither
-        // category can possibly work, so IHigherLowerGenerationService
+        // seeded for any candidate category ("trophy"/"international-caps"/
+        // "international-goals", S-231) — none can possibly work, so
+        // IHigherLowerGenerationService
         // throws and this proves the module forwards that call/exception
         // unchanged rather than swallowing or wrapping it.
         Assert.ThrowsAsync<HigherLowerGenerationException>(
@@ -349,7 +350,15 @@ public class XGHigherLowerGameModuleTests
     // Seeds one player per count in `counts`, each with exactly that many
     // distinct raw PlayerAttribute rows of `attributeType` — e.g. counts
     // [1, 2, 3] seeds 3 players with 1, 2, and 3 distinct attribute values
-    // respectively. Returns the seeded players' ids.
+    // respectively. Every seeded player also gets a uniform
+    // "international-caps" row of 10 (S-231, REQ-1506 — exactly
+    // HigherLowerGenerationOptions.MinimumInternationalCaps' default), so
+    // this module-boundary passthrough test doesn't get accidentally
+    // excluded by the pool-wide caps floor added in S-231; this file's own
+    // REQ-1501/1502/1503/1506 coverage of that exact category-selection
+    // logic lives in HigherLowerGenerationServiceTests.cs, not here — see
+    // this file's own doc comment on GenerateInstanceAsync passthrough
+    // above. Returns the seeded players' ids.
     private async Task<List<Guid>> SeedPlayersWithAttributeCountsAsync(string attributeType, int[] counts)
     {
         var playerIds = new List<Guid>();
@@ -366,6 +375,12 @@ public class XGHigherLowerGameModuleTests
                     AttributeValue = $"{attributeType}-{i}-{player.Id}",
                 });
             }
+            await _attributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+            {
+                PlayerId = player.Id,
+                AttributeType = "international-caps",
+                AttributeValue = "10",
+            });
             playerIds.Add(player.Id);
         }
         return playerIds;
