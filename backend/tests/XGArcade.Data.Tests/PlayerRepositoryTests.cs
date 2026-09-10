@@ -289,4 +289,28 @@ public class PlayerRepositoryTests
         var persisted = await verifyContext.Players.AsNoTracking().SingleAsync(p => p.Id == player.Id);
         Assert.That(persisted.FullName, Is.EqualTo("Clarence Seedorf"));
     }
+
+    // ---- CountPlayersAsync ----
+    // REQ-1507 (admin xG Higher/Lower international-stats coverage check):
+    // the true denominator, every Player row.
+
+    [Test]
+    public async Task REQ1507_CountPlayersAsync_ReturnsEveryPlayerRow()
+    {
+        await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" });
+        await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "Player B" }); // No WikidataQid — still counted.
+        await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "Player C", WikidataQid = "QC" });
+
+        var count = await _repository.CountPlayersAsync();
+
+        Assert.That(count, Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ1507_CountPlayersAsync_EmptyPool_ReturnsZero()
+    {
+        var count = await _repository.CountPlayersAsync();
+
+        Assert.That(count, Is.EqualTo(0));
+    }
 }
