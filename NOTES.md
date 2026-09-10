@@ -27,6 +27,22 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-09-10 — `XGHigherLowerGameModule.cs` inlines generation and scoring; splitting it into a dedicated service is a reasonable future refactor, not done yet
+
+Found by `quality-architect` during S-229's close-out pass (Epic 28, xG
+Higher/Lower). `XGHigherLowerGameModule.cs` is 378 lines and does both
+Round-generation (`GenerateInstanceAsync`/`TryBuildSequence`, REQ-1501/1502/
+1503) and scoring (`ScoreSubmissionAsync`, REQ-1504/1505) inline, unlike its
+sibling game modules — `GridGameModule` and `XGConnectGameModule` both
+delegate the equivalent logic out to dedicated services instead of keeping
+it all in the `IGameModule` implementation itself. Flagged explicitly as
+**not a blocking fix for the S-229 close-out story** — recorded here so
+it isn't silently lost, not acted on. If `XGHigherLowerGameModule.cs` needs
+touching again for an unrelated reason (or grows further), consider
+extracting a `HigherLowerGenerationService` (mirroring whatever shape
+`GridGameModule`/`XGConnectGameModule` already delegate to) at that point
+rather than continuing to grow the module file directly.
+
 ### 2026-08-31 — API-Football's free plan does not include the current season
 
 Discovered when `/internal/generate-round?gameKey=xg-predict` returned 500
