@@ -366,6 +366,56 @@ internal static class SparqlResponseParsers
         return merged;
     }
 
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112):
+    // BuildInternationalStatsByQidsQuery's own parser — a player can have
+    // more than one qualifying P54 statement (multiple representative
+    // sides, or a youth-vs-senior split modeled as separate statements
+    // against P1532-bearing teams), so rows are grouped by QID first, then
+    // reduced to ONE winning statement per ADR-0112 point 4's tie-break:
+    // the statement with the HIGHEST recorded ?caps value wins, and that
+    // SAME statement's own ?goals value (possibly null) is what's returned
+    // — never a max(caps) paired with a max(goals) from a DIFFERENT
+    // statement. A row whose ?caps is absent/unparseable never competes for
+    // the winning statement (there is nothing to rank it by) — a QID whose
+    // every candidate row lacks a usable ?caps is simply absent from the
+    // result entirely, same "absent means none" contract as
+    // ParseCareerStintBindings' own QID-level omission.
+    internal static IReadOnlyDictionary<string, WikidataInternationalStatsEntry> ParseInternationalStatsBindings(SparqlResponse? response)
+    {
+        if (response?.Results?.Bindings is null)
+            return new Dictionary<string, WikidataInternationalStatsEntry>();
+
+        var candidatesByQid = new Dictionary<string, List<(int Caps, int? Goals)>>();
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+
+            if (!binding.TryGetValue("caps", out var capsValue) || !int.TryParse(capsValue.Value, out var caps))
+                continue; // No usable caps value on this statement — cannot compete for the winning row.
+
+            int? goals = binding.TryGetValue("goals", out var goalsValue)
+                && int.TryParse(goalsValue.Value, out var parsedGoals)
+                    ? parsedGoals
+                    : null;
+
+            var qid = playerValue.Value.Split('/').Last();
+            if (!candidatesByQid.TryGetValue(qid, out var candidates))
+                candidatesByQid[qid] = candidates = [];
+
+            candidates.Add((caps, goals));
+        }
+
+        return candidatesByQid.ToDictionary(
+            kv => kv.Key,
+            kv =>
+            {
+                var winner = kv.Value.OrderByDescending(c => c.Caps).First();
+                return new WikidataInternationalStatsEntry(winner.Caps, winner.Goals);
+            });
+    }
+
     // S-188: RecentTransferSweepService's own parser, for
     // BuildRecentClubArrivalsQuery/BuildRecentClubDeparturesQuery's shared
     // response shape (?player ?playerLabel ?startTime ?endTime

@@ -435,6 +435,41 @@ internal static class SparqlQueryBuilders
             """;
     }
 
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112):
+    // PlayerInternationalStatsRefreshService's batch fetch — full P54
+    // statement path (p:P54/ps:P54, excluding deprecated rank), same
+    // non-negotiable reasoning as BuildPlayerCareerStintsByQidsQuery above
+    // (never the truthy wdt:P54 shortcut). ?team wdt:P1532 ?anyCountry
+    // (truthy, ANY country — not one caller-supplied target, unlike
+    // BuildNationalTeamClubIntersectionQuery/
+    // BuildTeamTrophyNationalTeamIntersectionQuery's own P1532 joins) is
+    // what identifies a P54 statement as representing a NATIONAL team
+    // rather than a club — see ADR-0112's Context/Alternatives for why this
+    // is the right join for a batch fetch over an already-known player
+    // pool, not an intersection search. ?caps/?goals are OPTIONAL
+    // qualifiers (pq:P1350/pq:P1351) on that same statement, so a
+    // statement missing one or both still matches the rest of the query
+    // (same OPTIONAL-qualifier discipline as ?startTime/?endTime/
+    // ?numberOfMatches above) — ADR-0112 point 4's "highest recorded caps
+    // value wins" tie-break is applied by
+    // SparqlResponseParsers.ParseInternationalStatsBindings on the parsed
+    // rows, not in this query itself.
+    internal static string BuildInternationalStatsByQidsQuery(IReadOnlyList<string> qids)
+    {
+        var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?team ?caps ?goals WHERE {
+              VALUES ?player { {{valuesClause}} }
+              ?player p:P54 ?statement.
+              ?statement ps:P54 ?team.
+              ?team wdt:P1532 ?anyCountry.
+              MINUS { ?statement wikibase:rank wikibase:DeprecatedRank. }
+              OPTIONAL { ?statement pq:P1350 ?caps. }
+              OPTIONAL { ?statement pq:P1351 ?goals. }
+            }
+            """;
+    }
+
     // Same "VALUES clause over the batch, no candidate-matching filter"
     // shape as BuildPlayerPhotosByQidsQuery/
     // BuildPlayerPositionsAndBirthYearsByQidsQuery — the caller

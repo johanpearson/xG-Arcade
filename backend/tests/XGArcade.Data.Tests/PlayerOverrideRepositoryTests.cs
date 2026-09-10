@@ -202,6 +202,105 @@ public class PlayerOverrideRepositoryTests
         Assert.That(trophyCounts.ContainsKey(player.Id), Is.False, "a 'club' row must never count toward the 'trophy' category");
     }
 
+    // ---- REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): GetEffectivePlayerValuesByAttributeTypeAsync ----
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_ReturnsParsedRawAttributeValue_WhenNoOverrideExists()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "international-caps", AttributeValue = "123",
+        });
+
+        var values = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(values[player.Id], Is.EqualTo(123));
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_PlayerWithOverride_EffectiveValueIsOverrideValue_NotRawRow()
+    {
+        // ADR-0112 point 2: an override for (PlayerId, attributeType) IS the
+        // effective value directly — no count-normalization step, unlike
+        // GetEffectivePlayerCountsByAttributeTypeAsync's own extension of
+        // ADR-0015.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "international-caps", AttributeValue = "123",
+        });
+        await _repository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "international-caps", Value = "99",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        });
+
+        var values = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(values[player.Id], Is.EqualTo(99));
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_PlayerWithOnlyAnOverride_NoRawRow_ReturnsOverrideValue()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _repository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "international-caps", Value = "42",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        });
+
+        var values = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(values[player.Id], Is.EqualTo(42));
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_PlayerWithNeitherOverrideNorRawRow_IsAbsentFromResult()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+
+        var values = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(values.ContainsKey(player.Id), Is.False,
+            "no recorded value means absent from the dictionary, never present with 0 — REQ-1501's non-null-value eligibility rule and REQ-1506's absent-caps-excludes rule both depend on this");
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_ScopedToRequestedAttributeType_OnlyReturnsMatchingType()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "international-goals", AttributeValue = "44",
+        });
+
+        var capsValues = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(capsValues.ContainsKey(player.Id), Is.False, "an 'international-goals' row must never count toward 'international-caps'");
+    }
+
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_MalformedAttributeValue_IsSkipped_NotThrown()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "international-caps", AttributeValue = "not-a-number",
+        });
+
+        var values = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(values.ContainsKey(player.Id), Is.False);
+    }
+
     // ---- S-012: admin data correction (PlayerOverride CRUD's read/update/delete) ----
 
     [Test]

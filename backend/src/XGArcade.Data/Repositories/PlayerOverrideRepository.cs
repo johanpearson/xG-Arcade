@@ -89,4 +89,51 @@ public class PlayerOverrideRepository(XGArcadeDbContext dbContext) : IPlayerOver
 
         return counts;
     }
+
+    // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): single-
+    // recorded-value counterpart of GetEffectivePlayerCountsByAttributeTypeAsync
+    // above — see this method's own doc comment on IPlayerOverrideRepository
+    // for the full "why." attributeType is expected to be one with AT MOST
+    // ONE raw PlayerAttribute row per player ("international-caps"/
+    // "international-goals" as of S-231) — a malformed/non-numeric
+    // AttributeValue or PlayerOverride.Value (should not happen given how
+    // this AttributeType is always written by
+    // PlayerInternationalStatsRefreshService, but not database-enforced) is
+    // skipped rather than throwing, the same defensive "treat as absent,
+    // never crash the whole read" posture this file already applies
+    // elsewhere.
+    public async Task<IReadOnlyDictionary<Guid, int>> GetEffectivePlayerValuesByAttributeTypeAsync(
+        string attributeType, CancellationToken cancellationToken = default)
+    {
+        var attributeRows = await dbContext.PlayerAttributes
+            .AsNoTracking()
+            .Where(pa => pa.AttributeType == attributeType)
+            .ToListAsync(cancellationToken);
+
+        var values = new Dictionary<Guid, int>();
+        foreach (var row in attributeRows)
+        {
+            if (int.TryParse(row.AttributeValue, out var parsedValue))
+                values[row.PlayerId] = parsedValue;
+        }
+
+        // REQ-203/REQ-501/ADR-0015, applied directly (ADR-0112's point 2):
+        // an override for this (PlayerId, attributeType) IS the effective
+        // value — no count-normalization step needed the way
+        // GetEffectivePlayerCountsByAttributeTypeAsync's own count
+        // derivation requires, since "the whole effective value set" here
+        // already is exactly one number.
+        var overrides = await dbContext.PlayerOverrides
+            .AsNoTracking()
+            .Where(o => o.Field == attributeType)
+            .ToListAsync(cancellationToken);
+
+        foreach (var overrideRow in overrides)
+        {
+            if (int.TryParse(overrideRow.Value, out var parsedOverrideValue))
+                values[overrideRow.PlayerId] = parsedOverrideValue;
+        }
+
+        return values;
+    }
 }

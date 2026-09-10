@@ -1191,6 +1191,12 @@ public class AdminEndpointTests
         public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
             string playerName, CancellationToken cancellationToken = default) =>
             Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
+
+        // REQ-1501/REQ-1506 (xG Higher/Lower, S-231, ADR-0112): never called
+        // here — a trivial stub, same as every other unused method above.
+        public Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
+            IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>>(new Dictionary<string, WikidataInternationalStatsEntry>());
     }
 
     // ---- Test double for IPlayerRepository (call-counting decorator) ------
