@@ -416,6 +416,46 @@ internal static class SparqlResponseParsers
             });
     }
 
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): shared parser for both
+    // BuildIndividualTrophyStatsByQidsQuery and BuildTeamTrophyStatsByQidsQuery
+    // — both project the identical (?player, ?trophy) shape, so one parser
+    // serves both, mirroring how BuildIntersectionQuery's shared shape feeds
+    // ParseBindings regardless of which candidate clause built it. Unlike
+    // ParseInternationalStatsBindings' own "pick ONE winning statement per
+    // QID" tie-break, no winner selection happens here — a player can
+    // legitimately hold more than one trophy (or match a team trophy's
+    // winner-side UNION through more than one branch, or more than one P54
+    // statement), so every distinct (player, trophy) pair survives via a
+    // HashSet<string> of trophy QIDs per player QID. Both ?player and
+    // ?trophy are bound QID URIs (never a free-text value), same "trailing
+    // URI segment is the QID" extraction as every other by-QID parser in
+    // this file. A row missing either binding is skipped defensively — both
+    // are mandatory, non-OPTIONAL matches in both query shapes, so this
+    // should never happen in practice.
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>> ParseTrophyStatsBindings(SparqlResponse? response)
+    {
+        var trophyQidsByPlayerQid = new Dictionary<string, HashSet<string>>();
+        if (response?.Results?.Bindings is null)
+            return new Dictionary<string, IReadOnlyList<string>>();
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+            if (!binding.TryGetValue("trophy", out var trophyValue) || string.IsNullOrEmpty(trophyValue.Value))
+                continue;
+
+            var playerQid = playerValue.Value.Split('/').Last();
+            var trophyQid = trophyValue.Value.Split('/').Last();
+
+            if (!trophyQidsByPlayerQid.TryGetValue(playerQid, out var trophyQids))
+                trophyQidsByPlayerQid[playerQid] = trophyQids = [];
+            trophyQids.Add(trophyQid);
+        }
+
+        return trophyQidsByPlayerQid.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value.ToList());
+    }
+
     // S-188: RecentTransferSweepService's own parser, for
     // BuildRecentClubArrivalsQuery/BuildRecentClubDeparturesQuery's shared
     // response shape (?player ?playerLabel ?startTime ?endTime

@@ -153,6 +153,74 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(result);
     }
 
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): QueryIndividualTrophyStatsByQidsAsync/
+    // QueryTeamTrophyStatsByQidsAsync support — same "configured per-QID,
+    // plus one shared fail-next-N-calls counter" shape as
+    // QueryInternationalStatsByQidsAsync above, but keyed by player QID and
+    // valued by a LIST of won trophy QIDs (a player can hold more than one
+    // trophy), and split into two independent configuration/failure tracks
+    // (one per query the real service issues). SetIndividualTrophies/SetTeamTrophies
+    // REPLACE whatever was previously configured for that player QID (not
+    // additive) — callers that need multiple trophies for one player pass
+    // them all in one call.
+    private readonly Dictionary<string, List<string>> _wonIndividualTrophyQidsByPlayerQid = new();
+    private readonly Dictionary<string, List<string>> _wonTeamTrophyQidsByPlayerQid = new();
+    private int _remainingIndividualTrophyBatchFailures;
+    private int _remainingTeamTrophyBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedIndividualTrophyPlayerBatches { get; } = [];
+    public List<IReadOnlyList<string>> QueriedIndividualTrophyTrophyBatches { get; } = [];
+    public List<IReadOnlyList<string>> QueriedTeamTrophyPlayerBatches { get; } = [];
+    public List<IReadOnlyList<string>> QueriedTeamTrophyTrophyBatches { get; } = [];
+
+    public void SetIndividualTrophies(string playerWikidataQid, params string[] wonTrophyQids) =>
+        _wonIndividualTrophyQidsByPlayerQid[playerWikidataQid] = [.. wonTrophyQids];
+
+    public void SetTeamTrophies(string playerWikidataQid, params string[] wonTrophyQids) =>
+        _wonTeamTrophyQidsByPlayerQid[playerWikidataQid] = [.. wonTrophyQids];
+
+    public void FailNextIndividualTrophyBatches(int batches) => _remainingIndividualTrophyBatchFailures = batches;
+
+    public void FailNextTeamTrophyBatches(int batches) => _remainingTeamTrophyBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryIndividualTrophyStatsByQidsAsync(
+        IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedIndividualTrophyPlayerBatches.Add(playerWikidataQids);
+        QueriedIndividualTrophyTrophyBatches.Add(trophyWikidataQids);
+
+        if (_remainingIndividualTrophyBatchFailures > 0)
+        {
+            _remainingIndividualTrophyBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for an individual-trophy-stats batch");
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<string>> result = playerWikidataQids
+            .Where(qid => _wonIndividualTrophyQidsByPlayerQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => (IReadOnlyList<string>)_wonIndividualTrophyQidsByPlayerQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryTeamTrophyStatsByQidsAsync(
+        IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedTeamTrophyPlayerBatches.Add(playerWikidataQids);
+        QueriedTeamTrophyTrophyBatches.Add(trophyWikidataQids);
+
+        if (_remainingTeamTrophyBatchFailures > 0)
+        {
+            _remainingTeamTrophyBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a team-trophy-stats batch");
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<string>> result = playerWikidataQids
+            .Where(qid => _wonTeamTrophyQidsByPlayerQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => (IReadOnlyList<string>)_wonTeamTrophyQidsByPlayerQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
     // ADR-0055: QueryPlayerPoolByNationalityAsync support — same
     // "configured per-QID, plus one shared fail-next-N-calls counter" shape
     // as every other batch-style method above.

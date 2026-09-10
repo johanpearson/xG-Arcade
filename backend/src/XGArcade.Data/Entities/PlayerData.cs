@@ -42,4 +42,21 @@ public class PlayerData
     // coverage to catch it.
     public const string InternationalStatsCheckedField = "international-stats-checked";
     public const string InternationalStatsCheckedValue = "checked";
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): the trophy-sweep sibling
+    // of InternationalStatsCheckedField/InternationalStatsCheckedValue above
+    // — same "shared constant, not a plain string literal" reasoning (a pure
+    // writer/reader bookkeeping coordination flag between exactly two
+    // classes, PlayerTrophyStatsRefreshService writes it and
+    // PlayerBackfillRepository reads it), and built with it from the FIRST
+    // commit rather than retrofitted after a production incident the way
+    // InternationalStatsCheckedField had to be — see ADR-0113's own "For AI
+    // agents" section for why repeating that mistake here specifically was
+    // called out as unacceptable. Written for every player in a
+    // successfully-queried batch regardless of outcome (the large majority
+    // of players will have won none of the seeded trophies), never a
+    // PlayerAttribute row, so it can never leak into game-eligibility logic
+    // the same way InternationalStatsCheckedField cannot.
+    public const string TrophyStatsCheckedField = "trophy-stats-checked";
+    public const string TrophyStatsCheckedValue = "checked";
 }
