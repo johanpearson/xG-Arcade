@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (REQ-1504 gap-fill status
+  note, v2.87 → v2.88), `NOTES.md` (new entry, ADR-0111 follow-up flagged
+  as now confirmed by real user feedback) — direct user-tester report: xG
+  Higher/Lower's screen rendered `StatCategory` ("club"/"trophy", the raw
+  `PlayerAttribute.AttributeType` string ADR-0111 derives counts from) and
+  its numeric values completely unexplained ("Comparing club" next to a
+  bare "1"). Fixed with a small display-only humanizer
+  (`frontend/src/lib/higherLower.ts`) used by `HigherLowerScreen.tsx`. No
+  ADR — presentation-only, no structural/data change. The deeper concern
+  ADR-0111 itself flagged and left as an unresolved Follow-up — whether
+  "club count" is the right kind of stat at all, and general player
+  recognizability — is still open; see `NOTES.md`.
 - 2026-09-10 — `NOTES.md` (appended a resolution note to the 2026-09-10
   entry), `docs/architecture-document.md` (COMP-18 row — one clause noting
   the new shape) — pure structural refactor, no requirement change: split

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.87"
+version: "2.88"
 status: draft
-last_updated: 2026-09-09
+last_updated: 2026-09-10
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -13421,6 +13421,27 @@ needed — `architecture-reviewer` and this story's own intake both
 confirmed this is wiring of already-decided shapes (this REQ's own S-226
 note already anticipated exactly this endpoint pair as the real caller),
 not a new structural decision.
+
+**Status note (2026-09-10, direct user feedback, gap-fill):** the live
+screen (`HigherLowerScreen.tsx`) rendered `StatCategory` and the
+baseline/revealed values verbatim — `StatCategory` is `HigherLowerInstance`'s
+raw persisted string, one of ADR-0111's two candidate `PlayerAttribute`
+`AttributeType`s (`"club"`/`"trophy"`), never human copy — so a real
+player saw "Comparing club" next to a bare number and correctly reported
+it as meaningless. Fixed by a small display-only map in
+`frontend/src/lib/higherLower.ts` (`higherLowerCategoryLabel`/
+`higherLowerValueLabel`) translating `"club"` → "number of clubs played
+for" / "N club(s)" and `"trophy"` → "number of trophies won" / "N
+trophy/trophies", falling back to the raw string/bare number for any
+future category not yet in the map (never a hard block). No Given/When/Then
+change — this REQ never specified a copy format, so this is a display
+gap-fill, not a new acceptance criterion, same category as the REQ-1406
+gap-fill noted elsewhere in this document. Covered by new
+`frontend/src/lib/higherLower.test.ts` plus updated assertions in
+`HigherLowerScreen.test.tsx` (which previously asserted against a
+fabricated human-readable `statCategory` fixture value that could never
+occur in production — masking this exact gap — now asserts against the
+real `"club"` value).
 
 **REQ-1505 – Scoring: streak length as FinalPoints, ranked like every
 other GameKey**

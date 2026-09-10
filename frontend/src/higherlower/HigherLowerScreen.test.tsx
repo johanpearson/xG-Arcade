@@ -17,7 +17,12 @@ function roundResponse(overrides: Record<string, unknown> = {}) {
     sequenceNumber: 5,
     startTime: '2026-09-01T00:00:00Z',
     endTime: '2026-09-02T00:00:00Z',
-    statCategory: 'career league appearances',
+    // A real StatCategory value (ADR-0111: HigherLowerGenerationService's
+    // CandidateStatCategories are exactly "trophy"/"club", never
+    // human-readable copy) — using the real value here is what caught the
+    // gap-fill bug below in the first place; a fabricated human-readable
+    // placeholder string would have hidden it.
+    statCategory: 'club',
     comparatorCount: 5,
     streakLength: 0,
     hasEnded: false,
@@ -86,9 +91,13 @@ describe('HigherLowerScreen', () => {
     render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
 
     expect(await screen.findByText('Streak 0 of 5')).toBeInTheDocument();
-    expect(screen.getByText('Comparing career league appearances')).toBeInTheDocument();
+    // Gap-fill (2026-09-10, user-tester report): the raw "club" category
+    // string and a bare "100" said nothing to a real player — both are now
+    // humanized (ADR-0111's two real category strings, "club"/"trophy",
+    // map to full English + a unit; see higherLower.ts).
+    expect(screen.getByText('Comparing number of clubs played for')).toBeInTheDocument();
     expect(screen.getByText('Pelé')).toBeInTheDocument();
-    expect(screen.getByText('100')).toBeInTheDocument();
+    expect(screen.getByText('100 clubs')).toBeInTheDocument();
     expect(screen.getByText('Zico')).toBeInTheDocument();
     // The next comparator's value is never rendered anywhere on the page —
     // REQ-1504's "hidden until guessed" contract, enforced by the DTO
@@ -139,7 +148,7 @@ describe('HigherLowerScreen', () => {
     // The new baseline shows the just-revealed value.
     const baselineCard = document.querySelector('.higher-lower-screen__card--baseline');
     expect(baselineCard).toHaveTextContent('Zico');
-    expect(baselineCard).toHaveTextContent('120');
+    expect(baselineCard).toHaveTextContent('120 clubs');
   });
 
   it('REQ-1504: an incorrect guess ends the attempt, shows the "Incorrect." outcome (sourced from the POST response, since GET does not advance the baseline on an incorrect guess), and removes the guess buttons', async () => {
@@ -174,7 +183,7 @@ describe('HigherLowerScreen', () => {
 
     expect(await screen.findByText(/Incorrect\./)).toBeInTheDocument();
     expect(screen.getByText(/Zico/)).toBeInTheDocument();
-    expect(screen.getByText('80')).toBeInTheDocument();
+    expect(screen.getByText('80 clubs')).toBeInTheDocument();
     expect(await screen.findByText('You’ve completed this round.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Higher' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Lower' })).not.toBeInTheDocument();

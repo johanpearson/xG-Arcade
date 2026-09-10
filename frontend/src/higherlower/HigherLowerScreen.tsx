@@ -1,6 +1,11 @@
 import { useCallback, useState } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
-import { fetchCurrentHigherLower, submitHigherLowerGuess } from '../lib/higherLower';
+import {
+  fetchCurrentHigherLower,
+  higherLowerCategoryLabel,
+  higherLowerValueLabel,
+  submitHigherLowerGuess,
+} from '../lib/higherLower';
 import { HigherLowerDirection } from '../lib/types';
 import type { CurrentHigherLowerResponse, SubmitHigherLowerGuessResponse } from '../lib/types';
 import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel } from '../lib/roundTime';
@@ -206,7 +211,7 @@ export function HigherLowerScreen({ accessToken, onAuthError, onViewRoundLeaderb
         <p className="higher-lower-screen__meta mono-figure">
           Streak {round.streakLength} of {round.comparatorCount}
         </p>
-        <p className="higher-lower-screen__category">Comparing {round.statCategory}</p>
+        <p className="higher-lower-screen__category">Comparing {higherLowerCategoryLabel(round.statCategory)}</p>
       </div>
 
       {/* REQ-1210/ADR-0083/design-document.md SCREEN-12 (SCREEN-18's own
@@ -251,14 +256,18 @@ export function HigherLowerScreen({ accessToken, onAuthError, onViewRoundLeaderb
           aria-live="polite"
         >
           {lastGuessResult.isCorrect ? 'Correct.' : 'Incorrect.'} {lastGuessResult.revealedPlayerName}:{' '}
-          <span className="mono-figure">{lastGuessResult.revealedValue}</span>
+          <span className="mono-figure">
+            {higherLowerValueLabel(round.statCategory, lastGuessResult.revealedValue)}
+          </span>
         </p>
       )}
 
       <div className="higher-lower-screen__card higher-lower-screen__card--baseline">
         <p className="higher-lower-screen__card-label">Baseline</p>
         <p className="higher-lower-screen__player-name">{round.baseline.name}</p>
-        <p className="higher-lower-screen__player-value mono-figure">{round.baseline.value}</p>
+        <p className="higher-lower-screen__player-value mono-figure">
+          {higherLowerValueLabel(round.statCategory, round.baseline.value)}
+        </p>
       </div>
 
       {round.hasEnded ? (
