@@ -402,4 +402,56 @@ public class PlayerBackfillRepositoryTests
 
         Assert.That(result, Is.Empty);
     }
+
+    // Bug fix (2026-09-10, follow-up to S-231/PR #367): the fix under
+    // test — a player with the "international-stats-checked" PlayerData
+    // marker (written by PlayerInternationalStatsRefreshService for every
+    // player in a successfully-queried batch, even when nothing resolved)
+    // must be excluded here just like one with a real "international-caps"
+    // row, or the backfill re-queries Wikidata's "no data" population
+    // forever. See IPlayerBackfillRepository's own doc comment on this
+    // method for the full "why both signals" reasoning.
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_ExcludesPlayersWithCheckedMarker_EvenWithoutACapsRow()
+    {
+        var neverChecked = new Player { Id = Guid.NewGuid(), FullName = "Never Checked", WikidataQid = "Q1519" };
+        var checkedNoData = new Player { Id = Guid.NewGuid(), FullName = "Checked, No Data", WikidataQid = "Q42233" };
+        await _playerRepository.AddPlayerAsync(neverChecked);
+        await _playerRepository.AddPlayerAsync(checkedNoData);
+        _dbContext.PlayerData.Add(new PlayerData
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = checkedNoData.Id,
+            Field = "international-stats-checked",
+            Value = "checked",
+            Source = "wikidata",
+            Confidence = "verified",
+            SyncedAt = DateTime.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { neverChecked.Id }));
+    }
+
+    // Backward compatibility: a player who already has a real
+    // "international-caps" row from BEFORE this fix shipped (so no
+    // matching marker exists) must stay excluded too — otherwise every
+    // already-resolved player in production would look "missing" again the
+    // moment this fix ships, and get needlessly re-queried.
+    [Test]
+    public async Task REQ1501_GetPlayersMissingInternationalStatsAsync_ExcludesPlayersWithCapsRow_EvenWithoutACheckedMarker()
+    {
+        var alreadyHasStats = new Player { Id = Guid.NewGuid(), FullName = "Pre-Fix Resolved Player", WikidataQid = "Q42233" };
+        await _playerRepository.AddPlayerAsync(alreadyHasStats);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = alreadyHasStats.Id, AttributeType = "international-caps", AttributeValue = "50",
+        });
+
+        var result = await _repository.GetPlayersMissingInternationalStatsAsync([], batchSize: 200);
+
+        Assert.That(result, Is.Empty);
+    }
 }

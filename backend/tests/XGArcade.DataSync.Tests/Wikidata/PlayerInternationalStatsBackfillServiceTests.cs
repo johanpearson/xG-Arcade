@@ -144,4 +144,30 @@ public class PlayerInternationalStatsBackfillServiceTests
         Assert.That(result.BatchesFailed, Is.EqualTo(0));
         Assert.That(result.BatchesProcessed, Is.EqualTo(1));
     }
+
+    // Bug fix (2026-09-10, follow-up to S-231/PR #367): the real-world
+    // idempotency bug this fix addresses — proven here at the
+    // backfill-cursor level, on top of
+    // PlayerInternationalStatsRefreshServiceTests' own unit-level coverage
+    // of the marker write itself. Before this fix, a SECOND run
+    // re-attempted every player whose first run's batch succeeded but
+    // resolved no qualifying data — exactly the "run #2 attempted 139,639
+    // players instead of ~2,600" bug NOTES.md's 2026-09-10 entry records.
+    [Test]
+    public async Task REQ1501_BackfillAsync_SecondRun_DoesNotReattemptPlayersWithNoQualifyingStatement()
+    {
+        // Neither player configured with SetInternationalStats — both
+        // genuinely have no qualifying P54 statement.
+        await SeedPlayerAsync("Q1519");
+        await SeedPlayerAsync("Q42233");
+
+        var firstRun = await BuildService().BackfillAsync();
+        Assert.That(firstRun.PlayersAttempted, Is.EqualTo(2), "sanity check: the first run attempts both never-checked players");
+
+        var secondRun = await BuildService().BackfillAsync();
+
+        Assert.That(secondRun.PlayersAttempted, Is.EqualTo(0),
+            "a player whose Wikidata batch succeeded but resolved no data must be excluded from every future run, not re-attempted indefinitely");
+        Assert.That(secondRun.BatchesProcessed, Is.EqualTo(0));
+    }
 }
