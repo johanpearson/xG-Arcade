@@ -3,13 +3,13 @@ import './GameSelectScreen.css';
 // Tier 0 launched with exactly one game, so this key started as a
 // client-side constant, not data from an endpoint — see docs/backlog.md
 // S-021: a "list games" API would be building a catalog for a catalog of
-// one. Still true for a catalog of three (xG Predict) — all keys below
+// one. Still true for a catalog of five (xG Higher/Lower) — all keys below
 // remain plain constants, matching the backend GameKey strings used
 // throughout (e.g. RoundSchedulingOptionsResolver, PathGameModule,
-// XGPredictGameModule).
+// XGPredictGameModule, XGHigherLowerGameModule).
 // `as const` (quality-gate follow-up, S-085) keeps these as literal types
 // rather than widening to `string`, so onSelectGame's parameter type below
-// can be the exact three-member union — a fourth, unhandled key becomes a
+// can be the exact five-member union — a sixth, unhandled key becomes a
 // compile error at any switch/if-chain over it, not a silent runtime no-op.
 export const XG_GRID_GAME_KEY = 'xg-grid' as const;
 export const XG_PATH_GAME_KEY = 'xg-path' as const;
@@ -19,6 +19,10 @@ export const XG_PREDICT_GAME_KEY = 'xg-predict' as const;
 // REQ-1415 (xG Connect): matches the backend GameKey string exactly
 // ("xg-connect" — see XGConnectGameModule.XGConnectGameKey).
 export const XG_CONNECT_GAME_KEY = 'xg-connect' as const;
+// REQ-1504/1505 (xG Higher/Lower, S-228): matches the backend GameKey
+// string exactly ("xg-higher-lower" — see
+// XGHigherLowerGameModule.XGHigherLowerGameKey).
+export const XG_HIGHER_LOWER_GAME_KEY = 'xg-higher-lower' as const;
 
 export interface GameSelectScreenProps {
   onSelectGame: (
@@ -26,20 +30,23 @@ export interface GameSelectScreenProps {
       | typeof XG_GRID_GAME_KEY
       | typeof XG_PATH_GAME_KEY
       | typeof XG_PREDICT_GAME_KEY
-      | typeof XG_CONNECT_GAME_KEY,
+      | typeof XG_CONNECT_GAME_KEY
+      | typeof XG_HIGHER_LOWER_GAME_KEY,
   ) => void;
 }
 
 // REQ-303 (S-021), extended by S-085/SCREEN-09 for a second game, again for
-// xG Predict as a third, and again for xG Connect as a fourth (REQ-1415):
-// shown immediately after login/signup, before any game's own screen.
+// xG Predict as a third, again for xG Connect as a fourth (REQ-1415), and
+// again for xG Higher/Lower as a fifth (REQ-1504/1505, S-228): shown
+// immediately after login/signup, before any game's own screen.
 // design-document.md's SCREEN-09 is the spec for the multi-tile layout
 // below — tiles laid out in a row that wraps to stacked below 480px (same
 // breakpoint HeaderNav.css's mobile toggle uses), tokens only
 // (surface-card/border-hairline, no per-game accent color), order matching
 // HeaderNav's "Games" list (xG Grid first, xG Path second, xG Predict
-// third, xG Connect fourth — never alphabetical/recency), no loading state
-// since all four keys are client-side constants.
+// third, xG Connect fourth, xG Higher/Lower fifth — never
+// alphabetical/recency), no loading state since all five keys are
+// client-side constants.
 //
 // xG Connect's tile is a deliberate exception to every other tile's
 // behavior (SCREEN-09's own 2026-09-06 status note, REQ-1415): selecting it
@@ -120,6 +127,22 @@ export function GameSelectScreen({ onSelectGame }: GameSelectScreenProps) {
           <span className="game-select-screen__tile-name">xG Connect</span>
           <span id="game-tile-connect-desc" className="game-select-screen__tile-description">
             Challenge a friend or a random player to connect two players
+          </span>
+        </button>
+        {/* REQ-1504/1505 (S-228): the fifth tile, positioned last — keeps
+            this list and HeaderNav's own "Games" list order in agreement
+            (never alphabetical/recency), same reasoning as every earlier
+            tile's own comment above. */}
+        <button
+          type="button"
+          className="game-select-screen__tile"
+          aria-label="xG Higher/Lower"
+          aria-describedby="game-tile-higher-lower-desc"
+          onClick={() => onSelectGame(XG_HIGHER_LOWER_GAME_KEY)}
+        >
+          <span className="game-select-screen__tile-name">xG Higher/Lower</span>
+          <span id="game-tile-higher-lower-desc" className="game-select-screen__tile-description">
+            Guess whether the next player is higher or lower
           </span>
         </button>
       </div>

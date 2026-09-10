@@ -1,0 +1,61 @@
+/* Mirrors ../predict/PredictScoringExplainer.css exactly (same tokens, same
+   layout), which itself mirrors ../path/PathScoringExplainer.css and
+   ../grid/ScoringExplainer.css — duplicated rather than shared per
+   PredictScoringExplainer.tsx's own doc comment on why this is a separate
+   component. z-index: 20 for consistency with every sibling's stacking
+   value. */
+.higher-lower-scoring-explainer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 31, 28, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: var(--space-4);
+}
+
+.higher-lower-scoring-explainer {
+  width: 100%;
+  max-width: 420px;
+  /* Bounded so growing content scrolls within the card instead of
+     overflowing the viewport with no way to reach it — same fix every
+     sibling explainer already applies. */
+  max-height: calc(100vh - var(--space-4) * 2);
+  overflow-y: auto;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 12px;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.higher-lower-scoring-explainer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.higher-lower-scoring-explainer__header h3 {
+  font-size: 16px;
+}
+
+.higher-lower-scoring-explainer__close {
+  min-height: var(--touch-target-min);
+  min-width: 44px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.higher-lower-scoring-explainer__text {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}

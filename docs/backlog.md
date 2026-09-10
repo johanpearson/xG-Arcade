@@ -11668,6 +11668,47 @@ first — add one if missing — then build the screen plus a
 clean; `design-document.md` updated with the new SCREEN spec.
 *Deps:* S-227.
 
+*Built as (2026-09-09):* `ui-implementer` added `docs/design-document.md`
+SCREEN-18 (xG Higher/Lower round, streak guessing) and its own build:
+`frontend/src/higherlower/HigherLowerScreen.tsx`
+(+`.css`/`.test.tsx`), `frontend/src/lib/higherLower.ts`
+(`fetchCurrentHigherLower`/`submitHigherLowerGuess`, mirroring
+`predict.ts`'s exact pattern) and matching `types.ts` additions
+(`CurrentHigherLowerResponse`/`SubmitHigherLowerGuessResponse`/
+`HigherLowerDirection` — the last modeled as a const-object numeric union,
+not a TS `enum` or string union, since the backend's plain
+`HigherLowerDirection` C# enum has no `JsonStringEnumConverter` and
+serializes as a raw integer). `GameSelectScreen.tsx` gained a fifth tile
+(`XG_HIGHER_LOWER_GAME_KEY`) and `HeaderNav.tsx` a matching fifth "Games"
+entry, both wired in `App.tsx` alongside the new `'higher-lower'` screen
+branch — same story, so the SCREEN-14-style "tile first, nav entry flagged
+as a gap" split never happened here. REQ-1210/ADR-0083's completion banner
+was wired (a deliberate divergence from SCREEN-14/xG Predict, since this
+game's `HasEnded` is synchronous — see SCREEN-18's own status note for the
+full reasoning), which in turn required extending
+`LeaderboardScreen.tsx`'s and `UserStatsScreen.tsx`'s own `GameKey` unions
+(a new `HigherLowerScoringExplainer.tsx` + fourth tab/subtitle each) purely
+to keep the app compiling against `LeaderboardRoundTarget`'s `gameKey`
+type — flagged in SCREEN-18 as required, not discretionary, scope beyond
+this story's own file list. No `isGuest` prop (checked against
+REQ-1504/1505's text directly — neither mentions guest-gating). Vitest
+coverage: `HigherLowerScreen.test.tsx` (loading/empty/error, fresh-attempt
+render, correct-guess streak advance, incorrect-guess terminal state,
+full-length terminal completion, 409-rejected-guess resync, completion
+banner wiring), `GameSelectScreen.test.tsx`/`HeaderNav.test.tsx` tile/nav
+coverage, and new `App.tsx`/`LeaderboardScreen`/`UserStatsScreen` routing
+tests mirroring each sibling game's own precedent. `npm run test`
+(970 tests, all passing), `tsc -b`, and `oxlint` all clean in `frontend/`
+(the sandbox had no `node_modules` installed yet; `npm install` was run
+first to get a real local verification rather than deferring to CI for
+work the sandbox could actually run). Deliberately left out of scope, not
+silently forgotten: no `(ⓘ)` scoring-explainer entry point on
+`HigherLowerScreen.tsx` itself (mirrors `PredictScreen.tsx`'s own
+"leaderboard-only explainer for now" gap, same reasoning); no
+`tests/e2e/play-higher-lower.spec.ts` (only Vitest coverage was in this
+story's accept criteria; E2E specs for the other four games were each their
+own later addition, not part of each game's own frontend story).
+
 **S-229 · Close-out: architecture review + quality gate + doc-sync**
 Run `architecture-reviewer` across the full feature (check the
 `PlayerAttribute`/`PlayerOverride` access pattern against boundary rule 1;

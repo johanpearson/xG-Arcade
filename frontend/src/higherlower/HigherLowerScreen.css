@@ -1,0 +1,184 @@
+/* design-document.md SCREEN-18: same page shell as PathScreen.css/
+   PredictScreen.css/GridScreen.css — a plain flex column, no new layout
+   mechanism. */
+.higher-lower-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-4);
+}
+
+@media (min-width: 960px) {
+  .higher-lower-screen {
+    gap: var(--space-6);
+    padding: var(--space-6);
+  }
+}
+
+.higher-lower-screen__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.higher-lower-screen__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* REQ-303: same quiet secondary-text treatment as
+   PathScreen.css's .path-screen__end-time/GridScreen.css's
+   .grid-screen__end-time — a plain inline span, not a button, but still
+   focusable so its aria-label carrying the absolute end date/time is
+   reachable by keyboard, not just mouse hover. */
+.higher-lower-screen__end-time {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.higher-lower-screen__meta {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.higher-lower-screen__category {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.higher-lower-screen__status {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+}
+
+.higher-lower-screen__status--error {
+  color: var(--color-accent-red);
+}
+
+.higher-lower-screen__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+}
+
+.higher-lower-screen__empty p {
+  color: var(--color-text-muted);
+}
+
+/* §6: text-paired correctness feedback, never color-only — the "Correct."/
+   "Incorrect." word is what carries the meaning, the color below is
+   reinforcement only. Gold means settled/correct, red means incorrect,
+   per §2's own split (see HigherLowerScreen.tsx's own comment for why this
+   is gold, not green). */
+.higher-lower-screen__outcome {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  font-size: 14px;
+}
+
+.higher-lower-screen__outcome--correct {
+  color: var(--color-accent-gold-text);
+}
+
+.higher-lower-screen__outcome--incorrect {
+  color: var(--color-accent-red);
+}
+
+/* design-document.md SCREEN-18: baseline/next-comparator cards — same
+   surface-card/hairline-border/no-per-game-accent-color shell every other
+   card in this app already uses (PredictMatchInput.css's own comment cites
+   the same SCREEN-09 precedent). */
+.higher-lower-screen__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+}
+
+.higher-lower-screen__card-label {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.higher-lower-screen__player-name {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+/* design-document.md §2: any number meant to be compared at a glance is
+   always mono/tabular — the whole point of this screen is comparing this
+   value against the next, hidden one. */
+.higher-lower-screen__player-value {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 24px;
+}
+
+.higher-lower-screen__actions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* REQ-1504: Higher and Lower are two equally-weighted actions, neither a
+   priori "correct" — deliberately styled identically (no accent-green vs.
+   accent-red split between the two buttons themselves), the same primary-
+   action token PathGuessInput.css's/PredictScreen.css's submit/confirm
+   buttons already use. Only the *outcome* after a guess gets a
+   correct/incorrect color (`.higher-lower-screen__outcome` above), never
+   the choice itself. */
+.higher-lower-screen__guess-button {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.higher-lower-screen__guess-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.higher-lower-screen__complete {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.higher-lower-screen__error {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+  font-family: var(--font-body);
+}

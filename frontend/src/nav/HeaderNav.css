@@ -87,11 +87,42 @@
   top: calc(100% + var(--space-1));
   left: 0;
   min-width: 140px;
+  /* Same unbounded-shrink-to-fit-width risk as .header-nav__menu--open's
+     own fix below, and the same fix: cap to the viewport (minus
+     .app__header's own --space-4 inset) so this flyout can't grow past the
+     viewport edge either, regardless of how many/how long future "Games"
+     entries get. Not exercised by REQ-720's failing case (that's the
+     nested/mobile-stacked variant below, ~480px+ only), but the same latent
+     bug applies here since this rule has no width ceiling of its own. */
+  max-width: calc(100vw - var(--space-4) * 2);
   padding: var(--space-1);
   background: var(--color-surface-card);
   border: 1px solid var(--color-border-hairline);
   border-radius: 8px;
   z-index: 10;
+}
+
+/* Actual REQ-720/S-228 fix, superseding the max-width-on-the-container
+   attempt above (which measurably did nothing — verified with a static
+   repro of this exact markup/CSS: scrollWidth stayed 380 vs clientWidth
+   375 before AND after that change). The real cause is a classic flexbox
+   trap: `.header-nav__games-list--open`'s flex column gives each
+   `.header-nav__games-item` a default `min-width: auto`, which resolves to
+   the item's own min-content width — and "xG Higher/Lower" has no CSS
+   break opportunity at `/` in this engine, so its min-content width is set
+   by the unbreakable "Higher/Lower" token alone. That floor wins over
+   `align-items: stretch`'s attempt to shrink the button to the (already
+   width-capped) container, so the button — and every ancestor's scrollable
+   overflow region up to <html> — ends up wider than the viewport
+   regardless of any max-width set higher up the tree. `min-width: 0`
+   removes that floor; `overflow-wrap: anywhere` gives the now-unbreakable
+   token a place to actually break instead of merely clipping/spilling.
+   Verified via a static repro of the real markup/CSS at 375px: scrollWidth
+   drops to exactly 375 (no overflow) with this rule, reproduces the
+   original 380 without it. */
+.header-nav__games-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .header-nav__logout {
@@ -131,6 +162,16 @@
     right: 0;
     left: auto;
     min-width: 180px;
+    /* REQ-720/S-228 fix: without a ceiling, this box's auto width is
+       shrink-to-fit around its widest unwrapped line of content — which
+       grows every time a longer "Games" entry is added (now "xG
+       Higher/Lower") — and can exceed the actual viewport regardless of
+       how narrow the `.header-nav` toggle anchoring it is. Capping to the
+       viewport minus the same --space-4 inset `.app__header`'s own padding
+       already uses on each side forces text to wrap inside instead, so
+       this can never reintroduce horizontal overflow no matter how many/
+       how long future entries get. */
+    max-width: calc(100vw - var(--space-4) * 2);
     padding: var(--space-2);
     background: var(--color-surface-card);
     border: 1px solid var(--color-border-hairline);

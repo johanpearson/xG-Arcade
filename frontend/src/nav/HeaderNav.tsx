@@ -28,6 +28,10 @@ export interface HeaderNavProps {
   // aria-current), even though selecting this entry can eventually lead
   // there too — this flag tracks the new entry screen only.
   isConnectCurrent: boolean;
+  // REQ-1504/1505/SCREEN-18 (S-228): mirrors isGridCurrent/isPathCurrent/
+  // isPredictCurrent/isConnectCurrent above for xG Higher/Lower — whether
+  // xG Higher/Lower's own screen is currently showing.
+  isHigherLowerCurrent: boolean;
   onSelectLeaderboard: () => void;
   onSelectLeagues: () => void;
   onSelectFriends: () => void;
@@ -66,6 +70,13 @@ export interface HeaderNavProps {
   // GameSelectScreen's tile order in agreement (xG Grid, xG Path, xG
   // Predict, then xG Connect).
   onSelectConnect: () => void;
+  // REQ-1504/1505/SCREEN-18 (S-228): mirrors onSelectGrid/onSelectPath/
+  // onSelectPredict/onSelectConnect above for xG Higher/Lower — same
+  // destination GameSelectScreen's own "xG Higher/Lower" tile already
+  // triggers. Keeps this list and GameSelectScreen's tile order in
+  // agreement (xG Grid, xG Path, xG Predict, xG Connect, then
+  // xG Higher/Lower).
+  onSelectHigherLower: () => void;
   onLogout: () => void;
 }
 
@@ -91,6 +102,7 @@ export function HeaderNav({
   isPathCurrent,
   isPredictCurrent,
   isConnectCurrent,
+  isHigherLowerCurrent,
   onSelectLeaderboard,
   onSelectLeagues,
   onSelectFriends,
@@ -103,6 +115,7 @@ export function HeaderNav({
   onSelectPath,
   onSelectPredict,
   onSelectConnect,
+  onSelectHigherLower,
   onLogout,
 }: HeaderNavProps) {
   const [open, setOpen] = useState(false);
@@ -240,6 +253,18 @@ export function HeaderNav({
               onClick={() => selectAndClose(onSelectConnect)}
             >
               xG Connect
+            </button>
+            {/* REQ-1504/1505/SCREEN-18 (S-228): mirrors the four entries
+                above, positioned fifth/last — keeps this list and
+                GameSelectScreen's tile order in agreement (never
+                alphabetical/recency). */}
+            <button
+              type="button"
+              className="header-nav__link header-nav__games-item"
+              aria-current={isHigherLowerCurrent ? 'page' : undefined}
+              onClick={() => selectAndClose(onSelectHigherLower)}
+            >
+              xG Higher/Lower
             </button>
           </div>
         </div>

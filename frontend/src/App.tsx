@@ -12,9 +12,11 @@ import {
   XG_PATH_GAME_KEY,
   XG_PREDICT_GAME_KEY,
   XG_CONNECT_GAME_KEY,
+  XG_HIGHER_LOWER_GAME_KEY,
 } from './games/GameSelectScreen';
 import { ConnectEntryScreen } from './connect/ConnectEntryScreen';
 import { GridScreen } from './grid/GridScreen';
+import { HigherLowerScreen } from './higherlower/HigherLowerScreen';
 import { IncidentReportDialog } from './incidents/IncidentReportDialog';
 import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
 import { HeaderNav } from './nav/HeaderNav';
@@ -98,12 +100,18 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 // choices ("Challenge a friend" / "Challenge random player"), each of which
 // hands off to 'friends' with a pre-seeded tab, per REQ-1415's own
 // "don't restate the underlying flows" requirement.
+// 'higher-lower' (REQ-1504/1505, SCREEN-18, S-228) is HigherLowerScreen's
+// own destination — reached the same way 'grid'/'path'/'predict' are, via
+// GameSelectScreen's fifth tile or HeaderNav's "Games" -> "xG Higher/Lower"
+// entry (added same-story, so the SCREEN-14-style "tile wired, nav entry
+// flagged as a gap" split never happens here).
 type Screen =
   | 'game-select'
   | 'grid'
   | 'path'
   | 'predict'
   | 'xg-connect-entry'
+  | 'higher-lower'
   | 'leaderboard'
   | 'leagues'
   | 'friends'
@@ -124,6 +132,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   path: '#/path',
   predict: '#/predict',
   'xg-connect-entry': '#/xg-connect',
+  'higher-lower': '#/higher-lower',
   leaderboard: '#/leaderboard',
   leagues: '#/leagues',
   friends: '#/friends',
@@ -458,6 +467,7 @@ function App() {
             isPathCurrent={screen === 'path'}
             isPredictCurrent={screen === 'predict'}
             isConnectCurrent={screen === 'xg-connect-entry'}
+            isHigherLowerCurrent={screen === 'higher-lower'}
             onSelectLeaderboard={() => {
               // REQ-1210/ADR-0083: a normal, explicit nav-menu visit always
               // clears any completion-banner-seeded target — otherwise a
@@ -487,6 +497,7 @@ function App() {
             onSelectPath={() => navigateTo('path')}
             onSelectPredict={() => navigateTo('predict')}
             onSelectConnect={() => navigateTo('xg-connect-entry')}
+            onSelectHigherLower={() => navigateTo('higher-lower')}
             onLogout={handleLogoutClick}
           />
         )}
@@ -599,6 +610,9 @@ function App() {
                     // two-choice entry screen, not directly into gameplay.
                     navigateTo('xg-connect-entry');
                     break;
+                  case XG_HIGHER_LOWER_GAME_KEY:
+                    navigateTo('higher-lower');
+                    break;
                   default: {
                     const _exhaustive: never = gameKey;
                     return _exhaustive;
@@ -642,6 +656,20 @@ function App() {
             <ConnectEntryScreen
               onChallengeFriend={() => handleOpenFriendsTab('friends')}
               onChallengeRandomPlayer={() => handleOpenFriendsTab('matchmaking')}
+            />
+          ) : screen === 'higher-lower' ? (
+            // REQ-1504/1505, SCREEN-18 (S-228): xG Higher/Lower's own round
+            // screen. No isGuest prop (nothing here is guest-gated — see
+            // HigherLowerScreenProps' own doc comment). onViewRoundLeaderboard
+            // IS wired, unlike 'predict' above — this game's HasEnded is a
+            // synchronous, immediate "you just finished" moment (the same
+            // shape Grid/Path have), so REQ-1210's completion banner applies
+            // here, deliberately diverging from xG Predict's exclusion (see
+            // design-document.md SCREEN-18's own status note).
+            <HigherLowerScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              onViewRoundLeaderboard={handleViewRoundLeaderboard}
             />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen

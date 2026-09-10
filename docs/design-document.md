@@ -2700,6 +2700,17 @@ matched exactly by the shipped code — no deviations:
   calls `onSelectGame(XG_CONNECT_GAME_KEY)` like every other tile; the
   branching lives in `App.tsx`'s own switch. `HeaderNav`'s "Games" list
   gained a matching fourth "xG Connect" entry, same order, same exception.
+- **Status note (2026-09-09, REQ-1504/1505 — see SCREEN-18): a fifth
+  tile, "xG Higher/Lower" / "Guess whether the next player is higher or
+  lower," was appended last (after xG Connect), same tokens/pattern as
+  every other tile, and — unlike xG Connect's own exception immediately
+  above — behaves exactly like xG Grid/xG Path/xG Predict's tiles: selecting
+  it calls `onSelectGame(XG_HIGHER_LOWER_GAME_KEY)` straight into
+  `HigherLowerScreen.tsx`, no intermediate choice screen, since this game
+  has a single fixed round/attempt the same way xG Grid/xG Path/xG Predict
+  do (ADR-0110). `HeaderNav`'s "Games" list gained a matching fifth
+  "xG Higher/Lower" entry, same order, wired in the same story (no
+  SCREEN-14-style "tile first, nav entry flagged as a gap" split here).
 
 ### SCREEN-10: xG Path puzzle (clue reveal)
 
@@ -4182,6 +4193,178 @@ Connect is played, had no way to learn it's a game at all.
   `PathScoringExplainer.css`'s own values exactly, same "duplicate per
   siblings, don't share the stylesheet" precedent. No new color, typeface,
   or animation introduced.
+
+### SCREEN-18: xG Higher/Lower round (streak guessing) (REQ-1504/1505, S-228)
+
+New for this story — no prior SCREEN entry covered this. One component,
+`HigherLowerScreen.tsx` (`frontend/src/higherlower/`), against S-227's
+already-built `GET /higher-lower/current`/`POST /higher-lower/guesses`
+endpoints. Modeled on SCREEN-14 (xG Predict) and SCREEN-10 (xG Path) for
+structure/voice/the wireframe-in-a-code-block convention, but the actual
+shape is closer to a single always-current PathScreen puzzle (one current
+comparison at a time, an explicit two-choice action instead of a text guess
+input) than to Predict's whole-slate-at-once layout — there is exactly one
+attempt per round for this game (ADR-0110: one fixed, shared comparator
+sequence plus a starting baseline, generated once, identical for every
+participant), never a list of cells/puzzles/matches to page through.
+
+```
+┌───────────────────────────────┐
+│ xG Higher/Lower       Ends in 6h │
+│ Streak 2 of 10                   │
+│ Comparing career league apps     │
+├───────────────────────────────┤
+│ Correct. Ronaldinho: 297          │
+├───────────────────────────────┤
+│ Baseline                         │
+│ Ronaldinho                       │
+│ 297                              │
+├───────────────────────────────┤
+│ Next                             │
+│ Iniesta                          │
+├───────────────────────────────┤
+│      [ Higher ]   [ Lower ]      │
+└───────────────────────────────┘
+
+Terminal state (attempt ended, whether by an incorrect guess or by
+completing the Round's full sequence) — no next-comparator card, no
+buttons:
+
+┌───────────────────────────────┐
+│ Incorrect. Iniesta: 442           │
+├───────────────────────────────┤
+│ Baseline                         │
+│ Ronaldinho                       │
+│ 297                              │
+├───────────────────────────────┤
+│ You've completed this round.     │
+└───────────────────────────────┘
+```
+
+- **Baseline card (value always revealed) + next-comparator card (identity
+  only, value hidden) + two explicit action buttons**, per REQ-1504's exact
+  contract — mirrors `HigherLowerBaselineResponse`/
+  `HigherLowerNextComparatorResponse`'s own DTO-level enforcement (the next
+  comparator's response shape carries no value field at all, not just a
+  withheld one) by rendering literally nothing for it, not even a "?"
+  placeholder. Both cards use the same tokens-only card shell every other
+  card in this app already uses (`surface-card`/`border-hairline`, no
+  per-game accent color — SCREEN-09's own "identity comes from name/
+  description text, not a color code" rule).
+- **"Higher"/"Lower" are two equally-weighted actions, not a correct/
+  incorrect pair.** Styled identically (the same `accent-green-text`
+  primary-action token every other submit/confirm button in this app already
+  uses — `PathGuessInput`'s "Guess," `PredictScreen`'s "Confirm and lock,"
+  the same one this doc's §2 calls out as this codebase's "successful
+  action" color, not a correctness one). Only the *outcome* after a guess
+  gets a correctness color (next bullet) — never the choice itself, since
+  neither direction is a priori "the right one" the way, say, a locked-
+  correct grid cell's checkmark is.
+- **Numbers meant to be compared at a glance are `--font-mono`/tabular**,
+  per §2's existing rule (same precedent as SCREEN-14's kickoff time/score
+  inputs and SCREEN-10's "Clue N of M" counter): the baseline's revealed
+  value, the streak counter ("Streak N of M," M = that Round's own fixed
+  `comparatorCount`, mirroring "Puzzle N of M"'s own per-round-not-fixed
+  wording), and the revealed value in the outcome line below.
+- **Outcome is always stated in text, never color-only (§6).** A guess's
+  result renders as "Correct." or "Incorrect." followed by the revealed
+  player's name and value, in `accent-gold-text` for correct and
+  `accent-red` for incorrect. Gold, not `accent-green-text`, is the
+  deliberate choice: §2's "green means live/active, gold means
+  settled/correct" split is load-bearing, and a resolved Higher/Lower guess
+  is exactly a settled-correct/incorrect signal (the same category as a
+  locked grid cell or a solved Path puzzle), not a merely-saved action —
+  reusing this app's established `accent-green-text`/`accent-red` pair from
+  `PathGuessInput`/`PredictScreen` would misapply the token PredictMatchInput's
+  own comment already explains is reserved for "saved, not graded."
+- **Judgment call, flagged: the terminal-incorrect reveal is sourced from
+  the POST response, not from a refetch.** Every other multi-step game
+  screen in this app (`PathScreen.tsx`) picks up a guess's reveal via a
+  follow-up `GET` after the `POST`, not from the `POST` response itself.
+  That doesn't work here: on an incorrect guess, the backend deliberately
+  does **not** advance `HigherLowerAttempt.CurrentBaselinePlayerId`/
+  `CurrentBaselineValue` (`XGHigherLowerGameModule.ScoreSubmissionAsync`'s
+  own "the baseline does not advance" comment) — so a refetch-only screen
+  would silently lose the just-revealed wrong comparator's own identity/
+  value the instant it re-fetched. `HigherLowerScreen.tsx` therefore holds
+  the `POST /higher-lower/guesses` response directly in local state and
+  renders the outcome line from it whenever it's present, only falling back
+  to the (unavoidably incomplete, on a fresh page load of an already-ended
+  attempt with no local response to hold) baseline-only view otherwise. This
+  is a real, accepted gap — a player who reloads mid-session after an
+  incorrect ending guess sees their last-known-correct baseline and the
+  "You've completed this round" message, but not the specific wrong guess
+  that ended it — flagged here rather than silently smoothed over.
+- **REQ-1210/ADR-0083's completion banner DOES apply here — a deliberate
+  divergence from SCREEN-14 (xG Predict), flagged rather than assumed.**
+  SCREEN-14 explicitly excludes `RoundCompletionBanner.tsx` because xG
+  Predict's grading is asynchronous (sometimes days later) — there is no
+  synchronous "you just finished" moment to celebrate. xG Higher/Lower's
+  `HasEnded` is the opposite: it comes back in the very same POST/GET
+  response the moment the attempt ends, the same synchronous shape xG
+  Grid/xG Path already have. `HigherLowerScreen.tsx` wires
+  `onViewRoundLeaderboard` exactly the way `GridScreen.tsx`/`PathScreen.tsx`
+  do, via `lib/roundCompletion.ts`'s `computeRoundCompletion`/
+  `useCompletionTransition` — a single-item `CompletableItem[]` of length 1
+  (`{ locked: hasEnded, points: hasEnded ? streakLength : null }`), since
+  there is exactly one attempt per round for this game, not a list to map
+  over. Points text is plain "N pts" (mirroring xG Path's REQ-1206
+  convention, not xG Grid's "~N pts estimated" one) — a streak's
+  `FinalPoints` is exactly the streak length reached, known and unchanging
+  the instant `hasEnded` becomes true, never a provisional value another
+  player's own guess could still shift.
+- **No new motion.** The baseline/next-comparator cards, streak counter,
+  and outcome line all simply appear with the rest of the screen's own
+  render — no per-guess transition, no reveal animation. If a future
+  revision wants motion here, it must reuse the existing settle character
+  (§2), never a new signature animation, per this document's own "the badge
+  dock is deliberately the only bold motion moment" rule. A rejected/
+  incorrect guess was considered for SCREEN-02's/SCREEN-10's shake-and-flash
+  cue but deliberately left out for this story (flagged, not an oversight):
+  unlike a rejected Grid/Path guess, an incorrect Higher/Lower guess is
+  never retried against the same comparison (the attempt simply ends), so
+  the "try again" character that cue is built around doesn't apply the same
+  way; a future revision may still add it as a pure "something changed"
+  signal if that reads better in practice.
+- **Empty state.** No active xG Higher/Lower round (404) shows "No round to
+  play right now" / "The next round is on its way — check back soon." —
+  same calm, non-error empty-state voice (§5: "empty states are
+  invitations") every sibling game's own empty state already establishes,
+  reworded for this game's own vocabulary.
+- **No `isGuest` prop.** Checked against `requirements-document.md`'s
+  REQ-1504/REQ-1505 text directly (not assumed by analogy) — neither
+  mentions any guest-vs-claimed-account distinction, the same "nothing here
+  is guest-gated" conclusion `PathScreenProps`/`PredictScreenProps` already
+  reached for their own screens, for the same reason (no REQ-215-style
+  suggestion entry point either, since a Higher/Lower guess is a fixed
+  two-choice action, never free text).
+- **Reached via `GameSelectScreen`'s fifth tile** (SCREEN-09, "xG
+  Higher/Lower" / "Guess whether the next player is higher or lower") **and
+  `HeaderNav`'s "Games" quick-jump list** (fifth entry, after xG Connect) —
+  both wired in this same story, so the SCREEN-14-style "tile first, nav
+  entry flagged as a gap" split never happens here.
+- **Leaderboard/stats tab parity, flagged as required (not optional) scope
+  beyond this story's own file list.** `LeaderboardScreen.tsx`'s and
+  `UserStatsScreen.tsx`'s own `GameKey` unions are exhaustively
+  switched-over (REQ-404/ADR-0095's established pattern) to pick a per-game
+  scoring explainer/subtitle — since `HigherLowerScreen.tsx`'s
+  `onViewRoundLeaderboard` wiring above produces a `LeaderboardRoundTarget`
+  whose `gameKey` can be `"xg-higher-lower"`, both unions had to gain that
+  member (with a real 4th tab/subtitle/`HigherLowerScoringExplainer.tsx`
+  each, not a stub) purely to keep the app compiling — this was not a
+  discretionary addition. Both tabs render real figures from day one, no
+  "renders empty" gap the way xG Predict's own tab briefly had (S-198): the
+  backend allow-list (`LeaderboardEndpoints.ValidateGameKey`) and the
+  `IRoundScoreSourceResolver` wiring (`HigherLowerRoundScoreSource`) were
+  both already landed by S-226/S-227. xG Connect is deliberately never added
+  to either union — it's head-to-head/chain-scored, not a per-Round
+  `FinalPoints` total, so there's no leaderboard scope here it could
+  meaningfully join.
+- **Tokens only** — `surface-card`/`border-hairline` cards, `accent-green-text`
+  for both guess buttons, `accent-gold-text`/`accent-red` for the outcome
+  line, `text-muted` for the category/streak labels, existing spacing scale
+  (`--space-*`) and `--touch-target-min` sizing throughout. No new color,
+  typeface, or animation token was introduced for this screen.
 
 ## 4. Responsive strategy
 

@@ -11,7 +11,12 @@ import type { UserStatsResponse } from '../lib/types';
 // on why these stay plain constants rather than API-sourced). `GameKey`
 // itself is re-exported from LeaderboardScreen.tsx (its own home) rather
 // than redefined here.
-import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY, XG_PREDICT_GAME_KEY } from '../games/GameSelectScreen';
+import {
+  XG_GRID_GAME_KEY,
+  XG_PATH_GAME_KEY,
+  XG_PREDICT_GAME_KEY,
+  XG_HIGHER_LOWER_GAME_KEY,
+} from '../games/GameSelectScreen';
 import type { GameKey } from '../leaderboard/LeaderboardScreen';
 import { SendFriendRequestAction } from '../social/SendFriendRequestAction';
 import './UserStatsScreen.css';
@@ -61,6 +66,14 @@ const GAME_TABS: Array<{ value: GameKey; label: string }> = [
   // `IRoundScoreSourceResolver` by S-199/ADR-0100, so xG Predict user stats
   // render real figures from day one.
   { value: XG_PREDICT_GAME_KEY, label: 'xG Predict' },
+  // REQ-411/REQ-1505 (S-228): fourth tab, same order as GameSelectScreen's
+  // tiles/HeaderNav's "Games" list/LeaderboardScreen.tsx's own GAME_TABS —
+  // no "renders empty" gap here either: `GET /users/{userId}/stats`
+  // already allowlists xg-higher-lower and `GetUserStatsAsync` is generic
+  // over `IRoundScoreSourceResolver.Resolve(gameKey)`, which
+  // `HigherLowerRoundScoreSource` (S-226) is already registered against —
+  // see LeaderboardEndpoints.ValidateGameKey's own REQ-1505/S-226 comment.
+  { value: XG_HIGHER_LOWER_GAME_KEY, label: 'xG Higher/Lower' },
 ];
 
 // REQ-411/REQ-1304 (S-202), mirroring LeaderboardScreen.tsx's own
@@ -73,6 +86,7 @@ function subtitleForGameKey(gameKey: GameKey): string {
     case XG_PATH_GAME_KEY:
       return 'Lowest total wins';
     case XG_PREDICT_GAME_KEY:
+    case XG_HIGHER_LOWER_GAME_KEY:
       return 'Highest total wins';
     default: {
       const _exhaustive: never = gameKey;

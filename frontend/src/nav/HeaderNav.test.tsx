@@ -20,6 +20,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
   const onSelectPath = vi.fn();
   const onSelectPredict = vi.fn();
   const onSelectConnect = vi.fn();
+  const onSelectHigherLower = vi.fn();
   const onLogout = vi.fn();
 
   render(
@@ -32,6 +33,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       isPathCurrent={false}
       isPredictCurrent={false}
       isConnectCurrent={false}
+      isHigherLowerCurrent={false}
       onSelectLeaderboard={onSelectLeaderboard}
       onSelectLeagues={onSelectLeagues}
       onSelectFriends={onSelectFriends}
@@ -44,6 +46,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       onSelectPath={onSelectPath}
       onSelectPredict={onSelectPredict}
       onSelectConnect={onSelectConnect}
+      onSelectHigherLower={onSelectHigherLower}
       onLogout={onLogout}
       {...overrides}
     />,
@@ -59,6 +62,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
     onSelectPath,
     onSelectPredict,
     onSelectConnect,
+    onSelectHigherLower,
     onLogout,
   };
 }
@@ -317,7 +321,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
   // S-085/SCREEN-09: the "Games" list's second entry, added alongside xG
   // Grid's existing one — same order GameSelectScreen's tiles use (xG Grid
   // first, xG Path second, never alphabetical/recency).
-  it('REQ-720/S-085/REQ-1301: the "Games" list contains "xG Grid" then "xG Path" then "xG Predict", in that order', async () => {
+  it('REQ-720/S-085/REQ-1301/REQ-1504/1505: the "Games" list contains "xG Grid" then "xG Path" then "xG Predict" then "xG Connect" then "xG Higher/Lower", in that order', async () => {
     renderHeaderNav();
     const user = userEvent.setup();
 
@@ -326,7 +330,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     const gamesList = screen.getByTestId('header-nav-games-toggle').nextElementSibling as HTMLElement;
     const entryNames = Array.from(gamesList.querySelectorAll('button')).map((button) => button.textContent);
 
-    expect(entryNames).toEqual(['xG Grid', 'xG Path', 'xG Predict', 'xG Connect']);
+    expect(entryNames).toEqual(['xG Grid', 'xG Path', 'xG Predict', 'xG Connect', 'xG Higher/Lower']);
   });
 
   it('REQ-720: selecting "xG Grid" calls onSelectGrid and closes both the Games list and the outer menu', async () => {
@@ -443,6 +447,43 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+  // REQ-1504/1505/SCREEN-18 (S-228): mirrors the "xG Connect" selection test
+  // above for the new "xG Higher/Lower" entry.
+  it('REQ-1504/1505: selecting "xG Higher/Lower" calls onSelectHigherLower and closes both the Games list and the outer menu', async () => {
+    const {
+      onSelectHigherLower,
+      onSelectConnect,
+      onSelectPredict,
+      onSelectGrid,
+      onSelectPath,
+      onSelectLeaderboard,
+      onSelectLeagues,
+      onSelectSettings,
+      onLogout,
+    } = renderHeaderNav();
+    const user = userEvent.setup();
+    const outerToggle = screen.getByTestId('header-nav-toggle');
+    const gamesToggle = screen.getByTestId('header-nav-games-toggle');
+
+    await user.click(outerToggle);
+    await user.click(gamesToggle);
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'xG Higher/Lower' }));
+
+    expect(onSelectHigherLower).toHaveBeenCalledTimes(1);
+    expect(onSelectConnect).not.toHaveBeenCalled();
+    expect(onSelectPredict).not.toHaveBeenCalled();
+    expect(onSelectGrid).not.toHaveBeenCalled();
+    expect(onSelectPath).not.toHaveBeenCalled();
+    expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
+    expect(onSelectSettings).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(outerToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('REQ-720: closing the outer menu also closes the nested Games list', async () => {
     renderHeaderNav();
     const user = userEvent.setup();
@@ -471,6 +512,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isPathCurrent={false}
         isPredictCurrent={false}
         isConnectCurrent={false}
+        isHigherLowerCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -483,6 +525,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
         onSelectConnect={vi.fn()}
+        onSelectHigherLower={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -500,6 +543,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isPathCurrent={false}
         isPredictCurrent={false}
         isConnectCurrent={false}
+        isHigherLowerCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -512,6 +556,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
         onSelectConnect={vi.fn()}
+        onSelectHigherLower={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -534,6 +579,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isPathCurrent={false}
         isPredictCurrent={false}
         isConnectCurrent={false}
+        isHigherLowerCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -546,6 +592,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
         onSelectConnect={vi.fn()}
+        onSelectHigherLower={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -563,6 +610,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isPathCurrent
         isPredictCurrent={false}
         isConnectCurrent={false}
+        isHigherLowerCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectFriends={vi.fn()}
@@ -575,6 +623,7 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         onSelectPath={vi.fn()}
         onSelectPredict={vi.fn()}
         onSelectConnect={vi.fn()}
+        onSelectHigherLower={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -597,5 +646,20 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     renderHeaderNav({ isConnectCurrent: true });
     await user.click(screen.getByTestId('header-nav-games-toggle'));
     expect(screen.getByRole('button', { name: 'xG Connect' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  // REQ-1504/1505/SCREEN-18 (S-228): mirrors the "xG Connect" aria-current
+  // test above for the new isHigherLowerCurrent prop.
+  it('REQ-1504/1505: aria-current="page" is not set on "xG Higher/Lower" by default, and is set when isHigherLowerCurrent is true', async () => {
+    const user = userEvent.setup();
+
+    renderHeaderNav();
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+    expect(screen.getByRole('button', { name: 'xG Higher/Lower' })).not.toHaveAttribute('aria-current');
+    cleanup();
+
+    renderHeaderNav({ isHigherLowerCurrent: true });
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+    expect(screen.getByRole('button', { name: 'xG Higher/Lower' })).toHaveAttribute('aria-current', 'page');
   });
 });

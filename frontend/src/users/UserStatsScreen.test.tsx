@@ -278,13 +278,13 @@ describe('UserStatsScreen', () => {
 
     await waitFor(() => expect(screen.getByText('40 pts')).toBeInTheDocument());
 
-    // Only the back button and the three (view-scoping, not action) game
+    // Only the back button and the four (view-scoping, not action) game
     // tabs are present — no edit/delete/report or any other own-only
     // affordance rendered when the viewed player isn't the caller themselves.
     const buttons = screen.getAllByRole('button').map((button) => button.textContent);
     expect(buttons).toEqual(['Back']);
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabs).toEqual(['xG Grid', 'xG Path', 'xG Predict']);
+    expect(tabs).toEqual(['xG Grid', 'xG Path', 'xG Predict', 'xG Higher/Lower']);
   });
 
   it('REQ722_UserStatsScreen_RendersPlayerAvatar_InHeader', async () => {
