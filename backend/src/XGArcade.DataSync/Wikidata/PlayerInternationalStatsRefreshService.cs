@@ -30,6 +30,36 @@ public class PlayerInternationalStatsRefreshService(
     internal const string CapsAttributeType = "international-caps";
     internal const string GoalsAttributeType = "international-goals";
 
+    // Bug fix (2026-09-10, follow-up to S-231/PR #367): a bookkeeping
+    // marker, NOT a real attribute — deliberately written to PlayerData
+    // only (COMP-06's raw/per-source table, "never read directly for
+    // correctness-checking") and never to PlayerAttribute, precisely so it
+    // can never leak into game-eligibility logic (which only ever reads
+    // PlayerAttribute/PlayerOverride). Written for EVERY player whose QID
+    // was actually sent to Wikidata and got a response this call,
+    // regardless of whether that response contained a usable caps/goals
+    // value — this is what lets
+    // IPlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync
+    // distinguish "never checked" from "checked, Wikidata genuinely has no
+    // qualifying data" (both of which look identical as "no
+    // international-caps PlayerAttribute row" on their own). Without this,
+    // the backfill re-queries the same huge "checked, no data" population
+    // (the large majority of a football player pool — most players never
+    // played internationally) on every single future run — see
+    // PlayerInternationalStatsBackfillService's own doc comment and
+    // NOTES.md's 2026-09-10 entry for the real-world numbers that surfaced
+    // this. This exact literal must stay in sync with
+    // PlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync's
+    // own marker-absence check — same plain-string-literal convention this
+    // class's own AttributeType comment above already documents for
+    // "international-caps"/"international-goals".
+    internal const string CheckedMarkerField = "international-stats-checked";
+
+    // Placeholder, not real data — reads clearly as "this row is a marker"
+    // to anyone browsing PlayerData directly (e.g. via the admin review
+    // view), never as a genuine Field/Value pair like ("club", "Arsenal").
+    internal const string CheckedMarkerValue = "checked";
+
     // Reuses WikidataLookupService's own WikidataSource/VerifiedConfidence
     // (made internal for exactly this) instead of redeclaring a second
     // private copy — same reuse PlayerCareerPrefetchService's own constants
@@ -80,26 +110,52 @@ public class PlayerInternationalStatsRefreshService(
             return;
         }
 
-        if (statsByQid.Count == 0)
-            return;
-
-        var affectedPlayerIds = statsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
+        // Bug fix (2026-09-10): the whole batch's Wikidata call succeeded
+        // (no WikidataQueryException) — every player whose QID was
+        // actually sent gets the "checked" marker written below, even when
+        // statsByQid.Count == 0 (Wikidata responded, but had no qualifying
+        // data for anyone in this batch). Previously this method returned
+        // early here without writing anything, which is exactly the bug:
+        // "never checked" and "checked, no data" both looked like "no
+        // international-caps row," so this population was re-queried on
+        // every future run. See CheckedMarkerField's own doc comment.
+        var checkedPlayerIds = qidToPlayerId.Values.ToList();
 
         // Never overwrites an already-processed player — see
         // IPlayerInternationalStatsRefreshService's own doc comment for why
         // this defensive re-check exists even though the primary caller
         // (PlayerInternationalStatsBackfillService) already filters its
         // own candidates via GetPlayersMissingInternationalStatsAsync.
+        // Loaded for every checked player, not just the ones statsByQid
+        // resolved data for — this is the same lookup used by the
+        // alreadyHasCaps check below.
         var existingAttributesByPlayerId = await playerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync(
-            affectedPlayerIds, cancellationToken);
+            checkedPlayerIds, cancellationToken);
 
         var attributesToAdd = new List<PlayerAttribute>();
         var playerDataToAdd = new List<PlayerData>();
         var syncedAt = DateTime.UtcNow;
 
-        foreach (var (qid, entry) in statsByQid)
+        foreach (var (qid, playerId) in qidToPlayerId)
         {
-            var playerId = qidToPlayerId[qid];
+            // The "checked" marker: written unconditionally for every
+            // player in this successfully-queried batch, in addition to
+            // (not instead of) the real PlayerAttribute/PlayerData writes
+            // below for players whose data actually resolved.
+            playerDataToAdd.Add(new PlayerData
+            {
+                Id = Guid.NewGuid(),
+                PlayerId = playerId,
+                Field = CheckedMarkerField,
+                Value = CheckedMarkerValue,
+                Source = WikidataDataSource,
+                Confidence = VerifiedConfidence,
+                SyncedAt = syncedAt,
+            });
+
+            if (!statsByQid.TryGetValue(qid, out var entry))
+                continue; // Wikidata responded but had no qualifying P54 statement for this player — not a failure.
+
             var alreadyHasCaps = existingAttributesByPlayerId.TryGetValue(playerId, out var existingRows)
                 && existingRows.Any(row => row.AttributeType == CapsAttributeType);
             if (alreadyHasCaps)
@@ -143,9 +199,13 @@ public class PlayerInternationalStatsRefreshService(
         }
 
         if (attributesToAdd.Count > 0)
-        {
             await playerAttributeRepository.AddPlayerAttributesBatchAsync(attributesToAdd, cancellationToken);
-            await playerDataRepository.AddPlayerDataBatchAsync(playerDataToAdd, cancellationToken);
-        }
+
+        // playerDataToAdd always has at least the checked markers at this
+        // point (checkedPlayerIds.Count > 0, guaranteed by the
+        // qidToPlayerId.Count == 0 early return above), so this is
+        // unconditional — unlike attributesToAdd, which can legitimately
+        // be empty for a batch where nobody's data resolved.
+        await playerDataRepository.AddPlayerDataBatchAsync(playerDataToAdd, cancellationToken);
     }
 }

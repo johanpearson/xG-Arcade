@@ -103,20 +103,36 @@ public interface IPlayerBackfillRepository
     // creation at all — every Player row, however old, is a genuine
     // candidate here, discovered entirely by this backfill.
     //
-    // "Missing" is defined by the ABSENCE of an "international-caps"
-    // PlayerAttribute row specifically, not "international-goals" — caps is
-    // the value REQ-1506's floor and the tie-break selection in
-    // ParseInternationalStatsBindings both key off, and ADR-0112's "highest
-    // recorded caps value wins" rule means a player with a resolvable caps
-    // value always gets a caps row written even when goals never resolves
-    // (see PlayerInternationalStatsRefreshService's own comment) — so
-    // "has an international-caps row" is a reliable "already processed"
-    // signal on its own, unlike Position/BirthYear's genuinely-independent
-    // OR. A player Wikidata genuinely has no qualifying national-team P54
-    // statement for keeps no row and is accepted to be re-queried on every
-    // future run — same known/accepted limitation as
-    // GetPlayersMissingPositionOrBirthYearAsync's own doc comment (an
-    // "occasional job, not a tight recurring schedule").
+    // Bug fix (2026-09-10, follow-up to S-231/PR #367): originally
+    // "missing" was defined purely by the ABSENCE of an "international-caps"
+    // PlayerAttribute row. That undercounted "already handled": a player
+    // Wikidata genuinely has no qualifying national-team P54 statement for
+    // (the large majority of a football player pool — most players never
+    // played internationally) NEVER gets that row written
+    // (PlayerInternationalStatsRefreshService only writes it when a caps
+    // value actually resolves), so "row absent" was indistinguishable
+    // between "never checked yet" and "checked, confirmed no qualifying
+    // data" — both looked "missing" forever, and every future backfill run
+    // re-queried this same huge population needlessly (proven in
+    // production: a same-day re-run attempted ~137,000 more players than
+    // it should have — see NOTES.md's 2026-09-10 entry).
+    //
+    // "Missing" is now the ABSENCE of BOTH signals: the real
+    // "international-caps" PlayerAttribute row (unchanged — still the one
+    // REQ-1506's floor and ADR-0112's tie-break key off) AND the
+    // "international-stats-checked" PlayerData bookkeeping marker
+    // PlayerInternationalStatsRefreshService now writes for every player in
+    // a successfully-queried batch, regardless of whether that batch
+    // resolved usable data for them (see that class's own
+    // CheckedMarkerField doc comment). Checking BOTH, not just the marker,
+    // is deliberate: it keeps this query correct for every "international-caps"
+    // row that already exists from before this fix shipped, which has no
+    // corresponding marker — checking the marker alone would make every
+    // already-resolved player look "missing" again and needlessly re-query
+    // Wikidata for a population that already has real data. A player
+    // Wikidata genuinely has no qualifying statement for now gets the
+    // marker on its first (successful) attempt and is correctly excluded
+    // from every future run — no more indefinite re-querying.
     //
     // excludingPlayerIds/batchSize: same "guaranteed run-termination via a
     // this-run-attempted set, no Skip/Take" reasoning as
