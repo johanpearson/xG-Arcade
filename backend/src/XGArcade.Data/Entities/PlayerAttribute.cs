@@ -7,6 +7,6 @@ namespace XGArcade.Data.Entities;
 public class PlayerAttribute
 {
     public Guid PlayerId { get; set; }
-    public required string AttributeType { get; set; }  // "club" | "nationality" | "trophy"
+    public required string AttributeType { get; set; }  // "club" | "nationality" | "trophy" | "international-caps" | "international-goals"
     public required string AttributeValue { get; set; }
 }

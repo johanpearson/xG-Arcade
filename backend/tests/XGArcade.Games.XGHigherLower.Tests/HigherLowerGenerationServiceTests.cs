@@ -336,7 +336,9 @@ public class HigherLowerGenerationServiceTests
         // own explicit "even when the active category is itself
         // international caps" rule).
         var eligiblePlayerIds = await SeedPlayersWithSingleValueAttributeAsync("international-caps", [10, 25, 50, 80]);
-        var belowFloorIds = await SeedPlayersWithSingleValueAttributeAsync("international-caps", [3, 7]);
+        // Includes the literal 0 boundary (REQ-1506's own Test-level line:
+        // "a recorded caps value of 0-9"), not just an arbitrary below-floor value.
+        var belowFloorIds = await SeedPlayersWithSingleValueAttributeAsync("international-caps", [0, 3, 7]);
 
         var result = await _service.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
 

@@ -11955,10 +11955,11 @@ goals travels with it" rule at the client-parser level. `docs/requirements-docum
 (REQ-1501/REQ-1506 status notes, v2.89 → v2.90) and
 `docs/architecture-document.md` (COMP-18 row, v1.64 → v1.65) updated in
 the same iteration; `frontend/src/lib/higherLower.ts`'s display-label map
-deliberately left untouched (explicitly out of this story's scope, per the
-task's own instruction — the exact final `AttributeType` strings are
-`"international-caps"` and `"international-goals"`, verbatim, for that
-follow-up sync). No local `dotnet` SDK in this sandbox (same recurring
+WAS updated for this story, in a same-branch follow-up commit (`b87efee`,
+orchestrating session) rather than the delivery commits above — it now
+maps `"trophy"`/`"international-caps"`/`"international-goals"` and no
+longer mentions `"club"`, and 979/979 frontend tests passed with the
+change in place. No local `dotnet` SDK in this sandbox (same recurring
 constraint as every other backend story in this file) — hand-verified by
 reading the diff against `GetEffectivePlayerCountsByAttributeTypeAsync`/
 `IPlayerCareerStintRefreshService`/`PlayerPositionBirthYearBackfillService`'s

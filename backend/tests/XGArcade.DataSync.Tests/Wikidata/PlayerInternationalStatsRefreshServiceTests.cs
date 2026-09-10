@@ -44,7 +44,7 @@ public class PlayerInternationalStatsRefreshServiceTests
             new Player { Id = Guid.NewGuid(), FullName = $"Player {wikidataQid}", WikidataQid = wikidataQid });
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_ResolvedCapsAndGoals_PersistsBothAttributeRows()
+    public async Task REQ1501_RefreshInternationalStatsAsync_ResolvedCapsAndGoals_PersistsBothAttributeRows()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.SetInternationalStats("Q1519", caps: 123, goals: 51);
@@ -57,7 +57,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_ResolvedCapsButNoGoals_PersistsOnlyCapsRow()
+    public async Task REQ1501_RefreshInternationalStatsAsync_ResolvedCapsButNoGoals_PersistsOnlyCapsRow()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.SetInternationalStats("Q1519", caps: 80); // Goals left null.
@@ -70,7 +70,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_AlsoWritesPlayerData_ForAdminVisibility()
+    public async Task REQ1501_RefreshInternationalStatsAsync_AlsoWritesPlayerData_ForAdminVisibility()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.SetInternationalStats("Q1519", caps: 100, goals: 20);
@@ -86,7 +86,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_PlayerWithNoWikidataQid_IsNeverQueried()
+    public async Task REQ1501_RefreshInternationalStatsAsync_PlayerWithNoWikidataQid_IsNeverQueried()
     {
         var player = await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "No QID Player" });
 
@@ -96,7 +96,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_EmptyPlayerIdList_DoesNothing()
+    public async Task REQ1501_RefreshInternationalStatsAsync_EmptyPlayerIdList_DoesNothing()
     {
         await BuildService().RefreshInternationalStatsAsync([]);
 
@@ -104,7 +104,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_WikidataQueryFails_DoesNotThrow_ByDefault()
+    public async Task REQ1501_RefreshInternationalStatsAsync_WikidataQueryFails_DoesNotThrow_ByDefault()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.FailNextInternationalStatsBatches(1);
@@ -115,7 +115,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_ThrowOnFailureTrue_WikidataQueryFails_PropagatesWikidataQueryException()
+    public async Task REQ1501_RefreshInternationalStatsAsync_ThrowOnFailureTrue_WikidataQueryFails_PropagatesWikidataQueryException()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.FailNextInternationalStatsBatches(1);
@@ -126,7 +126,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_PlayerWithNoQualifyingNationalTeamStatement_PersistsNothing_IsNotTreatedAsAFailure()
+    public async Task REQ1501_RefreshInternationalStatsAsync_PlayerWithNoQualifyingNationalTeamStatement_PersistsNothing_IsNotTreatedAsAFailure()
     {
         var player = await SeedPlayerAsync("Q1519"); // No SetInternationalStats call — genuinely no qualifying P54 statement.
 
@@ -136,7 +136,7 @@ public class PlayerInternationalStatsRefreshServiceTests
     }
 
     [Test]
-    public async Task RefreshInternationalStatsAsync_PlayerAlreadyHasCapsRow_IsNeverOverwritten()
+    public async Task REQ1501_RefreshInternationalStatsAsync_PlayerAlreadyHasCapsRow_IsNeverOverwritten()
     {
         var player = await SeedPlayerAsync("Q1519");
         await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute

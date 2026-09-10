@@ -17,8 +17,9 @@ namespace XGArcade.DataSync.Wikidata;
 // "international-caps" missing-signal, and REQ-1506's floor read. Kept as
 // plain string literals rather than a shared constant, matching this
 // codebase's own established convention for PlayerAttribute.AttributeType
-// values (see PlayerAttribute.cs's own "club" | "nationality" | "trophy"
-// doc comment — none of those are shared constants across projects either).
+// values (see PlayerAttribute.cs's own "club" | "nationality" | "trophy" |
+// "international-caps" | "international-goals" doc comment — none of those
+// are shared constants across projects either).
 public class PlayerInternationalStatsRefreshService(
     IWikidataClient wikidataClient,
     IPlayerRepository playerRepository,

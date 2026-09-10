@@ -99,9 +99,15 @@ public class PlayerOverrideRepository(XGArcadeDbContext dbContext) : IPlayerOver
     // AttributeValue or PlayerOverride.Value (should not happen given how
     // this AttributeType is always written by
     // PlayerInternationalStatsRefreshService, but not database-enforced) is
-    // skipped rather than throwing, the same defensive "treat as absent,
-    // never crash the whole read" posture this file already applies
-    // elsewhere.
+    // treated as absent rather than throwing, the same defensive "treat as
+    // absent, never crash the whole read" posture this file already applies
+    // elsewhere. A malformed raw PlayerAttribute row is simply skipped
+    // (never added). A malformed PlayerOverride row is stronger: per
+    // ADR-0015/ADR-0112's "override replaces the WHOLE effective value set"
+    // rule, its presence still means the player's effective value must be
+    // ABSENT even when a raw PlayerAttribute row exists for the same player
+    // — so it's explicitly removed from the result, never left to fall
+    // through to that raw row.
     public async Task<IReadOnlyDictionary<Guid, int>> GetEffectivePlayerValuesByAttributeTypeAsync(
         string attributeType, CancellationToken cancellationToken = default)
     {
@@ -132,6 +138,17 @@ public class PlayerOverrideRepository(XGArcadeDbContext dbContext) : IPlayerOver
         {
             if (int.TryParse(overrideRow.Value, out var parsedOverrideValue))
                 values[overrideRow.PlayerId] = parsedOverrideValue;
+            else
+                // ADR-0015/ADR-0112: an override REPLACES the whole effective
+                // value set for this (PlayerId, attributeType) — even when
+                // the override's own Value is malformed, it still replaces
+                // whatever a raw PlayerAttribute row would otherwise have
+                // contributed above. A malformed override must never fall
+                // through to that raw row; it makes the player's effective
+                // value ABSENT (removed here), consistent with REQ-1501's
+                // non-null-value contract treating "no usable value" as
+                // ineligible rather than silently using stale/wrong data.
+                values.Remove(overrideRow.PlayerId);
         }
 
         return values;

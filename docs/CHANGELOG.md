@@ -42,8 +42,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   Consequences section — needs a `ci.yml` `workflow_dispatch` run and a
   real dev-environment `backfill-player-international-stats` run before
   trusting real-data coverage. `frontend/src/lib/higherLower.ts`'s
-  display-label map is explicitly NOT updated by this change (out of
-  scope for this story, handled separately).
+  display-label map was updated for this story in a same-branch follow-up
+  commit (`b87efee`) — see the entry below.
+- 2026-09-10 — `frontend/src/lib/higherLower.ts` (no separate doc change;
+  this entry is the record) — S-231 follow-up commit `b87efee`: synced the
+  display-label map to the story's new `"international-caps"`/
+  `"international-goals"` `AttributeType` strings (replacing the old
+  `"club"`/`"trophy"` map), humanizing the caps/goals labels shown on the
+  xG Higher/Lower screen. User-facing copy change, no structural/data
+  change — 979/979 frontend tests passed with it in place. REQ-1501/
+  REQ-1504.
 - 2026-09-10 — `docs/requirements-document.md` (§4.16, v2.88 → v2.89):
   direct product-owner decision (not open-question resolution) — "club" is
   being removed as an xG Higher/Lower stat category and replaced with

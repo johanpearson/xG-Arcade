@@ -301,6 +301,32 @@ public class PlayerOverrideRepositoryTests
         Assert.That(values.ContainsKey(player.Id), Is.False);
     }
 
+    [Test]
+    public async Task REQ1501_GetEffectivePlayerValuesByAttributeTypeAsync_MalformedOverride_RemovesPlayerFromResult_EvenWhenRawRowExists()
+    {
+        // ADR-0015/ADR-0112: an override REPLACES the whole effective value
+        // set for (PlayerId, attributeType) — even when its own Value is
+        // malformed. It must never fall through to a raw PlayerAttribute
+        // row that also exists for the same player; the player's effective
+        // value must be ABSENT, not the raw row's (otherwise-valid) value.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "international-caps", AttributeValue = "123",
+        });
+        await _repository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "international-caps", Value = "not-a-number",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        });
+
+        var values = await _repository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+
+        Assert.That(values.ContainsKey(player.Id), Is.False,
+            "a malformed override must remove the player from the result entirely, never leave the raw PlayerAttribute row's value in effect");
+    }
+
     // ---- S-012: admin data correction (PlayerOverride CRUD's read/update/delete) ----
 
     [Test]

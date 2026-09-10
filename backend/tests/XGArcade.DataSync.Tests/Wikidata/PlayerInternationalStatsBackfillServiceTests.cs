@@ -56,7 +56,7 @@ public class PlayerInternationalStatsBackfillServiceTests
             new Player { Id = Guid.NewGuid(), FullName = $"Player {wikidataQid}", WikidataQid = wikidataQid });
 
     [Test]
-    public async Task BackfillAsync_MissingPlayer_GetsInternationalStatsPersisted()
+    public async Task REQ1501_BackfillAsync_MissingPlayer_GetsInternationalStatsPersisted()
     {
         var player = await SeedPlayerAsync("Q1519");
         _wikidataClient.SetInternationalStats("Q1519", caps: 123, goals: 51);
@@ -71,7 +71,7 @@ public class PlayerInternationalStatsBackfillServiceTests
     }
 
     [Test]
-    public async Task BackfillAsync_PlayerAlreadyHasCapsRow_IsNeverSelectedAgain()
+    public async Task REQ1501_BackfillAsync_PlayerAlreadyHasCapsRow_IsNeverSelectedAgain()
     {
         var alreadyProcessed = await SeedPlayerAsync("Q1519");
         await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
@@ -86,7 +86,7 @@ public class PlayerInternationalStatsBackfillServiceTests
     }
 
     [Test]
-    public async Task BackfillAsync_MultipleBatches_ProcessesEveryPlayer()
+    public async Task REQ1501_BackfillAsync_MultipleBatches_ProcessesEveryPlayer()
     {
         var players = new List<Player>();
         for (var i = 0; i < 5; i++)
@@ -107,7 +107,7 @@ public class PlayerInternationalStatsBackfillServiceTests
     }
 
     [Test]
-    public async Task BackfillAsync_BatchWikidataFailure_IsCountedAndSkipped_RunContinues()
+    public async Task REQ1501_BackfillAsync_BatchWikidataFailure_IsCountedAndSkipped_RunContinues()
     {
         var failingPlayer = await SeedPlayerAsync("Q1519");
         _wikidataClient.FailNextInternationalStatsBatches(1);
@@ -120,7 +120,7 @@ public class PlayerInternationalStatsBackfillServiceTests
     }
 
     [Test]
-    public async Task BackfillAsync_NoMissingPlayers_ReturnsZeroBatches()
+    public async Task REQ1501_BackfillAsync_NoMissingPlayers_ReturnsZeroBatches()
     {
         var result = await BuildService().BackfillAsync();
 
@@ -130,7 +130,7 @@ public class PlayerInternationalStatsBackfillServiceTests
     }
 
     [Test]
-    public async Task BackfillAsync_PlayerWithNoQualifyingStatement_TerminatesRun_NotTreatedAsFailure()
+    public async Task REQ1501_BackfillAsync_PlayerWithNoQualifyingStatement_TerminatesRun_NotTreatedAsFailure()
     {
         // No SetInternationalStats call — genuinely no qualifying P54
         // statement. The loop must still terminate (attemptedPlayerIds
