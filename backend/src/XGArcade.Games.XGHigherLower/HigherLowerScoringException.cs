@@ -8,10 +8,7 @@ namespace XGArcade.Games.XGHigherLower;
 // GuessScoringException's naming/role for the equivalent "not found" failure
 // mode in their own game modules, including deriving from
 // Core.Games.GameEntityNotFoundException (not System.Exception directly) —
-// see that base type's own doc comment for why. Not yet used by
-// ScoreSubmissionAsync (still NotImplementedException — that's S-225's job,
-// see XGHigherLowerGameModule's own doc comment); this type exists now so
-// S-225 has a ready-made "not found" exception to reuse rather than
-// reinventing one, the same way PredictScoringException already covers both
-// ScoreSubmissionAsync and GetCellIdsAsync's not-found cases in that module.
+// see that base type's own doc comment for why. Used by both
+// ScoreSubmissionAsync and GetCellIdsAsync in XGHigherLowerGameModule for
+// their equivalent "instanceId doesn't resolve" not-found case.
 public class HigherLowerScoringException(string message) : GameEntityNotFoundException(message);

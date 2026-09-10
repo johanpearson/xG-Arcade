@@ -530,14 +530,95 @@ public static class InternalRoundEndpoints
 
             return Results.Ok(new GradePredictMatchTestDataResponse(matchId, request.HomeGoals, request.AwayGoals));
         });
+
+        // S-229: the xg-higher-lower counterpart to seed-guessable-round/
+        // seed-guessable-path-round/seed-guessable-predict-round above — same
+        // "bypass the module's own generation-time eligibility logic, write
+        // instance content directly via the owning repository" reasoning
+        // (this bypasses XGHigherLowerGameModule.GenerateInstanceAsync
+        // entirely, so REQ-1501/1502's eligibility/no-exact-tie/no-repeat
+        // checks never run here — this is "generation" only in the sense
+        // that a real, playable Round + HigherLowerInstance + fixed
+        // comparator sequence now exists, mirroring the other three seed
+        // endpoints' own identical caveat).
+        //
+        // The seeded sequence is deliberately monotonically increasing
+        // (baseline 100, then +10 per position) so an E2E caller can compute
+        // the correct Higher/Lower answer for any position without this
+        // endpoint needing to reveal it inline per-guess — "Higher" is always
+        // correct and "Lower" is always incorrect for every position in the
+        // seeded sequence, which also trivially satisfies REQ-1502's own
+        // no-exact-tie constraint. comparatorCount defaults to 3 (enough to
+        // exercise "still more to go" after one correct guess); a caller that
+        // wants REQ-1504's full-length terminal case/REQ-1210's completion
+        // banner reachable in exactly one correct guess passes 1 instead.
+        app.MapPost("/internal/test-data/seed-guessable-higher-lower-round", async (
+            IHigherLowerInstanceRepository higherLowerInstanceRepository,
+            IPlayerRepository playerRepository,
+            IRoundRepository roundRepository,
+            TimeProvider timeProvider,
+            int? comparatorCount,
+            CancellationToken cancellationToken) =>
+        {
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var count = comparatorCount ?? 3;
+
+            // Same unique-tag-per-call convention as the other seed
+            // endpoints above (REQ-209 fallout) — CreateUniqueTestPlayerAsync
+            // already appends its own tag per call.
+            var baselinePlayer = await CreateUniqueTestPlayerAsync(playerRepository, "HL Baseline Player", cancellationToken);
+            const int baselineValue = 100;
+
+            var instanceId = Guid.NewGuid();
+            var comparatorPlayers = new List<Player>();
+            var comparators = new List<HigherLowerComparator>();
+            for (var position = 0; position < count; position += 1)
+            {
+                var comparatorPlayer = await CreateUniqueTestPlayerAsync(playerRepository, $"HL Comparator {position}", cancellationToken);
+                comparatorPlayers.Add(comparatorPlayer);
+                comparators.Add(new HigherLowerComparator
+                {
+                    Id = Guid.NewGuid(),
+                    HigherLowerInstanceId = instanceId,
+                    SequencePosition = position,
+                    PlayerId = comparatorPlayer.Id,
+                    // Strictly increasing from the baseline (+10 per
+                    // position) — see this endpoint's own top comment.
+                    Value = baselineValue + (position + 1) * 10,
+                });
+            }
+
+            var instance = await higherLowerInstanceRepository.AddInstanceAsync(new HigherLowerInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                StatCategory = "career trophies won",
+                BaselinePlayerId = baselinePlayer.Id,
+                BaselineValue = baselineValue,
+                Comparators = comparators,
+            }, cancellationToken);
+
+            // REQ-304: see CreateSequencedRoundAsync's own doc comment
+            // (bottom of this file) for the shared implementation.
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, XGHigherLowerGameModule.XGHigherLowerGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
+
+            var responseComparators = comparators
+                .Select((comparator, index) => new SeedGuessableHigherLowerComparatorResponse(
+                    comparator.PlayerId, comparatorPlayers[index].FullName, comparator.Value))
+                .ToList();
+
+            return Results.Ok(new SeedGuessableHigherLowerRoundResponse(
+                round.Id, instance.StatCategory, baselinePlayer.FullName, baselineValue, responseComparators));
+        });
     }
 
-    // Shared boilerplate for the three test-data seed call sites above
-    // (seed-guessable-round's two players, seed-guessable-path-round's one)
-    // — same unique-tag-per-call convention (REQ-209 fallout) and
-    // WikidataQid uniqueness, differing only by the caller's own name
-    // prefix. Each call site still owns its own attribute/stint writes,
-    // since those differ by game.
+    // Shared boilerplate for the four test-data seed call sites above
+    // (seed-guessable-round's two players, seed-guessable-path-round's one,
+    // seed-guessable-higher-lower-round's 1+N) — same unique-tag-per-call
+    // convention (REQ-209 fallout) and WikidataQid uniqueness, differing
+    // only by the caller's own name prefix. Each call site still owns its
+    // own attribute/stint writes, since those differ by game.
     private static async Task<Player> CreateUniqueTestPlayerAsync(
         IPlayerRepository playerRepository,
         string namePrefix,
@@ -608,6 +689,22 @@ public record SeedGuessablePredictMatchResponse(Guid MatchId, string HomeTeamNam
 public record GradePredictMatchTestDataRequest(int HomeGoals, int AwayGoals);
 
 public record GradePredictMatchTestDataResponse(Guid MatchId, int HomeGoals, int AwayGoals);
+
+// S-229: seed-guessable-higher-lower-round's response — Comparators is in
+// fixed sequence order (position 0 first), each carrying the caller-visible
+// Value directly (unlike the real GET /higher-lower/current response, whose
+// HigherLowerNextComparatorResponse deliberately withholds Value per
+// REQ-1504) since an E2E caller needs every position's real value up front
+// to choose the correct Higher/Lower direction deterministically without a
+// per-guess reveal round-trip.
+public record SeedGuessableHigherLowerRoundResponse(
+    Guid RoundId,
+    string StatCategory,
+    string BaselinePlayerName,
+    int BaselineValue,
+    IReadOnlyList<SeedGuessableHigherLowerComparatorResponse> Comparators);
+
+public record SeedGuessableHigherLowerComparatorResponse(Guid PlayerId, string Name, int Value);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.

@@ -11721,6 +11721,62 @@ final diff.
 docs match reality.
 *Deps:* S-228.
 
+*Built as (2026-09-10):* `architecture-reviewer` ran across the full
+S-223-S-228 feature and found no open findings — boundary rule 1
+(`PlayerAttribute`/`PlayerOverride` reached only through COMP-06's own
+interface) confirmed correct, and ADR-0110's "shared,
+generated-once-per-Round" model confirmed correctly implemented:
+`HigherLowerInstance` is the one-per-Round shared sequence,
+`HigherLowerAttempt` is the one-per-participant progress state, no
+per-participant randomization anywhere in `XGHigherLowerGameModule`.
+`quality-architect` then found two real issues and one non-blocking
+suggestion: (a) `HigherLowerScoringException.cs`'s doc comment still
+claimed the type was "not yet used" when `ScoreSubmissionAsync`/
+`GetCellIdsAsync` have called it since S-225/S-224 respectively — fixed in
+`f40f0aa`; (b) unlike every other shipped game, xG Higher/Lower had no
+Playwright E2E spec at all — fixed in `47bfeb0`, which added
+`frontend/tests/e2e/play-higher-lower.spec.ts` plus its own
+`POST /internal/test-data/seed-guessable-higher-lower-round`
+(`XGArcade.Api.Rounds.InternalRoundEndpoints`), an exact mirror of the
+`seed-guessable-round`/`seed-guessable-path-round`/
+`seed-guessable-predict-round` endpoints it sits alongside — same
+non-Production gate (verified to sit after the `IsProduction()` early
+return, ADR-0006 boundary rule 4 intact), same "bypass the module's own
+generation-time eligibility logic, write instance content directly via the
+owning repository" shape, seeding a deliberately monotonically-increasing
+comparator sequence so the E2E spec can compute the correct answer at
+every position without the endpoint revealing it inline; (c) a
+non-blocking suggestion that `XGHigherLowerGameModule.cs` (378 lines,
+inlines both generation and scoring logic, unlike `GridGameModule`/
+`XGConnectGameModule`'s delegation to dedicated services) could be split
+into a `HigherLowerGenerationService` in a future refactor — not acted on
+this story, recorded in `NOTES.md` instead of silently dropped. Full CI
+(`ci.yml` via `workflow_dispatch`) had already passed green on `main`
+before these two fix commits; a follow-up run to verify them was in
+progress as of this doc-sync pass — that follow-up run (`ci.yml` #883)
+did catch a real bug, confined to the new E2E spec itself: the
+completion-banner test clicked `.leaderboard-screen__round-list-button`,
+but the banner's "View leaderboard" link seeds `initialRoundId`
+(`App.tsx`'s `handleViewRoundLeaderboard`), which makes
+`PastRoundsLeaderboard` auto-drill straight into the round's detail view
+and skip the round list entirely — so that button never renders on this
+path and the click timed out. Fixed in `7f1a62c` (waits on the round
+detail's own fetch instead of a click that was never reachable); no
+product code changed. Re-run (`ci.yml` #884) passed green — backend build
++ tests, frontend unit tests, and the full E2E suite including the fixed
+spec. `docs/requirements-document.md`
+checked against ADR-0110's "Follow-up" note (§4.16's REQ-1501 through
+REQ-1505 text) — already fully updated across S-224-S-227's own status
+notes, no further edit needed. `docs/architecture-document.md` checked —
+COMP-18 was already assigned (S-223) and its row already documents
+`IPlayerOverrideRepository.GetEffectivePlayerCountsByAttributeTypeAsync`
+(S-224); no changes needed for this close-out pass specifically.
+`docs/implementation-document.md`'s project-structure/data-model sections
+remain unbackfilled for this game (a pre-existing gap flagged repeatedly
+across S-224-S-227's own CHANGELOG entries) — still not fixed here, out of
+this story's scope; adding just the new seed endpoint without that
+surrounding context was judged more confusing than useful.
+
 **S-230 · xG Connect: sent-challenge visibility fix (REQ-1402), direct user
 feedback — Built, 2026-09-09.** Epic 27 follow-up, not part of the
 S-223-S-229 xG Higher/Lower sequence above (numbered after it purely

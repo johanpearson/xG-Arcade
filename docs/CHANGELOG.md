@@ -13,6 +13,52 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/backlog.md` (S-229 entry given a "Built as" narrative
+  paragraph), `NOTES.md` (new 2026-09-10 entry) — doc-sync for S-229, the
+  xG Higher/Lower close-out story (Epic 28). `architecture-reviewer` found
+  no open issues across S-223-S-228: boundary rule 1
+  (`PlayerAttribute`/`PlayerOverride` reached only through COMP-06) and
+  ADR-0110's "shared, generated-once-per-Round" model (`HigherLowerInstance`
+  shared per Round, `HigherLowerAttempt` per-participant, no
+  per-participant randomization) both confirmed correct. `quality-architect`
+  found and fixed two things (commits `f40f0aa`, `47bfeb0`): a stale
+  `HigherLowerScoringException.cs` doc comment claiming "not yet used" when
+  it's been reachable since S-224/S-225, and a missing
+  `frontend/tests/e2e/play-higher-lower.spec.ts` (every other shipped game
+  had one, this game didn't) plus its supporting
+  `POST /internal/test-data/seed-guessable-higher-lower-round`
+  (`XGArcade.Api.Rounds.InternalRoundEndpoints`, verified to sit after the
+  `IsProduction()` guard, ADR-0006 boundary rule 4 intact — an exact mirror
+  of the other three `seed-guessable-*-round` endpoints, no new pattern).
+  A third, non-blocking finding — `XGHigherLowerGameModule.cs` (378 lines)
+  inlines generation and scoring inline unlike `GridGameModule`/
+  `XGConnectGameModule`'s delegation to dedicated services — was recorded
+  in `NOTES.md` rather than acted on, per the reviewer's own "not blocking
+  for this close-out" framing. `docs/requirements-document.md` checked
+  against ADR-0110's "Follow-up" note (§4.16's REQ-1501 through REQ-1505
+  text): already fully updated across S-224-S-227's own status notes
+  (Round-scoped generation, fixed sequence, capped streak, resolved
+  leaderboard scope all present) — confirmed, no edit needed.
+  `docs/architecture-document.md` checked: COMP-18 was already assigned
+  (S-223) and its row already documents
+  `IPlayerOverrideRepository.GetEffectivePlayerCountsByAttributeTypeAsync`
+  (S-224) — no changes needed for this pass. `docs/implementation-document.md`
+  checked: still has zero project-structure/data-model coverage for this
+  game, a pre-existing gap flagged repeatedly across S-224-S-227's own
+  CHANGELOG entries as deferred to a future pass — left untouched here too,
+  since backfilling it was explicitly out of this close-out story's scope
+  and the new seed endpoint has no existing section to attach to without
+  that larger backfill. Full CI (`ci.yml` `workflow_dispatch`) had already
+  passed on `main` before the two fix commits above; the follow-up
+  verification run (#883) caught a genuine bug confined to the new E2E spec
+  itself — `play-higher-lower.spec.ts`'s completion-banner test clicked
+  `.leaderboard-screen__round-list-button`, but the banner's "View
+  leaderboard" link seeds `initialRoundId`, which makes
+  `PastRoundsLeaderboard` auto-drill straight into the round's detail view
+  and skip the round list, so that button never renders on this path. Fixed
+  in `7f1a62c` (waits on the round detail's own fetch instead); no product
+  code changed. Re-run (#884) passed green across backend, frontend unit,
+  and the full E2E suite.
 - 2026-09-09 — `docs/requirements-document.md` (v2.86 → v2.87) — doc-sync
   check for S-228 (xG Higher/Lower frontend screen, REQ-1504/1505): added a
   brief status note to §4.16's intro recording that
