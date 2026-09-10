@@ -5,6 +5,7 @@ using XGArcade.Data.Seeding;
 using XGArcade.DataSync;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGHigherLower;
 
 namespace XGArcade.Api.CompositionRoot;
 
@@ -49,6 +50,7 @@ public static class CliVerbDispatcher
         ["backfill-player-photos"] = HandleBackfillPlayerPhotosAsync,
         ["backfill-player-position-birthyear"] = HandleBackfillPlayerPositionBirthYearAsync,
         ["backfill-player-international-stats"] = HandleBackfillPlayerInternationalStatsAsync,
+        ["report-international-stats-coverage"] = HandleReportInternationalStatsCoverageAsync,
         ["prefetch-player-careers"] = HandlePrefetchPlayerCareersAsync,
         ["sweep-recent-transfers"] = HandleSweepRecentTransfersAsync,
         ["verify-wikidata-player-data"] = HandleVerifyWikidataPlayerDataAsync,
@@ -366,6 +368,43 @@ public static class CliVerbDispatcher
         Console.WriteLine(
             $"backfill-player-international-stats: complete — {internationalStatsResult.BatchesProcessed} batch(es) processed, " +
             $"{internationalStatsResult.PlayersAttempted} player(s) attempted, {internationalStatsResult.BatchesFailed} batch(es) failed.");
+        return true;
+    }
+
+    // REQ-1507 (2026-09-10, follow-up to S-231/PR #369): a CLI-verb console
+    // printout of exactly what GET /admin/xg-higher-lower/international-stats-coverage
+    // (AdminXGHigherLowerEndpoints.cs) reports — same repository calls, same
+    // numbers, no reimplementation. Exists purely so this can be checked
+    // via `dotnet run -- report-international-stats-coverage` (DB connection
+    // string only, ADR-0024's established "bulk/diagnostic job is a CLI
+    // verb" shape) without needing an authenticated admin session — the HTTP
+    // endpoint remains the real, durable, reusable tool for an actual admin
+    // checking this from the app; this verb is a one-off operational
+    // convenience for verifying real Wikidata coverage right after a
+    // backfill run, the exact need ADR-0112's Consequences section flagged.
+    // Read-only, never writes anything, never touches Wikidata, never
+    // triggers Round generation — same guarantees as the HTTP endpoint.
+    private static async Task<bool> HandleReportInternationalStatsCoverageAsync(string[] args)
+    {
+        if (args.Length != 1)
+            return false;
+
+        await using var coverageDbContext = BuildDbContext();
+        var coveragePlayerRepository = new PlayerRepository(coverageDbContext);
+        var coveragePlayerOverrideRepository = new PlayerOverrideRepository(coverageDbContext);
+        var coverageOptions = new HigherLowerGenerationOptions();
+
+        var totalPlayerCount = await coveragePlayerRepository.CountPlayersAsync();
+        var capsByPlayerId = await coveragePlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync("international-caps");
+        var goalsByPlayerId = await coveragePlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync("international-goals");
+        var trophyCountsByPlayerId = await coveragePlayerOverrideRepository.GetEffectivePlayerCountsByAttributeTypeAsync("trophy");
+        var playersMeetingCapsFloorCount = capsByPlayerId.Values.Count(caps => caps >= coverageOptions.MinimumInternationalCaps);
+
+        Console.WriteLine(
+            $"report-international-stats-coverage: total players {totalPlayerCount}, " +
+            $"with caps {capsByPlayerId.Count}, with goals {goalsByPlayerId.Count}, " +
+            $"with trophy {trophyCountsByPlayerId.Count}, " +
+            $"meeting caps>={coverageOptions.MinimumInternationalCaps} floor {playersMeetingCapsFloorCount}.");
         return true;
     }
 

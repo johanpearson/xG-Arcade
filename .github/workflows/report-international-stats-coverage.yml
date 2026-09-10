@@ -1,0 +1,29 @@
+name: report-international-stats-coverage
+
+# REQ-1507 (xG Higher/Lower, S-231, ADR-0112): prints the exact same numbers
+# GET /admin/xg-higher-lower/international-stats-coverage
+# (AdminXGHigherLowerEndpoints.cs) reports, to the job log instead of an
+# authenticated HTTP response — a CLI-verb convenience for checking real
+# Wikidata coverage right after a backfill-player-international-stats.yml
+# run, without needing an admin session. See
+# CliVerbDispatcher.HandleReportInternationalStatsCoverageAsync's own doc
+# comment for why both paths exist. Read-only: never writes anything, never
+# touches Wikidata, never triggers Round generation.
+#
+# Manual trigger only, same posture as backfill-player-international-stats.yml
+# — this is a diagnostic check run on demand, not a recurring job.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  report-international-stats-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Report international stats coverage
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: report-international-stats-coverage
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
