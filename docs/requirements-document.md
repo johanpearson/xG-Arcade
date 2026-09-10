@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.94"
+version: "2.95"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13900,6 +13900,118 @@ app; this CLI verb is an operational convenience, not a replacement.
   Round is generated (daily, like Wordle, or some other cadence) — a
   per-`GameKey` scheduling configuration choice (ADR-0051) for whoever
   implements REQ-1503, not a gap in the scoring/gameplay model itself.
+
+**REQ-1508 – Side-by-side Baseline/Next cards, with player photos on both
+cards and on the post-guess reveal**
+> As a player, I want the Baseline and Next cards to sit side by side like
+> a real head-to-head comparison, and to see each player's photo next to
+> their name whenever one is available — on both cards, and on the
+> just-guessed comparator's reveal — so the screen reads as a comparison
+> at a glance instead of two separate stacked blocks of text.
+
+- **Status: Not yet implemented** — drafted from direct product-owner
+  feedback after seeing `HigherLowerScreen.tsx` (SCREEN-18) live, the same
+  "direct idea request, recorded plainly" trigger REQ-214 itself was pulled
+  forward on. Scoped to `docs/backlog.md` S-233.
+- **Scope note — mirrors REQ-214 almost exactly, same source field, same
+  fallback contract, no new data-sourcing work:** the photo shown by this
+  REQ is `Player.PhotoUrl`, the same Wikidata `P18` field REQ-214 already
+  carries through `WikidataClient`'s intersection queries and that
+  `PlayerPhotoBackfillService` (REQ-214's S-045 addendum) has already
+  backfilled for existing players (COMP-06) — this REQ is purely "expose
+  the already-existing field on this screen's own responses and render it
+  next to a name," not new sourcing, backfill, or correctness-side work.
+  It is explicitly unrelated to `PlayerNameIndex`/autocomplete (REQ-207,
+  COMP-10) for the exact same reason REQ-214 already establishes that
+  boundary (ADR-0007) — this screen has no autocomplete/free-text guess
+  surface at all (REQ-1504's guess is a fixed Higher/Lower choice), so the
+  point barely arises here, but the same boundary rule applies without
+  exception if it ever did.
+- **Scope note — genuinely different trigger shape from REQ-214, not a
+  copy/paste of it:** REQ-214's photo is gated to a locked, *correctly
+  guessed* Grid cell, because a Grid cell's identity is itself the secret
+  being guessed — showing a photo before a correct guess would leak the
+  answer. Nothing on this screen has that shape: per REQ-1504, a
+  Higher/Lower card never hides a player's *identity*, only the Next
+  card's *stat value* — the Baseline and Next player names are both always
+  visible the instant the screen renders, win or lose, guessed or not. A
+  photo confirms an identity that is already fully known, not a value
+  that's still hidden, so there is no spoiler concern and no reveal/click
+  gate to attach this to: both cards' photos are **always visible when
+  available**, unconditionally, never gated behind any interaction.
+- **Scope note — layout change supersedes `design-document.md` SCREEN-18's
+  documented layout; flagged for `doc-sync`, not applied here.** SCREEN-18
+  currently describes and wireframes the Baseline card stacked above the
+  Next card. This REQ's first Given/When/Then block below changes that to
+  side-by-side (left/right). This document does not edit
+  `design-document.md` itself — that update, including the exact
+  breakpoint/wireframe redraw, is `doc-sync`'s or `ui-implementer`'s job
+  against this REQ once picked up.
+- **Scope note — swipe/gesture navigation was considered and explicitly
+  declined for this iteration, not merely undiscussed.** The product owner
+  raised and rejected it directly when asking for the side-by-side layout:
+  both cards must render simultaneously, fully visible, with no swipe,
+  drag, or tap-and-hold interaction required to see either one. A future
+  session must not treat "no swipe support" as an unnoticed gap and
+  reintroduce it without a fresh, explicit product decision to do so.
+- Given an active (not-yet-ended) attempt, where both a Baseline card and a
+  Next card are rendered (`round.hasEnded` is `false` and
+  `round.nextComparator` is present)
+- When the screen renders, at any viewport width
+- Then the Baseline and Next cards are arranged side by side (left/right),
+  Baseline on the left and Next on the right — matching their existing
+  reading order in today's stacked layout — rather than stacked one above
+  the other as today; both cards are simultaneously visible without any
+  scroll-triggered reveal, swipe, or other gesture standing between the
+  player and either card
+- Given an attempt that has ended (`round.hasEnded` is `true`, only the
+  Baseline card and the "You've completed this round" message render, no
+  Next card exists to position)
+- When the screen renders
+- Then this REQ's layout clause does not apply — there is no second card
+  to place side by side, unchanged from today's terminal-state rendering
+- Given the Baseline card's player has a photo available (`Player.PhotoUrl`
+  is non-null)
+- When the Baseline card renders
+- Then the photo displays alongside the player's name on that card — shown
+  unconditionally whenever available, the same instant the name itself is
+  shown, never gated behind a reveal or click interaction
+- Given the Next card's player has a photo available
+- When the Next card renders, before its hidden stat value has been
+  guessed
+- Then the photo displays alongside the player's name on that card, the
+  same always-visible treatment as the Baseline card — this shows only the
+  comparator's already-known identity, and has no effect on REQ-1504's
+  "value hidden until guessed" contract: no value or value placeholder is
+  rendered here, exactly as today
+- Given a guess has just been submitted and the response identifies the
+  just-guessed comparator (`SubmitHigherLowerGuessResponse`/
+  `lastGuessResult`, correct or incorrect), and that comparator has a photo
+  available
+- When the post-guess outcome line renders
+- Then the just-guessed comparator's photo displays alongside their
+  revealed name in that outcome line, so the player can visually confirm
+  the comparator's identity, the same "confirm my own answer" purpose
+  REQ-214's reveal already serves for a Grid cell
+- Given any of the three cases above (Baseline card, Next card, post-guess
+  outcome line) where the relevant player has no photo available, or where
+  a photo URL is present but the image fails to load client-side
+- When that card or outcome line renders
+- Then it falls back to exactly today's name-only presentation — no
+  broken-image icon, no visible loading or error state, and no failure or
+  delay in rendering the rest of the screen; this is the same graceful-
+  degradation contract REQ-214 already establishes for Grid, applied here
+  without modification
+
+**Test level:** Unit/UI — Baseline and Next cards render side by side, not
+stacked, whenever both are present; the terminal (Baseline-only) state is
+unaffected; no swipe/gesture handler or library is attached anywhere on
+this screen; a photo renders alongside the name on the Baseline card, the
+Next card, and the post-guess outcome line whenever `PhotoUrl` is present,
+independent of any reveal/click state (there is none to be independent
+of); each of those three cases falls back to name-only, with no
+broken-image icon and no visible error state, both when `PhotoUrl` is
+absent and when a present URL fails to load client-side.
 
 ---
 
