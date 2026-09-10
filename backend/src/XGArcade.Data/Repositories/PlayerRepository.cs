@@ -161,4 +161,9 @@ public class PlayerRepository(XGArcadeDbContext dbContext) : IPlayerRepository
 
     public async Task UpdatePlayerAsync(Player player, CancellationToken cancellationToken = default) =>
         await dbContext.SaveChangesAsync(cancellationToken);
+
+    // REQ-1507: the true denominator for the admin coverage-check endpoint —
+    // mirrors UserRepository.CountUsersAsync's exact shape.
+    public async Task<int> CountPlayersAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.Players.AsNoTracking().CountAsync(cancellationToken);
 }

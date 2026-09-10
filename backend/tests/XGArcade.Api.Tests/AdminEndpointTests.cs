@@ -1250,5 +1250,8 @@ public class AdminEndpointTests
             counter.Increment();
             return inner.UpdatePlayerAsync(player, cancellationToken);
         }
+
+        public Task<int> CountPlayersAsync(CancellationToken cancellationToken = default) =>
+            inner.CountPlayersAsync(cancellationToken);
     }
 }

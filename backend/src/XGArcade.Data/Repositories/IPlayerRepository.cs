@@ -89,6 +89,12 @@ public interface IPlayerRepository
     Task<Player?> GetPlayerForRefreshAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task UpdatePlayerAsync(Player player, CancellationToken cancellationToken = default);
+
+    // REQ-1507 (admin xG Higher/Lower international-stats coverage check):
+    // the true denominator — every Player row, not scoped to WikidataQid
+    // presence — mirroring IUserRepository.CountUsersAsync's exact shape
+    // (one CountAsync call, no materializing the table into memory).
+    Task<int> CountPlayersAsync(CancellationToken cancellationToken = default);
 }
 
 // Bug-bundle fix (2026-07-27): one match's worth of the data needed to

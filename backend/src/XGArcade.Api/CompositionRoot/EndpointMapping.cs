@@ -128,6 +128,12 @@ public static class EndpointMapping
         // unconditionally (including Production) — see that file's own doc comment
         // for why it's kept separate from MapAdminManagementEndpoints above.
         app.MapAdminXGPathEndpoints();
+        // REQ-1507/ADR-0112: xG Higher/Lower's international-caps/goals data
+        // coverage admin read, registered unconditionally (including
+        // Production) — same "own file, unconditional registration" pattern
+        // as MapAdminXGPathEndpoints immediately above, mirroring that
+        // file's exact shape.
+        app.MapAdminXGHigherLowerEndpoints();
         app.MapPlayerAutocompleteEndpoints();
         // REQ-903/ADR-0064/COMP-12: in-app bug reports -> GitHub issues in this
         // repo, non-guest only (enforced server-side inside the handler itself).
