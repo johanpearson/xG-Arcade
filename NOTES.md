@@ -27,6 +27,40 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-09-10 — ADR-0111's "club count" follow-up now has real user feedback confirming the concern; still unresolved, needs a product call
+
+A direct user-tester report on xG Higher/Lower ("this says absolutely
+nothing... I thought it more to be more known players, comparing stats or
+whatever") led to fixing an immediate display bug (raw `"club"`/`"trophy"`
+category string + bare number shown with zero explanation — see
+`docs/requirements-document.md`'s REQ-1504 status note and
+`docs/CHANGELOG.md`, both 2026-09-10). That fix makes the *existing*
+mechanic readable; it does not touch the two deeper things the feedback
+also surfaced, both pre-flagged and left open:
+
+1. **ADR-0111's own Follow-up** ("get explicit product confirmation on
+   'club count' specifically... before it is ever played by a real user")
+   was never actually acted on before S-226/227/228/229 shipped the game
+   end to end — this is that confirmation arriving, and it reads as
+   negative. "Number of clubs played for" doesn't feel like a stat worth
+   comparing the way "trophies won" does. ADR-0111 already notes the
+   one-line fix if this is rejected: drop `"club"` from
+   `XGHigherLowerGameModule`'s (now `HigherLowerGenerationService`'s)
+   `CandidateStatCategories`, leaving `"trophy"` as the sole category —
+   no schema change, `StatCategory` is a free-form string.
+2. **Player recognizability** — REQ-1501's eligibility rule has no
+   "well-known" filter at all, so the pool draws from every player with a
+   non-null effective count for the category, which in practice skews
+   toward obscure names (small squad-depth signings, one-club journeymen
+   for a "trophy" count of 0/1). Fixing this for real would mean adding a
+   popularity/fame signal to eligibility — a real scope question (what
+   signal? sourced from where?), not a copy fix, and out of what this
+   session addressed.
+
+Neither is a blocking defect — both are gameplay-design judgment calls the
+ADR itself deferred to a human. Flagging here rather than silently
+picking a direction.
+
 ### 2026-09-10 — `XGHigherLowerGameModule.cs` inlines generation and scoring; splitting it into a dedicated service is a reasonable future refactor, not done yet
 
 Found by `quality-architect` during S-229's close-out pass (Epic 28, xG

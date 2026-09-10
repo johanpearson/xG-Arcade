@@ -1,6 +1,35 @@
 import type { CurrentHigherLowerResponse, HigherLowerDirection, SubmitHigherLowerGuessResponse } from './types';
 import { ApiError, apiRequest } from './apiClient';
 
+// Gap-fill (2026-09-10, user-tester report): `StatCategory` on the wire is
+// the raw PlayerAttribute.AttributeType string ADR-0111 derives counts
+// from ("club" | "trophy", see HigherLowerGenerationService's own
+// CandidateStatCategories) — never human copy. HigherLowerScreen.tsx used
+// to render it and its bare numeric value verbatim ("Comparing club" / a
+// lone "1"), which a real player correctly read as meaningless. This map
+// is the only place that knows the two current category strings; an
+// unrecognized one (a future category added to CandidateStatCategories
+// without a matching entry here) still renders — the raw string / bare
+// number — rather than blocking the screen, same "never a hard block on
+// an unknown value" posture as countryFlags.tsx's unknown-country case.
+const STAT_CATEGORY_UNITS: Record<string, { comparing: string; singular: string; plural: string }> = {
+  club: { comparing: 'number of clubs played for', singular: 'club', plural: 'clubs' },
+  trophy: { comparing: 'number of trophies won', singular: 'trophy', plural: 'trophies' },
+};
+
+export function higherLowerCategoryLabel(statCategory: string): string {
+  return STAT_CATEGORY_UNITS[statCategory]?.comparing ?? statCategory;
+}
+
+// Matches RoundCompletionBanner's own "N pts" convention (a single
+// unit-suffixed string, not a bare number) rather than inventing a new
+// value/unit layout.
+export function higherLowerValueLabel(statCategory: string, value: number): string {
+  const unit = STAT_CATEGORY_UNITS[statCategory];
+  if (!unit) return String(value);
+  return `${value} ${value === 1 ? unit.singular : unit.plural}`;
+}
+
 // REQ-1504/1505 (S-227/S-228): mirrors fetchCurrentPredict's/
 // fetchCurrentPath's exact pattern — same 404-as-null idiom (no active
 // xg-higher-lower round is a real, expected empty state, not an error) and
