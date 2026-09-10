@@ -2118,3 +2118,59 @@ just today's manual one), it's worth checking whether it correlates with
 response size (all the affected years import 500-9000+ entries — not
 obviously the largest slices) or is simply WDQS/network flakiness on this
 particular day before treating it as a new ADR-worthy defect.
+
+### 2026-09-10 — `backfill-player-international-stats.yml` "idempotent" claim was wrong: re-running it attempted 139,639 players instead of ~2,600
+
+Ran `backfill-player-international-stats.yml` (S-231/ADR-0112) twice in
+the dev environment back to back. Run #1 attempted 170,678 players across
+13 batches; ~2,600 failed transiently (502s/timeouts). Run #2 was
+triggered specifically to retry just those ~2,600 stragglers — instead it
+attempted 139,639 players and took ~11.5 minutes for what should have
+been a handful of batches.
+
+Root cause: `PlayerInternationalStatsBackfillService`'s "already
+processed" read
+(`IPlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync`)
+checked only for the ABSENCE of an `"international-caps"`
+`PlayerAttribute` row. But `PlayerInternationalStatsRefreshService` only
+ever wrote that row when Wikidata's query actually resolved a usable caps
+value for a player — the vast majority of a football player database
+(most players never played internationally) never gets that row, no
+matter how many times it's queried. "Row absent" was therefore identical
+for "never checked yet" and "checked, confirmed Wikidata has nothing" —
+both looked "missing" forever, so every future run re-queried this same
+huge population from scratch. The claim in
+`PlayerInternationalStatsBackfillService`'s own doc comment ("this job is
+idempotent and safe to re-run") was simply untested against a real run
+until today — a good example of "idempotent in the code's own local
+reasoning" not being the same as "actually idempotent when you run it
+twice," the same category of gap `ci.yml` workflow_dispatch verification
+exists to catch for query correctness, just for a different property
+(termination/cost) this time.
+
+Fixed the same day: a second, `PlayerData`-only bookkeeping marker
+(`"international-stats-checked"`, `PlayerData
+.InternationalStatsCheckedField`) is now written for every player in a
+successfully-queried batch, regardless of whether Wikidata had usable
+data for them — deliberately on `PlayerData`, never `PlayerAttribute`,
+since `PlayerData` is explicitly documented as "never read directly for
+correctness-checking," which is exactly the property that keeps this
+bookkeeping-only marker from ever being able to leak into game-
+eligibility logic. `GetPlayersMissingInternationalStatsAsync` now excludes
+a player with EITHER the real caps row OR the marker (not marker-only —
+that would make every player who already has real data from before this
+fix look "missing" again). See `docs/requirements-document.md`'s REQ-1501
+2026-09-10 follow-up status note and ADR-0112's 2026-09-10 amendment for
+the full fix; not yet re-verified against a real production re-run (the
+orchestrating session, which holds CI/GitHub Actions access, still needs
+to trigger that) — this file is being updated at implementation time, not
+after the fix was proven against a real second run.
+
+**Lesson for future backfill-shaped jobs in this codebase:** if the
+"already processed" signal is "does a row exist that's only written on a
+SUCCESSFUL, DATA-BEARING outcome," check whether "attempted and found
+nothing" is a real, expected, common case for this data (not just an edge
+case) before trusting that signal's absence to mean "never tried." If it
+is, a separate "attempted" marker is needed — the presence of real data
+is not a reliable proxy for "has this been checked" when most of the
+population is expected to genuinely have no data at all.

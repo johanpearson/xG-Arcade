@@ -158,6 +158,44 @@ per participant.
   e.g. via FIFA eligibility rules) — revisit if real data surfaces a
   player where this picks the wrong statement.
 
+## Amendment (2026-09-10, follow-up to S-231/PR #367)
+
+Two follow-ups from this ADR's own Consequences section, both closed by
+the same session:
+
+1. **Idempotency bug fix.** Point 3's batch refresh only ever wrote the
+   `"international-caps"` `PlayerAttribute` row when Wikidata resolved a
+   usable value — so `GetPlayersMissingInternationalStatsAsync`'s "row
+   absent" signal couldn't distinguish "never checked" from "checked,
+   Wikidata genuinely has no data" (the large majority of any football
+   player pool). Proven in production: a same-day re-run attempted
+   139,639 players instead of the expected ~2,600. Fixed by adding a
+   `PlayerData`-only "checked" marker
+   (`PlayerData.InternationalStatsCheckedField`) written
+   for every player in a successfully-queried batch regardless of outcome
+   — deliberately never a `PlayerAttribute` row, so it can never leak
+   into eligibility logic. `GetPlayersMissingInternationalStatsAsync` now
+   excludes a player with either the real caps row or the marker. See
+   `docs/requirements-document.md`'s REQ-1501 2026-09-10 follow-up status
+   note and `NOTES.md`'s 2026-09-10 entry for the full story — this is an
+   implementation-detail bug fix, not a reversal of anything this ADR
+   decided (the single-recorded-value derivation, override precedence,
+   and data-sourcing shape in points 1-4 above are all unchanged).
+2. **Real coverage numbers.** The "get real Wikidata coverage numbers
+   before fully trusting this" Follow-up below is now answerable on
+   demand, not just theoretically: `GET
+   /admin/xg-higher-lower/international-stats-coverage`
+   (`XGArcade.Api.Admin.AdminXGHigherLowerEndpoints`, REQ-1507) reports
+   total player count, players with a real effective caps/goals/trophy
+   value, and players meeting REQ-1506's caps>=10 floor — reusing this
+   ADR's own `GetEffectivePlayerValuesByAttributeTypeAsync`/
+   `GetEffectivePlayerCountsByAttributeTypeAsync` reads, never a new raw
+   query. This endpoint reports the numbers; it does not itself decide
+   whether the resulting coverage is "good enough" — that judgment still
+   needs a human to actually call it against real synced data, which
+   remains unexercised from this implementing sandbox (no
+   `query.wikidata.org` egress here either).
+
 ## For AI agents
 
 Do not add a new numeric `Player`/`PlayerAttribute` schema field or a new

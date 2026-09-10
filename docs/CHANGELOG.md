@@ -13,6 +13,40 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (§4.16, v2.90 → v2.91: new
+  REQ-1507, REQ-1501 follow-up status note), `docs/architecture-document.md`
+  (COMP-06 row, v1.65 → v1.66), `docs/decisions/0112-*.md` (Amendment
+  section added), `NOTES.md` (new 2026-09-10 entry) — two follow-ups to
+  S-231/PR #367, found by actually running
+  `backfill-player-international-stats.yml` twice in the dev environment:
+  (1) **Idempotency bug fix** — the backfill's "already processed" signal
+  (`IPlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync`)
+  couldn't distinguish "never checked" from "checked, Wikidata genuinely
+  has no qualifying data" (the large majority of a football player pool),
+  so every future run re-queried that whole population — proven in
+  production (a same-day re-run attempted 139,639 players instead of the
+  expected ~2,600). Fixed by adding a `PlayerData`-only "checked" marker
+  (`PlayerData.InternationalStatsCheckedField`,
+  `"international-stats-checked"`) written for every player in a
+  successfully-queried batch regardless of outcome, deliberately never a
+  `PlayerAttribute` row so it can't leak into eligibility logic; the
+  missing-players query now excludes a player with either the real caps
+  row or the marker. New tests in
+  `PlayerInternationalStatsRefreshServiceTests`/
+  `PlayerInternationalStatsBackfillServiceTests`/`PlayerBackfillRepositoryTests`.
+  (2) **New REQ-1507**: `GET
+  /admin/xg-higher-lower/international-stats-coverage`
+  (`XGArcade.Api.Admin.AdminXGHigherLowerEndpoints`, mirroring
+  `AdminXGPathEndpoints.cs`) reports total player count and real
+  effective caps/goals/trophy coverage plus REQ-1506's floor count —
+  answers ADR-0112's own "get real Wikidata coverage numbers" open risk.
+  Reuses `IPlayerOverrideRepository.GetEffectivePlayerValuesByAttributeTypeAsync`/
+  `GetEffectivePlayerCountsByAttributeTypeAsync`, never a new raw query;
+  new `IPlayerRepository.CountPlayersAsync` supplies the denominator.
+  New `AdminXGHigherLowerEndpointTests.cs`/`PlayerRepositoryTests.cs`
+  coverage. No local `dotnet` SDK in this sandbox — hand-traced against
+  the diff, not compiled or run; needs a real `ci.yml` `workflow_dispatch`
+  run before merge. REQ-1501/REQ-1506/REQ-1507, ADR-0112.
 - 2026-09-10 — `docs/requirements-document.md` (§4.16 REQ-1501/REQ-1506
   status notes, v2.89 → v2.90), `docs/architecture-document.md` (COMP-18
   row, v1.64 → v1.65), `docs/backlog.md` (S-231 "Built as" note),

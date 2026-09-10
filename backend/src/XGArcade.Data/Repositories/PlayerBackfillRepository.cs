@@ -125,13 +125,24 @@ public class PlayerBackfillRepository(XGArcadeDbContext dbContext) : IPlayerBack
     // IPlayerBackfillRepository for why the presence of THIS row
     // specifically is the "already processed" signal, not
     // "international-goals".
+    //
+    // Bug fix (2026-09-10, follow-up to S-231/PR #367): ALSO excludes a
+    // player who has the PlayerData.InternationalStatsCheckedField marker
+    // PlayerInternationalStatsRefreshService writes — referenced via that
+    // shared constant, not a duplicated plain string literal (see
+    // PlayerData.cs's own doc comment on those constants for why this one
+    // marker literal doesn't fit this codebase's usual "no shared
+    // constants" convention). See IPlayerBackfillRepository's own doc
+    // comment on this method for the full "why both checks, not
+    // marker-only" reasoning.
     public async Task<IReadOnlyList<Player>> GetPlayersMissingInternationalStatsAsync(
         IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default)
     {
         var query = dbContext.Players
             .AsNoTracking()
             .Where(p => p.WikidataQid != null
-                && !dbContext.PlayerAttributes.Any(pa => pa.PlayerId == p.Id && pa.AttributeType == "international-caps"));
+                && !dbContext.PlayerAttributes.Any(pa => pa.PlayerId == p.Id && pa.AttributeType == "international-caps")
+                && !dbContext.PlayerData.Any(pd => pd.PlayerId == p.Id && pd.Field == PlayerData.InternationalStatsCheckedField));
 
         if (excludingPlayerIds.Count > 0)
             query = query.Where(p => !excludingPlayerIds.Contains(p.Id));

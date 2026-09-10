@@ -135,6 +135,58 @@ public class PlayerInternationalStatsRefreshServiceTests
         Assert.That((await _playerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync([player.Id])).ContainsKey(player.Id), Is.False);
     }
 
+    // Bug fix (2026-09-10, follow-up to S-231/PR #367): the fix under test
+    // — a player in a successfully-queried batch with no resolvable
+    // Wikidata data gets the "international-stats-checked" PlayerData
+    // marker (so GetPlayersMissingInternationalStatsAsync stops treating
+    // them as missing forever) but no fabricated PlayerAttribute row. See
+    // IPlayerBackfillRepository.GetPlayersMissingInternationalStatsAsync's
+    // own doc comment for the full "never checked" vs. "checked, no data"
+    // distinction this fixes.
+    [Test]
+    public async Task REQ1501_RefreshInternationalStatsAsync_PlayerWithNoQualifyingNationalTeamStatement_WritesCheckedMarker_NotAFabricatedAttribute()
+    {
+        var player = await SeedPlayerAsync("Q1519"); // No SetInternationalStats call — genuinely no qualifying P54 statement.
+
+        await BuildService().RefreshInternationalStatsAsync([player.Id]);
+
+        Assert.That((await _playerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync([player.Id])).ContainsKey(player.Id), Is.False,
+            "no PlayerAttribute row must be fabricated for a player Wikidata genuinely has no qualifying data for");
+
+        var playerDataRows = await _dbContext.PlayerData.Where(pd => pd.PlayerId == player.Id).ToListAsync();
+        Assert.That(playerDataRows.Select(pd => pd.Field), Is.EquivalentTo(new[] { "international-stats-checked" }),
+            "a successfully-queried player with no resolvable data must still get the checked marker so the backfill stops re-querying them forever");
+        Assert.That(playerDataRows.Single().Value, Is.Not.Null.And.Not.EqualTo("international-caps").And.Not.EqualTo("international-goals"),
+            "the marker's Value is a placeholder, never fabricated real data");
+    }
+
+    [Test]
+    public async Task REQ1501_RefreshInternationalStatsAsync_WikidataQueryFails_DoesNotWriteCheckedMarker_PlayerStaysRetryable()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        _wikidataClient.FailNextInternationalStatsBatches(1);
+
+        await BuildService().RefreshInternationalStatsAsync([player.Id]);
+
+        var playerDataRows = await _dbContext.PlayerData.Where(pd => pd.PlayerId == player.Id).ToListAsync();
+        Assert.That(playerDataRows, Is.Empty,
+            "a batch whose Wikidata call itself failed must not mark any of its players as checked — they need to stay retryable");
+    }
+
+    [Test]
+    public async Task REQ1501_RefreshInternationalStatsAsync_ResolvedCapsAndGoals_AlsoWritesCheckedMarker()
+    {
+        var player = await SeedPlayerAsync("Q1519");
+        _wikidataClient.SetInternationalStats("Q1519", caps: 123, goals: 51);
+
+        await BuildService().RefreshInternationalStatsAsync([player.Id]);
+
+        var playerDataFields = (await _dbContext.PlayerData.Where(pd => pd.PlayerId == player.Id).ToListAsync())
+            .Select(pd => pd.Field);
+        Assert.That(playerDataFields, Is.EquivalentTo(new[] { "international-caps", "international-goals", "international-stats-checked" }),
+            "a player whose data resolves gets both the real PlayerData rows AND the checked marker");
+    }
+
     [Test]
     public async Task REQ1501_RefreshInternationalStatsAsync_PlayerAlreadyHasCapsRow_IsNeverOverwritten()
     {

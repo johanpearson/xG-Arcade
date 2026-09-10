@@ -11969,3 +11969,25 @@ query correctness/coverage for the two new P1350/P1351-based categories
 specifically needs a real dev-environment `backfill-player-international-stats`
 run before being trusted (no network egress to query.wikidata.org from
 this sandbox — ADR-0112's own Consequences section flags this explicitly).
+
+*Follow-up (2026-09-10, found by actually running
+`backfill-player-international-stats.yml` twice in the dev environment):*
+two fixes, both delivered same-day. (1) The backfill's "idempotent"
+claim above was wrong in practice — `GetPlayersMissingInternationalStatsAsync`'s
+"row absent" signal couldn't distinguish "never checked" from "checked,
+Wikidata genuinely has no data" for the large majority of players who
+never played internationally, so a same-day re-run attempted 139,639
+players instead of the expected ~2,600. Fixed with a `PlayerData`-only
+`"international-stats-checked"` bookkeeping marker
+(`PlayerData.InternationalStatsCheckedField`), written for
+every player in a successfully-queried batch regardless of outcome, never
+a `PlayerAttribute` row. (2) New REQ-1507: `GET
+/admin/xg-higher-lower/international-stats-coverage`
+(`AdminXGHigherLowerEndpoints.cs`), answering ADR-0112's own "get real
+coverage numbers" open risk — total player count plus real effective
+caps/goals/trophy coverage and REQ-1506's floor count, reusing
+`IPlayerOverrideRepository`'s existing effective-value reads. See
+`docs/CHANGELOG.md`'s 2026-09-10 entry, `NOTES.md`'s matching entry, and
+ADR-0112's Amendment section for the full detail. Same sandbox constraint
+as the original story: no local `dotnet` SDK, hand-traced against the
+diff, needs a real `ci.yml` `workflow_dispatch` run before merge.
