@@ -319,6 +319,28 @@ test.describe('REQ-1501/1502/1503/1504/1505/1210: play a full xG Higher/Lower ro
         response.url().includes('gameKey=xg-higher-lower') &&
         response.request().method() === 'GET',
     )
+    // REQ-1210/ADR-0083: unlike play-path.spec.ts's/play-predict.spec.ts's
+    // own "Previous Rounds" flows (a manual tab click with no seeded round,
+    // landing on the round list — hence their own closedRoundsResponsePromise
+    // being the only fetch in flight), this banner link seeds `initialRoundId`
+    // straight through App.tsx's handleViewRoundLeaderboard. That makes
+    // PastRoundsLeaderboard fire the round-list fetch AND the round-detail
+    // fetch (fetchClosedRoundLeaderboard, GET
+    // /leagues/global/leaderboard/closed-rounds/{roundId} —
+    // frontend/src/lib/leaderboard.ts) concurrently on entry, and it
+    // auto-drills into that round's detail (skipping the list UI entirely —
+    // see PastRoundsLeaderboard.tsx's own `if (selectedRoundId &&
+    // pastDetailState)` branch), so there is no
+    // `.leaderboard-screen__round-list-button` to click on this path. Both
+    // response promises are armed before the click that triggers them (not
+    // after), same reasoning as closedRoundsResponsePromise itself: arming a
+    // waitForResponse after its request may have already fired/resolved
+    // risks missing the event and hanging until timeout.
+    const roundDetailResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/leaderboard/closed-rounds/${seed.roundId}`) &&
+        response.request().method() === 'GET',
+    )
     // Scoped to the banner (role="status") so this never risks matching
     // HeaderNav's separate "Leaderboard" entry point — same
     // strict-mode-avoidance discipline play-path.spec.ts's own click uses,
@@ -338,8 +360,10 @@ test.describe('REQ-1501/1502/1503/1504/1505/1210: play a full xG Higher/Lower ro
     await expect(page.getByRole('tab', { name: 'xG Higher/Lower' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('tab', { name: 'Previous Rounds' })).toHaveAttribute('aria-selected', 'true')
 
-    // Click the just-verified first entry to drill into its locked detail.
-    await page.locator('.leaderboard-screen__round-list-button').first().click()
+    // Wait for the auto-drilled-into round's own detail fetch to finish
+    // loading before asserting on its rows — no list-button click on this
+    // path (see the comment above).
+    await roundDetailResponsePromise
 
     const playerRow = page.getByRole('listitem').filter({ hasText: playerDisplayName })
     await expect(playerRow).toBeVisible()
