@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (REQ-1507 status note,
+  v2.91 → v2.92) — added `report-international-stats-coverage` as a
+  second access path to REQ-1507's coverage numbers
+  (`CliVerbDispatcher.HandleReportInternationalStatsCoverageAsync`,
+  `.github/workflows/report-international-stats-coverage.yml`,
+  `workflow_dispatch` only), calling the same
+  `IPlayerOverrideRepository`/`IPlayerRepository` methods the HTTP
+  endpoint uses — a CLI-shaped convenience for checking real coverage
+  right after a backfill run without an authenticated admin session, not
+  a replacement for the endpoint.
 - 2026-09-10 — `docs/requirements-document.md` (§4.16, v2.90 → v2.91: new
   REQ-1507, REQ-1501 follow-up status note), `docs/architecture-document.md`
   (COMP-06 row, v1.65 → v1.66), `docs/decisions/0112-*.md` (Amendment

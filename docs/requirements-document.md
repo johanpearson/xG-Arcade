@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.91"
+version: "2.92"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13797,6 +13797,19 @@ endpoint reports counts on demand; it does not itself change how many
 players are eligible — actually improving low real-world coverage, if the
 next real run of this endpoint shows it's low, remains a separate,
 not-yet-scoped follow-up.
+
+**Status note (2026-09-10):** a second access path added —
+`dotnet run -- report-international-stats-coverage`
+(`CliVerbDispatcher.HandleReportInternationalStatsCoverageAsync`,
+`report-international-stats-coverage.yml`, `workflow_dispatch` only) prints
+the identical numbers to a job log via the DB-connection-string CLI shape
+(ADR-0024), for checking coverage right after a
+`backfill-player-international-stats.yml` run without needing an
+authenticated admin session. Calls the exact same
+`IPlayerOverrideRepository`/`IPlayerRepository` methods as the HTTP
+endpoint — no separate logic to drift out of sync. The HTTP endpoint
+remains the durable, reusable tool for an admin checking this from the
+app; this CLI verb is an operational convenience, not a replacement.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the
