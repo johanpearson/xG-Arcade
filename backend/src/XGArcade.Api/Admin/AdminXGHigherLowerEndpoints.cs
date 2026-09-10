@@ -6,7 +6,12 @@ namespace XGArcade.Api.Admin;
 // REQ-1507/ADR-0112: admin-only read of xG Higher/Lower's real international-
 // caps/goals data coverage — the "get real Wikidata coverage numbers before
 // fully trusting this" follow-up ADR-0112's own Consequences section
-// explicitly flagged as an open risk. Mirrors AdminXGPathEndpoints.cs's exact
+// explicitly flagged as an open risk. REQ-1501/ADR-0113: this endpoint's
+// PlayersWithTrophyCount already reads GetEffectivePlayerCountsByAttributeTypeAsync
+// ("trophy") — ADR-0113's new PlayerTrophyStatsRefreshService/
+// PlayerTrophyStatsBackfillService sweep is a new WRITER feeding that same
+// read, not a new reader shape, so this endpoint needed no code change to
+// report real post-sweep trophy coverage; confirmed, not modified. Mirrors AdminXGPathEndpoints.cs's exact
 // shape: registered unconditionally (including Production — real operational
 // state, not seeded/test data), gated on the same "Admin" policy every other
 // admin endpoint uses, and a PURE READ of already-persisted repository

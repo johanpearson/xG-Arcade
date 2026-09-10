@@ -470,6 +470,108 @@ internal static class SparqlQueryBuilders
             """;
     }
 
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): PlayerTrophyStatsRefreshService's
+    // individual-award batch fetch — TWO VALUES clauses (unlike every other
+    // batch method in this file, which has exactly one), one over the
+    // player QID batch, one over every seeded IsTeamTrophy=false
+    // TrophyDefinition QID (Ballon d'Or, as of ADR-0061). ?player wdt:P166
+    // ?trophy stays truthy — same reasoning
+    // IntersectionQuerySpecs.BuildTrophyCountryIntersectionQuery's own
+    // comment gives (no preferred-rank convention on a repeatable individual
+    // award, so best-rank semantics and "received this award at all"
+    // coincide). Do not invent new join logic here — this is the SAME P166
+    // pattern that query already uses, restructured from "one trophy, find
+    // players" to "one player batch, check against every seeded individual
+    // trophy." No LIMIT/ORDER BY/OFFSET — same bounded-query discipline as
+    // every other batch method here (both VALUES clauses are bounded: the
+    // caller's own batch size for ?player, the small seeded trophy count for
+    // ?trophy). Returns (player, trophy) pairs, not a single winner — unlike
+    // BuildInternationalStatsByQidsQuery's own "at most one row wins," a
+    // player can legitimately hold more than one trophy, so
+    // SparqlResponseParsers.ParseTrophyStatsBindings keeps every distinct
+    // pair rather than picking one.
+    internal static string BuildIndividualTrophyStatsByQidsQuery(IReadOnlyList<string> playerQids, IReadOnlyList<string> trophyQids)
+    {
+        var playerValuesClause = string.Join(" ", playerQids.Select(qid => $"wd:{qid}"));
+        var trophyValuesClause = string.Join(" ", trophyQids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?trophy WHERE {
+              VALUES ?player { {{playerValuesClause}} }
+              VALUES ?trophy { {{trophyValuesClause}} }
+              ?player wdt:P166 ?trophy.
+            }
+            """;
+    }
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): PlayerTrophyStatsRefreshService's
+    // team-competition batch fetch — the individual-award query's sibling
+    // above, for every seeded IsTeamTrophy=true TrophyDefinition (FIFA World
+    // Cup, UEFA Champions League, ADR-0061). Same P1344 ("participant of")/
+    // P3450 ("sports season of league or competition")/P1346 ("winner")
+    // edition-winner join as IntersectionQuerySpecs'
+    // BuildTeamTrophyCountryIntersectionQuery/BuildTeamTrophyNationalTeamIntersectionQuery/
+    // BuildTeamTrophyClubIntersectionQuery — all three stay truthy (wdt:) for
+    // the same "no current-vs-historical rank-hiding convention on a
+    // one-time historical fact" reasoning those builders' own comments give.
+    //
+    // Unlike those three, this is a broad per-player-batch sweep with no
+    // pre-known club/country/national-team TARGET to anchor the winner-side
+    // match on — a plain player batch, not an intersection search — so it
+    // must check every way a player's OWN side could equal ?winner, as a
+    // UNION of the exact three winner-side matches those existing builders
+    // already established separately (ADR-0113's own Decision section — no
+    // new join logic invented, only restructured from "one target, find
+    // players" to "one player batch, check against the winner"):
+    //   (a) club: the SAME direct-club-QID-equals-winner match
+    //       BuildTeamTrophyClubIntersectionQuery uses (a club competition's
+    //       winner item IS the club item, no P1532 indirection) — full P54
+    //       statement path, excluding deprecated rank, same non-negotiable
+    //       "ever played for," not "currently plays for," reasoning as
+    //       every other P54 use in this codebase.
+    //   (b) country: the SAME P27-then-P1532-indirection match
+    //       BuildTeamTrophyCountryIntersectionQuery uses (P1346's winner
+    //       value for an international competition is a national-team item,
+    //       never the country item itself, so the match has to go through
+    //       ?winner wdt:P1532 ?country rather than comparing ?winner
+    //       directly to a country QID).
+    //   (c) UK home nations: the SAME truthy-P1532-on-both-sides match
+    //       BuildTeamTrophyNationalTeamIntersectionQuery uses, for England/
+    //       Scotland/Wales/Northern Ireland players whose P27 is uniformly
+    //       United Kingdom (ADR-0035).
+    // A player can match more than one UNION branch (or the same branch via
+    // more than one P54 statement) for the same trophy — harmless, since
+    // SparqlResponseParsers.ParseTrophyStatsBindings dedupes to distinct
+    // (player, trophy) pairs, same as the individual-award query above.
+    internal static string BuildTeamTrophyStatsByQidsQuery(IReadOnlyList<string> playerQids, IReadOnlyList<string> trophyQids)
+    {
+        var playerValuesClause = string.Join(" ", playerQids.Select(qid => $"wd:{qid}"));
+        var trophyValuesClause = string.Join(" ", trophyQids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?trophy WHERE {
+              VALUES ?player { {{playerValuesClause}} }
+              VALUES ?trophy { {{trophyValuesClause}} }
+              ?player wdt:P1344 ?edition.
+              ?edition wdt:P3450 ?trophy.
+              ?edition wdt:P1346 ?winner.
+              {
+                ?player p:P54 ?clubStatement.
+                ?clubStatement ps:P54 ?winner.
+                MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              }
+              UNION
+              {
+                ?player wdt:P27 ?country.
+                ?winner wdt:P1532 ?country.
+              }
+              UNION
+              {
+                ?player wdt:P1532 ?country.
+                ?winner wdt:P1532 ?country.
+              }
+            }
+            """;
+    }
+
     // Same "VALUES clause over the batch, no candidate-matching filter"
     // shape as BuildPlayerPhotosByQidsQuery/
     // BuildPlayerPositionsAndBirthYearsByQidsQuery — the caller

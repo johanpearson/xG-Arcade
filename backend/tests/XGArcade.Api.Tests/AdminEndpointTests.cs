@@ -1197,6 +1197,16 @@ public class AdminEndpointTests
         public Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
             IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>>(new Dictionary<string, WikidataInternationalStatsEntry>());
+
+        // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): never called here — a
+        // trivial stub, same as every other unused method above.
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryIndividualTrophyStatsByQidsAsync(
+            IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>>(new Dictionary<string, IReadOnlyList<string>>());
+
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryTeamTrophyStatsByQidsAsync(
+            IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>>(new Dictionary<string, IReadOnlyList<string>>());
     }
 
     // ---- Test double for IPlayerRepository (call-counting decorator) ------

@@ -139,6 +139,37 @@ public interface IPlayerBackfillRepository
     // GetPlayersMissingPhotoAsync's own doc comment.
     Task<IReadOnlyList<Player>> GetPlayersMissingInternationalStatsAsync(
         IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default);
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): PlayerTrophyStatsBackfillService's
+    // read cursor — the same two-signal "missing" shape
+    // GetPlayersMissingInternationalStatsAsync above establishes (built in
+    // from the first commit here, not retrofitted after an incident the way
+    // that method's own bug fix had to be — ADR-0113's whole reason for
+    // existing), adapted for "trophy" instead of "international-caps."
+    //
+    // One deliberate difference from the caps method's own "at most one row"
+    // existence check: a player can legitimately hold zero-to-N trophies (a
+    // player who has won 2 of the 3 seeded trophies still has exactly one
+    // "trophy" AttributeType, just multiple rows of it), so "has this player
+    // got a real trophy row AT ALL" (an EXISTS check, same SQL shape as the
+    // caps method's own) is the right signal here — not "has this player got
+    // every trophy" or any per-trophy tracking. "Missing" is the ABSENCE of
+    // BOTH: any real "trophy" PlayerAttribute row (which also correctly
+    // excludes the ~20 players whose trophy row already exists from
+    // WikidataLookupService's pre-existing byproduct path, which predates
+    // both this backfill and its marker and has no corresponding marker) AND
+    // the PlayerData.TrophyStatsCheckedField marker
+    // PlayerTrophyStatsRefreshService writes for every player in a
+    // successfully-queried batch regardless of outcome. See
+    // GetPlayersMissingInternationalStatsAsync's own doc comment above for
+    // the full "why both signals, not marker-only" reasoning — identical
+    // here.
+    //
+    // excludingPlayerIds/batchSize: same "guaranteed run-termination via a
+    // this-run-attempted set, no Skip/Take" reasoning as
+    // GetPlayersMissingPhotoAsync's own doc comment.
+    Task<IReadOnlyList<Player>> GetPlayersMissingTrophyStatsAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default);
 }
 
 // REQ-1207 backfill (bug-bundle fix, 2026-08-02): one player's worth of what

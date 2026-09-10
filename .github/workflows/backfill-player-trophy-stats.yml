@@ -1,0 +1,58 @@
+name: backfill-player-trophy-stats
+
+# REQ-1501 (xG Higher/Lower, S-232, ADR-0113): fills "trophy" PlayerAttribute
+# rows for every Player row that doesn't have one and hasn't been checked yet
+# — the broad per-player-batch sweep ADR-0113 adds because the existing
+# byproduct-only path (WikidataLookupService's xG Grid candidate-search
+# queries) left only 20 of 170,678 players with any "trophy" value at all.
+# See PlayerTrophyStatsBackfillService's own doc comment for the full "why a
+# backfill cursor over the ALREADY-KNOWN player pool, not a
+# PlayerCareerPrefetchService-style country/club discovery sweep" design
+# choice — mirrors backfill-player-international-stats.yml exactly.
+#
+# A plain CLI job (`dotnet run -- backfill-player-trophy-stats`), not an HTTP
+# endpoint — same ADR-0024 reasoning as every other bulk Wikidata job in this
+# codebase.
+#
+# Manual trigger only, no recurring schedule, same posture as
+# backfill-player-international-stats.yml — idempotent and safe to re-run
+# (only ever writes rows for players still missing BOTH a real "trophy" row
+# and the PlayerData.TrophyStatsCheckedField marker,
+# IPlayerBackfillRepository.GetPlayersMissingTrophyStatsAsync's own WHERE
+# filter), so run it once to build initial coverage, and again later only if
+# a fresh prefetch-player-careers/warm-grid-cache run adds more Player rows
+# in the meantime. Unlike Position/BirthYear/PhotoUrl, trophies are NOT
+# re-synced once a player has been checked (see
+# PlayerTrophyStatsRefreshService's own doc comment on its never-overwrite
+# behavior) — a player winning a NEW trophy after this runs is a known,
+# accepted staleness limitation, not fixed by re-running this workflow.
+#
+# Real-data coverage cannot be verified from the implementing sandbox (no
+# network egress to query.wikidata.org) — the FIRST real run of this
+# workflow is also this story's own real-data verification step (ADR-0113's
+# Consequences section, inherited from ADR-0112), not just routine
+# population. Verify via `report-international-stats-coverage`'s own "with
+# trophy" figure (or GET /admin/xg-higher-lower/international-stats-coverage)
+# afterward.
+
+on:
+  workflow_dispatch: {}
+
+# Same "queue, never cancel" posture as every other bulk Wikidata job in
+# this codebase (REQ-110/ADR-0088/S-186) — a burst of re-dispatches
+# concurrently sweeping the same pool is a confirmed past incident cause.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  backfill-player-trophy-stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Backfill player trophy stats
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: backfill-player-trophy-stats
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

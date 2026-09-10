@@ -13,6 +13,40 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (REQ-1501 status note,
+  v2.93 → v2.94), `docs/architecture-document.md` (COMP-18 row, v1.66 →
+  v1.67), `docs/backlog.md` (S-232 "Built as" note), `NOTES.md` (new
+  entry) — implemented ADR-0113's broad trophy-coverage sweep: a new
+  `IPlayerTrophyStatsRefreshService`/`PlayerTrophyStatsRefreshService`/
+  `PlayerTrophyStatsBackfillService` (`XGArcade.DataSync.Wikidata`),
+  mirroring the caps/goals sweep exactly (S-231/ADR-0112) including its
+  `PlayerData.TrophyStatsCheckedField` "checked"-marker idempotency
+  mechanism from the first commit, not retrofitted. Two new
+  `IWikidataClient` batch queries
+  (`QueryIndividualTrophyStatsByQidsAsync`/`QueryTeamTrophyStatsByQidsAsync`)
+  reuse `IntersectionQuerySpecs`' existing P166/P1344-P3450-P1346/P54-P27-P1532
+  join patterns unchanged, restructured from "one target, find players" to
+  "one player batch, check against every seeded trophy of that kind." New
+  `dotnet run -- backfill-player-trophy-stats` CLI verb and
+  `.github/workflows/backfill-player-trophy-stats.yml`
+  (`workflow_dispatch` only). No change to ADR-0111's COUNT-of-rows
+  derivation or to the existing coverage endpoint/CLI verb — both already
+  read the right count. Unit-tested but not run locally (no `dotnet` SDK
+  in this sandbox); real Wikidata coverage growth unverified (no
+  `query.wikidata.org` egress) — needs a real `ci.yml` `workflow_dispatch`
+  run and a real dev-environment backfill run before trusting it.
+
+- 2026-09-10 — `docs/decisions/0113-*.md` (new ADR), `docs/backlog.md`
+  (new S-232 entry), `docs/requirements-document.md` (REQ-1501 status
+  note, v2.92 → v2.93) — REQ-1507's real coverage numbers surfaced that
+  only 20 of 170,678 players have any `"trophy"` value (vs. 31,509 for
+  caps) — a pre-existing gap (trophy data was only ever a byproduct of
+  xG Grid's candidate-search queries, never broadly swept), not
+  something S-231 introduced, and not fixed by adding more trophies to
+  the seeded list. ADR-0113 scopes a broad per-player trophy sweep
+  mirroring ADR-0112's caps/goals sweep exactly — S-232, groundwork only
+  in this commit, implementation to follow.
+
 - 2026-09-10 — `docs/requirements-document.md` (REQ-1507 status note,
   v2.91 → v2.92) — added `report-international-stats-coverage` as a
   second access path to REQ-1507's coverage numbers

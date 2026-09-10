@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.92"
+version: "2.94"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13277,6 +13277,79 @@ for the new coverage (a no-qualifying-data player gets the marker but no
 fabricated attribute row; a failed batch gets neither; a resolved player
 gets both; a second backfill run doesn't re-attempt an already-checked
 "no data" player).
+
+**Status note (2026-09-10, direct product-owner follow-up, scoped to
+S-232, ADR-0113):** REQ-1507's own real coverage numbers surfaced a
+pre-existing gap, not something S-231 introduced: only 20 of 170,678
+players have any `"trophy"` value at all. Root cause: `"trophy"`
+`PlayerAttribute` rows have only ever been written as a byproduct of xG
+Grid's Trophy×Country/Trophy×Club candidate-search queries
+(`WikidataLookupService`), never swept broadly across the pool the way
+club/nationality (`PlayerCareerPrefetchService`) or, as of S-231, caps/
+goals now are — not a "too few trophies" problem (the 3 seeded
+`TrophyDefinition`s already include FIFA World Cup and UEFA Champions
+League, not just Ballon d'Or). ADR-0113 (extends ADR-0061/ADR-0111/
+ADR-0112) adds a broad per-player-batch trophy sweep,
+`IPlayerTrophyStatsRefreshService`/`PlayerTrophyStatsBackfillService`,
+mirroring the caps/goals sweep's own shape exactly — including its
+`PlayerData` "checked"-marker idempotency mechanism from the first
+commit, not retrofitted after the fact a second time. No change to this
+REQ's own text or to ADR-0111's COUNT-of-rows derivation — this is a new
+sourcing path for the same `"trophy"` data shape, not a new category or
+a new eligibility rule. See ADR-0113 for the full query design and
+`docs/backlog.md`'s S-232 entry for scope.
+
+**Status (2026-09-10, S-232, ADR-0113):** Implemented — the sweep above is
+no longer only planned. A new `PlayerData.TrophyStatsCheckedField`/
+`TrophyStatsCheckedValue` constant pair
+(`backend/src/XGArcade.Data/Entities/PlayerData.cs`) sits alongside
+`InternationalStatsCheckedField`/`Value`, built in from the first commit per
+ADR-0113's own "For AI agents" section. Two new `SparqlQueryBuilders`
+methods (`BuildIndividualTrophyStatsByQidsQuery`/`BuildTeamTrophyStatsByQidsQuery`,
+`backend/src/XGArcade.DataSync/Wikidata/SparqlQueryBuilders.cs`) each batch a
+player-QID VALUES clause against a seeded-trophy-QID VALUES clause — the
+individual-award query reuses `IntersectionQuerySpecs.BuildTrophyCountryIntersectionQuery`'s
+own truthy-`P166` reasoning unchanged; the team-competition query reuses the
+same `P1344`/`P3450`/`P1346` edition-winner join plus a 3-way `UNION` of the
+exact winner-side matching clauses `BuildTeamTrophyClubIntersectionQuery`/
+`BuildTeamTrophyCountryIntersectionQuery`/`BuildTeamTrophyNationalTeamIntersectionQuery`
+already established separately — no new join logic invented, per ADR-0113's
+own "For AI agents" section. A new shared
+`SparqlResponseParsers.ParseTrophyStatsBindings` parser feeds both
+(`IWikidataClient.QueryIndividualTrophyStatsByQidsAsync`/
+`QueryTeamTrophyStatsByQidsAsync`), returning every distinct trophy a player
+actually won rather than picking one winner (unlike ADR-0112's caps/goals
+tie-break) — a player can legitimately hold more than one trophy. A new
+`IPlayerTrophyStatsRefreshService`/`PlayerTrophyStatsRefreshService`
+(`backend/src/XGArcade.DataSync/Wikidata/`) writes the SAME `"trophy"`
+`PlayerAttribute` row shape `WikidataLookupService`'s existing byproduct path
+already writes, skipping a (player, trophy) pair that already has a row from
+either path, and writing the `TrophyStatsCheckedField` marker for every
+player actually queried regardless of outcome. A new
+`PlayerTrophyStatsBackfillService` drives it across every already-known
+Player row missing both a real `"trophy"` row and the marker (a new
+`IPlayerBackfillRepository.GetPlayersMissingTrophyStatsAsync`,
+`backend/src/XGArcade.Data/Repositories/PlayerBackfillRepository.cs`), via
+the new `dotnet run -- backfill-player-trophy-stats` CLI verb
+(`.github/workflows/backfill-player-trophy-stats.yml`, manual
+`workflow_dispatch` only, mirroring `backfill-player-international-stats.yml`
+exactly). `AdminXGHigherLowerEndpoints.cs`'s
+`/admin/xg-higher-lower/international-stats-coverage` endpoint and the
+`report-international-stats-coverage` CLI verb needed no code change to
+report the post-sweep trophy-holder count — both already read
+`GetEffectivePlayerCountsByAttributeTypeAsync("trophy")` (ADR-0111,
+unchanged), and this story is a new writer feeding that same read, not a new
+reader shape; confirmed, not modified. Unit-tested in
+`PlayerTrophyStatsRefreshServiceTests`, `PlayerTrophyStatsBackfillServiceTests`,
+`PlayerBackfillRepositoryTests`, and `WikidataClientTests` (`ADR0113_`-
+prefixed query-construction tests, mirroring how `WikidataClientTests.cs`
+used `ADR0112_` for the caps/goals tie-break). Real Wikidata query
+correctness/coverage is NOT verified from the implementing sandbox (no
+network egress to `query.wikidata.org`) — see ADR-0113's Consequences
+section; needs a real `ci.yml` `workflow_dispatch` run and a real
+dev-environment `backfill-player-trophy-stats` run, followed by a
+`report-international-stats-coverage` check, before this category's growth
+past the pre-existing 20-player byproduct-only baseline is trusted.
 
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed

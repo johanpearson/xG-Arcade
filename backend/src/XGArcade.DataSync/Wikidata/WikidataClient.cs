@@ -807,6 +807,63 @@ public class WikidataClient(
             SparqlResponseParsers.ParseInternationalStatsBindings, cancellationToken);
     }
 
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): batched individual-award
+    // trophy lookup — see IWikidataClient's own doc comment for the full
+    // "why this query shape" reasoning. Same S-118-style thin wrapper over
+    // the shared RunThrowingQueryAsync driver, same throw-on-failure
+    // contract as QueryInternationalStatsByQidsAsync — but two QID lists to
+    // validate/short-circuit on, not one.
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryIndividualTrophyStatsByQidsAsync(
+        IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (playerWikidataQids.Count == 0 || trophyWikidataQids.Count == 0)
+            return new Dictionary<string, IReadOnlyList<string>>();
+
+        foreach (var qid in playerWikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(playerWikidataQids));
+        }
+        foreach (var qid in trophyWikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(trophyWikidataQids));
+        }
+
+        var query = SparqlQueryBuilders.BuildIndividualTrophyStatsByQidsQuery(playerWikidataQids, trophyWikidataQids);
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout,
+            $"Wikidata individual-trophy-stats batch query for {playerWikidataQids.Count} player QID(s)/{trophyWikidataQids.Count} trophy QID(s)",
+            SparqlResponseParsers.ParseTrophyStatsBindings, cancellationToken);
+    }
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): the team-competition
+    // sibling of QueryIndividualTrophyStatsByQidsAsync above — identical
+    // shape, only the query builder and log description differ.
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryTeamTrophyStatsByQidsAsync(
+        IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (playerWikidataQids.Count == 0 || trophyWikidataQids.Count == 0)
+            return new Dictionary<string, IReadOnlyList<string>>();
+
+        foreach (var qid in playerWikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(playerWikidataQids));
+        }
+        foreach (var qid in trophyWikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(trophyWikidataQids));
+        }
+
+        var query = SparqlQueryBuilders.BuildTeamTrophyStatsByQidsQuery(playerWikidataQids, trophyWikidataQids);
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout,
+            $"Wikidata team-trophy-stats batch query for {playerWikidataQids.Count} player QID(s)/{trophyWikidataQids.Count} trophy QID(s)",
+            SparqlResponseParsers.ParseTrophyStatsBindings, cancellationToken);
+    }
+
     // ADR-0056: xG Path's own familiarity signal — batched, direct-by-QID
     // Wikipedia sitelink-count lookup, the same VALUES-clause-over-a-
     // bounded-batch shape as QueryPlayerPhotosByQidsAsync/

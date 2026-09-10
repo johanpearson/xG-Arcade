@@ -2174,3 +2174,45 @@ case) before trusting that signal's absence to mean "never tried." If it
 is, a separate "attempted" marker is needed — the presence of real data
 is not a reliable proxy for "has this been checked" when most of the
 population is expected to genuinely have no data at all.
+
+### 2026-09-10 — S-232/ADR-0113: built the caps/goals marker fix into the trophy sweep from the start, applying the lesson above immediately
+
+Direct follow-up to the entry above. REQ-1507's real coverage numbers
+(`report-international-stats-coverage` run against the full 170,678-player
+dev pool) showed only 20 players have any `"trophy"` value at all —
+`"trophy"` had only ever been populated as a byproduct of xG Grid's
+Trophy×Country/Trophy×Club candidate-search queries, never swept broadly
+the way club/nationality or caps/goals now are. ADR-0113 adds
+`PlayerTrophyStatsRefreshService`/`PlayerTrophyStatsBackfillService`,
+mirroring the caps/goals sweep's shape exactly — but this time the
+`PlayerData.TrophyStatsCheckedField` "checked" marker shipped in the FIRST
+commit, applying the "Lesson for future backfill-shaped jobs" note above
+immediately instead of waiting to rediscover it the hard way: the
+overwhelming majority of players will win none of the 3 seeded trophies,
+so "attempted and found nothing" is very much the expected common case
+here too, not an edge case.
+
+One real difference from the caps/goals shape worth remembering: trophy's
+"already processed" existence check is "has this player got ANY `"trophy"`
+row" (a player can hold zero-to-N trophies), not "has this player got
+exactly one" the way caps/goals' single-recorded-value shape allowed — same
+EXISTS-style SQL either way, just a different semantic justification. Also
+had to be careful not to duplicate the ~20 pre-existing byproduct-path rows
+— the refresh service checks for an existing `(player, trophy name)` pair
+before writing, not just "does this player have any trophy row at all."
+
+Two new `IWikidataClient` batch queries were needed (not one, unlike
+caps/goals) — one per `TrophyDefinition.IsTeamTrophy` value — each with TWO
+`VALUES` clauses (player batch AND seeded-trophy-QID batch), since unlike
+caps/goals (which has no candidate set to batch — any P1532-bearing team
+qualifies), trophy needed to check against a specific, small reference-data
+set. The team-competition query's 3-way `UNION` (club/country/UK-home-nation
+winner-side matching) is the most complex single query builder in this
+codebase as of this story — flagged in ADR-0113's own Consequences section
+for a second look in review.
+
+Not yet run against real Wikidata data from this sandbox (no
+`query.wikidata.org` egress) — needs a real `ci.yml` `workflow_dispatch` run
+and a real dev-environment `backfill-player-trophy-stats` run, followed by
+`report-international-stats-coverage`, before trusting that `"trophy"`
+coverage actually grew past 20.

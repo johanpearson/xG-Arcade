@@ -736,4 +736,71 @@ public interface IWikidataClient
     Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
         IReadOnlyList<string> wikidataQids,
         CancellationToken cancellationToken = default);
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): batched individual-award
+    // (IsTeamTrophy = false, e.g. Ballon d'Or) trophy lookup for
+    // PlayerTrophyStatsRefreshService — TWO VALUES-batched inputs, unlike
+    // QueryInternationalStatsByQidsAsync's single player-QID batch: one over
+    // the player batch, one over every seeded individual TrophyDefinition
+    // QID (SparqlQueryBuilders.BuildIndividualTrophyStatsByQidsQuery's own
+    // comment has the full query-shape reasoning — truthy wdt:P166, same
+    // "no preferred-rank convention on a repeatable award" safety argument
+    // IntersectionQuerySpecs.BuildTrophyCountryIntersectionQuery's own
+    // comment already established for the byproduct candidate-search path
+    // this mirrors).
+    //
+    // Returns a dictionary keyed by player QID, whose value is every
+    // distinct trophy QID (among trophyWikidataQids) that player has
+    // actually received — never a single winner the way
+    // QueryInternationalStatsByQidsAsync's own tie-break picks one, since a
+    // player can legitimately hold more than one individual award. A player
+    // QID with no qualifying P166 statement against any trophy in the batch
+    // is simply absent from the result, same "absent means none" contract
+    // as every other by-QID Wikidata query in this file.
+    //
+    // Either playerWikidataQids or trophyWikidataQids being empty returns an
+    // empty dictionary without sending a request — same short-circuit
+    // QueryInternationalStatsByQidsAsync applies for its own single QID
+    // list.
+    //
+    // Error contract — same throw-on-failure shape as
+    // QueryInternationalStatsByQidsAsync/QueryPlayerCareerStintsByQidsAsync
+    // (not the five swallow-to-[] intersection queries): this is a batch job
+    // whose success metric is a backfilled-row count, so a swallowed failure
+    // would be indistinguishable from "none of these players hold this
+    // trophy." The caller (PlayerTrophyStatsRefreshService) decides whether
+    // a failed refresh should ever block its own caller (throwOnFailure,
+    // mirroring IPlayerInternationalStatsRefreshService's identical
+    // parameter).
+    //
+    // Real-data verification note (ADR-0113 Consequences, inherited from
+    // ADR-0112): this query's correctness and real-world coverage cannot be
+    // verified live from the implementing sandbox (no network egress to
+    // query.wikidata.org) — must be confirmed via a real `ci.yml`
+    // `workflow_dispatch` run, and ideally a real dev-environment backfill
+    // run, before being trusted.
+    Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryIndividualTrophyStatsByQidsAsync(
+        IReadOnlyList<string> playerWikidataQids,
+        IReadOnlyList<string> trophyWikidataQids,
+        CancellationToken cancellationToken = default);
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): the team-competition
+    // (IsTeamTrophy = true, e.g. FIFA World Cup, UEFA Champions League)
+    // sibling of QueryIndividualTrophyStatsByQidsAsync above — same
+    // two-VALUES-batch shape (player batch, seeded team-trophy QID batch),
+    // same "returns every distinct trophy a player actually won, absent
+    // means none" result contract, same error/empty-input contracts. See
+    // SparqlQueryBuilders.BuildTeamTrophyStatsByQidsQuery's own comment for
+    // the full query-shape reasoning: the P1344/P3450/P1346 edition-winner
+    // join plus a 3-way UNION reusing IntersectionQuerySpecs'
+    // BuildTeamTrophyClubIntersectionQuery/BuildTeamTrophyCountryIntersectionQuery/
+    // BuildTeamTrophyNationalTeamIntersectionQuery's own winner-side matching
+    // clauses exactly, restructured from "one known target, find players" to
+    // "one player batch, check every way their own side could equal the
+    // edition's winner" — no new join logic invented, per ADR-0113's own
+    // "For AI agents" section.
+    Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryTeamTrophyStatsByQidsAsync(
+        IReadOnlyList<string> playerWikidataQids,
+        IReadOnlyList<string> trophyWikidataQids,
+        CancellationToken cancellationToken = default);
 }

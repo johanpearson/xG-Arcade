@@ -454,4 +454,130 @@ public class PlayerBackfillRepositoryTests
 
         Assert.That(result, Is.Empty);
     }
+
+    // ---- GetPlayersMissingTrophyStatsAsync ----
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): PlayerTrophyStatsBackfillService's
+    // read cursor — mirrors GetPlayersMissingInternationalStatsAsync's own
+    // coverage above, adapted for the "presence of ANY 'trophy'
+    // PlayerAttribute row" missing-signal (a player can hold zero-to-N
+    // trophies, unlike caps' at-most-one-row shape — see that method's own
+    // doc comment on IPlayerBackfillRepository for the full "why an EXISTS
+    // check either way" reasoning).
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_ReturnsOnlyPlayersWithQidAndNoTrophyRow()
+    {
+        var missingStats = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var alreadyHasStats = new Player { Id = Guid.NewGuid(), FullName = "Didier Drogba", WikidataQid = "Q42233" };
+        var noQid = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
+        await _playerRepository.AddPlayerAsync(missingStats);
+        await _playerRepository.AddPlayerAsync(alreadyHasStats);
+        await _playerRepository.AddPlayerAsync(noQid);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = alreadyHasStats.Id, AttributeType = "trophy", AttributeValue = "Ballon d'Or",
+        });
+
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { missingStats.Id }));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_OtherAttributeTypesDoNotCountAsAlreadyProcessed()
+    {
+        // A player with "international-caps"/"club" rows but no "trophy" row
+        // yet must still surface as a backfill candidate.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = player.Id, AttributeType = "international-caps", AttributeValue = "50",
+        });
+
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { player.Id }));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_RespectsBatchSize()
+    {
+        for (var i = 0; i < 5; i++)
+            await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
+
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([], batchSize: 3);
+
+        Assert.That(result, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_ExcludesGivenPlayerIds()
+    {
+        var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        await _playerRepository.AddPlayerAsync(first);
+        await _playerRepository.AddPlayerAsync(second);
+
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([first.Id], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { second.Id }));
+    }
+
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_NoMissingStatsPlayers_ReturnsEmpty()
+    {
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([], batchSize: 200);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // ADR-0113's own reason for existing — built in from the first commit,
+    // not retrofitted after a production incident the way
+    // GetPlayersMissingInternationalStatsAsync's own marker check had to be
+    // (see that method's own comment above for the full incident this ADR
+    // exists to avoid repeating).
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_ExcludesPlayersWithCheckedMarker_EvenWithoutATrophyRow()
+    {
+        var neverChecked = new Player { Id = Guid.NewGuid(), FullName = "Never Checked", WikidataQid = "Q1519" };
+        var checkedNoData = new Player { Id = Guid.NewGuid(), FullName = "Checked, No Data", WikidataQid = "Q42233" };
+        await _playerRepository.AddPlayerAsync(neverChecked);
+        await _playerRepository.AddPlayerAsync(checkedNoData);
+        _dbContext.PlayerData.Add(new PlayerData
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = checkedNoData.Id,
+            Field = PlayerData.TrophyStatsCheckedField,
+            Value = PlayerData.TrophyStatsCheckedValue,
+            Source = "wikidata",
+            Confidence = "verified",
+            SyncedAt = DateTime.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { neverChecked.Id }));
+    }
+
+    // Symmetry with the ~20 players whose "trophy" row already exists from
+    // WikidataLookupService's pre-existing byproduct path, which predates
+    // this marker entirely and has no corresponding marker row — they must
+    // stay excluded too, or every already-resolved player would look
+    // "missing" again the moment this backfill first runs.
+    [Test]
+    public async Task REQ1501_GetPlayersMissingTrophyStatsAsync_ExcludesPlayersWithTrophyRow_EvenWithoutACheckedMarker()
+    {
+        var alreadyHasStats = new Player { Id = Guid.NewGuid(), FullName = "Byproduct-Path Player", WikidataQid = "Q42233" };
+        await _playerRepository.AddPlayerAsync(alreadyHasStats);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute
+        {
+            PlayerId = alreadyHasStats.Id, AttributeType = "trophy", AttributeValue = "Ballon d'Or",
+        });
+
+        var result = await _repository.GetPlayersMissingTrophyStatsAsync([], batchSize: 200);
+
+        Assert.That(result, Is.Empty);
+    }
 }

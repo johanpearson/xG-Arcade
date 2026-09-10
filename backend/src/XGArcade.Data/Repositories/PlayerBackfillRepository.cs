@@ -152,4 +152,29 @@ public class PlayerBackfillRepository(XGArcadeDbContext dbContext) : IPlayerBack
             .Take(batchSize)
             .ToListAsync(cancellationToken);
     }
+
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): "trophy" is the exact
+    // AttributeType literal both WikidataLookupService's existing byproduct
+    // path and PlayerTrophyStatsRefreshService write — see this method's own
+    // doc comment on IPlayerBackfillRepository for why "has ANY row of this
+    // type" (not "has exactly one," unlike the caps method's check) is the
+    // right existence signal, and why the marker check is built in from the
+    // first commit rather than retrofitted.
+    public async Task<IReadOnlyList<Player>> GetPlayersMissingTrophyStatsAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Players
+            .AsNoTracking()
+            .Where(p => p.WikidataQid != null
+                && !dbContext.PlayerAttributes.Any(pa => pa.PlayerId == p.Id && pa.AttributeType == "trophy")
+                && !dbContext.PlayerData.Any(pd => pd.PlayerId == p.Id && pd.Field == PlayerData.TrophyStatsCheckedField));
+
+        if (excludingPlayerIds.Count > 0)
+            query = query.Where(p => !excludingPlayerIds.Contains(p.Id));
+
+        return await query
+            .OrderBy(p => p.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+    }
 }

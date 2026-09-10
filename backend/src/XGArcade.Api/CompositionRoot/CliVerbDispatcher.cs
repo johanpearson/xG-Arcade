@@ -50,6 +50,7 @@ public static class CliVerbDispatcher
         ["backfill-player-photos"] = HandleBackfillPlayerPhotosAsync,
         ["backfill-player-position-birthyear"] = HandleBackfillPlayerPositionBirthYearAsync,
         ["backfill-player-international-stats"] = HandleBackfillPlayerInternationalStatsAsync,
+        ["backfill-player-trophy-stats"] = HandleBackfillPlayerTrophyStatsAsync,
         ["report-international-stats-coverage"] = HandleReportInternationalStatsCoverageAsync,
         ["prefetch-player-careers"] = HandlePrefetchPlayerCareersAsync,
         ["sweep-recent-transfers"] = HandleSweepRecentTransfersAsync,
@@ -371,10 +372,63 @@ public static class CliVerbDispatcher
         return true;
     }
 
+    // REQ-1501 (xG Higher/Lower, S-232, ADR-0113): `dotnet run --
+    // backfill-player-trophy-stats` — same shape as
+    // backfill-player-international-stats above (builds its dependencies
+    // directly rather than the full DI container, since it runs before
+    // WebApplication.CreateBuilder). See PlayerTrophyStatsBackfillService's
+    // own doc comment for the full "why a backfill cursor, not a
+    // PlayerCareerPrefetchService-style country/club discovery sweep"
+    // reasoning — this is the mechanism that must run (via
+    // backfill-player-trophy-stats.yml) to grow "trophy" past the ~20
+    // players the existing byproduct-only path (WikidataLookupService)
+    // leaves it at, the real gap ADR-0113's own Context section measures.
+    // Also builds an ICategoryValueRepository, unlike the international-stats
+    // handler above — PlayerTrophyStatsRefreshService needs the seeded
+    // TrophyDefinition rows (split by IsTeamTrophy) to build its two
+    // VALUES-batched queries.
+    private static async Task<bool> HandleBackfillPlayerTrophyStatsAsync(string[] args)
+    {
+        if (args.Length != 1)
+            return false;
+
+        using var trophyStatsLoggerFactory = BuildLoggerFactory();
+
+        await using var trophyStatsDbContext = BuildDbContext();
+        var trophyStatsPlayerRepository = new PlayerRepository(trophyStatsDbContext);
+        var trophyStatsPlayerAttributeRepository = new PlayerAttributeRepository(trophyStatsDbContext);
+        var trophyStatsPlayerDataRepository = new PlayerDataRepository(trophyStatsDbContext);
+        var trophyStatsPlayerBackfillRepository = new PlayerBackfillRepository(trophyStatsDbContext);
+        var trophyStatsCategoryValueRepository = new CategoryValueRepository(trophyStatsDbContext);
+
+        var trophyStatsWikidataClient = BuildWikidataClient(trophyStatsLoggerFactory);
+
+        var trophyStatsRefreshService = new PlayerTrophyStatsRefreshService(
+            trophyStatsWikidataClient, trophyStatsPlayerRepository, trophyStatsPlayerAttributeRepository,
+            trophyStatsPlayerDataRepository, trophyStatsCategoryValueRepository,
+            trophyStatsLoggerFactory.CreateLogger<PlayerTrophyStatsRefreshService>());
+
+        var trophyStatsBackfillService = new PlayerTrophyStatsBackfillService(
+            trophyStatsPlayerBackfillRepository, trophyStatsRefreshService,
+            trophyStatsLoggerFactory.CreateLogger<PlayerTrophyStatsBackfillService>());
+
+        var trophyStatsResult = await trophyStatsBackfillService.BackfillAsync();
+
+        Console.WriteLine(
+            $"backfill-player-trophy-stats: complete — {trophyStatsResult.BatchesProcessed} batch(es) processed, " +
+            $"{trophyStatsResult.PlayersAttempted} player(s) attempted, {trophyStatsResult.BatchesFailed} batch(es) failed.");
+        return true;
+    }
+
     // REQ-1507 (2026-09-10, follow-up to S-231/PR #369): a CLI-verb console
     // printout of exactly what GET /admin/xg-higher-lower/international-stats-coverage
     // (AdminXGHigherLowerEndpoints.cs) reports — same repository calls, same
-    // numbers, no reimplementation. Exists purely so this can be checked
+    // numbers, no reimplementation. Its "with trophy" figure below already
+    // reads the same GetEffectivePlayerCountsByAttributeTypeAsync("trophy")
+    // call ADR-0111 established — REQ-1501/ADR-0113's new
+    // backfill-player-trophy-stats sweep above is a new WRITER feeding that
+    // same read, so this verb needed no change to report the post-sweep
+    // trophy-holder count; confirmed, not modified. Exists purely so this can be checked
     // via `dotnet run -- report-international-stats-coverage` (DB connection
     // string only, ADR-0024's established "bulk/diagnostic job is a CLI
     // verb" shape) without needing an authenticated admin session — the HTTP
