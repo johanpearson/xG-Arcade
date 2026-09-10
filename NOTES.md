@@ -43,6 +43,12 @@ extracting a `HigherLowerGenerationService` (mirroring whatever shape
 `GridGameModule`/`XGConnectGameModule` already delegate to) at that point
 rather than continuing to grow the module file directly.
 
+**Update (2026-09-10, same day):** acted on — `XGHigherLowerGameModule`'s
+generation logic was extracted into `HigherLowerGenerationService`/
+`IHigherLowerGenerationService`, mirroring `GridGameModule`'s own S-119
+split (scoring stayed inline, same as `GridGameModule` kept its own
+`ScoreSubmissionAsync` inline). Pure refactor, no REQ/ADR change.
+
 ### 2026-08-31 — API-Football's free plan does not include the current season
 
 Discovered when `/internal/generate-round?gameKey=xg-predict` returned 500

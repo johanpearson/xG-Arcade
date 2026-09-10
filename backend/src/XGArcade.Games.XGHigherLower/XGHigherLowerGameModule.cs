@@ -1,5 +1,4 @@
 using XGArcade.Core.Games;
-using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Games.XGHigherLower;
@@ -12,6 +11,22 @@ namespace XGArcade.Games.XGHigherLower;
 // ConnectMatch" reasoning, and docs/requirements-document.md §4.16
 // (REQ-1501 through REQ-1505) for the full Given/When/Then behavior.
 //
+// Delegation-pattern refactor (2026-09-10, pure refactor, no behavior
+// change): this class is now a thin IGameModule adapter — REQ-1501/1502/
+// 1503's category/baseline/comparator-sequence generation
+// (IHigherLowerGenerationService) was split into its own class, mirroring
+// GridGameModule's own S-119 split of GenerateInstanceAsync into
+// IGridGenerationService (see that class's own doc comment for the
+// "independently registered, no facade" convention this follows). Closes
+// the non-blocking finding quality-architect raised during S-229's
+// close-out — see NOTES.md's 2026-09-10 entry.
+// ScoreSubmissionAsync (REQ-1504) stayed inline, deliberately NOT split out
+// the way generation was — mirroring GridGameModule, which also kept its
+// own ScoreSubmissionAsync inline after its S-119 split, because xG
+// Higher/Lower (like xG Grid) has no separate scoring service upstream to
+// mirror: unlike generation, there is no natural second implementation of
+// "score a submission" to justify an interface boundary here.
+//
 // S-224 implemented REQ-1501/1502/1503: GenerateInstanceAsync's real
 // eligibility-checked category/baseline/comparator-sequence generation
 // algorithm, persisted via IHigherLowerInstanceRepository, plus
@@ -20,7 +35,7 @@ namespace XGArcade.Games.XGHigherLower;
 // GetCellIdsAsync's own doc comment gives for doing this before the game is
 // wired into scheduling).
 //
-// This story (S-225) implements REQ-1504: ScoreSubmissionAsync's real
+// S-225 implemented REQ-1504: ScoreSubmissionAsync's real
 // correctness/streak-progression/terminal-attempt logic, reading and writing
 // the new per-participant HigherLowerAttempt row via
 // IHigherLowerInstanceRepository.GetAttemptAsync/SaveAttemptAsync, and wires
@@ -42,167 +57,23 @@ namespace XGArcade.Games.XGHigherLower;
 // concept — see HigherLowerSubmission's own doc comment), so S-227's
 // dedicated endpoints are expected to call ScoreSubmissionAsync directly,
 // mirroring PredictEndpoints' shape, not go through GuessSubmissionService.
-//
-// REQ-1501's numeric-stat-category resolution (ADR to be written separately
-// after this story lands — see this class's own history/PR description for
-// the resolved design this implements): PlayerAttribute/PlayerOverride
-// (COMP-06) today stores only categorical string attributes ("club" |
-// "nationality" | "trophy"), never a numeric stat. Rather than a new
-// external data source (out of scope, MVP-SCOPE.md), a numeric stat
-// category is DERIVED as a COUNT of a player's effective PlayerAttribute
-// rows for one AttributeType — "trophy" (trophy count, directly realizing
-// REQ-1501's own "league titles won" example) and "club" (career-clubs-
-// represented count). "nationality" is permanently excluded as a candidate:
-// it is virtually always exactly one value per player, so any two players
-// would almost always tie, defeating REQ-1502's whole purpose.
 public class XGHigherLowerGameModule(
     IHigherLowerInstanceRepository higherLowerInstanceRepository,
-    IPlayerOverrideRepository playerOverrideRepository,
-    HigherLowerGenerationOptions options,
-    Random? random = null) : IGameModule
+    IHigherLowerGenerationService generationService) : IGameModule
 {
     public const string XGHigherLowerGameKey = "xg-higher-lower";
 
-    // REQ-1501: the two AttributeTypes whose effective PlayerAttribute row
-    // count is a real, meaningful "the more the better" numeric stat — see
-    // this class's own doc comment above for why "nationality" is excluded.
-    // Order here has no significance (GenerateInstanceAsync always shuffles
-    // it) — kept as a private static field purely so it's defined once, not
-    // re-allocated per call.
-    private static readonly string[] CandidateStatCategories = ["trophy", "club"];
-
-    // Injectable for testability — defaults to Random.Shared in production,
-    // same "no DI registration needed for Random itself" precedent
-    // GridGenerationService's own _random field establishes.
-    private readonly Random _random = random ?? Random.Shared;
-
     public string GameKey => XGHigherLowerGameKey;
 
-    // REQ-1501/1502/1503/ADR-0110: select exactly one eligible stat category
-    // and generate one fixed, fully-ordered baseline-plus-comparator
-    // sequence, shared by every participant of the Round.
-    //
-    // For each candidate category, in shuffled order (so the choice isn't
-    // always the same one when multiple are eligible): build the effective-
-    // count pool for that category (REQ-1501's "non-null recorded value"
-    // eligibility check, done once here, never per participant); if the
-    // pool is smaller than the required sequence length (baseline + configured
-    // comparator count), this category can never work, so move on without
-    // spending any attempts on it. Otherwise, attempt up to
-    // HigherLowerGenerationOptions.MaxAttemptsPerCategory times to greedily
-    // build a full-length sequence (random baseline, then repeatedly append
-    // a random remaining player whose value differs from the current tail's
-    // value — REQ-1502's no-exact-tie/no-repeat rules) — if a greedy attempt
-    // paints itself into a corner before reaching full length, retry with a
-    // fresh shuffle/baseline. If every candidate category exhausts its
-    // attempt budget without producing a full-length sequence, generation
-    // fails closed (REQ-1502's last Given/When/Then block): never persist a
-    // shorter-than-configured sequence.
-    public async Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
-    {
-        var requiredSequenceLength = options.ComparatorCount + 1; // baseline + comparators
-
-        var shuffledCategories = CandidateStatCategories.ToList();
-        Shuffle(shuffledCategories);
-
-        foreach (var category in shuffledCategories)
-        {
-            var effectiveCounts = await playerOverrideRepository.GetEffectivePlayerCountsByAttributeTypeAsync(
-                category, cancellationToken);
-
-            // REQ-1502: this category can't possibly satisfy the required
-            // length regardless of how the values are distributed — skip
-            // without spending any of the attempt budget on it.
-            if (effectiveCounts.Count < requiredSequenceLength)
-                continue;
-
-            var pool = effectiveCounts.Select(kv => (PlayerId: kv.Key, Value: kv.Value)).ToList();
-
-            for (var attempt = 0; attempt < options.MaxAttemptsPerCategory; attempt++)
-            {
-                var sequence = TryBuildSequence(pool, requiredSequenceLength);
-                if (sequence is null)
-                    continue; // painted into a corner — retry this category with a fresh shuffle
-
-                var instanceId = Guid.NewGuid();
-                var baseline = sequence[0];
-                var comparators = sequence
-                    .Skip(1)
-                    .Select((player, index) => new HigherLowerComparator
-                    {
-                        Id = Guid.NewGuid(),
-                        HigherLowerInstanceId = instanceId,
-                        SequencePosition = index,
-                        PlayerId = player.PlayerId,
-                        Value = player.Value,
-                    })
-                    .ToList();
-
-                var instance = new HigherLowerInstance
-                {
-                    Id = instanceId,
-                    TemplateId = config.TemplateId,
-                    StatCategory = category,
-                    BaselinePlayerId = baseline.PlayerId,
-                    BaselineValue = baseline.Value,
-                    Comparators = comparators,
-                };
-
-                await higherLowerInstanceRepository.AddInstanceAsync(instance, cancellationToken);
-
-                return new GameInstance { Id = instance.Id };
-            }
-        }
-
-        // REQ-1502's fail-closed case — a caller is expected to log this
-        // (mirrors PredictGenerationException's/GridGenerationException's own
-        // doc comment: the throw site itself does not log).
-        throw new HigherLowerGenerationException(
-            $"Could not build a full-length ({requiredSequenceLength}-player) xG Higher/Lower comparator " +
-            $"sequence for any candidate stat category ({string.Join(", ", CandidateStatCategories)}).");
-    }
-
-    // REQ-1502: a single greedy attempt at a full-length, no-tie/no-repeat
-    // sequence — a random baseline, then repeatedly append a random
-    // remaining player whose Value differs from the current tail's Value.
-    // Returns null (rather than throwing) if it paints itself into a corner
-    // before reaching requiredLength, so the caller can retry with a fresh
-    // shuffle. pool is not mutated (a local copy is shuffled instead), so
-    // the caller can safely reuse its own pool list across attempts.
-    private List<(Guid PlayerId, int Value)>? TryBuildSequence(
-        List<(Guid PlayerId, int Value)> pool, int requiredLength)
-    {
-        var remaining = new List<(Guid PlayerId, int Value)>(pool);
-        Shuffle(remaining);
-
-        var sequence = new List<(Guid PlayerId, int Value)> { remaining[0] };
-        remaining.RemoveAt(0);
-
-        while (sequence.Count < requiredLength)
-        {
-            var tailValue = sequence[^1].Value;
-            var candidates = remaining.Where(p => p.Value != tailValue).ToList();
-            if (candidates.Count == 0)
-                return null;
-
-            var next = candidates[_random.Next(candidates.Count)];
-            sequence.Add(next);
-            remaining.Remove(next);
-        }
-
-        return sequence;
-    }
-
-    // Fisher-Yates in-place shuffle — same role as GridGenerationService's
-    // own Shuffle<T> helper.
-    private void Shuffle<T>(IList<T> list)
-    {
-        for (var i = list.Count - 1; i > 0; i--)
-        {
-            var j = _random.Next(i + 1);
-            (list[i], list[j]) = (list[j], list[i]);
-        }
-    }
+    // REQ-1501/1502/1503/ADR-0110: delegates to IHigherLowerGenerationService
+    // — see that class's own doc comment for the full category-selection/
+    // sequence-building algorithm. Never returns null (it either returns or
+    // throws); IGameModule.GenerateInstanceAsync's own signature returns
+    // Task<GameInstance?>, and this one-line delegation compiles fine as-is
+    // (nullability is compile-time only, not a runtime distinction, same as
+    // GridGameModule.GenerateInstanceAsync already demonstrates).
+    public Task<GameInstance?> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default) =>
+        generationService.GenerateInstanceAsync(config, cancellationToken);
 
     // REQ-1504: compare the current hidden comparator's real value against
     // the participant's current baseline, advance the streak on a correct

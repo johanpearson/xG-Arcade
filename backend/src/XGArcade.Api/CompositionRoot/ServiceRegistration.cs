@@ -316,20 +316,15 @@ public static class ServiceRegistration
 
         // COMP-18/ADR-0110: IGameModuleResolver.Resolve("xg-higher-lower")
         // now returns a real module — GenerateInstanceAsync (REQ-1501/1502/
-        // 1503) and GetCellIdsAsync are real, persisting through
-        // IHigherLowerInstanceRepository below and reading effective stat
-        // counts via IPlayerOverrideRepository (already registered above).
-        // ScoreSubmissionAsync/GetMaxAttemptsForCellAsync (REQ-1504) still
-        // throw NotImplementedException — that's S-225's job (unlike xG
-        // Connect's NotSupportedException — this game DOES fit the Round
-        // model per ADR-0110, it just isn't fully built yet).
+        // 1503), ScoreSubmissionAsync (REQ-1504), and GetCellIdsAsync are
+        // all real, persisting through IHigherLowerInstanceRepository below.
         // GetCellCategoryTypesAsync throws NotSupportedException
         // (permanently inapplicable) and ResolveWrongGuessPlayerAsync
         // returns null, mirroring xG Path/xG Predict's own precedent.
         // PurgeUserDataAsync anonymizes HigherLowerAttempt (REQ-710, S-225).
-        // This story (S-226) wires RoundSchedulingOptions and IScoringStrategy
-        // below so a Round can actually be generated and scored end-to-end —
-        // see HigherLowerScoringStrategy's own registration and the
+        // RoundSchedulingOptions and IScoringStrategy (S-226) wire a Round to
+        // actually be generated and scored end-to-end — see
+        // HigherLowerScoringStrategy's own registration and the
         // RoundSchedulingOptions registration further down. GameKey remains
         // permanently excluded from GuessSubmissionAllowedGameKeys, though
         // (see that registration's own comment below) — unlike
@@ -338,12 +333,27 @@ public static class ServiceRegistration
         // (HigherLowerSubmission has no CellId — see that record's own doc
         // comment), the same permanent exclusion "xg-predict" already has
         // (S-200/ADR-0098).
+        //
+        // Delegation-pattern refactor (2026-09-10, pure refactor, no
+        // behavior change — NOTES.md's 2026-09-10 entry): REQ-1501/1502/
+        // 1503's generation algorithm was split out of XGHigherLowerGameModule
+        // into IHigherLowerGenerationService, mirroring IGridGenerationService's
+        // own S-119 split immediately above (registered the same way: before
+        // its own IGameModule, independently, no facade).
+        // XGHigherLowerGameModule itself is now a thin IGameModule adapter
+        // composing IHigherLowerInstanceRepository (for ScoreSubmissionAsync
+        // and the rest, kept inline) and IHigherLowerGenerationService (for
+        // GenerateInstanceAsync, delegated).
         builder.Services.AddScoped<IHigherLowerInstanceRepository, HigherLowerInstanceRepository>();
+        builder.Services.AddScoped<IHigherLowerGenerationService, HigherLowerGenerationService>();
         builder.Services.AddScoped<IGameModule, XGHigherLowerGameModule>();
         // REQ-1503: ComparatorCount's default (10) is fine as-is, no
         // override needed here — mirrors GridGenerationOptions'/
         // PathGenerationOptions'/PredictGenerationOptions' own singleton
-        // registration precedent immediately above/below.
+        // registration precedent immediately above/below. Now consumed by
+        // HigherLowerGenerationService's constructor rather than
+        // XGHigherLowerGameModule's own (the delegation-pattern refactor
+        // above) — the registration itself is unchanged.
         builder.Services.AddSingleton(new HigherLowerGenerationOptions());
 
         builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();

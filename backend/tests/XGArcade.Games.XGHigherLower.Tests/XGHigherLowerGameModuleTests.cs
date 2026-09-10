@@ -6,30 +6,40 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.Games.XGHigherLower.Tests;
 
-// COMP-18/ADR-0110: REQ-1501 (stat-category/player-value eligibility),
-// REQ-1502 (comparator eligibility — no exact ties, no repeated player, fail
-// closed), REQ-1503 (Round generation — one fixed category/baseline/
-// comparator sequence), REQ-1504 (guess submission/streak progression, this
-// story, S-225), plus the trivial GetCellIdsAsync derivative. Follows this
-// repo's no-mocking-framework pattern (docs/coding-guidelines.md "don't
-// over-mock") — real, InMemory-backed HigherLowerInstanceRepository/
-// PlayerOverrideRepository/PlayerAttributeRepository/PlayerRepository, same
-// "compose the real thing" shape XGPredictGameModuleTests/XGPathGameModuleTests
-// already use.
+// COMP-18/ADR-0110: REQ-1504 (guess submission/streak progression, S-225),
+// plus the trivial GetCellIdsAsync derivative and GenerateInstanceAsync's own
+// passthrough wiring. Follows this repo's no-mocking-framework pattern
+// (docs/coding-guidelines.md "don't over-mock") — real, InMemory-backed
+// HigherLowerInstanceRepository/PlayerOverrideRepository/
+// PlayerAttributeRepository/PlayerRepository, same "compose the real thing"
+// shape XGPredictGameModuleTests/XGPathGameModuleTests already use.
+//
+// Delegation-pattern refactor (2026-09-10, pure refactor, no behavior
+// change): REQ-1501/1502/1503's category-selection/sequence-building
+// coverage moved to HigherLowerGenerationServiceTests.cs, alongside
+// HigherLowerGenerationService itself — mirroring GridGameModuleTests.cs's
+// own split (S-119) into GridGenerationServiceTests.cs. See NOTES.md's
+// 2026-09-10 entry for the quality-architect finding this closes. This file
+// now only exercises XGHigherLowerGameModule's own remaining responsibility
+// as a thin IGameModule adapter: GenerateInstanceAsync's one-line delegation
+// to IHigherLowerGenerationService (proven end-to-end via a real
+// HigherLowerGenerationService composed behind the module under test, same
+// as GridGameModuleTests' own BuildModule composes a real
+// GridGenerationService), plus everything that stayed inline —
+// ScoreSubmissionAsync (REQ-1504), GetCellIdsAsync,
+// GetMaxAttemptsForCellAsync, GetCellCategoryTypesAsync,
+// ResolveWrongGuessPlayerAsync, and PurgeUserDataAsync (REQ-710).
 //
 // REQ-1504's own tests seed a HigherLowerInstance directly (via
 // _instanceRepository.AddInstanceAsync, bypassing GenerateInstanceAsync's
 // randomized category/sequence selection) with hand-picked baseline/
 // comparator values, so each scenario's correctness outcome is deterministic
 // and legible from the test body itself, rather than depending on the fixed
-// Random seed used by the REQ-1501/1502/1503 tests above.
+// Random seed the generation passthrough test below uses.
 //
 // GetMaxAttemptsForCellAsync remains NotImplementedException (still a
 // deliberately resolved "doesn't apply" decision — see that method's own
 // doc comment) — that test is unchanged from the original scaffold.
-// ScoreSubmissionAsync_ThrowsNotImplementedException was removed — that
-// method is no longer a stub (this story). REQ710_PurgeUserDataAsync_...
-// was rewritten — PurgeUserDataAsync is no longer a no-op either.
 public class XGHigherLowerGameModuleTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -55,16 +65,16 @@ public class XGHigherLowerGameModuleTests
         // Small ComparatorCount/deterministic-ish attempt budget so tests
         // don't need hundreds of seeded players — mirrors
         // GridGenerationServiceTests' own "tighter values than production
-        // defaults" precedent.
+        // defaults" precedent. Only used by the generation passthrough test
+        // below now — every REQ-1501/1502/1503 scenario that used to need
+        // these values moved to HigherLowerGenerationServiceTests.cs.
         _options = new HigherLowerGenerationOptions { ComparatorCount = 3, MaxAttemptsPerCategory = 20 };
-        // A fixed seed makes GenerateInstanceAsync's own shuffling
-        // deterministic across test runs without needing to control .NET's
-        // internal Random algorithm directly (GridGenerationServiceTests'
-        // own documented reasoning for why it does NOT try to pin Random.Shuffle
-        // output does not apply here — this module never needs a SPECIFIC
-        // category/order, only "some full-length valid sequence", so a
-        // fixed seed is safe and simpler).
-        _module = new XGHigherLowerGameModule(_instanceRepository, _overrideRepository, _options, new Random(12345));
+        // A real HigherLowerGenerationService, same seeded Random as before
+        // this split, composed behind the module under test — mirrors
+        // GridGameModuleTests.cs's own BuildModule composing a real
+        // GridGenerationService behind GridGameModule.
+        var generationService = new HigherLowerGenerationService(_instanceRepository, _overrideRepository, _options, new Random(12345));
+        _module = new XGHigherLowerGameModule(_instanceRepository, generationService);
     }
 
     [TearDown]
@@ -80,139 +90,25 @@ public class XGHigherLowerGameModuleTests
         Assert.That(_module.GameKey, Is.EqualTo(XGHigherLowerGameModule.XGHigherLowerGameKey));
     }
 
-    // ---- REQ-1501/1503: category selection and full-instance shape -----
+    // ---- GenerateInstanceAsync passthrough ---------------------------------
+    // REQ-1501/1502/1503's own category-selection/sequence-building coverage
+    // moved to HigherLowerGenerationServiceTests.cs (delegation-pattern
+    // refactor, 2026-09-10) — this one test proves the module's
+    // one-line delegation actually forwards to IHigherLowerGenerationService
+    // and lets its exception cross the adapter boundary unchanged, mirroring
+    // GridGameModuleTests.GenerateInstanceAsync_UnknownTemplateId_ThrowsGridGenerationException's
+    // own shape.
 
     [Test]
-    public async Task REQ1503_GenerateInstanceAsync_PersistsOneFixedCategoryBaselineAndComparatorSequenceOfConfiguredLength()
-    {
-        // 5 players, all with distinct trophy counts (1..5) — enough to
-        // build a full 4-player (baseline + 3 comparators) sequence with no
-        // ties possible at all.
-        await SeedPlayersWithAttributeCountsAsync("trophy", [1, 2, 3, 4, 5]);
-
-        var result = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
-
-        Assert.That(result, Is.Not.Null);
-        var instance = await _instanceRepository.GetInstanceByIdAsync(result!.Id);
-        Assert.That(instance, Is.Not.Null);
-        Assert.That(instance!.StatCategory, Is.EqualTo("trophy").Or.EqualTo("club"));
-        Assert.That(instance.Comparators, Has.Count.EqualTo(_options.ComparatorCount),
-            "REQ-1503: baseline + configured ComparatorCount comparators");
-        // Every position 0..ComparatorCount-1 present exactly once.
-        var positions = instance.Comparators.Select(c => c.SequencePosition).OrderBy(p => p).ToList();
-        Assert.That(positions, Is.EqualTo(Enumerable.Range(0, _options.ComparatorCount).ToList()));
-        // REQ-1502: baseline + every comparator's player is distinct.
-        var allPlayerIds = new[] { instance.BaselinePlayerId }.Concat(instance.Comparators.Select(c => c.PlayerId)).ToList();
-        Assert.That(allPlayerIds.Distinct().Count(), Is.EqualTo(allPlayerIds.Count), "no player may repeat within the sequence");
-        // REQ-1502: no two adjacent values (baseline -> comparator 0 -> comparator 1 -> ...) are an exact tie.
-        var orderedValues = new[] { instance.BaselineValue }
-            .Concat(instance.Comparators.OrderBy(c => c.SequencePosition).Select(c => c.Value))
-            .ToList();
-        for (var i = 1; i < orderedValues.Count; i++)
-            Assert.That(orderedValues[i], Is.Not.EqualTo(orderedValues[i - 1]), "no exact tie between consecutive positions");
-    }
-
-    [Test]
-    public async Task REQ1503_GenerateInstanceAsync_CalledTwice_ProducesTwoIndependentInstances()
-    {
-        await SeedPlayersWithAttributeCountsAsync("trophy", [1, 2, 3, 4, 5, 6, 7]);
-
-        var first = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
-        var second = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
-
-        Assert.That(first, Is.Not.Null);
-        Assert.That(second, Is.Not.Null);
-        Assert.That(second!.Id, Is.Not.EqualTo(first!.Id));
-        Assert.That(await _dbContext.HigherLowerInstances.CountAsync(), Is.EqualTo(2));
-    }
-
-    // ---- REQ-1501: stat category and player-value eligibility ----------
-
-    [Test]
-    public async Task REQ1501_GenerateInstanceAsync_PlayerWithNoRecordedValueForCategory_NeverSelected()
-    {
-        // 4 players with a real trophy count (enough for ComparatorCount=3
-        // + baseline = 4), plus one extra player with NO trophy attribute
-        // rows at all — that extra player must never appear anywhere in the
-        // generated sequence.
-        var eligiblePlayerIds = await SeedPlayersWithAttributeCountsAsync("trophy", [1, 2, 3, 4]);
-        var ineligiblePlayer = new Player { Id = Guid.NewGuid(), FullName = "No Trophies" };
-        await _playerRepository.AddPlayerAsync(ineligiblePlayer);
-
-        var result = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
-
-        Assert.That(result, Is.Not.Null);
-        var instance = await _instanceRepository.GetInstanceByIdAsync(result!.Id);
-        var usedPlayerIds = new[] { instance!.BaselinePlayerId }.Concat(instance.Comparators.Select(c => c.PlayerId)).ToList();
-        Assert.That(usedPlayerIds, Does.Not.Contain(ineligiblePlayer.Id));
-        Assert.That(usedPlayerIds, Is.EquivalentTo(eligiblePlayerIds));
-    }
-
-    [Test]
-    public async Task REQ1501_GenerateInstanceAsync_PlayerOverride_MakesEffectiveCountExactlyOne_RegardlessOfRawRowCount()
-    {
-        // Baseline pool: 3 players with distinct raw trophy counts (1, 2, 3)
-        // PLUS one player with THREE raw trophy rows but an override for
-        // "trophy" — per ADR-0015 extended to counting, that player's
-        // EFFECTIVE count must be exactly 1 (the override wins), not 3.
-        await SeedPlayersWithAttributeCountsAsync("trophy", [2, 3, 4]);
-        var overriddenPlayer = new Player { Id = Guid.NewGuid(), FullName = "Overridden Player" };
-        await _playerRepository.AddPlayerAsync(overriddenPlayer);
-        foreach (var club in new[] { "Club A", "Club B", "Club C" })
-            await _attributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = overriddenPlayer.Id, AttributeType = "trophy", AttributeValue = club });
-        await _overrideRepository.AddOverrideAsync(new PlayerOverride
-        {
-            Id = Guid.NewGuid(), PlayerId = overriddenPlayer.Id, Field = "trophy", Value = "Override Trophy",
-            Reason = "test", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
-        });
-
-        var result = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
-
-        Assert.That(result, Is.Not.Null);
-        var instance = await _instanceRepository.GetInstanceByIdAsync(result!.Id);
-        var usedValuesByPlayer = new Dictionary<Guid, int> { [instance!.BaselinePlayerId] = instance.BaselineValue };
-        foreach (var comparator in instance.Comparators)
-            usedValuesByPlayer[comparator.PlayerId] = comparator.Value;
-
-        if (usedValuesByPlayer.TryGetValue(overriddenPlayer.Id, out var effectiveValue))
-            Assert.That(effectiveValue, Is.EqualTo(1), "an override for (PlayerId, attributeType) replaces the whole effective value set with exactly 1");
-    }
-
-    [Test]
-    public void REQ1501_GenerateInstanceAsync_NoCategoryHasEnoughEligiblePlayers_ThrowsHigherLowerGenerationException_NoInstancePersisted()
+    public void GenerateInstanceAsync_NoCategoryHasEnoughEligiblePlayers_ThrowsHigherLowerGenerationException()
     {
         // ComparatorCount=3 needs 4 eligible players; nothing at all is
         // seeded for either candidate category ("trophy"/"club") — neither
-        // category can possibly work.
-
+        // category can possibly work, so IHigherLowerGenerationService
+        // throws and this proves the module forwards that call/exception
+        // unchanged rather than swallowing or wrapping it.
         Assert.ThrowsAsync<HigherLowerGenerationException>(
-            () => _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() }));
-    }
-
-    // ---- REQ-1502: tie exclusion / repeated-player exclusion / fail-closed ----
-
-    [Test]
-    public async Task REQ1502_GenerateInstanceAsync_EveryEligiblePlayerSharesSameValue_ThrowsHigherLowerGenerationException_NoInstancePersisted()
-    {
-        // 5 players, all with the SAME trophy count (2) — enough players by
-        // count, but every possible pair is an exact tie, so no valid
-        // 2-player (let alone 4-player) sequence can ever be built.
-        await SeedPlayersWithAttributeCountsAsync("trophy", [2, 2, 2, 2, 2]);
-
-        Assert.ThrowsAsync<HigherLowerGenerationException>(
-            () => _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() }));
-    }
-
-    [Test]
-    public async Task REQ1502_GenerateInstanceAsync_TieExclusion_AbortedGeneration_NeverPersistsAnything()
-    {
-        await SeedPlayersWithAttributeCountsAsync("trophy", [2, 2, 2, 2, 2]);
-
-        Assert.ThrowsAsync<HigherLowerGenerationException>(
-            () => _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() }));
-
-        Assert.That(await _dbContext.HigherLowerInstances.CountAsync(), Is.EqualTo(0),
-            "an aborted generation must not persist a degraded (shorter-than-configured or otherwise invalid) instance");
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = Guid.NewGuid() }));
     }
 
     // ---- REQ-1504: guess submission and streak progression -------------
