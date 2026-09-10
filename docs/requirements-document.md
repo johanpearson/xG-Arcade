@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.88"
+version: "2.89"
 status: draft
 last_updated: 2026-09-10
 owner: Johan
@@ -13169,6 +13169,45 @@ above) run for real via
 `.github/workflows/generate-higher-lower-round.yml`. This `GameKey` can now
 be treated as schedulable.
 
+**Status note (2026-09-10, direct product-owner feedback — category-set
+change, scoped to S-231 in `docs/backlog.md`):** real-user/product-owner
+feedback was that "club count" reads as a boring stat and the overall
+player pool feels too obscure. Two changes are confirmed for S-231:
+
+1. `"club"` is removed from `XGHigherLowerGameModule.CandidateStatCategories`
+   entirely — ADR-0111's own Follow-up section pre-approved exactly this
+   rollback ("a one-line change with no schema impact"). Nothing else about
+   ADR-0111's decision changes; `"trophy"` remains a candidate category,
+   unchanged.
+2. Two new candidate categories are added: **international caps** and
+   **international goals**, sourced from the same `PlayerAttribute`/
+   `PlayerOverride` (COMP-06) store this REQ already requires — Wikidata
+   models each as a qualifier (P1350 "number of matches played", P1351
+   "number of goals scored") on a player's P54 "member of sports team"
+   statement for their national team. No new external data source is
+   introduced, consistent with this REQ's own "never from a new external
+   data source" rule.
+
+**This REQ's Given/When/Then text above does not need to change.** It
+already states a category is eligible if its value is "numeric and
+directly comparable between any two players, sourced from
+`PlayerAttribute`/`PlayerOverride`" without mandating any one derivation
+shape, and that a player is valid for a category only if they have "a
+non-null recorded value for it" — both hold equally for a
+single-recorded-value category (caps, goals) as for a count-of-rows
+category (trophy, formerly also club). What ADR-0111 (2026-09-09) actually
+fixed was one specific derivation rule — "value = COUNT of a player's
+effective `PlayerAttribute` rows for one `AttributeType`" — which fits
+`"trophy"`/`"club"`'s repeated-row shape but does not fit caps/goals, each
+a single recorded numeric fact per player rather than a count of rows.
+That derivation-rule extension (a second derivation shape, plus the
+question of how ADR-0015's override-precedence rule applies to a
+single-value field rather than a count) is being resolved in a new ADR
+(ADR-0112, an extension of ADR-0111) rather than a change to this REQ's
+acceptance criteria. See also REQ-1506 below for the additional
+caps-based pool-eligibility floor this same round of feedback introduced —
+a separate, additional rule, not a replacement for anything in this REQ.
+
 **REQ-1502 – Comparator eligibility: no exact ties, no repeated player**
 > As a player, I want every Higher/Lower comparison in a Round's fixed
 > sequence to have exactly one correct answer and never repeat a player
@@ -13555,6 +13594,59 @@ changed in this story, so no new tests were needed against this REQ's own
 acceptance criteria beyond the `REQ1505_`-prefixed cases already in
 `HigherLowerEndpointTests.cs`. No ADR needed, same reasoning as REQ-1504's
 S-227 note.
+
+**REQ-1506 – Pool-wide eligibility floor: players below 10 international
+caps are never selected, regardless of active category**
+> As a player, I want every player who appears in an xG Higher/Lower
+> comparison — as the baseline or as a comparator, no matter which stat
+> category the Round uses — to be a real, recognizable international
+> player, not an obscure name I have no way to reason about, so every
+> comparison is actually guessable from real football knowledge.
+
+- Given a specific player is being considered for inclusion in a Round's
+  sequence, as the starting baseline or as any comparator, for any
+  eligible stat category (REQ-1501)
+- When that player is evaluated for eligibility
+- Then the player is eligible only if their international caps count
+  (sourced from `PlayerAttribute`/`PlayerOverride`, COMP-06 — the same
+  "international caps" category REQ-1501 makes eligible) is 10 or greater
+- Given a player has a non-null recorded value for the Round's active stat
+  category (REQ-1501) but fewer than 10 recorded international caps
+- When that player is considered for the baseline or any comparator
+  position
+- Then the player is excluded regardless of the active category — this
+  applies even when the active category is itself international caps or
+  international goals; this floor is evaluated in addition to, never
+  instead of, REQ-1501's own "non-null recorded value for the active
+  category" rule, and both must hold for a player to be selected
+- Given a player has no international caps value recorded at all (absent,
+  not a recorded value of 0-9)
+- When that player is evaluated against this floor
+- Then the player is treated as not meeting the floor and is excluded —
+  an absent caps value is never treated as satisfying it
+- Given a Round for the `"xg-higher-lower"` GameKey is being generated
+  (ADR-0110)
+- When category and comparator-sequence selection runs (REQ-1503)
+- Then this floor is evaluated once per candidate player, at
+  Round-generation time, the same "evaluated once, never per participant"
+  timing REQ-1501 already establishes for its own eligibility checks
+
+**Test level:** Unit — a player with caps >= 10 and a non-null
+active-category value is eligible; a player with caps < 10 is excluded
+even when their active-category value is otherwise valid; a player with a
+recorded caps value of 0-9 and a player with no recorded caps value at all
+are both excluded; the floor is evaluated once at Round-generation time,
+not per participant; the floor still applies when the Round's active
+category is international caps or international goals itself, not only
+when it is trophy.
+
+**Status note (2026-09-10):** drafted from direct product-owner feedback
+(the same round of feedback recorded in REQ-1501's 2026-09-10 status note
+above); not yet implemented — scoped to S-231 in `docs/backlog.md`. The
+exact derivation of "international caps count" for a given player is the
+same single-recorded-value shape as REQ-1501's international-caps category
+and is covered by ADR-0112 (forthcoming, an extension of ADR-0111), not
+restated here.
 
 **Out of scope for this initial design pass (deferred):**
 - **Multiplayer/head-to-head xG Higher/Lower** (e.g. two players racing the

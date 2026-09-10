@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-10 — `docs/requirements-document.md` (§4.16, v2.88 → v2.89):
+  direct product-owner decision (not open-question resolution) — "club" is
+  being removed as an xG Higher/Lower stat category and replaced with
+  "international caps"/"international goals" (still sourced from
+  `PlayerAttribute`/`PlayerOverride`, COMP-06, no new external source), and
+  a new pool-wide eligibility floor (caps >= 10, regardless of active
+  category) is required. Added a status note under REQ-1501 explaining why
+  its own Given/When/Then text does not need to change (the derivation-shape
+  extension and "club" removal are ADR/status-note-level, not
+  acceptance-criteria-level) and flagging the forthcoming ADR-0112
+  (extension of ADR-0111, not written here). Added new **REQ-1506** (pool-wide
+  caps >= 10 eligibility floor) in Given/When/Then form, not yet
+  implemented — scoped to **S-231** (next `docs/backlog.md` entry, not added
+  in this pass; Johan to coordinate the full story). REQ-1502/1503/1504/1505
+  reviewed and confirmed category-agnostic — no status notes needed there.
 - 2026-09-10 — `docs/requirements-document.md` (REQ-1504 gap-fill status
   note, v2.87 → v2.88), `NOTES.md` (new entry, ADR-0111 follow-up flagged
   as now confirmed by real user feedback) — direct user-tester report: xG
