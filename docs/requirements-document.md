@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.95"
+version: "2.96"
 status: draft
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -13909,10 +13909,19 @@ cards and on the post-guess reveal**
 > just-guessed comparator's reveal — so the screen reads as a comparison
 > at a glance instead of two separate stacked blocks of text.
 
-- **Status: Not yet implemented** — drafted from direct product-owner
-  feedback after seeing `HigherLowerScreen.tsx` (SCREEN-18) live, the same
-  "direct idea request, recorded plainly" trigger REQ-214 itself was pulled
-  forward on. Scoped to `docs/backlog.md` S-233.
+- **Status: Implemented (Tier 0, S-233, 2026-09-11).** Drafted from direct
+  product-owner feedback after seeing `HigherLowerScreen.tsx` (SCREEN-18)
+  live, the same "direct idea request, recorded plainly" trigger REQ-214
+  itself was pulled forward on. Backend (`HigherLowerEndpoints.cs`'s
+  `PhotoUrl`/`RevealedPlayerPhotoUrl` fields, commit `72a9408`) and frontend
+  (`HigherLowerScreen.tsx`/`.css`, `types.ts`, commit `f942a68`) both landed
+  on the same branch and were confirmed by `quality-architect` to agree
+  exactly at the wire boundary (`photoUrl`/`revealedPlayerPhotoUrl`,
+  matching nullability). Both `architecture-reviewer` and `quality-architect`
+  returned PASS verdicts; the one test-coverage gap the latter found
+  (photo-load-failure isolation between the three photo slots not being
+  exercised by a test) was closed in a follow-up commit
+  (`2695f0d`).
 - **Scope note — mirrors REQ-214 almost exactly, same source field, same
   fallback contract, no new data-sourcing work:** the photo shown by this
   REQ is `Player.PhotoUrl`, the same Wikidata `P18` field REQ-214 already
