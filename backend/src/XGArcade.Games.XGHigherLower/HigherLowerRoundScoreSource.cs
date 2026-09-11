@@ -126,4 +126,13 @@ public class HigherLowerRoundScoreSource(IHigherLowerInstanceRepository higherLo
 
         return totalsByUserId;
     }
+
+    // REQ-305: reuses the same participation read
+    // GetPerRoundTotalsByUserIdsAsync above already calls — a non-empty
+    // result means at least one HigherLowerAttempt row exists for this
+    // instance, i.e. someone actually played. "xg-higher-lower" never
+    // writes Guess rows (see this class's own doc comment above), so this
+    // is the only correct way to answer this question for this GameKey.
+    public async Task<bool> HasAnyParticipantAsync(Round round, CancellationToken cancellationToken = default) =>
+        (await higherLowerInstanceRepository.GetParticipantUserIdsByInstanceIdAsync(round.GameInstanceId, cancellationToken)).Count > 0;
 }

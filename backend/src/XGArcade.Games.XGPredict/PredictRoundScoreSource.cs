@@ -113,4 +113,16 @@ public class PredictRoundScoreSource(IPredictInstanceRepository predictInstanceR
 
         return totalsByUserId;
     }
+
+    // REQ-305: not reached in production today — "xg-predict" is excluded
+    // from RoundGenerationService's renewal check via
+    // RoundSchedulingOptions.UsesModuleSuggestedTiming before this would
+    // ever be called (ADR-0102). Still implemented honestly (never
+    // NotImplementedException, matching every other method on this
+    // interface) via the same participation read
+    // GetPerRoundTotalsByUserIdsAsync above already uses — a non-empty
+    // result means at least one PredictMatchPrediction row exists for this
+    // instance.
+    public async Task<bool> HasAnyParticipantAsync(Round round, CancellationToken cancellationToken = default) =>
+        (await predictInstanceRepository.GetParticipantUserIdsByInstanceIdAsync(round.GameInstanceId, cancellationToken)).Count > 0;
 }
