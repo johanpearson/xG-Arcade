@@ -467,6 +467,112 @@ describe('HigherLowerScreen', () => {
       expect(screen.getByText('Pelé')).toBeInTheDocument();
     });
 
+    it('REQ1508_PhotoLoadFailure_IsIsolatedToTheFailingCard_SiblingCardPhotoUnaffected', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/higher-lower/current')) {
+            return jsonResponse(
+              roundResponse({
+                baseline: { playerId: 'p-baseline', name: 'Pelé', value: 100, photoUrl: 'https://example.com/broken.jpg' },
+                nextComparator: { playerId: 'p-next', name: 'Zico', photoUrl: 'https://example.com/zico.jpg' },
+              }),
+            );
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      const baselineCard = document.querySelector('.higher-lower-screen__card--baseline');
+      const nextCard = document.querySelector('.higher-lower-screen__card--next');
+      const baselineImg = baselineCard?.querySelector('img.higher-lower-screen__player-photo');
+      expect(baselineImg).toBeInTheDocument();
+
+      fireEvent.error(baselineImg as HTMLImageElement);
+
+      await waitFor(() =>
+        expect(
+          document.querySelector('.higher-lower-screen__card--baseline img.higher-lower-screen__player-photo'),
+        ).not.toBeInTheDocument(),
+      );
+      expect(baselineCard).toHaveTextContent('Pelé');
+
+      // The sibling Next card's own HigherLowerPlayerPhoto instance owns its
+      // own `failed` state — the Baseline card's failure must not leak into it.
+      const nextImg = nextCard?.querySelector('img.higher-lower-screen__player-photo');
+      expect(nextImg).toBeInTheDocument();
+      expect(nextImg).toHaveAttribute('src', 'https://example.com/zico.jpg');
+    });
+
+    it('REQ1508_OutcomePhotoLoadFailure_IsIsolatedFromBaselineAndNextCardPhotos', async () => {
+      const user = userEvent.setup();
+      let getCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (String(url).endsWith('/higher-lower/current')) {
+          getCount += 1;
+          if (getCount === 1) {
+            return jsonResponse(
+              roundResponse({
+                baseline: { playerId: 'p-baseline', name: 'Pelé', value: 100, photoUrl: 'https://example.com/pele.jpg' },
+                nextComparator: { playerId: 'p-next', name: 'Zico', photoUrl: 'https://example.com/zico.jpg' },
+              }),
+            );
+          }
+          return jsonResponse(
+            roundResponse({
+              streakLength: 1,
+              baseline: { playerId: 'p-next', name: 'Zico', value: 120, photoUrl: 'https://example.com/zico.jpg' },
+              nextComparator: { playerId: 'p-next-2', name: 'Ronaldo', photoUrl: 'https://example.com/ronaldo.jpg' },
+            }),
+          );
+        }
+        if (String(url).includes('/higher-lower/guesses') && init?.method === 'POST') {
+          return jsonResponse({
+            isCorrect: true,
+            revealedPlayerId: 'p-next',
+            revealedPlayerName: 'Zico',
+            revealedValue: 120,
+            streakLength: 1,
+            hasEnded: false,
+            revealedPlayerPhotoUrl: 'https://example.com/broken.jpg',
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<HigherLowerScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Streak 0 of 5');
+
+      await user.click(screen.getByRole('button', { name: 'Higher' }));
+
+      const outcome = await screen.findByText(/Correct\./);
+      const outcomeLine = outcome.closest('.higher-lower-screen__outcome');
+      const outcomeImg = outcomeLine?.querySelector('img.higher-lower-screen__player-photo');
+      expect(outcomeImg).toBeInTheDocument();
+
+      fireEvent.error(outcomeImg as HTMLImageElement);
+
+      await waitFor(() =>
+        expect(
+          outcomeLine?.querySelector('img.higher-lower-screen__player-photo'),
+        ).not.toBeInTheDocument(),
+      );
+      expect(outcomeLine).toHaveTextContent('Zico');
+
+      // Baseline and Next cards each own their own HigherLowerPlayerPhoto
+      // instance — the outcome line's failure must not leak into either.
+      const baselineCard = document.querySelector('.higher-lower-screen__card--baseline');
+      const nextCard = document.querySelector('.higher-lower-screen__card--next');
+      const baselineImg = baselineCard?.querySelector('img.higher-lower-screen__player-photo');
+      const nextImg = nextCard?.querySelector('img.higher-lower-screen__player-photo');
+      expect(baselineImg).toHaveAttribute('src', 'https://example.com/zico.jpg');
+      expect(nextImg).toHaveAttribute('src', 'https://example.com/ronaldo.jpg');
+    });
+
     it('shows a photo next to the revealed name on the post-guess outcome line when revealedPlayerPhotoUrl is present, and falls back to name-only when absent', async () => {
       const user = userEvent.setup();
       let getCount = 0;
