@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "1.68"
+version: "1.69"
 status: draft
 last_updated: 2026-09-11
 owner: Johan
@@ -1546,6 +1546,7 @@ new ADR that references the old one.
 | ADR-0108 | `WikidataClient` sanitizes raw ASCII control characters out of the response body before JSON parsing, fixing a confirmed malformed-SPARQL-response failure that blocked `import-player-name-index` | Accepted |
 | ADR-0109 | xG Connect's dispute-a-ruling flow reintroduces a player-claimed club, narrowly scoped to disputing a rejected chain-step failure only — never ordinary submission, which ADR-0104 still governs unchanged | Accepted |
 | ADR-0110 | xG Higher/Lower (proposed fifth game) fits the existing `Round` model like xG Grid/xG Path/xG Predict, not a `ConnectMatch`-style new concept — one fixed stat category and one fixed comparator sequence generated once per Round and shared by every participant, individual attempts capped at the Round's configured length, scored as a standard `FinalPoints` streak length | Accepted |
+| ADR-0114 | Extend an unplayed round's schedule instead of generating a new one (REQ-305), uncapped, participation checked per-`GameKey` via `IRoundScoreSource.HasAnyParticipantAsync` (ADR-0100), never `IGuessRepository` directly | Accepted |
 
 ## 11. Glossary
 

@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-11 — `docs/decisions/0114-extend-unplayed-round-instead-of-generating-new-one.md`
+  (new), `docs/architecture-document.md` (ADR-0114 table row, v1.68 →
+  v1.69) — ADR-0114 records the design behind REQ-305 (an unplayed
+  round's `EndTime` is extended instead of generating a new one, uncapped)
+  and, specifically, the fix architecture review required before merge:
+  participation is checked per-`GameKey` via a new
+  `IRoundScoreSource.HasAnyParticipantAsync` method (ADR-0100's existing
+  per-`GameKey` abstraction), never `IGuessRepository` directly — the
+  first implementation pass used `IGuessRepository` directly and would
+  have silently broken `"xg-higher-lower"` (which never writes `Guess`
+  rows) by renewing its rounds forever. See REQ-305 for the full
+  Given/When/Then and `backend/src/XGArcade.Core/Rounds/RoundGenerationService.cs`
+  for the implementation.
 - 2026-09-11 — `docs/requirements-document.md` (REQ-1508 status, v2.95 →
   v2.96), `docs/architecture-document.md` (COMP-18 row, new S-233 note,
   v1.67 → v1.68), `docs/backlog.md` (S-233 status note), `docs/CHANGELOG.md`
