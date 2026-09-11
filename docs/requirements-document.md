@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.96"
+version: "2.97"
 status: draft
 last_updated: 2026-09-11
 owner: Johan
@@ -3700,22 +3700,28 @@ assignment changes — this REQ only adds a condition under which a new
   new `Round` is generated, chained after the active round, with the next
   `SequenceNumber` for that `GameKey`
 
-**Repeated non-participation — whether extension is capped:**
+**Repeated non-participation — extension is uncapped (decided 2026-09-11):**
 - Given an active round's `EndTime` has already been extended once under
   this REQ, and that same round is then found to still have zero `Guess`
   rows the next time it is evaluated for closing
 - When `RoundGenerationService` runs
 - Then the mechanism described above applies again unchanged — nothing in
-  it depends on how many times it has already fired for this round, so
-  by default it would keep extending the same round's `EndTime`
-  indefinitely for as long as it keeps going unplayed
-- This is flagged as a genuine open product question in §7, not resolved
-  here: should consecutive renewals for the same round be capped at some
-  point (after which generation proceeds normally regardless of
-  participation), or is indefinite renewal actually the desired behavior
-  for a `GameKey` nobody is playing? No specific cap value is asserted by
-  this REQ pending that decision — an implementation must not invent one
-  on its own
+  it depends on how many times it has already fired for this round, so it
+  keeps extending the same round's `EndTime` indefinitely for as long as
+  it keeps going unplayed, with no renewal-count cap
+- Product decision (2026-09-11): renewal is deliberately uncapped. A
+  fixed renewal limit would undercut the feature's own purpose exactly
+  where it matters most — a `GameKey` nobody is playing at all — by
+  eventually spending a fresh `SequenceNumber`/game-content instance on a
+  round that still has zero participants. The accepted trade-off is that
+  a genuinely abandoned `GameKey`'s round data (its `SequenceNumber`,
+  `StartTime`) can sit static indefinitely; nothing today reads
+  "how long has this round been open" as a signal, so this has no known
+  functional consequence, only a cosmetic one (an admin looking at that
+  `GameKey` sees a round that never advances). Revisit only if a real
+  need for bounded round age surfaces (e.g. per-round reporting or
+  admin tooling that assumes regular advancement) — see the resolved
+  §7 note for the full reasoning.
 
 **Per-`GameKey` independence:**
 - Given two different `GameKey`s (e.g. `"xg-grid"` and `"xg-path"`)
@@ -14453,23 +14459,18 @@ mode to provide sharing, since sharing is now built into the Round model
 itself (§4.16's own "Out of scope" note). See ADR-0110 and §4.16's REQ-1501
 through REQ-1505 for the full resolution.
 
-**New (2026-09-11), unresolved, from REQ-305's round-renewal draft:**
-REQ-305 lets a round with zero `Guess` rows have its `EndTime` extended
-instead of spending a new `SequenceNumber`/game-content instance on a
-round nobody played. As written, that mechanism has no built-in limit — a
-`GameKey` that stays completely unplayed would have the same round's
-`EndTime` pushed out forever, one `RoundDuration` at a time, with
-`sequenceNumber` never advancing and no new round ever generated for it.
-This is a genuine product decision, not a technical default this document
-can safely fill in: capping it (falling back to normal generation after
-some number of consecutive unplayed renewals) trades away the goal of the
-feature itself past that point — the whole point is not spending a new
-`SequenceNumber`/instance on an unplayed round, and a genuinely abandoned
-`GameKey` is exactly the case where that saving matters most — but leaving
-it uncapped means a dead `GameKey`'s round data (the thing REQ-304's
-`SequenceNumber`, admin round control, and any future per-round reporting
-assume keeps advancing on a predictable cadence) could sit static
-indefinitely, which nothing in this document has previously had to account
-for. No REQ or ADR asserts either answer today; REQ-305's own acceptance
-criteria describe only the single-cycle renewal mechanism and explicitly
-do not assume a cap either way, pending this decision.
+**Resolved (2026-09-11), from REQ-305's round-renewal draft:** REQ-305 lets
+a round with zero `Guess` rows have its `EndTime` extended instead of
+spending a new `SequenceNumber`/game-content instance on a round nobody
+played. Whether that mechanism should be capped after some number of
+consecutive unplayed renewals was left open when REQ-305 was drafted.
+Decided: **uncapped** — renewal keeps applying indefinitely for as long as
+a round goes unplayed, with no fallback to normal generation. Capping it
+would undercut the feature's own purpose exactly where it matters most (a
+`GameKey` nobody is playing at all) by eventually spending a fresh
+`SequenceNumber`/instance on a round that still has zero participants
+anyway. The accepted trade-off — a genuinely abandoned `GameKey`'s round
+data sitting static indefinitely — was judged to have no known functional
+consequence today (nothing reads "how long has this round been open" as a
+signal), only a cosmetic one. See REQ-305's "Repeated non-participation"
+clause for the acceptance criteria this decision produced.
