@@ -467,6 +467,15 @@ public static class ServiceRegistration
         {
             GameKey = XGPredictGameModule.XGPredictGameKey,
             RoundDuration = TimeSpan.FromHours(xgPredictRoundDurationHours),
+            // REQ-305/ADR-0102: XGPredictGameModule always supplies
+            // GameInstance.SuggestedStartTime/SuggestedEndTime once it
+            // returns a non-null instance (see this registration's own
+            // comment above) — the one GameKey REQ-305's own text names as
+            // excluded from the "extend an unplayed round" mechanism. See
+            // RoundSchedulingOptions.UsesModuleSuggestedTiming's own doc
+            // comment for why this must be set explicitly here rather than
+            // inferred anywhere else.
+            UsesModuleSuggestedTiming = true,
         });
         // xG Higher/Lower's own RoundSchedulingOptions instance, resolved
         // independently of the three above via IRoundSchedulingOptionsResolver
