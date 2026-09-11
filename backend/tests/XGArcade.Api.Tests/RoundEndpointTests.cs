@@ -772,6 +772,7 @@ public class RoundEndpointTests
                 UserId = Guid.NewGuid(),
                 CellId = roundAInstance.Cells[0].Id,
                 SubmittedName = "Someone",
+                PlayerAnswerId = Guid.NewGuid(),
                 IsCorrect = true,
                 CreatedAt = now,
             });

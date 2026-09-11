@@ -546,6 +546,10 @@ public class RoundGenerationServiceTests
         // close until now.
         var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
         var roundA = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-8), endTime: now.UtcDateTime.AddDays(-4));
+        // REQ-305: round A must read as "played" so this REQ-205 test still
+        // exercises the close-then-generate branch, not REQ-305's renewal
+        // branch (which only fires for a zero-participant predecessor).
+        await SeedGuessAsync(roundA.Id);
         var roundB = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-4), endTime: now.UtcDateTime.AddHours(-1));
         var service = BuildService(now, TimeSpan.FromDays(4));
 
@@ -596,6 +600,10 @@ public class RoundGenerationServiceTests
         // upcoming round exists yet.
         var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
         var roundA = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-8), endTime: now.UtcDateTime.AddDays(-4));
+        // REQ-305: round A must read as "played" so this REQ-205 test still
+        // exercises the close-then-generate branch, not REQ-305's renewal
+        // branch (which only fires for a zero-participant predecessor).
+        await SeedGuessAsync(roundA.Id);
         await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-4), endTime: now.UtcDateTime.AddDays(1));
         var service = BuildService(now, TimeSpan.FromDays(4));
 
