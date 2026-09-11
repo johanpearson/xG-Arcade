@@ -12154,3 +12154,62 @@ in commit `2695f0d`. Vitest (`REQ1508_`-scoped cases in
 build`/`npm run lint` all clean locally. Backend suite still needs the
 `ci.yml` `workflow_dispatch` verification run (no local `dotnet` SDK in this
 sandbox) before this story is fully Done.
+
+## Epic 29 — Round-generation renewal
+
+**S-234 · Extend an unplayed round's schedule instead of generating a new
+one (REQ-305, ADR-0114), direct product-owner feedback.** Same
+"no trigger fired, product owner asked for it directly" shape as
+S-230/S-231/S-232/S-233's own follow-ups — no prior backlog entry existed
+for this before it was asked for and built in the same session, 2026-09-11.
+Extends `RoundGenerationService.GenerateNextRoundIfNeededAsync` (S-008,
+REQ-301): when the round it's about to close has zero recorded
+participants, skip generating a new `Round` this cycle (no new
+`SequenceNumber`, no new game-content instance) and instead extend the
+currently-active round's `EndTime` by one `RoundDuration`, uncapped —
+see REQ-305 for the full Given/When/Then and ADR-0114 for the design
+reasoning, including the first implementation pass architecture review
+caught and required a fix for (a direct `IGuessRepository` call from
+`RoundGenerationService` would have silently broken `"xg-higher-lower"`,
+which never writes `Guess` rows, by renewing its rounds forever).
+
+*Scope:*
+- **Backend:** `RoundGenerationService.cs` (renewal branch);
+  `RoundSchedulingOptions.cs` (new `UsesModuleSuggestedTiming` flag,
+  excludes `"xg-predict"` per ADR-0102); `IRoundScoreSource.cs` (new
+  `HasAnyParticipantAsync(Round, CancellationToken)` method) implemented
+  by `GuessRoundScoreSource.cs`, `HigherLowerRoundScoreSource.cs`
+  (`Games.XGHigherLower`), and `PredictRoundScoreSource.cs`
+  (`Games.XGPredict`); `ServiceRegistration.cs` wiring for the new
+  dependency on `IRoundScoreSourceResolver` inside `RoundGenerationService`.
+- **Docs:** `docs/decisions/0114-extend-unplayed-round-instead-of-generating-new-one.md`
+  (new ADR, already committed); this story's own close-out is the
+  requirements/architecture/CHANGELOG doc-sync pass.
+
+*Accept:* a closing round with zero `Guess`/participant rows results in
+no new `Round` row, no consumed `SequenceNumber`, and the active round's
+`EndTime` extended by one `RoundDuration`; a closing round with at least
+one participant is unaffected (unchanged REQ-301/304 behavior); the same
+zero-participant round extends again on a second consecutive unplayed
+evaluation, with no renewal-count cap; `"xg-predict"` is excluded via
+`UsesModuleSuggestedTiming`; participation is checked only through
+`IRoundScoreSource.HasAnyParticipantAsync`, never a direct
+`IGuessRepository` call from `RoundGenerationService`; tests pass;
+CI-verified (no local `dotnet` SDK in this sandbox — verify via `ci.yml`
+`workflow_dispatch` per CLAUDE.md).
+
+*Deps:* S-008 (REQ-301's original `RoundGenerationService`/round scheduling),
+ADR-0100 (`IRoundScoreSource`/`IRoundScoreSourceResolver`, the abstraction
+this story's participation check is routed through).
+
+**Status (2026-09-11): Implemented, tested, quality-gated.**
+Commits `ea2c253` (`UsesModuleSuggestedTiming` flag), `1fd65b3`
+(renewal implementation), `5add23f` (unit + API-level tests), `38d7f74`
+(routed the participation check through `IRoundScoreSource`/
+`IRoundScoreSourceResolver` instead of a direct `IGuessRepository` call —
+the fix architecture review required, since the direct version would have
+broken `"xg-higher-lower"`), `fbc2a4d` (updated tests for that routing),
+`c996b73` (ADR-0114). Both `architecture-reviewer` and `quality-architect`
+reviewed the final state and returned PASS. Built without a local `dotnet`
+SDK in this sandbox; `ci.yml` `workflow_dispatch` verification run pending
+as of this note.

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.97"
+version: "2.98"
 status: draft
 last_updated: 2026-09-11
 owner: Johan
@@ -3657,11 +3657,39 @@ does not execute raw-SQL migrations, and no real-Postgres-backed test
 infrastructure exists here yet.
 
 **REQ-305 – Extend an unplayed round's schedule instead of generating a new
-one** *(Status: Not yet implemented.)*
+one** *(Status: Implemented, 2026-09-11, ADR-0114.)*
 > As an admin, I want a round that nobody played to have its window
 > extended rather than immediately superseded by a freshly-generated round,
 > so an unplayed cycle doesn't consume a `SequenceNumber` and a new
 > game-content instance for nothing.
+
+- **Status: Implemented (2026-09-11, ADR-0114), S-234.** Drafted and built
+  same-session from direct product-owner feedback (no prior trigger
+  fired). `RoundGenerationService.GenerateNextRoundIfNeededAsync`
+  (`backend/src/XGArcade.Core/Rounds/RoundGenerationService.cs`) now skips
+  generating a new `Round` and extends the active round's `EndTime` by one
+  `RoundDuration` instead, whenever the closing round has zero recorded
+  participants — gated by the new `RoundSchedulingOptions.UsesModuleSuggestedTiming`
+  flag (excludes `"xg-predict"`, per this REQ's own "Scope" clause above).
+  Participation is checked per-`GameKey` through the existing
+  `IRoundScoreSource`/`IRoundScoreSourceResolver` abstraction (ADR-0100), via
+  a new `HasAnyParticipantAsync` method implemented by `GuessRoundScoreSource`,
+  `HigherLowerRoundScoreSource`, and `PredictRoundScoreSource` — never a
+  direct `IGuessRepository` call. That routing was itself a fix required by
+  architecture review: a first pass called `IGuessRepository` directly from
+  `RoundGenerationService`, which would have silently renewed
+  `"xg-higher-lower"`'s rounds forever, since that game never writes `Guess`
+  rows. See ADR-0114 for the full reasoning, including the uncapped-renewal
+  decision this REQ's "Repeated non-participation" clause above records.
+  Both `architecture-reviewer` and `quality-architect` returned PASS on the
+  final state. Tested in `RoundGenerationServiceTests.cs` (zero-`Guess`
+  renewal, unchanged normal-generation path, repeated-renewal, `"xg-predict"`
+  exclusion), `RoundEndpointTests.cs` (API-level `POST
+  /internal/generate-round` renewal behavior), and new
+  `HigherLowerRoundScoreSourceTests.cs`/`PredictRoundScoreSourceTests.cs`
+  covering the new interface method on each source. Built without a local
+  `dotnet` SDK in-sandbox; CI verification via a `ci.yml` `workflow_dispatch`
+  run was pending as of this note.
 
 This REQ governs `RoundGenerationService.GenerateNextRoundIfNeededAsync`'s
 per-`GameKey` generation call (REQ-301), specifically the moment it closes
@@ -3759,8 +3787,9 @@ closing round → `EndTime` extended, no new `Round`/`SequenceNumber`
 persisted, active round's other fields unchanged; non-zero-`Guess` closing
 round → unchanged existing generation behavior; a second consecutive
 zero-`Guess` evaluation extends `EndTime` again rather than falling back
-to normal generation, consistent with the indefinite-by-default mechanism
-above pending §7's cap decision; `"xg-predict"` excluded), API/Integration
+to normal generation, consistent with the uncapped mechanism the
+"Repeated non-participation" clause above decides; `"xg-predict"`
+excluded), API/Integration
 (`POST /internal/generate-round` end-to-end for a `GameKey` with a
 genuinely unplayed elapsed round confirms no new `Round` row exists
 afterward and the previously-active round's `EndTime` reflects the

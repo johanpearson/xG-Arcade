@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-11 — `docs/requirements-document.md` (REQ-305 status, v2.97 →
+  v2.98), `docs/architecture-document.md` (COMP-03/COMP-04 row prose +
+  decisions table, v1.69 → v1.70), `docs/backlog.md` (new S-234, Epic 29)
+  — doc-sync close-out for REQ-305/ADR-0114 now that implementation,
+  tests, and both quality gates (`architecture-reviewer`,
+  `quality-architect`) are confirmed PASS: REQ-305 flipped from "Not yet
+  implemented" to "Implemented," also fixing a stale "pending §7's cap
+  decision" phrase in its own Test-level note left over from before the
+  uncapped decision was recorded; COMP-03/COMP-04 rows now describe the
+  new `RoundSchedulingOptions.UsesModuleSuggestedTiming` flag, the new
+  `IRoundScoreSource.HasAnyParticipantAsync` method, and
+  `RoundGenerationService`'s new `IRoundScoreSourceResolver` dependency
+  (the ADR-0114 table row itself was already added in commit `c996b73`).
+  `ci.yml` `workflow_dispatch` verification was pending as of this note.
+  MVP-SCOPE.md judged out of scope for this change — see the doc-sync
+  session's own report for the reasoning (round-generation REQs 301-304
+  were never individually itemized there in the first place, so REQ-305
+  refining that same always-Tier-0 machinery doesn't fit the "Tier 1
+  pulled forward" bullet pattern the file otherwise uses).
 - 2026-09-11 — `docs/decisions/0114-extend-unplayed-round-instead-of-generating-new-one.md`
   (new), `docs/architecture-document.md` (ADR-0114 table row, v1.68 →
   v1.69) — ADR-0114 records the design behind REQ-305 (an unplayed
