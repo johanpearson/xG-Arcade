@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.96"
+version: "2.98"
 status: draft
 last_updated: 2026-09-11
 owner: Johan
@@ -3355,6 +3355,13 @@ reusing its fail-closed assertion).
   failure alerting yet (REQ-902 is Tier 1) and a silent failure would
   otherwise mean a dead app until someone happens to check
 
+**(2026-09-11 note, REQ-305):** the "a new Round... are created
+automatically according to the schedule" criterion above is now
+conditional on the round it would supersede having actually been played —
+see REQ-305 for the zero-`Guess` renewal exception (extend the active
+round's `EndTime` instead of generating a new Round) and the `"xg-predict"`
+scoping note within it. This REQ's own criteria are otherwise unchanged.
+
 **Test level:** Unit (cron parsing), API/Integration (job creates a correct Round)
 
 **REQ-302 – Round lifecycle**
@@ -3648,6 +3655,145 @@ verified by manual/code review of the migration, not an automated test —
 this repo's test suite runs against the EF Core InMemory provider, which
 does not execute raw-SQL migrations, and no real-Postgres-backed test
 infrastructure exists here yet.
+
+**REQ-305 – Extend an unplayed round's schedule instead of generating a new
+one** *(Status: Implemented, 2026-09-11, ADR-0114.)*
+> As an admin, I want a round that nobody played to have its window
+> extended rather than immediately superseded by a freshly-generated round,
+> so an unplayed cycle doesn't consume a `SequenceNumber` and a new
+> game-content instance for nothing.
+
+- **Status: Implemented (2026-09-11, ADR-0114), S-234.** Drafted and built
+  same-session from direct product-owner feedback (no prior trigger
+  fired). `RoundGenerationService.GenerateNextRoundIfNeededAsync`
+  (`backend/src/XGArcade.Core/Rounds/RoundGenerationService.cs`) now skips
+  generating a new `Round` and extends the active round's `EndTime` by one
+  `RoundDuration` instead, whenever the closing round has zero recorded
+  participants — gated by the new `RoundSchedulingOptions.UsesModuleSuggestedTiming`
+  flag (excludes `"xg-predict"`, per this REQ's own "Scope" clause above).
+  Participation is checked per-`GameKey` through the existing
+  `IRoundScoreSource`/`IRoundScoreSourceResolver` abstraction (ADR-0100), via
+  a new `HasAnyParticipantAsync` method implemented by `GuessRoundScoreSource`,
+  `HigherLowerRoundScoreSource`, and `PredictRoundScoreSource` — never a
+  direct `IGuessRepository` call. That routing was itself a fix required by
+  architecture review: a first pass called `IGuessRepository` directly from
+  `RoundGenerationService`, which would have silently renewed
+  `"xg-higher-lower"`'s rounds forever, since that game never writes `Guess`
+  rows. See ADR-0114 for the full reasoning, including the uncapped-renewal
+  decision this REQ's "Repeated non-participation" clause above records.
+  Both `architecture-reviewer` and `quality-architect` returned PASS on the
+  final state. Tested in `RoundGenerationServiceTests.cs` (zero-`Guess`
+  renewal, unchanged normal-generation path, repeated-renewal, `"xg-predict"`
+  exclusion), `RoundEndpointTests.cs` (API-level `POST
+  /internal/generate-round` renewal behavior), and new
+  `HigherLowerRoundScoreSourceTests.cs`/`PredictRoundScoreSourceTests.cs`
+  covering the new interface method on each source. Built without a local
+  `dotnet` SDK in-sandbox; CI verification via a `ci.yml` `workflow_dispatch`
+  run was pending as of this note.
+
+This REQ governs `RoundGenerationService.GenerateNextRoundIfNeededAsync`'s
+per-`GameKey` generation call (REQ-301), specifically the moment it closes
+the round chained immediately before the currently-active one (the round
+referred to below as "the closing round" — `previous` in the existing code
+and comments) and would otherwise go on to generate a new round chained
+after the currently-active one (referred to below as "the active round" —
+`latest` in the existing code). Nothing about REQ-301's "one round ahead"
+rule, REQ-302's status calculation, or REQ-304's `SequenceNumber`
+assignment changes — this REQ only adds a condition under which a new
+`Round` row is not created this cycle.
+
+**Renewal condition and effect:**
+- Given the closing round has zero `Guess` rows at the moment
+  `RoundGenerationService` closes it (REQ-205/ADR-0022)
+- When the same generation call would otherwise create a new `Round`
+  chained after the active round
+- Then no new `Round` row is created, no `SequenceNumber` is consumed, and
+  no new game-content instance (e.g. `GridInstance`) is generated for this
+  cycle — instead, the active round's own `EndTime` is extended by one
+  `RoundDuration` (that `GameKey`'s configured `RoundSchedulingOptions.RoundDuration`,
+  or `roundDurationOverride` when the generation call supplied one — the
+  same override semantics REQ-301 already defines), and the active round
+  (unchanged in every other respect: same `Id`, `SequenceNumber`,
+  `StartTime`, `GameInstanceId`) is returned
+- And the closing round itself is still closed exactly as REQ-302 already
+  requires (its status is, and remains, `Closed`) — this REQ only skips
+  generating its *successor*, it does not skip or delay closing the round
+  that actually elapsed
+
+**Normal flow is unchanged when the round was played:**
+- Given the closing round has one or more `Guess` rows at the moment it is
+  closed
+- When the same generation call runs
+- Then behavior is exactly as REQ-301/REQ-304 already describe today — a
+  new `Round` is generated, chained after the active round, with the next
+  `SequenceNumber` for that `GameKey`
+
+**Repeated non-participation — extension is uncapped (decided 2026-09-11):**
+- Given an active round's `EndTime` has already been extended once under
+  this REQ, and that same round is then found to still have zero `Guess`
+  rows the next time it is evaluated for closing
+- When `RoundGenerationService` runs
+- Then the mechanism described above applies again unchanged — nothing in
+  it depends on how many times it has already fired for this round, so it
+  keeps extending the same round's `EndTime` indefinitely for as long as
+  it keeps going unplayed, with no renewal-count cap
+- Product decision (2026-09-11): renewal is deliberately uncapped. A
+  fixed renewal limit would undercut the feature's own purpose exactly
+  where it matters most — a `GameKey` nobody is playing at all — by
+  eventually spending a fresh `SequenceNumber`/game-content instance on a
+  round that still has zero participants. The accepted trade-off is that
+  a genuinely abandoned `GameKey`'s round data (its `SequenceNumber`,
+  `StartTime`) can sit static indefinitely; nothing today reads
+  "how long has this round been open" as a signal, so this has no known
+  functional consequence, only a cosmetic one (an admin looking at that
+  `GameKey` sees a round that never advances). Revisit only if a real
+  need for bounded round age surfaces (e.g. per-round reporting or
+  admin tooling that assumes regular advancement) — see the resolved
+  §7 note for the full reasoning.
+
+**Per-`GameKey` independence:**
+- Given two different `GameKey`s (e.g. `"xg-grid"` and `"xg-path"`)
+- When each is evaluated by its own independent
+  `RoundGenerationService` call (REQ-301/ADR-0051's existing per-`GameKey`
+  scheduling independence)
+- Then one `GameKey`'s round being renewed under this REQ has no effect on
+  the other `GameKey`'s generation decision this cycle
+
+**Scope: excludes `GameKey`s using ADR-0102's suggested-time override
+path:**
+- Given a `GameKey` whose `IGameModule.GenerateInstanceAsync` result
+  supplies `SuggestedStartTime`/`SuggestedEndTime` (ADR-0102 — `"xg-predict"`
+  as of this writing, since its `EndTime` is anchored to real-world
+  fixture timing rather than chain-math)
+- When that `GameKey`'s closing round has zero `Guess` rows
+- Then this REQ's renewal behavior does not apply — generation proceeds
+  exactly as it does today for that `GameKey` (unchanged by this REQ). A
+  module-driven equivalent (e.g. xG Predict choosing not to advance to a
+  new matchday when the previous one went unplayed) is out of scope here
+  and would need its own requirement against `Games.XGPredict`, not a
+  change to this REQ's chain-math extension, which only applies to
+  `GameKey`s whose `EndTime` REQ-301 computes as `startTime + RoundDuration`.
+
+**No shrinkage of the cron-safety margin:**
+- Given ADR-0027's invariant that `RoundDuration` must stay `>=` the
+  scheduler cron's max gap (currently 24h, daily cron)
+- When a round's `EndTime` is extended under this REQ
+- Then the extension only ever pushes `EndTime` further into the future —
+  never shrinks it — so ADR-0027's margin is preserved by construction;
+  this REQ does not require any change to ADR-0027 or to the cron cadence
+
+**Test level:** Unit (`RoundGenerationServiceTests.cs`: zero-`Guess`
+closing round → `EndTime` extended, no new `Round`/`SequenceNumber`
+persisted, active round's other fields unchanged; non-zero-`Guess` closing
+round → unchanged existing generation behavior; a second consecutive
+zero-`Guess` evaluation extends `EndTime` again rather than falling back
+to normal generation, consistent with the uncapped mechanism the
+"Repeated non-participation" clause above decides; `"xg-predict"`
+excluded), API/Integration
+(`POST /internal/generate-round` end-to-end for a `GameKey` with a
+genuinely unplayed elapsed round confirms no new `Round` row exists
+afterward and the previously-active round's `EndTime` reflects the
+extension).
 
 ---
 
@@ -14341,3 +14487,19 @@ scope, nothing new to decide) and removes any need for a daily-challenge
 mode to provide sharing, since sharing is now built into the Round model
 itself (§4.16's own "Out of scope" note). See ADR-0110 and §4.16's REQ-1501
 through REQ-1505 for the full resolution.
+
+**Resolved (2026-09-11), from REQ-305's round-renewal draft:** REQ-305 lets
+a round with zero `Guess` rows have its `EndTime` extended instead of
+spending a new `SequenceNumber`/game-content instance on a round nobody
+played. Whether that mechanism should be capped after some number of
+consecutive unplayed renewals was left open when REQ-305 was drafted.
+Decided: **uncapped** — renewal keeps applying indefinitely for as long as
+a round goes unplayed, with no fallback to normal generation. Capping it
+would undercut the feature's own purpose exactly where it matters most (a
+`GameKey` nobody is playing at all) by eventually spending a fresh
+`SequenceNumber`/instance on a round that still has zero participants
+anyway. The accepted trade-off — a genuinely abandoned `GameKey`'s round
+data sitting static indefinitely — was judged to have no known functional
+consequence today (nothing reads "how long has this round been open" as a
+signal), only a cosmetic one. See REQ-305's "Repeated non-participation"
+clause for the acceptance criteria this decision produced.

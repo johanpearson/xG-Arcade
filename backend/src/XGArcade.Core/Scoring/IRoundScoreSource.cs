@@ -60,4 +60,20 @@ public interface IRoundScoreSource
     // window).
     Task<IReadOnlyDictionary<Guid, int>> GetTotalsByRoundsAsync(
         IReadOnlyCollection<Round> rounds, CancellationToken cancellationToken = default);
+
+    // REQ-305: did anyone participate in this round at all, regardless of
+    // points earned — used by RoundGenerationService to decide whether an
+    // unplayed round's schedule should be extended instead of generating a
+    // new one. Distinct from GetTotalsByRoundAsync's "how many points"
+    // shape: a round with participants but zero points everywhere (if
+    // that's even possible for a given GameKey) must still count as
+    // played. Every implementation must answer this honestly off its own
+    // GameKey's data shape (never a Guess-row assumption that only holds
+    // for GuessRoundScoreSource's own GameKeys) — the earlier version of
+    // this check called IGuessRepository directly from
+    // RoundGenerationService, which was wrong for "xg-higher-lower" (it
+    // structurally never writes Guess rows, so that always-empty read
+    // would have made its round renew forever); routed through this
+    // per-GameKey abstraction instead, same as every other scope read.
+    Task<bool> HasAnyParticipantAsync(Round round, CancellationToken cancellationToken = default);
 }

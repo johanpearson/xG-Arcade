@@ -43,4 +43,11 @@ public class GuessRoundScoreSource(
     public Task<IReadOnlyDictionary<Guid, int>> GetTotalsByRoundsAsync(
         IReadOnlyCollection<Round> rounds, CancellationToken cancellationToken = default) =>
         guessRepository.GetTotalFinalPointsByRoundIdsAsync(rounds.Select(r => r.Id).ToList(), cancellationToken);
+
+    // REQ-305: reuses the same GetByRoundIdAsync read RoundCloseService's
+    // score locking already relies on (REQ-205) — a non-empty result means
+    // at least one Guess row (correct or incorrect) was recorded this
+    // round, i.e. someone actually played.
+    public async Task<bool> HasAnyParticipantAsync(Round round, CancellationToken cancellationToken = default) =>
+        (await guessRepository.GetByRoundIdAsync(round.Id, cancellationToken)).Count > 0;
 }

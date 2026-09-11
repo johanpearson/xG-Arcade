@@ -367,6 +367,37 @@ public class HigherLowerRoundScoreSourceTests
         Assert.That(totals[userId], Is.EqualTo(9), "the round the user never attempted contributes 0, same as SUM(StreakLength ?? 0)");
     }
 
+    // ---- HasAnyParticipantAsync (REQ-305) --------------------------------
+
+    [Test]
+    public async Task REQ305_HasAnyParticipantAsync_InstanceWithAttempt_ReturnsTrue()
+    {
+        var instanceId = await SeedInstanceAsync();
+        await SaveAttemptAsync(instanceId, Guid.NewGuid(), streakLength: 1, hasEnded: false);
+        var round = ClosedHigherLowerRound(instanceId);
+
+        var hasAnyParticipant = await _source.HasAnyParticipantAsync(round);
+
+        Assert.That(hasAnyParticipant, Is.True);
+    }
+
+    [Test]
+    public async Task REQ305_HasAnyParticipantAsync_InstanceWithNoAttempts_ReturnsFalse()
+    {
+        // This is the exact case RoundGenerationService's own bug (routing
+        // this question through IGuessRepository directly instead of this
+        // GameKey's own IRoundScoreSource) would have gotten wrong —
+        // "xg-higher-lower" never writes a Guess row at all, so that
+        // earlier check would have always read zero regardless of this
+        // instance's real HigherLowerAttempt state.
+        var instanceId = await SeedInstanceAsync();
+        var round = ClosedHigherLowerRound(instanceId);
+
+        var hasAnyParticipant = await _source.HasAnyParticipantAsync(round);
+
+        Assert.That(hasAnyParticipant, Is.False);
+    }
+
     // ---- helpers ----------------------------------------------------------
 
     private async Task<Guid> SeedInstanceAsync()

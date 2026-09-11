@@ -59,4 +59,25 @@ public class RoundSchedulingOptions
     public required string GameKey { get; set; }
     public required TimeSpan RoundDuration { get; set; }
     public bool AllowGuessChange { get; set; } = true;
+
+    // REQ-305/ADR-0102, false by default: this GameKey's IGameModule always
+    // supplies GameInstance.SuggestedStartTime/SuggestedEndTime, so this
+    // options object's own RoundDuration is a dead fallback for round-timing
+    // purposes (see the ADR-0102 paragraph above) — currently only
+    // "xg-predict" (XGPredictGameModule). RoundGenerationService reads this
+    // static, per-GameKey flag to decide, *before* ever calling
+    // GenerateInstanceAsync, whether REQ-305's "extend an unplayed round's
+    // schedule instead of generating a new one" mechanism may apply at all.
+    // It must stay a static, explicit, registration-time signal — never
+    // inferred from a per-call proxy (e.g. "did this call's Guess-row count
+    // happen to be zero"), which is exactly the pattern ADR-0022's own
+    // alternatives-considered table warns against: which timing path a
+    // GameKey uses can only be observed from GenerateInstanceAsync's output,
+    // but REQ-305's renewal decision has to be made *before* that call ever
+    // runs (calling it and discarding the result to find out would itself
+    // leave an orphaned game-content instance, e.g. a stray GridInstance
+    // row, for chain-math GameKeys). Set true only in Program.cs's
+    // (ServiceRegistration.cs's) "xg-predict" RoundSchedulingOptions
+    // registration.
+    public bool UsesModuleSuggestedTiming { get; set; }
 }
