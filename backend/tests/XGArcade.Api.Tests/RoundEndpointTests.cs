@@ -16,6 +16,7 @@ using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.Data.Repositories;
 using XGArcade.DataSync.FootballData;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGHigherLower;
@@ -638,6 +639,160 @@ public class RoundEndpointTests
         using var scope = multiGameKeyFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
+    }
+
+    // ---- REQ-305: extend an unplayed round's schedule instead of ------------
+    // generating a new one, end-to-end through the real /internal/
+    // generate-round endpoint (RoundGenerationServiceTests already covers
+    // this mechanism's branching at the Unit level).
+
+    [Test]
+    public async Task REQ305_GenerateRound_Post_ClosingRoundHasZeroGuesses_ExtendsActiveRoundInsteadOfCreatingNewRound()
+    {
+        var client = CreateAuthorizedClient();
+        var now = DateTime.UtcNow;
+
+        // Round A ("the closing round") ended with zero Guess rows; Round B
+        // ("the active round") has itself already ended with nothing
+        // scheduled after it — the exact shape that would otherwise create a
+        // genuine Round C successor.
+        Round roundA;
+        Round roundB;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            roundA = new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = GridGameModule.XGGridGameKey,
+                GameInstanceId = Guid.NewGuid(),
+                SequenceNumber = 1,
+                StartTime = now.AddDays(-8),
+                EndTime = now.AddDays(-4),
+                AllowGuessChange = true,
+            };
+            roundB = new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = GridGameModule.XGGridGameKey,
+                GameInstanceId = Guid.NewGuid(),
+                SequenceNumber = 2,
+                StartTime = now.AddDays(-4),
+                EndTime = now.AddHours(-1),
+                AllowGuessChange = true,
+            };
+            dbContext.Rounds.AddRange(roundA, roundB);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var response = await client.PostAsync("/internal/generate-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.RoundId, Is.EqualTo(roundB.Id), "no new Round is created — the active round itself is returned");
+        Assert.That(body.SequenceNumber, Is.EqualTo(roundB.SequenceNumber), "no SequenceNumber is consumed this cycle");
+        Assert.That(body.EndTime, Is.EqualTo(roundB.EndTime + TimeSpan.FromDays(3)),
+            "EndTime is extended by exactly one configured RoundDuration (SetUp's 3 days)");
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await verifyDbContext.Rounds.CountAsync(), Is.EqualTo(2), "no new Round row is persisted for a zero-Guess closing round");
+        var persistedRoundB = await verifyDbContext.Rounds.AsNoTracking().SingleAsync(r => r.Id == roundB.Id);
+        Assert.That(persistedRoundB.EndTime, Is.EqualTo(roundB.EndTime + TimeSpan.FromDays(3)), "the extension is actually persisted");
+    }
+
+    [Test]
+    public async Task REQ305_GenerateRound_Post_ClosingRoundHasGuesses_GeneratesNewRoundAsBefore()
+    {
+        // Regression check: a closing round that was actually played must
+        // still trigger normal REQ-301/304 generation, unaffected by this REQ.
+        await SeedFullyMatchedReferenceDataAsync(size: 3);
+        var client = CreateAuthorizedClient();
+        var now = DateTime.UtcNow;
+
+        Round roundA;
+        Round roundB;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            // A real GridInstance/GridCell for roundA (not just a random
+            // GameInstanceId) — RoundCloseService's real
+            // MaterializeUnansweredCellsAsync calls IGameModule.
+            // GetCellIdsAsync(round.GameInstanceId, ...) for any round with a
+            // participant (non-null UserId guess), which throws
+            // GuessScoringException for an unrecognized GridInstance id.
+            var gridInstanceRepository = scope.ServiceProvider.GetRequiredService<IGridInstanceRepository>();
+            var roundAInstanceId = Guid.NewGuid();
+            var roundAInstance = await gridInstanceRepository.AddInstanceAsync(new GridInstance
+            {
+                Id = roundAInstanceId,
+                TemplateId = Guid.NewGuid(),
+                Cells =
+                [
+                    new GridCell
+                    {
+                        Id = Guid.NewGuid(),
+                        GridInstanceId = roundAInstanceId,
+                        Row = 0,
+                        Col = 0,
+                        RowCategoryType = CategoryPairingRules.Country,
+                        RowCategoryValue = "France",
+                        ColCategoryType = CategoryPairingRules.Club,
+                        ColCategoryValue = "Arsenal",
+                    },
+                ],
+            }, CancellationToken.None);
+
+            roundA = new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = GridGameModule.XGGridGameKey,
+                GameInstanceId = roundAInstance.Id,
+                SequenceNumber = 1,
+                StartTime = now.AddDays(-8),
+                EndTime = now.AddDays(-4),
+                AllowGuessChange = true,
+            };
+            roundB = new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = GridGameModule.XGGridGameKey,
+                GameInstanceId = Guid.NewGuid(),
+                SequenceNumber = 2,
+                StartTime = now.AddDays(-4),
+                EndTime = now.AddHours(-1),
+                AllowGuessChange = true,
+            };
+            dbContext.Rounds.AddRange(roundA, roundB);
+            dbContext.Guesses.Add(new Guess
+            {
+                Id = Guid.NewGuid(),
+                RoundId = roundA.Id,
+                UserId = Guid.NewGuid(),
+                CellId = roundAInstance.Cells[0].Id,
+                SubmittedName = "Someone",
+                IsCorrect = true,
+                CreatedAt = now,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var response = await client.PostAsync("/internal/generate-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.RoundId, Is.Not.EqualTo(roundB.Id), "a new Round must still be generated when the closing round was played");
+        Assert.That(body.SequenceNumber, Is.EqualTo(3));
+        Assert.That(body.StartTime, Is.EqualTo(roundB.EndTime));
+        Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromDays(3)));
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await verifyDbContext.Rounds.CountAsync(), Is.EqualTo(3));
+        var persistedRoundB = await verifyDbContext.Rounds.AsNoTracking().SingleAsync(r => r.Id == roundB.Id);
+        Assert.That(persistedRoundB.EndTime, Is.EqualTo(roundB.EndTime), "the active round's own EndTime must be untouched when a new round is generated normally");
     }
 
     // ---- S-084/REQ-1202: generate-round is genuinely GameKey-parameterized --
