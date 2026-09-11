@@ -15,6 +15,7 @@ namespace XGArcade.Core.Rounds;
 // rounds ahead of the active one.
 public class RoundGenerationService(
     IRoundRepository roundRepository,
+    IGuessRepository guessRepository,
     IGameModuleResolver gameModuleResolver,
     IRoundCloseService roundCloseService,
     IRoundSchedulingOptionsResolver roundSchedulingOptionsResolver,
@@ -26,6 +27,17 @@ public class RoundGenerationService(
 
         var latest = await roundRepository.GetLatestByGameKeyAsync(options.GameKey, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // REQ-305: set true only when the round being closed below
+        // ("previous") turns out to have zero Guess rows and this GameKey
+        // doesn't use ADR-0102's module-suggested-timing path
+        // (RoundSchedulingOptions.UsesModuleSuggestedTiming). Computed here,
+        // acted on further down (after the existing "one round ahead" early
+        // return) — REQ-305's Given/When/Then is explicit that renewal only
+        // applies "the same generation call that would otherwise create a
+        // new Round," and that branch is unreachable until after that early
+        // return.
+        var shouldRenewInsteadOfGenerate = false;
 
         // REQ-205: this scheduler job is the only production-scheduled
         // trigger point Tier 0 has (each GameKey's own round-generation
@@ -60,7 +72,25 @@ public class RoundGenerationService(
         {
             var previous = await roundRepository.GetPreviousByGameKeyAsync(options.GameKey, latest.StartTime, cancellationToken);
             if (previous is not null && previous.EndTime <= now)
+            {
                 await roundCloseService.CloseRoundAsync(previous.Id, now, cancellationToken);
+
+                // REQ-305: safe to check zero-Guess-ness either before or
+                // after CloseRoundAsync above — closing a zero-participant
+                // round never retroactively adds any (ScoreLockingService.
+                // MaterializeUnansweredCellsAsync derives participantIds from
+                // existingGuesses, so zero in means zero synthetic rows out).
+                // Excluded GameKeys (ADR-0102's module-suggested-timing path,
+                // e.g. "xg-predict") never renew — this REQ's chain-math
+                // extension only applies to GameKeys whose EndTime
+                // RoundGenerationService itself computes as
+                // startTime + RoundDuration.
+                if (!options.UsesModuleSuggestedTiming)
+                {
+                    var previousGuesses = await guessRepository.GetByRoundIdAsync(previous.Id, cancellationToken);
+                    shouldRenewInsteadOfGenerate = previousGuesses.Count == 0;
+                }
+            }
         }
 
         // An upcoming (not-yet-started) round already exists for this game —
@@ -68,6 +98,24 @@ public class RoundGenerationService(
         // put the schedule two rounds ahead instead of one.
         if (latest is not null && latest.StartTime > now)
             return latest;
+
+        // REQ-305: the round that just closed above had zero Guess rows —
+        // extend the active round's own EndTime by one RoundDuration instead
+        // of generating a new Round this cycle (no new SequenceNumber
+        // consumed, no new game-content instance generated). `latest` is
+        // guaranteed non-null here: shouldRenewInsteadOfGenerate can only be
+        // set true inside the `latest is not null` block above, and the
+        // early return immediately above would otherwise have already
+        // returned for a null-or-upcoming `latest`. Uncapped by design — see
+        // REQ-305's "Repeated non-participation" Given/When/Then; this branch
+        // re-fires unchanged on every subsequent evaluation of the same
+        // still-unplayed round, with no renewal-count cap.
+        if (shouldRenewInsteadOfGenerate)
+        {
+            latest!.EndTime += roundDurationOverride ?? options.RoundDuration;
+            await roundRepository.UpdateAsync(latest, cancellationToken);
+            return latest;
+        }
 
         var gameModule = gameModuleResolver.Resolve(options.GameKey);
         // ADR-0102: threads the existing GameKey's own latest GameInstanceId
