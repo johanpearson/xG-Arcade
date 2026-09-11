@@ -14,6 +14,9 @@ namespace XGArcade.Core.Tests.Scoring;
 // tests in XGArcade.Games.XGPredict.Tests instead; this fake only proves
 // LeaderboardService resolves the right IRoundScoreSource per scope and
 // uses whatever it returns correctly (ranking, pagination, sort direction).
+// Also reused by RoundGenerationServiceTests (XGArcade.Core.Tests.Rounds,
+// same assembly) for the equivalent "xg-higher-lower"-shaped case of REQ-305's
+// renewal check — same boundary reason, same trade-off.
 internal class FakeRoundScoreSource : IRoundScoreSource
 {
     public Func<IReadOnlyCollection<Guid>, IReadOnlyCollection<Round>, IReadOnlyCollection<User>, bool, IReadOnlyDictionary<Guid, IReadOnlyList<int>>>
@@ -27,6 +30,11 @@ internal class FakeRoundScoreSource : IRoundScoreSource
 
     public Func<IReadOnlyCollection<Round>, IReadOnlyDictionary<Guid, int>> GetTotalsByRoundsResult { get; set; } =
         _ => new Dictionary<Guid, int>();
+
+    // REQ-305: defaults to false (no participants) — tests that need "real
+    // participation recorded" set this explicitly, same convention every
+    // other *Result property on this fake already follows.
+    public Func<Round, bool> HasAnyParticipantResult { get; set; } = _ => false;
 
     public Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundTotalsByUserIdsAsync(
         IReadOnlyCollection<Guid> userIds,
@@ -47,4 +55,7 @@ internal class FakeRoundScoreSource : IRoundScoreSource
     public Task<IReadOnlyDictionary<Guid, int>> GetTotalsByRoundsAsync(
         IReadOnlyCollection<Round> rounds, CancellationToken cancellationToken = default) =>
         Task.FromResult(GetTotalsByRoundsResult(rounds));
+
+    public Task<bool> HasAnyParticipantAsync(Round round, CancellationToken cancellationToken = default) =>
+        Task.FromResult(HasAnyParticipantResult(round));
 }

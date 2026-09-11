@@ -363,6 +363,37 @@ public class PredictRoundScoreSourceTests
         Assert.That(totals[userId], Is.EqualTo(9), "the ungraded round contributes 0, same as SUM(FinalPoints ?? 0)");
     }
 
+    // ---- HasAnyParticipantAsync (REQ-305) --------------------------------
+    //
+    // Not reached in production today — "xg-predict" is excluded from
+    // RoundGenerationService's renewal check via RoundSchedulingOptions.
+    // UsesModuleSuggestedTiming before this would ever be called
+    // (ADR-0102). Still covered here so this implementation is proven
+    // honest, matching every other method on this interface.
+
+    [Test]
+    public async Task REQ305_HasAnyParticipantAsync_InstanceWithPrediction_ReturnsTrue()
+    {
+        var (instanceId, matchId) = await SeedInstanceWithOneMatchAsync();
+        await AddPredictionAsync(matchId, Guid.NewGuid(), homeGoals: 1, awayGoals: 0);
+        var round = ClosedPredictRound(instanceId);
+
+        var hasAnyParticipant = await _source.HasAnyParticipantAsync(round);
+
+        Assert.That(hasAnyParticipant, Is.True);
+    }
+
+    [Test]
+    public async Task REQ305_HasAnyParticipantAsync_InstanceWithNoPredictions_ReturnsFalse()
+    {
+        var (instanceId, _) = await SeedInstanceWithOneMatchAsync();
+        var round = ClosedPredictRound(instanceId);
+
+        var hasAnyParticipant = await _source.HasAnyParticipantAsync(round);
+
+        Assert.That(hasAnyParticipant, Is.False);
+    }
+
     // ---- helpers --------------------------------------------------------
 
     private async Task<(Guid InstanceId, Guid MatchId)> SeedInstanceWithOneMatchAsync()

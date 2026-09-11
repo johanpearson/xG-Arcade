@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
+using XGArcade.Core.Scoring;
+using XGArcade.Core.Tests.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -34,9 +36,10 @@ public class RoundGenerationServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _roundRepository = new RoundRepository(_dbContext);
         // Real GuessRepository (InMemory-backed), not a fake — REQ-305's own
-        // zero-Guess-row check needs genuine persistence/counting behavior,
-        // same "real repository over the InMemory provider" precedent
-        // _roundRepository above already follows.
+        // participation check (routed through GuessRoundScoreSource, ADR-0100)
+        // needs genuine persistence/counting behavior, same "real repository
+        // over the InMemory provider" precedent _roundRepository above
+        // already follows.
         _guessRepository = new GuessRepository(_dbContext);
         _gameModule = new FakeGameModule(GameKey);
         _roundCloseService = new FakeRoundCloseService();
@@ -45,13 +48,24 @@ public class RoundGenerationServiceTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
+    // ADR-0100: the real, zero-behavior-change GuessRoundScoreSource for a
+    // GameKey backed by Guess rows — mirrors LeaderboardServiceTests' own
+    // SetUp construction of the same type, rather than inventing a second
+    // pattern for the same abstraction.
+    private IRoundScoreSource BuildGuessRoundScoreSource(string gameKey) =>
+        new GuessRoundScoreSource(
+            _guessRepository, new LiveRoundContributionService(_guessRepository, new GameModuleResolver([_gameModule])))
+        {
+            GameKey = gameKey,
+        };
+
     // Real RoundSchedulingOptionsResolver, not a fake — it's a trivial
     // find-by-GameKey lookup (same reasoning ScoringStrategyResolverTests
     // uses the real ScoringStrategyResolver rather than a hand-rolled fake).
     private RoundGenerationService BuildService(
         DateTimeOffset now, TimeSpan roundDuration, bool allowGuessChange = true, bool usesModuleSuggestedTiming = false) =>
         new(_roundRepository,
-            _guessRepository,
+            new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource> { [GameKey] = BuildGuessRoundScoreSource(GameKey) }),
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
             new RoundSchedulingOptionsResolver(
@@ -64,12 +78,12 @@ public class RoundGenerationServiceTests
                 }]),
             new FixedTimeProvider(now));
 
-    private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime)
+    private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime, string? gameKey = null)
     {
         var round = new Round
         {
             Id = Guid.NewGuid(),
-            GameKey = GameKey,
+            GameKey = gameKey ?? GameKey,
             GameInstanceId = Guid.NewGuid(),
             SequenceNumber = 1,
             StartTime = startTime,
@@ -238,9 +252,10 @@ public class RoundGenerationServiceTests
         // must fail this test.
         var options = new RoundSchedulingOptions { GameKey = GameKey, RoundDuration = TimeSpan.FromDays(3) };
         var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var roundScoreSourceResolver = new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource> { [GameKey] = BuildGuessRoundScoreSource(GameKey) });
         var service = new RoundGenerationService(
             _roundRepository,
-            _guessRepository,
+            roundScoreSourceResolver,
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
             new RoundSchedulingOptionsResolver([options]),
@@ -263,7 +278,7 @@ public class RoundGenerationServiceTests
         var later = now.AddHours(1);
         var serviceAtLaterTime = new RoundGenerationService(
             _roundRepository,
-            _guessRepository,
+            roundScoreSourceResolver,
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
             new RoundSchedulingOptionsResolver([options]),
@@ -293,10 +308,20 @@ public class RoundGenerationServiceTests
         DateTimeOffset now, TimeSpan gameKeyRoundDuration, TimeSpan otherGameKeyRoundDuration)
     {
         var otherGameModule = new FakeGameModule(OtherGameKey);
+        var gameModuleResolver = new GameModuleResolver([_gameModule, otherGameModule]);
+        // ADR-0100: GuessRoundScoreSource registered twice, once per
+        // GameKey it serves — mirrors ServiceRegistration.cs's own
+        // composition-root registration (both "xg-grid" and "xg-path" share
+        // this one Guess-backed implementation).
+        var roundScoreSourceResolver = new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
+        {
+            [GameKey] = new GuessRoundScoreSource(_guessRepository, new LiveRoundContributionService(_guessRepository, gameModuleResolver)) { GameKey = GameKey },
+            [OtherGameKey] = new GuessRoundScoreSource(_guessRepository, new LiveRoundContributionService(_guessRepository, gameModuleResolver)) { GameKey = OtherGameKey },
+        });
         var service = new RoundGenerationService(
             _roundRepository,
-            _guessRepository,
-            new GameModuleResolver([_gameModule, otherGameModule]),
+            roundScoreSourceResolver,
+            gameModuleResolver,
             _roundCloseService,
             new RoundSchedulingOptionsResolver(
             [
@@ -363,7 +388,11 @@ public class RoundGenerationServiceTests
         // "no RoundSchedulingOptions registered for this GameKey" failure mode.
         var service = new RoundGenerationService(
             _roundRepository,
-            _guessRepository,
+            // Empty — never reached: no round exists yet for "some-other-game",
+            // so the participation-check branch (which resolves an
+            // IRoundScoreSource) is unreachable before IGameModuleResolver's
+            // own not-found failure fires.
+            new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>()),
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
             new RoundSchedulingOptionsResolver(
@@ -756,5 +785,108 @@ public class RoundGenerationServiceTests
 
         var gridRoundsAfter = await _dbContext.Rounds.Where(r => r.GameKey == GameKey).ToListAsync();
         Assert.That(gridRoundsAfter, Has.Count.EqualTo(2), "xg-grid's round set must be unaffected by xg-path's own generation call");
+    }
+
+    // ---- Bug fix regression (architecture review, 2026-09-11) --------------
+    //
+    // REQ-305's renewal check must ask the closing round's own
+    // IRoundScoreSource whether anyone participated (ADR-0100) — never
+    // assume participation lives in Guess rows directly. A GameKey shaped
+    // like "xg-higher-lower" (chain-math timing, i.e.
+    // UsesModuleSuggestedTiming = false — the flag itself never implies
+    // anything about where participation data lives, see that flag's own
+    // doc comment — but structurally never writes a Guess row at all, see
+    // IRoundScoreSource.HasAnyParticipantAsync's own doc comment) is exactly
+    // the case an earlier version of this check, which called
+    // IGuessRepository directly from RoundGenerationService, got wrong: it
+    // would always read zero Guess rows for this GameKey regardless of real
+    // play, renewing forever and never generating a new round for it again.
+    //
+    // Uses FakeRoundScoreSource rather than the real
+    // HigherLowerRoundScoreSource — XGArcade.Core.Tests must never
+    // reference a game project (same boundary FakeRoundScoreSource's own
+    // doc comment already documents for LeaderboardServiceTests' own
+    // predict-shaped case). HigherLowerRoundScoreSource's own real
+    // HasAnyParticipantAsync implementation is covered by its own dedicated
+    // tests in XGArcade.Games.XGHigherLower.Tests instead.
+
+    private const string GuessRowFreeGameKey = "xg-higher-lower";
+
+    private (RoundGenerationService Service, FakeRoundScoreSource ScoreSource, FakeGameModule GameModule) BuildServiceForGuessRowFreeGameKey(
+        DateTimeOffset now, TimeSpan roundDuration)
+    {
+        var guessRowFreeGameModule = new FakeGameModule(GuessRowFreeGameKey);
+        var fakeScoreSource = new FakeRoundScoreSource();
+        var roundScoreSourceResolver = new RoundScoreSourceResolver(new Dictionary<string, IRoundScoreSource>
+        {
+            [GuessRowFreeGameKey] = fakeScoreSource,
+        });
+        var service = new RoundGenerationService(
+            _roundRepository,
+            roundScoreSourceResolver,
+            new GameModuleResolver([guessRowFreeGameModule]),
+            _roundCloseService,
+            new RoundSchedulingOptionsResolver(
+                [new RoundSchedulingOptions { GameKey = GuessRowFreeGameKey, RoundDuration = roundDuration }]),
+            new FixedTimeProvider(now));
+        return (service, fakeScoreSource, guessRowFreeGameModule);
+    }
+
+    [Test]
+    public async Task REQ305_GenerateNextRoundIfNeeded_GuessRowFreeGameKeyHasRealParticipation_GeneratesNewRoundInsteadOfRenewing()
+    {
+        // Real participation recorded via this GameKey's own IRoundScoreSource
+        // (never a Guess row, which this GameKey structurally never writes) —
+        // renewal must NOT fire. This is exactly the scenario the earlier
+        // IGuessRepository-direct check got wrong: it would have read zero
+        // Guess rows here regardless of this, renewed, and never generated a
+        // new round for this GameKey again.
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        var roundA = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-8), endTime: now.UtcDateTime.AddDays(-4), gameKey: GuessRowFreeGameKey);
+        var roundB = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-4), endTime: now.UtcDateTime.AddHours(-1), gameKey: GuessRowFreeGameKey);
+        var (service, scoreSource, gameModule) = BuildServiceForGuessRowFreeGameKey(now, TimeSpan.FromDays(4));
+        Round? roundPassedToScoreSource = null;
+        scoreSource.HasAnyParticipantResult = round =>
+        {
+            roundPassedToScoreSource = round;
+            return true;
+        };
+
+        var result = await service.GenerateNextRoundIfNeededAsync(GuessRowFreeGameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(roundPassedToScoreSource?.Id, Is.EqualTo(roundA.Id), "HasAnyParticipantAsync must be asked about the closing round (previous), never the active one (latest)");
+        Assert.That(result.Id, Is.Not.EqualTo(roundB.Id), "genuine participation recorded via this GameKey's own data shape must generate a new round, not renew");
+        Assert.That(result.StartTime, Is.EqualTo(roundB.EndTime));
+        Assert.That(gameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1));
+        Assert.That(await _dbContext.Rounds.CountAsync(r => r.GameKey == GuessRowFreeGameKey), Is.EqualTo(3));
+
+        var roundBAfter = await _dbContext.Rounds.AsNoTracking().SingleAsync(r => r.Id == roundB.Id);
+        Assert.That(roundBAfter.EndTime, Is.EqualTo(roundB.EndTime), "the active round's own EndTime must be untouched when a new round is generated normally");
+    }
+
+    [Test]
+    public async Task REQ305_GenerateNextRoundIfNeeded_GuessRowFreeGameKeyHasZeroParticipation_RenewsExactlyLikeGuessBasedGameKeys()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        var roundA = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-8), endTime: now.UtcDateTime.AddDays(-4), gameKey: GuessRowFreeGameKey);
+        var roundB = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-4), endTime: now.UtcDateTime.AddHours(-1), gameKey: GuessRowFreeGameKey);
+        var (service, scoreSource, gameModule) = BuildServiceForGuessRowFreeGameKey(now, TimeSpan.FromDays(4));
+        scoreSource.HasAnyParticipantResult = _ => false;
+        // See REQ305_GenerateNextRoundIfNeeded_ClosingRoundHasZeroGuesses_
+        // ExtendsActiveRoundEndTimeInsteadOfGeneratingNewRound's comment
+        // above — the renewal path's own roundRepository.UpdateAsync(latest,
+        // ...) call collides with SeedRoundAsync's own tracked instance
+        // otherwise.
+        _dbContext.ChangeTracker.Clear();
+
+        var result = await service.GenerateNextRoundIfNeededAsync(GuessRowFreeGameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(result.Id, Is.EqualTo(roundB.Id), "no new Round is created — the active round itself is returned");
+        Assert.That(result.EndTime, Is.EqualTo(roundB.EndTime + TimeSpan.FromDays(4)), "EndTime is extended by exactly one RoundDuration");
+        Assert.That(gameModule.GenerateInstanceAsyncCallCount, Is.Zero, "IGameModule.GenerateInstanceAsync must not be called this cycle");
+        Assert.That(await _dbContext.Rounds.CountAsync(r => r.GameKey == GuessRowFreeGameKey), Is.EqualTo(2), "no new Round row is persisted");
+
+        var persisted = await _dbContext.Rounds.AsNoTracking().SingleAsync(r => r.Id == roundB.Id);
+        Assert.That(persisted.EndTime, Is.EqualTo(roundB.EndTime + TimeSpan.FromDays(4)), "the extension is actually persisted, not just returned in-memory");
     }
 }
