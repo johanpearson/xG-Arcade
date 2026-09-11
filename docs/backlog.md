@@ -12066,3 +12066,91 @@ unverified from this sandbox (no `query.wikidata.org` egress) — needs a real
 `ci.yml` `workflow_dispatch` run plus a real dev-environment
 `backfill-player-trophy-stats` run before trusting it. See REQ-1501's
 matching 2026-09-10 status note.
+
+**S-233 · xG Higher/Lower: side-by-side Baseline/Next cards + player
+photos on both cards and the post-guess reveal (REQ-1508), direct
+product-owner feedback.** Same "saw it live, asked for a change" trigger
+as S-230/S-231/S-232's own follow-ups — not part of the original
+S-223-S-229 epic sequence. Two asks from one round of feedback on
+`HigherLowerScreen.tsx` (SCREEN-18): (1) lay the Baseline and Next cards
+out side by side instead of stacked above/below — no swipe/gesture
+interaction, considered and explicitly declined for this iteration, not
+an undiscussed gap; (2) show each player's photo, when available, next to
+their name on both cards and on the post-guess reveal (the just-guessed
+comparator's identity/value in `lastGuessResult`). Both ship together as
+one story, per REQ-1508's own framing (one cohesive "make this feel like
+a real head-to-head" ask).
+
+*Scope:*
+- **Backend:** add a `PhotoUrl`/`photoUrl` field, sourced from the same
+  already-backfilled `Player.PhotoUrl` (COMP-06, REQ-214/S-045 — no new
+  sourcing or backfill work) to all three response shapes in
+  `backend/src/XGArcade.Api/HigherLower/HigherLowerEndpoints.cs`:
+  `HigherLowerBaselineResponse` (new `string? PhotoUrl`), 
+  `HigherLowerNextComparatorResponse` (new `string? PhotoUrl`), and
+  `SubmitHigherLowerGuessResponse` (new `string? RevealedPlayerPhotoUrl`,
+  mirroring `ResolvedPlayerPhotoUrl`'s exact naming precedent from
+  `RoundEndpoints.cs`/`GuessEndpoints.cs`/`PathEndpoints.cs`, REQ-214).
+  `GET /higher-lower/current`'s handler already batch-fetches both
+  players via `IPlayerRepository.GetPlayersByIdsAsync` — that same call
+  already returns `PhotoUrl` on `Player`, so this is wiring the field
+  through, not a new query. Same for `POST /higher-lower/guesses`'s
+  existing `GetPlayersByIdsAsync([result.PlayerAnswerId!.Value], ...)`
+  call.
+- **Frontend:** `frontend/src/lib/types.ts`'s `HigherLowerBaselineResponse`/
+  `HigherLowerNextComparatorResponse`/`SubmitHigherLowerGuessResponse`
+  types need the matching new optional field. `HigherLowerScreen.tsx`
+  renders the photo next to the name on both
+  `.higher-lower-screen__card--baseline`/`--next` and in the
+  `.higher-lower-screen__outcome` line, using the same fixed-size
+  avatar-slot/graceful-fallback approach REQ-214's S-044 frontend half
+  already established for Grid (no broken-image icon; falls back to
+  name-only on a missing URL or a client-side load failure) — reuse that
+  pattern/component rather than inventing a second one, against
+  `design-document.md`'s token system, not ad hoc CSS.
+- **Layout:** `HigherLowerScreen.css`'s `.higher-lower-screen__card` block
+  (currently stacked via the parent's `flex-direction: column`) needs a
+  side-by-side arrangement for the baseline+next pair specifically —
+  exact breakpoint/markup grouping is `ui-implementer`'s call against
+  `design-document.md`'s token system, not fixed by REQ-1508 itself
+  (mirrors REQ-712's own precedent for not fixing a breakpoint value in
+  the REQ text). No swipe/gesture library or handler is added.
+- **Docs:** this story's own doc-sync pass must update
+  `design-document.md` SCREEN-18 (currently documents/wireframes the
+  stacked layout — REQ-1508 supersedes that) — flagged in REQ-1508 itself
+  as a cross-doc update for whoever picks this up, not applied by
+  `requirements-writer` when REQ-1508 was drafted.
+
+*Accept:* Baseline and Next cards render side by side, not stacked, in
+the non-terminal state; the terminal (Baseline-only, no Next card) state
+is visually unchanged; no swipe/gesture handler exists anywhere on this
+screen; a photo renders next to the name on the Baseline card, the Next
+card, and the post-guess outcome line whenever the new `PhotoUrl` field
+is present, unconditionally (no reveal/click gate — there is none on this
+screen to gate behind); each of those three cases falls back to
+name-only with no broken-image icon and no visible error state, both
+when `PhotoUrl` is null/absent and when a present URL fails to load
+client-side; tests pass; `design-document.md` SCREEN-18 updated to match;
+CI-verified (no local `dotnet` SDK in this sandbox — verify via `ci.yml`
+`workflow_dispatch` per CLAUDE.md).
+
+*Deps:* S-227 (the `GET /higher-lower/current`/`POST /higher-lower/guesses`
+endpoints and `HigherLowerScreen.tsx` this extends), REQ-214/S-043/S-044
+(the `Player.PhotoUrl` field and its existing frontend graceful-fallback
+pattern this reuses, no new backend data-sourcing work).
+
+**Status (2026-09-11): Implemented — both halves confirmed, quality-gated.**
+`HigherLowerScreen.tsx`/`.css` and `types.ts` (frontend, commit `f942a68`)
+and `HigherLowerEndpoints.cs` (backend, commit `72a9408`) both landed on
+this branch. `quality-architect`'s review read both halves side by side and
+confirmed they agree exactly at the wire boundary: `photoUrl` on
+`HigherLowerBaselineResponse`/`HigherLowerNextComparatorResponse`,
+`revealedPlayerPhotoUrl` on `SubmitHigherLowerGuessResponse`, matching
+nullability — no reconciliation gap. `architecture-reviewer` and
+`quality-architect` both returned PASS; the one finding (photo-load-failure
+isolation between the three photo slots not exercised by a test) was closed
+in commit `2695f0d`. Vitest (`REQ1508_`-scoped cases in
+`HigherLowerScreen.test.tsx`, 20/20 passing) and `tsc -b`/`npm run
+build`/`npm run lint` all clean locally. Backend suite still needs the
+`ci.yml` `workflow_dispatch` verification run (no local `dotnet` SDK in this
+sandbox) before this story is fully Done.

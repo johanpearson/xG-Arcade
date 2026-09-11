@@ -86,14 +86,14 @@ public class HigherLowerEndpointTests
     // Player row for every player id used so GetPlayersByIdsAsync returns
     // real names.
     private async Task<(Guid RoundId, Guid InstanceId, Guid BaselinePlayerId, List<Guid> ComparatorPlayerIds)> SeedHigherLowerRoundAsync(
-        int comparatorCount = 3, int baselineValue = 10)
+        int comparatorCount = 3, int baselineValue = 10, string? baselinePhotoUrl = null, string? firstComparatorPhotoUrl = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
 
         var instanceId = Guid.NewGuid();
         var baselinePlayerId = Guid.NewGuid();
-        dbContext.Players.Add(new Player { Id = baselinePlayerId, FullName = "Baseline Player" });
+        dbContext.Players.Add(new Player { Id = baselinePlayerId, FullName = "Baseline Player", PhotoUrl = baselinePhotoUrl });
 
         var comparatorPlayerIds = new List<Guid>();
         var comparators = new List<HigherLowerComparator>();
@@ -101,7 +101,16 @@ public class HigherLowerEndpointTests
         {
             var playerId = Guid.NewGuid();
             comparatorPlayerIds.Add(playerId);
-            dbContext.Players.Add(new Player { Id = playerId, FullName = $"Comparator {i + 1}" });
+            // REQ-1508: only the first comparator (the one GET's
+            // NextComparator/a single-guess POST both exercise) takes the
+            // optional photo — later comparators stay photo-less, matching
+            // every other test in this file that only cares about the first.
+            dbContext.Players.Add(new Player
+            {
+                Id = playerId,
+                FullName = $"Comparator {i + 1}",
+                PhotoUrl = i == 0 ? firstComparatorPhotoUrl : null,
+            });
             comparators.Add(new HigherLowerComparator
             {
                 Id = Guid.NewGuid(),
@@ -339,5 +348,97 @@ public class HigherLowerEndpointTests
 
         var firstCurrent = await (await firstClient.GetAsync("/higher-lower/current")).Content.ReadFromJsonAsync<CurrentHigherLowerResponse>();
         Assert.That(firstCurrent!.StreakLength, Is.EqualTo(2));
+    }
+
+    // ---- REQ-1508: PhotoUrl on Baseline/NextComparator/reveal -----------
+
+    [Test]
+    public async Task REQ1508_HigherLowerCurrent_Get_ReturnsBaselinePhotoUrl_WhenPlayerHasPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        const string photoUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/Baseline%20Player.jpg";
+        await SeedHigherLowerRoundAsync(baselinePhotoUrl: photoUrl);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/higher-lower/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentHigherLowerResponse>();
+        Assert.That(body!.Baseline.PhotoUrl, Is.EqualTo(photoUrl));
+    }
+
+    [Test]
+    public async Task REQ1508_HigherLowerCurrent_Get_BaselinePhotoUrlIsNull_WhenPlayerHasNoPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedHigherLowerRoundAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/higher-lower/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentHigherLowerResponse>();
+        Assert.That(body!.Baseline.PhotoUrl, Is.Null, "no photo is a normal case, never an error/broken-image placeholder");
+    }
+
+    [Test]
+    public async Task REQ1508_HigherLowerCurrent_Get_ReturnsNextComparatorPhotoUrl_WhenPlayerHasPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        const string photoUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/Comparator%201.jpg";
+        await SeedHigherLowerRoundAsync(firstComparatorPhotoUrl: photoUrl);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/higher-lower/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentHigherLowerResponse>();
+        Assert.That(body!.NextComparator!.PhotoUrl, Is.EqualTo(photoUrl),
+            "REQ-1508: the Next card's photo is always visible, independent of the still-hidden Value");
+    }
+
+    [Test]
+    public async Task REQ1508_HigherLowerCurrent_Get_NextComparatorPhotoUrlIsNull_WhenPlayerHasNoPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedHigherLowerRoundAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/higher-lower/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentHigherLowerResponse>();
+        Assert.That(body!.NextComparator!.PhotoUrl, Is.Null, "no photo is a normal case, never an error/broken-image placeholder");
+    }
+
+    [Test]
+    public async Task REQ1508_SubmitGuess_ReturnsRevealedPlayerPhotoUrl_WhenPlayerHasPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        const string photoUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/Comparator%201.jpg";
+        await SeedHigherLowerRoundAsync(firstComparatorPhotoUrl: photoUrl);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            "/higher-lower/guesses", new SubmitHigherLowerGuessRequest(HigherLowerDirection.Higher));
+
+        var body = await response.Content.ReadFromJsonAsync<SubmitHigherLowerGuessResponse>();
+        Assert.That(body!.RevealedPlayerPhotoUrl, Is.EqualTo(photoUrl));
+    }
+
+    [Test]
+    public async Task REQ1508_SubmitGuess_RevealedPlayerPhotoUrlIsNull_WhenPlayerHasNoPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedHigherLowerRoundAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            "/higher-lower/guesses", new SubmitHigherLowerGuessRequest(HigherLowerDirection.Higher));
+
+        var body = await response.Content.ReadFromJsonAsync<SubmitHigherLowerGuessResponse>();
+        Assert.That(body!.RevealedPlayerPhotoUrl, Is.Null, "no photo is a normal case, never an error/broken-image placeholder");
     }
 }

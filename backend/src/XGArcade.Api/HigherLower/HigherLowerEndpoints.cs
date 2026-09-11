@@ -96,15 +96,23 @@ public static class HigherLowerEndpoints
             var players = await playerRepository.GetPlayersByIdsAsync(playerIdsToFetch.Distinct().ToList(), cancellationToken);
 
             var baseline = new HigherLowerBaselineResponse(
-                currentBaselinePlayerId, players[currentBaselinePlayerId].FullName, currentBaselineValue);
+                currentBaselinePlayerId,
+                players[currentBaselinePlayerId].FullName,
+                currentBaselineValue,
+                players[currentBaselinePlayerId].PhotoUrl);
 
             // Deliberately no Value populated here — REQ-1504's "next
             // comparator shown, value hidden" contract, enforced at the DTO
             // shape level (HigherLowerNextComparatorResponse has no Value
-            // field at all).
+            // field at all). PhotoUrl IS populated (REQ-1508) — it confirms
+            // an already-known identity, not the still-hidden value, so it
+            // does not weaken that contract.
             var nextComparatorResponse = nextComparator is null
                 ? null
-                : new HigherLowerNextComparatorResponse(nextComparator.PlayerId, players[nextComparator.PlayerId].FullName);
+                : new HigherLowerNextComparatorResponse(
+                    nextComparator.PlayerId,
+                    players[nextComparator.PlayerId].FullName,
+                    players[nextComparator.PlayerId].PhotoUrl);
 
             return Results.Ok(new CurrentHigherLowerResponse(
                 round.Id,
@@ -217,7 +225,8 @@ public static class HigherLowerEndpoints
                 players[result.PlayerAnswerId.Value].FullName,
                 guessedComparator.Value,
                 newAttempt.StreakLength,
-                newAttempt.HasEnded));
+                newAttempt.HasEnded,
+                players[result.PlayerAnswerId.Value].PhotoUrl));
         }).RequireAuthorization();
     }
 }
@@ -238,27 +247,44 @@ public record CurrentHigherLowerResponse(
     HigherLowerBaselineResponse Baseline,
     HigherLowerNextComparatorResponse? NextComparator);
 
-// The current baseline's value is always revealed — REQ-1504.
-public record HigherLowerBaselineResponse(Guid PlayerId, string Name, int Value);
+// The current baseline's value is always revealed — REQ-1504. PhotoUrl
+// (REQ-1508): Player.PhotoUrl, same Wikidata P18 field/fallback contract as
+// REQ-214 (Grid's ResolvedPlayerPhotoUrl) — null whenever Wikidata has no
+// photo, never a placeholder/broken-image URL. Shown unconditionally
+// alongside Name, with no reveal/click gate — unrelated to Value's own
+// (already-revealed) visibility.
+public record HigherLowerBaselineResponse(Guid PlayerId, string Name, int Value, string? PhotoUrl);
 
 // Deliberately no Value field — REQ-1504's "next comparator shown, value
 // hidden until guessed" contract, enforced at the DTO shape level rather
 // than by convention alone. Null on CurrentHigherLowerResponse when the
-// attempt has already ended (nothing left to guess).
-public record HigherLowerNextComparatorResponse(Guid PlayerId, string Name);
+// attempt has already ended (nothing left to guess). PhotoUrl (REQ-1508) is
+// populated here despite Value's continued absence: a photo only confirms
+// this comparator's already-known identity (the name is always visible
+// too), never the still-hidden stat value, so adding it does not reopen the
+// no-Value contract above — see REQ-1508's own "genuinely different trigger
+// shape from REQ-214" scope note.
+public record HigherLowerNextComparatorResponse(Guid PlayerId, string Name, string? PhotoUrl);
 
 public record SubmitHigherLowerGuessRequest(HigherLowerDirection Direction);
 
 // RevealedPlayerId/RevealedPlayerName/RevealedValue: the just-guessed
 // comparator's real identity/value, revealed on both a correct AND an
 // incorrect guess (REQ-1504) — never withheld either way.
+// RevealedPlayerPhotoUrl (REQ-1508): mirrors Grid's own
+// SubmitGuessResponse.ResolvedPlayerPhotoUrl (REQ-214) exactly — same
+// Player.PhotoUrl source, same nullable/no-placeholder contract — but
+// unlike Grid's cell-reveal gating, it is populated on both a correct AND
+// an incorrect guess, the same "always reveal identity either way" rule
+// RevealedPlayerName above already follows for this game.
 public record SubmitHigherLowerGuessResponse(
     bool IsCorrect,
     Guid RevealedPlayerId,
     string RevealedPlayerName,
     int RevealedValue,
     int StreakLength,
-    bool HasEnded);
+    bool HasEnded,
+    string? RevealedPlayerPhotoUrl);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // PredictEndpointsLogCategory/GuessEndpointsLogCategory.

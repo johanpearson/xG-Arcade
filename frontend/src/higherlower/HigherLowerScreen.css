@@ -92,6 +92,11 @@
   border-radius: 8px;
   background: var(--color-surface-sunken);
   font-size: 14px;
+  /* REQ-1508: the just-guessed comparator's photo sits inline before the
+     outcome text — reuses the existing --space-2 gap token, no new value. */
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .higher-lower-screen__outcome--correct {
@@ -116,10 +121,40 @@
   background: var(--color-surface-card);
 }
 
+/* REQ-1508 (S-233): Baseline and Next side by side, at every viewport
+   width — the REQ's own Given/When/Then block is explicit this is not
+   breakpoint-gated, so there is no @media rule collapsing this back to a
+   stacked column on a narrow phone. `min-width: 0` on the cards below is
+   what keeps a long player name wrapping within its own column instead of
+   forcing this row into horizontal scroll (design-document.md's "don't
+   force a horizontal scroll" floor for this story), rather than a fixed
+   pixel width. Reuses --space-3 for the inter-card gap, the same token
+   already used elsewhere on this screen — no new spacing value. */
+.higher-lower-screen__cards {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.higher-lower-screen__cards .higher-lower-screen__card {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .higher-lower-screen__card-label {
   margin: 0;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+/* REQ-1508: wraps a card's optional photo + its name, side by side within
+   the card. Reuses --space-2, the same gap token PlayerAvatar-adjacent rows
+   elsewhere in this app already use for a photo/name pairing. */
+.higher-lower-screen__player-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .higher-lower-screen__player-name {
@@ -127,6 +162,24 @@
   color: var(--color-text-primary);
   font-family: var(--font-display);
   font-size: 18px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* REQ-1508: reuses the existing 64x64px avatar-thumbnail dimension
+   PlayerAvatar.tsx/design-document.md SCREEN-08 already document, rather
+   than inventing a new size for this card context. Circular + object-fit:
+   cover, the same treatment PlayerAvatar.css's own .player-avatar uses for
+   a real photo (not CellPhoto's full-bleed-square treatment, which is
+   specific to a Grid cell's own footprint, not a card-relative thumbnail
+   like this one). Decorative only — see HigherLowerPlayerPhoto's own doc
+   comment in HigherLowerScreen.tsx for the alt=""/aria-hidden pairing. */
+.higher-lower-screen__player-photo {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 /* design-document.md §2: any number meant to be compared at a glance is

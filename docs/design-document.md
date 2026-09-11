@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.96"
+version: "0.97"
 status: draft
-last_updated: 2026-09-09
+last_updated: 2026-09-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -4209,37 +4209,77 @@ sequence plus a starting baseline, generated once, identical for every
 participant), never a list of cells/puzzles/matches to page through.
 
 ```
-┌───────────────────────────────┐
-│ xG Higher/Lower       Ends in 6h │
-│ Streak 2 of 10                   │
-│ Comparing career league apps     │
-├───────────────────────────────┤
-│ Correct. Ronaldinho: 297          │
-├───────────────────────────────┤
-│ Baseline                         │
-│ Ronaldinho                       │
-│ 297                              │
-├───────────────────────────────┤
-│ Next                             │
-│ Iniesta                          │
-├───────────────────────────────┤
-│      [ Higher ]   [ Lower ]      │
-└───────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│ xG Higher/Lower                     Ends in 6h │
+│ Streak 2 of 10                                 │
+│ Comparing career league apps                   │
+├─────────────────────────────────────────────┤
+│ [pic] Correct. Ronaldinho: 297                  │
+├───────────────────────┬───────────────────────┤
+│ Baseline                │ Next                    │
+│ [pic] Ronaldinho        │ [pic] Iniesta            │
+│ 297                      │                         │
+├───────────────────────┴───────────────────────┤
+│           [ Higher ]      [ Lower ]              │
+└─────────────────────────────────────────────┘
 
 Terminal state (attempt ended, whether by an incorrect guess or by
 completing the Round's full sequence) — no next-comparator card, no
-buttons:
+buttons, unaffected by REQ-1508 below (nothing to lay side by side):
 
-┌───────────────────────────────┐
-│ Incorrect. Iniesta: 442           │
-├───────────────────────────────┤
-│ Baseline                         │
-│ Ronaldinho                       │
-│ 297                              │
-├───────────────────────────────┤
-│ You've completed this round.     │
-└───────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│ [pic] Incorrect. Iniesta: 442                   │
+├─────────────────────────────────────────────┤
+│ Baseline                                       │
+│ [pic] Ronaldinho                                │
+│ 297                                            │
+├─────────────────────────────────────────────┤
+│ You've completed this round.                   │
+└─────────────────────────────────────────────┘
 ```
+
+**Updated 2026-09-10, REQ-1508/S-233 (direct product-owner feedback after
+seeing this screen live) — supersedes this section's original stacked
+wireframe above, redrawn in place rather than left to drift:**
+
+- **Baseline and Next now render side by side (left/right), not stacked
+  above/below, whenever both are present** (`!round.hasEnded &&
+  round.nextComparator`) — at every viewport width, not gated to a
+  breakpoint; a narrower phone gets two narrower columns (`min-width: 0` on
+  each card lets a long player name wrap within its own column), never a
+  forced horizontal scroll. The terminal (Baseline-only) state is
+  unaffected — there is no second card to place, so it renders exactly as
+  before. **No swipe/gesture interaction of any kind** — considered and
+  explicitly declined by the product owner for this iteration when asking
+  for this layout change, not an undiscussed gap; both cards are always
+  simultaneously, fully visible. Implementation: `HigherLowerScreen.css`'s
+  new `.higher-lower-screen__cards` wrapper (`display: flex`, `gap:
+  var(--space-3)`, each child card `flex: 1 1 0`) around the Baseline+Next
+  pair only — the existing `.higher-lower-screen__card` shell
+  (`surface-card`/`border-hairline`, no per-game accent color) is otherwise
+  unchanged.
+- **Each of the Baseline card, the Next card, and the post-guess outcome
+  line now shows the relevant player's photo next to their name, whenever
+  one is available** (`Player.PhotoUrl`, the same Wikidata `P18` field
+  REQ-214 already carries for Grid — no new sourcing/backfill work).
+  **Always visible, unconditional — never gated behind a reveal/click**,
+  a deliberate divergence from REQ-214's Grid precedent: unlike a Grid
+  cell, a Higher/Lower player's identity (name) is already always shown the
+  instant the screen renders, so a photo only confirms an already-known
+  identity rather than risking leaking a hidden one. The Next card's hidden
+  stat *value* is unaffected — still no value or placeholder rendered for
+  it, exactly as before. Sizing reuses the existing 64×64px avatar-
+  thumbnail dimension (`PlayerAvatar.tsx`'s `DEFAULT_SIZE_PX`, this
+  document's own SCREEN-08 section) rather than a new one — a circular,
+  `object-fit: cover` thumbnail placed to the left of the name via a new
+  `.higher-lower-screen__player-row` (`display: flex`, `--space-2` gap).
+  Missing `photoUrl` (null/absent) or a client-side image load failure both
+  fall back to today's name-only presentation — no broken-image icon, no
+  visible error state — the same graceful-degradation contract REQ-214
+  already established, applied here without modification. Three
+  independent load-failure states (Baseline/Next/outcome), each its own
+  component mount keyed on the relevant player's id, so a failure on one
+  never affects another.
 
 - **Baseline card (value always revealed) + next-comparator card (identity
   only, value hidden) + two explicit action buttons**, per REQ-1504's exact

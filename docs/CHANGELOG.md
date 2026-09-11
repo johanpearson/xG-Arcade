@@ -13,6 +13,52 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-11 — `docs/requirements-document.md` (REQ-1508 status, v2.95 →
+  v2.96), `docs/architecture-document.md` (COMP-18 row, new S-233 note,
+  v1.67 → v1.68), `docs/backlog.md` (S-233 status note), `docs/CHANGELOG.md`
+  (this entry, reconciling the 2026-09-10 entry below) — doc-sync close-out
+  for REQ-1508/S-233 now that both halves are confirmed and quality-gated:
+  `architecture-reviewer`/`quality-architect` both returned PASS, the
+  backend/frontend wire-boundary field names were cross-checked and agree
+  exactly (no reconciliation gap after all), and the one test-coverage
+  finding (photo-load-failure isolation between the three photo slots) was
+  closed in commit `2695f0d`. REQ-1508 flipped from "Not yet implemented" to
+  "Implemented."
+- 2026-09-10 — `docs/design-document.md` (SCREEN-18 section, v0.96 →
+  v0.97) — frontend half of REQ-1508/S-233: redrew SCREEN-18's wireframe
+  and added a status note superseding its original stacked-layout
+  description — Baseline/Next now render side by side (left/right) at
+  every viewport width whenever both are present (the terminal,
+  Baseline-only state is unchanged), and each of the Baseline card, Next
+  card, and post-guess outcome line now shows the relevant player's photo
+  next to their name, always visible when `Player.PhotoUrl` is available
+  (never gated behind a reveal/click, unlike REQ-214's Grid precedent —
+  identity is already always shown on this screen). Implemented in
+  `frontend/src/higherlower/HigherLowerScreen.tsx`/`.css`
+  (`.higher-lower-screen__cards` row wrapper, `.higher-lower-screen__player-row`/
+  `--player-photo`, reusing the existing 64×64px avatar-thumbnail
+  dimension and `--space-*` tokens — no new color/typeface/layout value),
+  `frontend/src/lib/types.ts` (`HigherLowerBaseline.photoUrl`,
+  `HigherLowerNextComparator.photoUrl`,
+  `SubmitHigherLowerGuessResponse.revealedPlayerPhotoUrl`, all optional/
+  nullable). No swipe/gesture handler added — REQ-1508 explicitly declines
+  that. Backend half (`HigherLowerBaselineResponse.PhotoUrl`/
+  `HigherLowerNextComparatorResponse.PhotoUrl`/
+  `SubmitHigherLowerGuessResponse.RevealedPlayerPhotoUrl` on
+  `HigherLowerEndpoints.cs`) built in parallel — confirmed by
+  `quality-architect`'s review to agree exactly with the field names above
+  at the wire boundary (`photoUrl`/`revealedPlayerPhotoUrl`, matching
+  nullability). Vitest (`HigherLowerScreen.test.tsx`, `REQ1508_`-scoped
+  `describe` block, 20/20 passing) covers side-by-side rendering, the
+  unaffected terminal state, photo-present/absent/load-failure fallback on
+  all three surfaces, and (added in a follow-up commit closing a
+  quality-gate finding) that a load failure on one photo slot doesn't
+  affect the other two. `architecture-reviewer`/`quality-architect` both
+  returned PASS. REQ-1508 status flipped to Implemented
+  (`docs/requirements-document.md` v2.96) and `docs/backlog.md`'s S-233
+  note updated to match, 2026-09-11 — still pending a `ci.yml`
+  `workflow_dispatch` verification run (no local `dotnet` SDK in this
+  sandbox).
 - 2026-09-10 — `docs/requirements-document.md` (REQ-1501 status note,
   v2.93 → v2.94), `docs/architecture-document.md` (COMP-18 row, v1.66 →
   v1.67), `docs/backlog.md` (S-232 "Built as" note), `NOTES.md` (new
