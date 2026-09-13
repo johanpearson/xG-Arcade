@@ -12213,3 +12213,268 @@ broken `"xg-higher-lower"`), `fbc2a4d` (updated tests for that routing),
 reviewed the final state and returned PASS. Built without a local `dotnet`
 SDK in this sandbox; `ci.yml` `workflow_dispatch` verification run pending
 as of this note.
+
+---
+
+## Epic 30 — Technical debt remediation, round 9 (`CODE_HEALTH_ASSESSMENT.md`/`CODEBASE_ANALYSIS.md` follow-up, 2026-09-13 sweep)
+
+Source: a `code-health-auditor` periodic sweep, explicitly weighted toward
+code that landed after the 2026-08-23 revision (Epics 22-24's findings, and
+everything since — REQ-1420, S-234/ADR-0114, and three entire new games:
+xG Predict, xG Connect, xG Higher/Lower). Same house rules as
+Epics 7/9/17/21/22/23/24: independent of the Tier 0 build sequence, **every
+story here is a pure refactor/doc-sync — no behavior change, no new REQ
+IDs**.
+
+Before writing anything below, Epic 22's actual completion state was
+verified against current code on disk (not `git log` — this repository's
+own history only reaches back to 2026-09-02; every commit SHA Epics 22-24's
+"Built as" notes cite predates that and isn't resolvable via `git log`
+here, a repository-history quirk, not a doc-accuracy problem). All of
+S-165/S-166/S-167/S-168/S-169/S-170/S-172/S-173/S-174/S-175/S-176 were
+confirmed genuinely shipped by reading the current file each claims to
+have changed: `PlayerCacheWarmingService.cs` has
+`SweepCountryClubPairsAsync`/`SweepClubClubPairsAsync` over one shared
+`SweepPairsAsync`; `PlayerCareerPrefetchService.cs` has the equivalent
+shared `SweepAsync`; `CliVerbDispatcher.cs` has `BuildWikidataClient`
+(now called from 8 handlers, up from S-167's original 5 — new verbs added
+since for xG Higher/Lower's international-stats/trophy-stats backfills,
+all correctly reusing the shared helper, not reintroducing the
+duplication); `frontend/src/lib/apiClient.ts` has `apiRequest<T>` (102
+lines) and `frontend/src/lib/useRoundFetch.ts` exports
+`useRoundFetch`/`useAutocompleteWarmup` (138 lines); both
+`GridGameModule.cs`/`GridLiveLookupDispatcher.cs` have no unread `logger`
+parameter. Epic 21/22/23/24's watch-only items were spot-checked and remain
+accurate. **None of Epics 22-24 needed re-doing.**
+
+`npm install` (fresh, no committed `node_modules/`), `npm run test -- --run`
+(993/993 across 74 files — this run also picked up substantial new test
+coverage for xG Predict/Connect/Higher-Lower/Friends-and-Challenges since
+the 647/647 count in the last revision), `npx tsc -b`, and `npm run lint`
+(oxlint) all ran live and clean this pass (tsc: zero errors; oxlint: zero
+errors, 3 pre-existing `only-export-components` fast-refresh warnings in
+`frontend/src/admin/PlayerRefreshFieldsList.tsx` — inspected and NOT a
+finding, see "Investigated and declined" below). `npm audit`: 3
+vulnerabilities (up from the 1 in the last revision) — `nanoid@<3.3.18`
+(high, unchanged, dev-only transitive) plus a newly-surfaced
+`@vitest/mocker` path-traversal advisory (moderate, dev-only, pulled in by
+`vitest` itself) — both Dependabot's lane, not a finding here, noted for
+completeness. No `dotnet` SDK in this sandbox, confirmed again (`which
+dotnet` → not found) — every backend-touching story below needs a session
+with real `dotnet test` access, per `CLAUDE.md`'s standing instruction.
+
+**S-235 · `App.tsx`: extract the shared hash-routing/seed-state navigation machinery**
+`App.tsx` (826 lines, 8 commits since this file's last extraction, S-158)
+has regrown to within 56% of its pre-S-158 size (529 lines after S-158,
+649 before it) — not via one big new concern, but via five new top-level
+`Screen` cases (`'predict'`, `'xg-connect-entry'`, `'higher-lower'`,
+`'friends'`, `'stats'`) added incrementally by REQ-1301/REQ-1401-1415/
+REQ-411/REQ-1504-1505 across roughly eight separate stories, each of which
+correctly followed the file's own established per-screen pattern (a
+`SCREEN_HASHES` entry, a `HASH_TO_SCREEN` entry, a render-branch, and —
+for four of the five — a dedicated "seed a target, then navigate" handler:
+`handleViewRoundLeaderboard`/`setLeaderboardInitial`,
+`handleOpenOwnStats`/`handleSelectPlayerStats`/`setStatsTarget`+
+`setStatsReturnScreen`, `handleOpenFriendsTab`/`setFriendsInitialTab`).
+Each individual addition was small and correctly-reasoned (every one has
+its own doc comment cross-referencing the established precedent it copied
+— this is the file living up to `docs/coding-guidelines.md`'s consistency
+rule, not violating it), but the aggregate is now the same
+"duplicated-shape-repeated-per-near-identical-case" pattern this lineage
+has caught seven times before, one level up: four separate
+`[state, setState]` pairs each paired with their own one-line "seed
+then `navigateTo`" function, plus the `SCREEN_HASHES`/`HASH_TO_SCREEN`/
+`screenForHash`/`navigateTo` hash-sync mechanism itself, all still living
+directly in `App`'s own function body — the same shape `useSession`
+(S-158) already extracted for the auth-lifecycle half of this file.
+Extract a `useAppNavigation`-shaped hook (e.g. in a new
+`frontend/src/lib/useAppNavigation.ts`, mirroring `useSession.ts`'s own
+file placement/export shape) owning: the `Screen` union, `SCREEN_HASHES`/
+`HASH_TO_SCREEN`/`screenForHash`, the initial-screen-from-hash/
+access-token lazy `useState` initializer, the mount-only hash-sync
+`useEffect`, `navigateTo`, and a small generic seed-and-navigate helper the
+four existing handlers can each become a one-line wrapper around (their
+specific state shapes — `LeaderboardRoundTarget`, `{userId,displayName}`+
+`returnScreen`, `FriendsTabKey` — differ enough that whether to generalize
+the seed *state itself* into the hook too, versus leaving each screen's own
+`useState` in `App` and only sharing the navigate-and-clear mechanics, is a
+"could reasonably have gone another way" call this story doesn't decide —
+flag for `ui-implementer`/`architecture-reviewer`, same shape as S-169's
+own deferred "how much to fold in" question). `handleLoggedOut`'s
+interaction with `useSession` (it's passed *into* `useSession`, not the
+other way around) must be preserved exactly — read that dependency
+direction carefully before deciding whether `useAppNavigation` can also
+own `handleLoggedOut` or must leave it in `App` alongside the `useSession`
+call site.
+*Accept:* `App.test.tsx` (1,918 lines) passes unchanged — pure structural
+refactor, no behavior change (every existing hash-restoration/navigation/
+seed-and-clear test, including the guest-splash-gate and REQ-721/ADR-0039
+hash-sync cases, must keep passing without modification); `npm run test`,
+`tsc -b`, and `oxlint` all pass unchanged. Verifiable in a normal frontend
+session (no `dotnet` needed).
+*Deps:* none.
+
+**S-236 · Disambiguate `docs/backlog.md`'s two colliding "## Epic 13" headers**
+`docs/backlog.md` has two separate `## Epic 13` section headers: line 6272
+("Autocomplete: threshold verification + cold-start latency", containing
+S-142/S-151, referenced that way by `NOTES.md`, `docs/requirements-document.md`,
+and several `docs/CHANGELOG.md` entries) and line 9995 ("xG Predict gap
+closure", containing S-199 through S-205 plus S-234's own sibling stories,
+added later — `docs/CHANGELOG.md`'s own 2026-08-31 entry says outright
+"docs/backlog.md (**new Epic 13**, S-199 through S-205)", confirming this
+was a genuine numbering slip at the time it was written, not a deliberate
+reuse). At least 15 references across `NOTES.md`, `docs/requirements-document.md`,
+`docs/CHANGELOG.md`, and `docs/decisions/0101-account-deletion-purges-per-game-data-via-igamemodule.md`
+cite "Epic 13" unqualified — which of the two each one means is only
+recoverable from context (the S-number or date alongside it), not from the
+text itself. This is exactly the kind of multi-file, context-dependent doc
+fix `code-health-auditor` should flag rather than execute solo in one
+pass — misreading even one of the ~15 references while renumbering would
+actively corrupt a cross-reference, which is worse than the current
+ambiguity. Renumber the second occurrence (line 9995, "xG Predict gap
+closure" — the later-written, non-canonical one) to the next unused epic
+number *at the position it was actually written* is one reasonable
+approach; renumbering it to continue today's sequence (after Epic 29) is
+another — this choice, and the exact list of ~15 references to fix
+afterward, is `doc-sync`'s call, not decided here.
+*Accept:* exactly one `## Epic N` header per N across `docs/backlog.md`
+(`grep -oE "^## Epic [0-9]+" docs/backlog.md | sort | uniq -c` shows no
+count above 1); every one of the ~15 existing "Epic 13" references in
+`NOTES.md`/`docs/requirements-document.md`/`docs/CHANGELOG.md`/
+`docs/decisions/0101-*.md` still points at the correct one of the two
+former Epic 13s after the rename, checked individually against its
+surrounding S-number/date, not batch-replaced by text search; doc-only
+change, no tests to run.
+*Deps:* none.
+
+**S-237 · Add an automated CI backstop for the ADR-0084 code-health budget**
+`docs/coding-guidelines.md`'s "Code health budget (per diff)" section
+(ADR-0084) already commits `quality-architect` to applying three checks
+on every diff it reviews — duplicated-shape rule-of-three, sibling-relative
+god-file size, and churn-aware hotspot risk — specifically so the pattern
+`code-health-auditor`'s sweeps keep finding (`CODE_HEALTH_ASSESSMENT.md`'s
+now nine-times-repeated "duplicated shape repeated per near-identical
+case" finding, most recently `App.tsx`/S-235 above) gets caught at the
+diff that introduces it instead of a sweep or two later. That's a real,
+already-decided policy (ADR-0084) — this story does not relitigate it or
+add a fourth check. What's missing is a mechanical backstop for when the
+manual review doesn't happen or doesn't catch it: nothing today fails a
+build the way `npm run test`/`tsc -b`/`oxlint` already do in `ci.yml`
+if a diff quietly reintroduces a rule-of-three violation or a new
+clearly-oversized file. Add one CI job to `.github/workflows/ci.yml`
+(read `infra/README.md` first per `CLAUDE.md`'s standing "touching
+`.github/workflows`" instruction) that runs on every PR touching
+`frontend/` or `backend/` and fails when either: (a) a duplicate-code
+scanner (e.g. `jscpd` for `frontend/src/**`; a comparable C# option —
+survey what's realistic without a `dotnet` SDK in mind, since this
+sandbox doesn't have one to prototype against, so this may need to be
+frontend-only at first with the backend half filed as a follow-up once a
+session with `dotnet` access can evaluate options) reports a 3+-occurrence
+near-duplicate block above a tuned similarity threshold in files the diff
+touches, or (b) a new file added by the diff is already >50% larger than
+the next-largest sibling in its own directory with no doc-comment
+justification (a `grep`/line-count script, no tool dependency needed for
+this half). Threshold tuning matters more than tool choice here — start
+permissive (this report's own history shows every one of its "duplicated
+shape" findings was a judgment call about *near-identical*, not
+byte-identical, code; an over-eager scanner producing false positives on
+genuinely-parallel-but-distinct code would train reviewers to ignore it)
+and tighten only after running it against the current tree once to see
+what it flags on code this lineage has already reviewed and cleared.
+Whether the job blocks the merge or only annotates the PR (soft-fail
+first, promote to blocking once false-positive rate is known), and which
+duplicate-detection tool/threshold is chosen, are both "could reasonably
+have gone another way" calls this story doesn't make — write an ADR
+(superseding neither ADR-0084 nor `docs/decisions/0000-template.md`'s
+scope, just adding the automation layer on top) once the implementing
+session has picked.
+*Accept:* a deliberately-reintroduced rule-of-three violation (e.g. a
+throwaway branch that copies an existing fetch-call-site shape a third
+time) fails the new CI job on that PR; running the new job against the
+current `main` at time of implementation does not flag any of this
+report's already-reviewed-and-cleared "Investigated and declined" items
+above as false positives (tune the threshold against this exact set
+before considering the job done); `ci.yml`'s existing test/lint/build
+jobs are unaffected; an ADR exists for the tool/threshold/blocking-vs-
+warning choice actually made.
+*Deps:* none (independent of S-235/S-236; can run in parallel).
+
+**Investigated and declined this pass (not written up as stories):**
+- `backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs` (761
+  lines, 18 commits — now the single highest-churn source file in the
+  repo, having grown from the 308 lines/5 commits Epic 22 last measured):
+  read in full this pass. Still one line/block per registered
+  service/option, each with its own doc comment citing the REQ/ADR/COMP it
+  backs; the growth is entirely five new games' worth of registrations
+  (xG Predict/Connect/Higher-Lower) added in the file's own established
+  shape, zero duplicated registration pattern. Same "large-but-cohesive
+  registry, not a hotspot" verdict Epic 22 already reached — re-confirmed,
+  not re-flagged.
+- `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs` (1,037
+  lines, up from 769 at S-167): the `BuildWikidataClient` shared helper
+  (S-167) is now called from 8 handlers (up from 5), including three new
+  ones added for xG Higher/Lower's international-stats/trophy-stats work —
+  every new call site correctly reuses the shared helper rather than
+  re-inlining the bootstrap. Verb-registry shape (S-112/S-114) still
+  holds. Not a finding — the file is larger but not more duplicated.
+- `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs` (1,028 lines,
+  up from 782 at S-155): every public method added since (trophy-stats/
+  international-stats/sitelink-count queries for xG Higher/Lower) is a
+  thin wrapper over the same shared `RunIntersectionQueryAsync`/
+  `RunThrowingQueryAsync` drivers `docs/architecture-document.md`'s COMP-07
+  row (fixed by S-172) already describes — confirmed by reading every
+  `Query*Async` method's body. Not a finding — same "breadth without
+  duplication" verdict as `ServiceRegistration.cs` above.
+- `frontend/src/social/*.tsx` (`FriendsScreen.tsx`/`FriendsTab.tsx`/
+  `ChallengesTab.tsx`/`MatchmakingTab.tsx`, new this era for REQ-1401-1403):
+  already share a `FetchListSection.tsx` (43 lines) component for their
+  common fetch-a-list-and-render shape — this feature area's own delivery
+  session already applied the "rule of three" `docs/coding-guidelines.md`'s
+  code-health-budget section (ADR-0084) calls for, closer to when the
+  duplication would have formed. Not a finding — this is that ADR working
+  as intended.
+- `frontend/src/admin/PlayerRefreshFieldsList.tsx`: oxlint's 3
+  `only-export-components` warnings (co-locating
+  `PLAYER_REFRESH_FIELD_LABELS`/`describePlayerRefreshField`/
+  `describePlayerRefreshError` with the component) are a deliberate,
+  explicitly-documented choice — this file's own top comment states it was
+  extracted specifically to avoid a *second* file duplicating this exact
+  display logic for a second caller. Splitting the constants/helpers into
+  a separate file to silence a dev-experience-only fast-refresh warning
+  would reintroduce the multi-file fragmentation this file was created to
+  avoid, for a warning with no behavioral effect. Not a finding.
+- `backend/src/XGArcade.Games.XGPredict/XGPredictGameModule.cs` (294
+  lines) — the one remaining `IGameModule` implementation without a
+  Grid/Path/Higher-Lower-style generation-service split. Read in full:
+  nine cohesive public methods, the largest (`GenerateInstanceAsync`, ~90
+  lines) is one match-selection algorithm, not multiple concerns. Well
+  below the line count (~600+) that triggered the original
+  `GridGameModule`/`XGPathGameModule` splits, and low churn since its own
+  introduction. Watch-only, not a story — revisit if it grows past ~450
+  lines or gains a second concern.
+- `backend/src/XGArcade.Core/`, `backend/src/XGArcade.Data/Entities/`: a
+  targeted grep for any `XGArcade.Games.*` reference confirmed clean (the
+  only hits are doc comments citing a `GameKey` constant by name, never an
+  actual type/namespace reference) — ADR-0003 boundary re-verified intact
+  across all three new games added since the last sweep, not just the two
+  that existed at the last check.
+- REQ-1420 (dispute-visibility gate, `ConnectChainStepDisputeService.cs`
+  297 lines, `ConnectChainStepDisputeEndpoints.cs` 188 lines) and S-234/
+  ADR-0114 (`RoundGenerationService.cs` 210 lines, unchanged in shape):
+  both read in full — cohesive, appropriately sized, no duplication. Not
+  findings.
+
+**Watch-only (no story, low churn or not yet a problem):**
+- Every Epic 21/22/23/24 watch-only item, re-confirmed unchanged this
+  pass — not repeated verbatim here.
+- `npm audit`'s two dev-only advisories (`nanoid@<3.3.18`,
+  `@vitest/mocker` path traversal) — Dependabot's lane, neither reaches
+  production code.
+- **Open verification gap, not a code-health finding:** `docs/backlog.md`'s
+  own S-234 note records its `ci.yml` `workflow_dispatch` verification run
+  as still pending as of 2026-09-11 — this sweep found no evidence it has
+  since run. Flagged here so the orchestrating session (which holds the
+  GitHub Actions tool this sub-agent doesn't) picks it up rather than lets
+  it go stale silently.
+
+---
