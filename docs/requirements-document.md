@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.98"
+version: "2.99"
 status: draft
-last_updated: 2026-09-11
+last_updated: 2026-09-13
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -13171,6 +13171,152 @@ own test coverage; a match that has never resolved is never subject to
 this cutoff. UI (Vitest): the chat renders its normal send form before the
 cutoff and a read-only/closed state after it, without hiding any existing
 message.
+
+**REQ-1420 – Withholding a pending dispute's content until the reviewer is
+done playing or the disputer opts in, disclosing the candidate's name once
+visible, and fixing a blank-club display bug on an approved-dispute step**
+> As a player still working through my own chain, I want my opponent's
+> pending dispute to stay hidden from me until I've finished playing (or
+> the disputer chooses to let me see it early), and to see the candidate
+> player's name once it is visible, so a dispute I'm asked to review never
+> hands me an unearned gameplay hint while I'm still guessing myself.
+
+**Status: Not yet implemented.** Confirmed directly by the product owner as
+intended-vs-actual behavior, not inferred. Builds on REQ-1412 (raising a
+dispute) and REQ-1413 (the opponent's review) — see ADR-0109 for why a
+claimed-club input exists on the dispute flow at all. This REQ makes two
+corrections to `GET /matches/{matchId}/disputes`
+(`ConnectChainStepDisputeService.GetDisputesForMatchAsync`,
+`IConnectChainStepDisputeService.cs`'s `ChainStepDisputeView`,
+`ConnectChainStepDisputeEndpoints.cs`'s `ChainStepDisputeListItemResponse`,
+and the frontend's mirrored `ChainStepDisputeListItem`
+(`frontend/src/lib/types.ts`) rendered by `DisputeReview.tsx`), plus one
+unrelated display bug found in the same area. **It does not change
+REQ-1413's approve/deny endpoints, their authorization rule (only the
+match's other participant, never the disputer, may review), or any of
+REQ-1413's scoring/resolution effects** — only what content the read
+endpoint discloses, and when.
+
+**Cross-cutting implementation note, flagged per this document's own
+convention (not applied here — this is a REQ doc, not the schema itself):**
+today, `ChainStepDisputeView`/`ChainStepDisputeListItemResponse`/the
+frontend's `ChainStepDisputeListItem` always return `Position` and
+`ClaimedClubName` populated for every dispute in the list. Meeting this
+REQ's withholding criteria below requires making those two **existing**
+fields nullable (not merely adding new ones), and adding a new nullable
+`CandidatePlayerName` and a new non-nullable `Visible` boolean. Raising a
+dispute (`RaiseChainStepDisputeRequest`, REQ-1412's endpoint) also needs a
+new `AllowEarlyView`/`allowEarlyView` boolean field. Whoever implements this
+should route the actual schema/architecture-document.md update through
+`doc-sync`/`architecture-reviewer` rather than treating it as a side effect
+of a REQ-only change.
+
+**Visibility gate:**
+
+- Given a Pending dispute (REQ-1412) raised by the OTHER participant in the
+  match (`RaisedByMe: false` from the caller's perspective), where the
+  caller has not themselves reached a terminal state in their own chain
+  (not Busted, not TimedOut, not Completed — the same `ConnectTerminalState`/
+  `ConnectChainStepExtensions.IsReallyBusted`/`HasClosedChain` concept
+  `ConnectMatchQueryService.GetMatchDetailAsync` already computes as
+  `myTerminalState`), and where the disputing player did not opt in to
+  early visibility when they raised it
+- When the caller requests `GET /matches/{matchId}/disputes`
+- Then that dispute is included with `Visible: false`, and `Position`,
+  `ClaimedClubName`, and `CandidatePlayerName` are all null — only
+  `DisputeId`, `ChainStepId`, `Status` ("Pending"), `RaisedAt`,
+  `ReviewedAt`, and `RaisedByMe` (false) are populated, which is enough for
+  the UI to render a "your opponent has a pending dispute" placeholder
+  without revealing anything about its content
+- Given the same Pending dispute, raised by the other participant
+- When the caller has themselves reached a terminal state in their own
+  chain (Busted, TimedOut, or Completed) — regardless of whether the
+  disputing player opted in
+- Then the dispute is returned with `Visible: true`, and `Position`,
+  `ClaimedClubName`, and `CandidatePlayerName` all populated with their
+  real values
+- Given the same Pending dispute, raised by the other participant
+- When the disputing player set `allowEarlyView: true` on the original
+  raise-dispute request (REQ-1412) — regardless of the caller's own
+  terminal state
+- Then the dispute is returned exactly as in the previous criterion:
+  `Visible: true`, with `Position`, `ClaimedClubName`, and
+  `CandidatePlayerName` all populated
+- Given a raise-dispute request that omits `allowEarlyView` entirely
+- When the dispute is created
+- Then it defaults to withheld (equivalent to `allowEarlyView: false`) —
+  the conservative, no-leak default consistent with this REQ's own intent,
+  not an open question
+- Given a dispute the caller themselves raised (`RaisedByMe: true`)
+- When the caller requests `GET /matches/{matchId}/disputes`
+- Then it is always returned with `Visible: true` and full content — the
+  gating above applies only to a dispute raised by the OTHER participant;
+  a player's own dispute, which they already know the content of, is never
+  withheld from them
+- Given a Pending dispute currently withheld from the caller under the
+  first criterion above
+- When either participant calls the existing `POST
+  /matches/{matchId}/disputes/{disputeId}/approve` or `.../deny` endpoint
+  (REQ-1413)
+- Then those endpoints behave exactly as REQ-1413 already specifies,
+  completely unaffected by this REQ — this REQ changes only what `GET
+  /matches/{matchId}/disputes` discloses and when, never the review
+  endpoints' authorization or effects; any UI choice to hide or disable the
+  approve/deny actions until a dispute becomes `Visible` is left to
+  implementation, not a rule this REQ itself imposes
+
+**Display fix — a step's known club name must not be blinked out by its
+permanently-null overlap years:**
+
+- Given a chain step whose `MatchedClubName` is known (non-null) but whose
+  `MatchedOverlapStartYear`/`MatchedOverlapEndYear` are null — the
+  permanent, by-design state of a step whose dispute was Approved
+  (REQ-1413, which sets `MatchedClubName` to the claimed club but
+  deliberately never populates the overlap years, "never asked for")
+- When that step's matched-club text is formatted for display
+  (`formatMatchedClub`, `frontend/src/lib/connectMatches.ts`)
+- Then the club name alone is shown (e.g. "Chelsea"), with no year range
+  and no blank/broken output — a null overlap-year pair must not discard an
+  otherwise-known club name
+- Given a chain step whose `MatchedClubName` itself is null (no matched
+  club at all)
+- When its matched-club text is formatted
+- Then the result is empty, exactly as today — this REQ does not change
+  that case
+- Given a formatted matched-club or closing-club string is empty
+- When `ChainStepsList.tsx` renders that step's line
+- Then no empty parenthetical (`()`) is shown for it — the parenthetical
+  wrapper is omitted entirely whenever the formatted content is empty, for
+  both the matched-club span and the closes-chain span, rather than
+  rendering visibly-broken empty parens
+- Given `ConnectChainStep.ClosesChain` is set to `true` only at ordinary,
+  successful submission time (`ConnectChainStepService
+  .SubmitChainStepAsync`) and is left at its original `false` by
+  `ApproveDisputeAsync` (REQ-1413), which never sets `ClosesChain`,
+  `ClosingClubName`, `ClosingOverlapStartYear`, or `ClosingOverlapEndYear`
+- When a disputed step is Approved
+- Then that step's `ClosesChain` remains `false`, so `ChainStepsList.tsx`'s
+  `step.closesChain &&` guard never renders that step's closing-club span
+  at all — **confirmed not currently reachable**: today, a disputed-and-
+  approved step can never be the chain's closing step, so the closing-club
+  empty-parens risk cannot fire yet. This criterion is recorded so the
+  fix above (the parenthetical-omission behavior) still applies correctly
+  if that gap is ever separately closed, not because it is exercised today
+
+**Test level:** Unit/API — a Pending dispute raised by the other
+participant is withheld (`Visible: false`, `Position`/`ClaimedClubName`/
+`CandidatePlayerName` all null, only the minimal placeholder fields
+populated) while the caller is non-terminal and the disputer did not opt
+in; becomes visible with full content (including `CandidatePlayerName`)
+once the caller reaches their own terminal state; becomes visible with full
+content regardless of the caller's terminal state when the disputer set
+`allowEarlyView: true`; a caller's own raised dispute is always fully
+visible; approve/deny behave unchanged regardless of visibility.
+Unit/UI (Vitest) — `formatMatchedClub` returns the club name alone when
+overlap years are null but the club name is present, and empty only when
+the club name itself is null; `ChainStepsList.tsx` renders no empty `()`
+for either the matched-club or closing-club span when the formatted result
+is empty.
 
 ### 4.16 xG Higher/Lower generation and gameplay
 
