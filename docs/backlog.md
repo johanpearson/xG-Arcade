@@ -12313,6 +12313,43 @@ hash-sync cases, must keep passing without modification); `npm run test`,
 `tsc -b`, and `oxlint` all pass unchanged. Verifiable in a normal frontend
 session (no `dotnet` needed).
 *Deps:* none.
+**Built as (2026-09-13):** matches the plan, with the "how much to fold
+into the hook vs. leave screen-specific" judgment call resolved as: leave
+the four screens' own seed state (`leaderboardInitial`, `statsTarget`+
+`statsReturnScreen`, `friendsInitialTab`) in `App.tsx` — they share no
+common type or consumer (four unrelated shapes, each read by a single,
+different screen component), so folding them in would need an untyped
+bucket without removing any real duplication. Extracted the actual
+duplicated *shape* instead: a generic `seedAndNavigate(next, seed)` helper
+each of the four existing handlers became a one-line wrapper around. New
+`frontend/src/lib/useAppNavigation.ts` (272 lines) owns the `Screen`
+union, `SCREEN_HASHES`/`HASH_TO_SCREEN`/`screenForHash`, the
+initial-screen lazy `useState`, the mount-only hash-sync effect,
+`navigateTo`, `seedAndNavigate`, and `resetToLoggedOut` (the navigation
+half of `handleLoggedOut`, which itself stays in `App.tsx` since it also
+needs `setShowAuthScreen`, App-local state — `useAppNavigation` never
+depends on `useSession`, preserving the `App.tsx -> useSession`/
+`App.tsx -> useAppNavigation` dependency direction the story flagged).
+Same-day follow-up: `architecture-reviewer` caught that the hook's own
+comment claimed no dependency on `useSession` while it actually imported
+`ACCESS_TOKEN_STORAGE_KEY` from `useSession.ts` — fixed by moving that
+constant into a new, neutral `frontend/src/lib/authStorage.ts` both hooks
+import from, so neither hook file imports from the other.
+`quality-architect` found no blocking issues (one non-blocking follow-up
+noted: `App.tsx`'s two remaining inline nav handlers,
+`onSelectLeaderboard`/`onSelectFriends`, could also be wrapped through
+`seedAndNavigate` for full consistency — left for a future pass, not this
+story's scope). `App.test.tsx` passes unmodified (993/993 across the full
+suite), `tsc -b` clean, `oxlint` clean.
+`requirements-document.md`/`architecture-document.md`/
+`implementation-document.md` checked against their own `update_when`
+triggers and left unedited — no REQ behavior, COMP boundary, or data flow
+changed; neither `useSession.ts` nor `useAppNavigation.ts` was ever a
+documented COMP-xxx entry. No ADR — `architecture-reviewer`'s explicit
+verdict was that this is frontend-internal `lib/` restructuring with no
+xG Arcade/game boundary, hosting boundary, or data-access-path implication,
+same shape as S-169's own deferred fold-in question, which also didn't get
+one. Full detail: `docs/CHANGELOG.md`, 2026-09-13 entry (S-235).
 
 **S-236 · Disambiguate `docs/backlog.md`'s two colliding "## Epic 13" headers**
 `docs/backlog.md` has two separate `## Epic 13` section headers: line 6272
