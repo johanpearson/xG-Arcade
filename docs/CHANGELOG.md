@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-13 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md`,
+  `docs/backlog.md` (new Epic 30, S-235/S-236) — `code-health-auditor`
+  periodic sweep, requested weighted toward code landed since the
+  2026-08-23 revision, with a 9.0/10 target. Step 0: verified Epics
+  22/23/24 (S-165–S-176) are fully shipped by reading current code
+  directly (this repo's own `git log` only reaches back to 2026-09-02,
+  predating the commit SHAs those stories' "Built as" notes cite — a
+  repository-history quirk, not a doc-accuracy gap) — none re-flagged,
+  none re-done. Re-scored every module/component after that: **overall
+  8.3/10 (+0.4 since 2026-08-23)**. Two new findings: `frontend/src/App.tsx`
+  regrew from 529 to 826 lines across five new top-level screens
+  (xG Predict/Connect/Higher-Lower, Friends, Stats), reforming the
+  "duplicated near-identical case" pattern one level up from where
+  `useSession` (S-158) already extracted this file's auth-lifecycle half
+  — filed as S-235; `docs/backlog.md` has two colliding `## Epic 13`
+  headers from a genuine 2026-08-31 numbering slip, with ~15 ambiguous
+  cross-references elsewhere — too risky to disambiguate solo in one pass,
+  filed as S-236 for `doc-sync`. No code changed directly this pass
+  (findings/planning only, consistent with this sandbox having no `dotnet`
+  SDK); `npm install`/`npm run test`/`tsc -b`/`oxlint` all ran live and
+  clean (993/993 tests, 74 files). S-234's own `ci.yml workflow_dispatch`
+  verification run is still recorded pending — flagged for the
+  orchestrating session, which holds the GitHub Actions tool this sweep
+  doesn't.
 - 2026-09-13 — `docs/requirements-document.md` (REQ-1420 status note,
   no version bump), `docs/architecture-document.md` (COMP-17 row, v1.71 →
   v1.72) — doc-sync close-out for REQ-1420's frontend half (commit
