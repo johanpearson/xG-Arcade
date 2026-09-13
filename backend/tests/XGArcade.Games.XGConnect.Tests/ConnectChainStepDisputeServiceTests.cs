@@ -663,6 +663,32 @@ public class ConnectChainStepDisputeServiceTests
     }
 
     [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_CallerCompletedChain_MakesDisputeVisible()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        // The CALLER (bUserId) reaches terminal via the third disjunct,
+        // HasClosedChain() — neither busted nor timed out — a valid,
+        // chain-closing step of their own. The other two
+        // CallerX_MakesDisputeVisible tests above only exercise
+        // IsReallyBusted/TimedOut, leaving this branch of
+        // ConnectChainStepDisputeService.GetDisputesForMatchAsync's
+        // `callerIsTerminal` computation untested without this case.
+        var bClosingCandidate = await SeedPlayerAsync("B Closing Player");
+        await AddValidStepAsync(match.Id, bUserId, position: 1, attemptNumber: 1, bClosingCandidate.Id, closesChain: true, FixedNow.UtcDateTime);
+
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+
+        var view = result.Disputes.Single(v => v.ChainStepId == step.Id);
+        Assert.That(view.Visible, Is.True);
+        Assert.That(view.ClaimedClubName, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
     public async Task REQ1420_GetDisputesForMatchAsync_DisputerOptedIntoAllowEarlyView_MakesDisputeVisible_RegardlessOfCallerTerminalState()
     {
         var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();

@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-13 — `docs/requirements-document.md` (REQ-1420 status note,
+  no version bump), `docs/architecture-document.md` (COMP-17 row, v1.71 →
+  v1.72) — doc-sync close-out for REQ-1420's frontend half (commit
+  `2415fe3`, landed after the backend entry immediately below): the
+  architecture-reviewer gate caught that the COMP-17 row still read
+  "frontend display fix... not yet implemented" even though
+  `formatMatchedClub`/`ChainStepsList.tsx`'s blank-club fix,
+  `DisputeReview.tsx`'s withheld-placeholder bucket, and
+  `ChainBuilder.tsx`'s allow-early-view checkbox had already landed —
+  fixed the stale sentence and flipped REQ-1420's own status line from
+  "Backend built... frontend not yet implemented" to fully "Built."
 - 2026-09-13 — `docs/requirements-document.md` (REQ-1420 status, v2.99 →
   v3.0), `docs/architecture-document.md` (COMP-17 row, v1.70 → v1.71) —
   backend half of REQ-1420 built: `ConnectChainStepDispute.AllowEarlyView`
