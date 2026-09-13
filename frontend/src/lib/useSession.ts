@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { ApiError } from './apiClient';
 import { fetchMe, logout, refreshAccessToken } from './auth';
+import { ACCESS_TOKEN_STORAGE_KEY } from './authStorage';
 import type { CurrentUser } from './types';
 
 // S-158: extracted verbatim out of App.tsx (which mixed this self-contained
@@ -9,7 +10,11 @@ import type { CurrentUser } from './types';
 // REQ/ADR comment below is unchanged from its App.tsx origin except where a
 // comment referenced "the effect below"/App.tsx-local code that moved here
 // too, which has been reworded to still make sense from this file.
-export const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
+// ACCESS_TOKEN_STORAGE_KEY itself lives in authStorage.ts, not here — see
+// useAppNavigation.ts's top-of-file comment for why: that hook needs the
+// same key without creating a useAppNavigation -> useSession dependency
+// edge. REFRESH_TOKEN_STORAGE_KEY (below) has no such second consumer, so it
+// stays here rather than also moving.
 // REQ-715/ADR-0033: same localStorage mechanism as the access token above,
 // under its own key — see that ADR for why localStorage (not a cookie) was
 // chosen and the XSS trade-off that decision accepts.

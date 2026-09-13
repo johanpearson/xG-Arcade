@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ACCESS_TOKEN_STORAGE_KEY } from './useSession';
+import { ACCESS_TOKEN_STORAGE_KEY } from './authStorage';
 
 // S-235: extracted out of App.tsx (which mixed this self-contained
 // hash-routing mechanism in with per-screen seed state and the render tree
@@ -23,8 +23,11 @@ import { ACCESS_TOKEN_STORAGE_KEY } from './useSession';
 // - `useSession` itself — this hook's initializer and effects read
 //   `ACCESS_TOKEN_STORAGE_KEY` directly from localStorage (the same "is
 //   there a stored token" signal useSession's own initializer uses), but
-//   never calls into useSession or receives it as a dependency. The
-//   dependency direction is, and must stay, App.tsx -> useSession and
+//   never calls into useSession or receives it as a dependency. Both hooks
+//   import that constant from the neutral `authStorage.ts` module rather
+//   than one importing it from the other, so there's no
+//   useAppNavigation -> useSession (or reverse) module dependency at all.
+//   The dependency direction is, and must stay, App.tsx -> useSession and
 //   App.tsx -> useAppNavigation, never useAppNavigation -> useSession:
 //   App.tsx's own `handleLoggedOut` is passed *into* useSession, and that
 //   callback needs both this hook's `resetToLoggedOut` (below) and
