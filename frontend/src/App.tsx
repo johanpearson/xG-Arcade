@@ -31,7 +31,8 @@ import { UserStatsScreen } from './users/UserStatsScreen';
 import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 import { useThemePreference } from './lib/theme';
 import { useNotificationSummary } from './lib/useNotificationSummary';
-import { ACCESS_TOKEN_STORAGE_KEY, useSession } from './lib/useSession';
+import { useSession } from './lib/useSession';
+import { useAppNavigation, type Screen } from './lib/useAppNavigation';
 
 type HealthState =
   | { phase: 'loading' }
@@ -40,116 +41,13 @@ type HealthState =
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
-// REQ-303 (S-021): 'game-select' is the landing screen shown after login,
-// before any game's own screen — see docs/backlog.md S-021. 'settings'
-// (REQ-713, superseding S-039's standalone 'delete-account' screen) is
-// reachable only from the header's "Settings" nav entry, never a
-// destination anything else navigates to — it hosts the unchanged
-// delete-account flow plus, for admins only, a link onward to 'admin'.
-// 'admin' (REQ-504, S-026) is in turn reachable only from that
-// Settings-screen link, never a default destination. 'leagues'
-// (REQ-402/403) is reachable from the header's "Leagues" nav entry —
-// create/join a custom league and see which ones the player belongs to; no
-// per-league leaderboard yet (REQ-404's separate, tracked follow-up work).
-// 'path' (S-085/SCREEN-09) is xG Path's own destination, reached the same
-// way 'grid' is — GameSelectScreen's second tile or HeaderNav's "Games" →
-// "xG Path" entry. It renders only a placeholder today: the real
-// clue-reveal UI (SCREEN-10) is S-086's separate, not-yet-built work.
-// 'predict' (REQ-1301/1302/1303/1306, SCREEN-14) is xG Predict's own
-// destination — reached the same way 'grid'/'path' are, via
-// GameSelectScreen's third tile or HeaderNav's "Games" → "xG Predict"
-// entry (added same-story, closing the gap the SCREEN-14 status note had
-// flagged as a scope boundary).
-// 'admin-suggestions' (REQ-509/REQ-510, S-090, ADR-0053) is
-// SuggestionsScreen's own destination — reachable only via a link inside
-// AdminScreen itself, one hop further than 'admin', mirroring how 'admin'
-// is in turn only reachable from 'settings'. Never a default destination
-// and never given its own top-level nav entry, per ADR-0053's "a new,
-// separate screen... reached the same gated way" framing.
-// 'admin-connect-dispute-suggestions' (REQ-1414, ADR-0053/ADR-0109) is
-// ConnectDisputeSuggestionsScreen's own destination — same "reachable only
-// via a link inside AdminScreen, never a top-level nav entry" shape as
-// 'admin-suggestions' immediately above, for the same ADR-0053 reason (a
-// new, separate, read-only admin surface, never folded into the existing
-// one).
-// 'stats' (REQ-411, S-179, SCREEN-13) is UserStatsScreen's own destination —
-// reachable from Settings' "My stats" link (own stats) or from any
-// leaderboard row's display name (another player's stats), never given its
-// own top-level nav entry either, same "reached only from an existing
-// screen, not HeaderNav" precedent 'admin'/'admin-suggestions' already set
-// (see REQ-712/713's own header-overflow rationale, restated on
-// SettingsScreen's `onOpenStats` prop).
-// 'friends' (REQ-1401/1402/1403, S-217, SCREEN-15) is FriendsScreen's own
-// destination — reachable from the header's new "Friends" nav entry
-// (REQ-1411's own notification badge lives on that entry, not this Screen
-// value itself), optionally from UserStatsScreen's "Respond in Friends &
-// Challenges" link (onOpenFriends) when the viewed player already sent the
-// viewer a pending friend request, and (REQ-1415) from
-// 'xg-connect-entry's two choice buttons, which seed `friendsInitialTab`
-// first (see handleOpenFriendsTab, reused as-is for this new caller). S-218
-// (SCREEN-16) added a fourth "Matches" tab inside FriendsScreen itself (not
-// a new top-level Screen/hash route) — see FriendsScreen.tsx's own comment
-// on why the match/gameplay drill-down is component-local state, not
-// App-level navigation.
-// 'xg-connect-entry' (REQ-1415, SCREEN-17) is ConnectEntryScreen's own
-// destination — reached via GameSelectScreen's fourth tile or HeaderNav's
-// "Games" -> "xG Connect" entry, the same way 'grid'/'path'/'predict' are
-// reached via their own tile/nav-entry. Deliberately the one game tile that
-// does NOT go straight into that game's own play screen (see
-// GameSelectScreen.tsx's own doc comment for why) — instead it shows two
-// choices ("Challenge a friend" / "Challenge random player"), each of which
-// hands off to 'friends' with a pre-seeded tab, per REQ-1415's own
-// "don't restate the underlying flows" requirement.
-// 'higher-lower' (REQ-1504/1505, SCREEN-18, S-228) is HigherLowerScreen's
-// own destination — reached the same way 'grid'/'path'/'predict' are, via
-// GameSelectScreen's fifth tile or HeaderNav's "Games" -> "xG Higher/Lower"
-// entry (added same-story, so the SCREEN-14-style "tile wired, nav entry
-// flagged as a gap" split never happens here).
-type Screen =
-  | 'game-select'
-  | 'grid'
-  | 'path'
-  | 'predict'
-  | 'xg-connect-entry'
-  | 'higher-lower'
-  | 'leaderboard'
-  | 'leagues'
-  | 'friends'
-  | 'settings'
-  | 'admin'
-  | 'admin-suggestions'
-  | 'admin-connect-dispute-suggestions'
-  | 'stats';
-
-// REQ-721/ADR-0039: hash-based, hand-rolled URL-per-screen mapping — see
-// that ADR for why (hash not path, no router library, no popstate/
-// hashchange listener; back/forward is explicitly out of scope). This is
-// the entire mechanism: one lookup table, read once on mount below, written
-// at every navigateTo() call site.
-const SCREEN_HASHES: Record<Screen, string> = {
-  'game-select': '#/game-select',
-  grid: '#/grid',
-  path: '#/path',
-  predict: '#/predict',
-  'xg-connect-entry': '#/xg-connect',
-  'higher-lower': '#/higher-lower',
-  leaderboard: '#/leaderboard',
-  leagues: '#/leagues',
-  friends: '#/friends',
-  settings: '#/settings',
-  admin: '#/admin',
-  'admin-suggestions': '#/admin/suggestions',
-  'admin-connect-dispute-suggestions': '#/admin/connect-dispute-suggestions',
-  stats: '#/stats',
-};
-
-const HASH_TO_SCREEN: Partial<Record<string, Screen>> = Object.fromEntries(
-  Object.entries(SCREEN_HASHES).map(([screenName, hash]) => [hash, screenName as Screen]),
-);
-
-function screenForHash(hash: string): Screen | null {
-  return HASH_TO_SCREEN[hash] ?? null;
-}
+// S-235: the `Screen` union itself, the hash-per-screen mapping, and the
+// mechanics of navigating between screens (navigateTo/seedAndNavigate) all
+// moved to frontend/src/lib/useAppNavigation.ts — see that file's own
+// top-of-file comment (which also carries the per-Screen-value reachability
+// documentation that used to sit here) for the full picture, and for why
+// each screen's own seed state (leaderboardInitial, statsTarget, etc.)
+// deliberately stayed here rather than moving with it.
 
 // REQ-718 UI addendum (rule 5, 2026-08-25): the guest banner's disclosure
 // toggle icon — a small filled caret, decorative on its own (the wrapping
@@ -168,24 +66,12 @@ function GuestBannerChevronIcon({ open }: { open: boolean }) {
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
-  const [screen, setScreen] = useState<Screen>(() => {
-    // REQ-721/ADR-0039: URL restoration applies only to a reload of an
-    // already-authenticated, already-valid session — never to an
-    // unauthenticated visitor (must never bypass REQ-719's splash gate) and
-    // never to a fresh login/signup (the AuthScreen onAuthenticated handler
-    // below always navigates to 'game-select' unconditionally, regardless of
-    // the hash).
-    // A stored access token at mount is the same "authenticated" signal the
-    // rest of this component already renders on optimistically, with no
-    // separate loading state — if that token later turns out to be
-    // invalid, the existing 401/silent-refresh-failure path calls
-    // handleLogout(), which resets both `screen` and the hash regardless of
-    // what was read here, so an authenticated screen restored from a stale
-    // URL can never outlive that check.
-    const hasStoredAccessToken = Boolean(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY));
-    if (!hasStoredAccessToken) return 'game-select';
-    return screenForHash(window.location.hash) ?? 'game-select';
-  });
+  // S-235: `screen` itself, the hash-sync mechanism, and navigateTo/
+  // seedAndNavigate all live in useAppNavigation now — see that hook's own
+  // top-of-file comment for the full reasoning, including why
+  // `resetToLoggedOut` (used by handleLoggedOut below) lives there too but
+  // `handleLoggedOut` itself stays here.
+  const { screen, navigateTo, seedAndNavigate, resetToLoggedOut } = useAppNavigation();
   // REQ-719: the unauthenticated splash/landing screen is what renders
   // whenever there's no accessToken, until this flips true — starts false
   // on every mount (no persisted "already seen it" flag, deliberately —
@@ -198,15 +84,15 @@ function App() {
   // S-158: the auth-session lifecycle (access/refresh token, currentUser,
   // silent refresh, logout) lives in useSession (frontend/src/lib/
   // useSession.ts) — this component only supplies the routing/dialog
-  // reaction to a logout: resetting `screen` back to 'game-select', hiding
-  // AuthScreen (back to the splash screen — see showAuthScreen's own
-  // declaration above for why), and clearing the URL hash (REQ-721/
-  // ADR-0039: the screen shown next is the splash screen, not part of the
-  // Screen/SCREEN_HASHES mapping, so a lingering authenticated screen's hash
-  // would otherwise misdescribe what's on screen). This same handoff covers
-  // every path that ends in a logout — an explicit "Log out" click, account
-  // deletion, and a failed/absent silent-refresh outcome — since all three
-  // funnel through useSession's single handleLogout.
+  // reaction to a logout: resetting `screen` back to 'game-select' and
+  // clearing the URL hash (both now useAppNavigation's `resetToLoggedOut`,
+  // S-235 — see that function's own comment), plus hiding AuthScreen (back
+  // to the splash screen — see showAuthScreen's own declaration above for
+  // why), which stays here since it isn't a navigation concern. This same
+  // handoff covers every path that ends in a logout — an explicit "Log
+  // out" click, account deletion, and a failed/absent silent-refresh
+  // outcome — since all three funnel through useSession's single
+  // handleLogout.
   // useCallback (stable identity across renders, not just useState setters'
   // own already-stable identities) matters here: useSession's handleLogout
   // depends on this callback, and the fetchMe effect in turn depends on
@@ -214,11 +100,13 @@ function App() {
   // handleLogout a new identity on every App render, re-running that effect
   // (and re-fetching /auth/me, clobbering any local currentUser update such
   // as SettingsScreen's onAccountClaimed) far more often than intended.
+  // `resetToLoggedOut` is itself stable (useAppNavigation's own useCallback,
+  // empty deps), so listing it as this callback's only dependency doesn't
+  // break that stability chain.
   const handleLoggedOut = useCallback(() => {
-    setScreen('game-select');
+    resetToLoggedOut();
     setShowAuthScreen(false);
-    window.location.hash = '';
-  }, []);
+  }, [resetToLoggedOut]);
   const { accessToken, currentUser, setCurrentUser, isGuest, handleAuthenticated, handleLogout } =
     useSession(handleLoggedOut);
   // REQ-718 UI addendum (rule 4, 2026-08-01): true only while the
@@ -282,24 +170,6 @@ function App() {
   // `setLeaderboardInitial(null)` already follows.
   const [friendsInitialTab, setFriendsInitialTab] = useState<FriendsTabKey | null>(null);
 
-  // REQ-721/ADR-0039: keeps location.hash matching `screen` from the very
-  // first render, not only from the next explicit navigateTo() call —
-  // covers both "no hash was present" and "the hash present didn't map to
-  // a real Screen" (the initializer above already fell back to
-  // 'game-select' in both cases). Deliberately mount-only (empty dep
-  // array): `screen`'s value here is whatever the lazy initializer already
-  // computed once at mount, and every later change already goes through
-  // navigateTo, which writes the hash itself. Gated the same way the
-  // initializer is — never runs for an unauthenticated visitor, so it can
-  // never write an authenticated screen's hash while the splash screen (not
-  // part of the Screen/SCREEN_HASHES mapping) is what's actually showing.
-  useEffect(() => {
-    if (window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)) {
-      window.location.hash = SCREEN_HASHES[screen];
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     let cancelled = false
 
@@ -325,16 +195,10 @@ function App() {
     }
   }, [])
 
-  // REQ-721/ADR-0039: the one place `screen` state and `location.hash`
-  // change together — every in-app navigation below calls this instead of
-  // setScreen directly. handleLogout is the deliberate exception: it clears
-  // the hash rather than writing 'game-select's, since the screen shown
-  // right after logout is the splash screen, not game-select (see its own
-  // comment).
-  function navigateTo(next: Screen) {
-    setScreen(next);
-    window.location.hash = SCREEN_HASHES[next];
-  }
+  // S-235: `navigateTo` itself now lives in useAppNavigation — see that
+  // hook's own comment. The four handlers below each became a thin wrapper
+  // around that hook's `seedAndNavigate`, unchanged in what they seed or
+  // which screen they navigate to.
 
   // REQ-1210/ADR-0083: GridScreen/PathScreen's round-completion banner
   // calls this with the specific round+game+scope it already resolved
@@ -345,8 +209,7 @@ function App() {
   // mount, never a same-instance prop update) reads the target on its own
   // first render.
   function handleViewRoundLeaderboard(target: LeaderboardRoundTarget) {
-    setLeaderboardInitial(target);
-    navigateTo('leaderboard');
+    seedAndNavigate('leaderboard', () => setLeaderboardInitial(target));
   }
 
   // REQ-411 (S-179): Settings' "My stats" link — seeds `statsTarget` with
@@ -356,9 +219,10 @@ function App() {
   // return to.
   function handleOpenOwnStats() {
     if (!currentUser) return;
-    setStatsTarget({ userId: currentUser.id, displayName: currentUser.displayName });
-    setStatsReturnScreen('settings');
-    navigateTo('stats');
+    seedAndNavigate('stats', () => {
+      setStatsTarget({ userId: currentUser.id, displayName: currentUser.displayName });
+      setStatsReturnScreen('settings');
+    });
   }
 
   // REQ-411 (S-179, generalized 2026-09-03 for direct user feedback: "click
@@ -371,9 +235,10 @@ function App() {
   // FriendsScreen's `onSelectPlayer` is the one new caller that passes
   // 'friends' explicitly.
   function handleSelectPlayerStats(userId: string, displayName: string, returnScreen: Screen = 'leaderboard') {
-    setStatsTarget({ userId, displayName });
-    setStatsReturnScreen(returnScreen);
-    navigateTo('stats');
+    seedAndNavigate('stats', () => {
+      setStatsTarget({ userId, displayName });
+      setStatsReturnScreen(returnScreen);
+    });
   }
 
   // REQ-1411 (design-document.md SCREEN-07's 2026-09-03 badge-redesign
@@ -390,8 +255,7 @@ function App() {
   // already `'friends'`) — exactly as true today of `onSelectLeaderboard`'s
   // completion-banner-seeded target while already on the leaderboard.
   function handleOpenFriendsTab(tab: FriendsTabKey) {
-    setFriendsInitialTab(tab);
-    navigateTo('friends');
+    seedAndNavigate('friends', () => setFriendsInitialTab(tab));
   }
 
   // REQ-718 UI addendum (rule 4, 2026-08-01): the actual onClick handler
