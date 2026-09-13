@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-13 — no docs changed beyond this entry — S-235 (`docs/backlog.md`
+  Epic 30): extracted `App.tsx`'s hash-routing/seed-state navigation
+  machinery (the `Screen` union, `SCREEN_HASHES`/`HASH_TO_SCREEN`/
+  `screenForHash`, the initial-screen lazy `useState`, the mount-only
+  hash-sync effect, `navigateTo`) into new `frontend/src/lib/
+  useAppNavigation.ts`, mirroring `useSession.ts`'s own S-158 extraction
+  from the same file (commit `9037293`). The "how much seed state to fold
+  into the hook" judgment call the story left open (same shape as S-169's
+  own deferred question) was resolved as: leave the four screens' own seed
+  state (`leaderboardInitial`, `statsTarget`+`statsReturnScreen`,
+  `friendsInitialTab`) in `App.tsx` — they share no common type or
+  consumer, so folding them in would add an untyped bucket without
+  removing any real duplication — and instead extract the actual
+  duplicated shape, a new generic `seedAndNavigate(next, seed)` helper the
+  four existing handlers each became a thin wrapper around. Pure
+  structural refactor, no behavior change: `App.test.tsx` passes unmodified
+  (993/993 across the suite), `tsc -b` clean, `oxlint` clean. Same-day
+  follow-up commit `28d6483`: `architecture-reviewer` caught that
+  `useAppNavigation.ts`'s own comment claimed no dependency on `useSession`
+  while it actually imported `ACCESS_TOKEN_STORAGE_KEY` from
+  `useSession.ts` — fixed by moving that constant into a new, neutral
+  `frontend/src/lib/authStorage.ts` both hooks import from, so neither
+  hook file imports from the other, matching what the comment already
+  claimed. Review verdicts: `architecture-reviewer` — no
+  `docs/architecture-document.md` boundary or `docs/decisions/*.md` ADR
+  violated (frontend-`lib/`-internal restructuring only), and explicitly
+  no new ADR needed for the seed-state-folding call, same precedent as
+  S-169's own deferred question (resolved via CHANGELOG reasoning alone
+  there too). `quality-architect` — no blocking findings; one
+  non-blocking, out-of-scope follow-up noted (`App.tsx`'s two remaining
+  inline nav handlers, `onSelectLeaderboard`/`onSelectFriends`, could also
+  be routed through `seedAndNavigate` for full consistency, left for a
+  future pass). `requirements-document.md`/`architecture-document.md`/
+  `implementation-document.md` checked against their own `update_when`
+  triggers and left unedited — no REQ behavior, COMP boundary, or data
+  flow changed; neither `useSession.ts` nor `useAppNavigation.ts` was ever
+  a documented COMP-xxx entry (confirmed via `grep -n useSession
+  docs/architecture-document.md docs/implementation-document.md`,
+  no matches), and `implementation-document.md` §4's `/lib` entry doesn't
+  enumerate individual hook files either (it didn't gain one for
+  `useSession.ts`/S-158 or `useRoundFetch.ts`/S-169 when those landed).
+  `docs/backlog.md`'s S-235 entry backfilled a "Built as" note per
+  S-171's own precedent for this lineage.
 - 2026-09-13 — `docs/backlog.md` (Epic 30, new S-237) — added a story,
   at the requester's direct request, to give ADR-0084's existing per-diff
   code-health budget (`docs/coding-guidelines.md`'s "Code health budget"
