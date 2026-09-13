@@ -81,13 +81,22 @@ export function DisputeReview({ matchId, accessToken, onAuthError, onReviewed }:
   // "Approve"/"Deny" pair for the caller's own dispute, mirroring the
   // server's own CannotReviewOwnDispute check as a UI-level guard, not a
   // substitute for it (the endpoint still enforces this regardless).
-  // Resolved (Approved/Denied) disputes are deliberately dropped from both
-  // lists once reviewed — REQ-1414's own admin suggestion queue is where an
-  // Approved dispute's durable record lives; there is no "resolved dispute
-  // history" view here (kept simple, per this story's own scope).
-  const reviewableDisputes = disputes.filter((dispute) => !dispute.raisedByMe && dispute.status === 'Pending');
+  // Resolved (Approved/Denied) disputes are deliberately dropped from every
+  // section once reviewed — REQ-1414's own admin suggestion queue is where
+  // an Approved dispute's durable record lives; there is no "resolved
+  // dispute history" view here (kept simple, per this story's own scope).
+  //
+  // REQ-1420: an opponent's Pending dispute now splits into two further
+  // sections by its own `visible` flag — `withheldDisputes` (visible:
+  // false) never carries any content field at all (position/
+  // claimedClubName/candidatePlayerName are all null server-side while
+  // withheld), so it renders only a neutral placeholder; `reviewableDisputes`
+  // (visible: true) is the only bucket that ever renders the actionable
+  // Approve/Deny card, now naming the candidate player too.
+  const reviewableDisputes = disputes.filter((dispute) => !dispute.raisedByMe && dispute.status === 'Pending' && dispute.visible);
+  const withheldDisputes = disputes.filter((dispute) => !dispute.raisedByMe && dispute.status === 'Pending' && !dispute.visible);
 
-  if (myPendingDisputes.length === 0 && reviewableDisputes.length === 0) {
+  if (myPendingDisputes.length === 0 && reviewableDisputes.length === 0 && withheldDisputes.length === 0) {
     return null;
   }
 
@@ -102,11 +111,17 @@ export function DisputeReview({ matchId, accessToken, onAuthError, onReviewed }:
         </p>
       ))}
 
+      {withheldDisputes.map((dispute) => (
+        <p key={dispute.disputeId} className="connect-match__status" role="status">
+          Your opponent has a dispute pending review — you&apos;ll be able to see it once you finish your own chain.
+        </p>
+      ))}
+
       {reviewableDisputes.map((dispute) => (
         <div key={dispute.disputeId} className="connect-match__dispute-card">
           <p className="connect-match__status">
-            Your opponent disputed step {dispute.position}, claiming they played together at{' '}
-            <strong>{dispute.claimedClubName}</strong>.
+            Your opponent disputed step {dispute.position}, claiming <strong>{dispute.candidatePlayerName}</strong>{' '}
+            played together with the previous player at <strong>{dispute.claimedClubName}</strong>.
           </p>
           <div className="connect-match__dispute-actions">
             <button

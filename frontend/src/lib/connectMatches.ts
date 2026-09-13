@@ -26,10 +26,17 @@ import { apiRequest } from './apiClient';
 // purely so both ChainStepsList.tsx and ChainBuilder.tsx's own post-submit
 // feedback can share identical wording without one importing a named
 // export from the other's component file.
+//
+// Display fix (REQ-1420): a step whose dispute was Approved (REQ-1413) sets
+// MatchedClubName to the claimed club but deliberately never populates the
+// overlap years ("never asked for") — that permanent null-years state must
+// not blink the otherwise-known club name out entirely. Only a null
+// `matchedClubName` itself (no matched club at all) still returns empty.
 export function formatMatchedClub(
   matchedClubName: string | null, matchedOverlapStartYear: number | null, matchedOverlapEndYear: number | null,
 ): string {
-  if (matchedClubName === null || matchedOverlapStartYear === null) return '';
+  if (matchedClubName === null) return '';
+  if (matchedOverlapStartYear === null) return matchedClubName;
   const endLabel = matchedOverlapEndYear === null ? 'present' : String(matchedOverlapEndYear);
   return `${matchedClubName}, ${matchedOverlapStartYear}-${endLabel}`;
 }
@@ -143,15 +150,22 @@ export async function fetchConnectChatMessages(accessToken: string, matchId: str
 // club") left to throw — ChainBuilder.tsx shows the server's own detail
 // text inline, same convention every other domain file in this directory
 // uses.
+//
+// allowEarlyView (REQ-1420): defaults to false, the same conservative,
+// no-leak default the backend itself falls back to when the field is
+// omitted — opts the match's other participant into seeing this dispute's
+// content (via GET /matches/{matchId}/disputes's `visible` flag) before
+// that other participant reaches their own terminal state.
 export async function raiseChainStepDispute(
   accessToken: string,
   matchId: string,
   chainStepId: string,
   claimedClubName: string,
+  allowEarlyView = false,
 ): Promise<ChainStepDisputeResponse> {
   return apiRequest<ChainStepDisputeResponse>(accessToken, `/matches/${matchId}/chain-steps/${chainStepId}/dispute`, {
     method: 'POST',
-    body: JSON.stringify({ claimedClubName }),
+    body: JSON.stringify({ claimedClubName, allowEarlyView }),
   });
 }
 

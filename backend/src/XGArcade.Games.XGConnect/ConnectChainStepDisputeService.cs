@@ -8,10 +8,12 @@ namespace XGArcade.Games.XGConnect;
 public class ConnectChainStepDisputeService(
     IConnectMatchRepository connectMatchRepository,
     IConnectMatchLifecycleService connectMatchLifecycleService,
+    IPlayerRepository playerRepository,
     TimeProvider timeProvider) : IConnectChainStepDisputeService
 {
     public async Task<RaiseChainStepDisputeResult> RaiseDisputeAsync(
-        Guid matchId, Guid chainStepId, Guid userId, string claimedClubName, CancellationToken cancellationToken = default)
+        Guid matchId, Guid chainStepId, Guid userId, string claimedClubName, bool allowEarlyView = false,
+        CancellationToken cancellationToken = default)
     {
         var access = await connectMatchRepository.ResolveParticipantMatchAsync(matchId, userId, cancellationToken);
         if (access.Outcome == ConnectMatchAccessOutcome.MatchNotFound)
@@ -75,6 +77,7 @@ public class ConnectChainStepDisputeService(
             ClaimedClubName = claimedClubName.Trim(),
             Status = ConnectChainStepDisputeStatus.Pending,
             RaisedAt = now,
+            AllowEarlyView = allowEarlyView,
         };
         var persisted = await connectMatchRepository.AddDisputeAsync(dispute, cancellationToken);
 
@@ -217,13 +220,56 @@ public class ConnectChainStepDisputeService(
 
         var disputes = await connectMatchRepository.GetDisputesForChainStepsAsync(stepsById.Keys.ToList(), cancellationToken);
 
+        // REQ-1420: "has the CALLER themselves reached a terminal state in
+        // their own chain" — computed ONCE per call, not per-dispute, mirroring
+        // ConnectMatchQueryService.GetMatchDetailAsync's own myTerminalState
+        // computation exactly (same IsReallyBusted/HasClosedChain helpers,
+        // same own-bust/own-timeout columns, same own chain steps) rather than
+        // re-deriving a slightly different version here.
+        var isPlayerA = match.PlayerAUserId == userId;
+        var myBustedAt = isPlayerA ? match.PlayerABustedAt : match.PlayerBBustedAt;
+        var myTimedOutAt = isPlayerA ? match.PlayerATimedOutAt : match.PlayerBTimedOutAt;
+        var mySteps = isPlayerA ? playerASteps : playerBSteps;
+        var callerIsTerminal =
+            mySteps.IsReallyBusted(myBustedAt) || myTimedOutAt is not null || mySteps.HasClosedChain();
+
+        // REQ-1420: only resolve candidate names for the steps behind
+        // disputes that will actually be visible — batched, same
+        // IPlayerRepository.GetPlayersByIdsAsync pattern
+        // ConnectMatchQueryService.GetMatchDetailAsync already uses.
+        var candidatePlayerIdsToResolve = new HashSet<Guid>();
+        foreach (var d in disputes)
+        {
+            var step = stepsById[d.ConnectChainStepId];
+            var raisedByMe = step.UserId == userId;
+            var visible = raisedByMe || d.AllowEarlyView || callerIsTerminal;
+            if (visible)
+                candidatePlayerIdsToResolve.Add(step.CandidatePlayerId);
+        }
+        var players = candidatePlayerIdsToResolve.Count == 0
+            ? new Dictionary<Guid, Player>()
+            : await playerRepository.GetPlayersByIdsAsync(candidatePlayerIdsToResolve, cancellationToken);
+
         var views = disputes
             .Select(d =>
             {
                 var step = stepsById[d.ConnectChainStepId];
+                var raisedByMe = step.UserId == userId;
+                var visible = raisedByMe || d.AllowEarlyView || callerIsTerminal;
+
+                if (!visible)
+                {
+                    return new ChainStepDisputeView(
+                        d.Id, d.ConnectChainStepId, null, null, null, d.Status,
+                        d.RaisedAt, d.ReviewedAt, raisedByMe, Visible: false);
+                }
+
+                var candidatePlayerName = players.TryGetValue(step.CandidatePlayerId, out var player)
+                    ? player.FullName
+                    : "Unknown player";
                 return new ChainStepDisputeView(
-                    d.Id, d.ConnectChainStepId, step.Position, d.ClaimedClubName, d.Status,
-                    d.RaisedAt, d.ReviewedAt, step.UserId == userId);
+                    d.Id, d.ConnectChainStepId, step.Position, d.ClaimedClubName, candidatePlayerName, d.Status,
+                    d.RaisedAt, d.ReviewedAt, raisedByMe, Visible: true);
             })
             .OrderBy(v => v.RaisedAt)
             .ToList();

@@ -42,7 +42,7 @@ public class ConnectChainStepDisputeServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private ConnectChainStepDisputeService BuildService(DateTimeOffset now) =>
-        new(_connectMatchRepository, _connectMatchLifecycleService, new FixedTimeProvider(now));
+        new(_connectMatchRepository, _connectMatchLifecycleService, _playerRepository, new FixedTimeProvider(now));
 
     private async Task<Player> SeedPlayerAsync(string fullName) =>
         await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = fullName });
@@ -585,5 +585,201 @@ public class ConnectChainStepDisputeServiceTests
         Assert.That(asDisputer.Disputes, Has.Count.EqualTo(1));
         Assert.That(asDisputer.Disputes[0].RaisedByMe, Is.True);
         Assert.That(asOpponent.Disputes[0].RaisedByMe, Is.False);
+    }
+
+    // ---- REQ-1420: withholding a pending dispute's content --------------------
+
+    [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_OtherParticipantDispute_CallerNonTerminal_NoOptIn_IsWithheld()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        // Caller (bUserId, the opponent) has no steps at all yet — not
+        // Busted, not TimedOut, not Completed — and the disputer (aUserId)
+        // did not opt into AllowEarlyView.
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+
+        Assert.That(result.Disputes, Has.Count.EqualTo(1));
+        var view = result.Disputes[0];
+        Assert.That(view.Visible, Is.False);
+        Assert.That(view.RaisedByMe, Is.False);
+        Assert.That(view.Position, Is.Null);
+        Assert.That(view.ClaimedClubName, Is.Null);
+        Assert.That(view.CandidatePlayerName, Is.Null);
+        // The minimal placeholder fields remain populated.
+        Assert.That(view.DisputeId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(view.ChainStepId, Is.EqualTo(step.Id));
+        Assert.That(view.Status, Is.EqualTo(ConnectChainStepDisputeStatus.Pending));
+        Assert.That(view.RaisedAt, Is.EqualTo(FixedNow.UtcDateTime));
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_CallerTimedOut_MakesDisputeVisible_WithCandidateName()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+        // The CALLER (bUserId) reaches their own terminal state (TimedOut) —
+        // the disputer still did not opt into AllowEarlyView.
+        await _connectMatchRepository.MarkPlayerTimedOutAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+
+        var view = result.Disputes[0];
+        Assert.That(view.Visible, Is.True);
+        Assert.That(view.Position, Is.EqualTo(1));
+        Assert.That(view.ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(view.CandidatePlayerName, Is.EqualTo("Middle Link Player"));
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_CallerReallyBusted_MakesDisputeVisible()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        // The CALLER (bUserId) has a genuine, undisputed bust of their own
+        // (two real, consecutive failures, no Pending dispute covering it).
+        var bFirstFailure = await SeedPlayerAsync("B First Failure Player");
+        var bRetryFailure = await SeedPlayerAsync("B Retry Failure Player");
+        await AddInvalidStepAsync(match.Id, bUserId, position: 1, attemptNumber: 1, bFirstFailure.Id, FixedNow.UtcDateTime);
+        await AddInvalidStepAsync(match.Id, bUserId, position: 1, attemptNumber: 2, bRetryFailure.Id, FixedNow.UtcDateTime);
+        await _connectMatchRepository.MarkPlayerBustedAsync(match.Id, isPlayerA: false, FixedNow.UtcDateTime);
+
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+
+        var view = result.Disputes.Single(v => v.ChainStepId == step.Id);
+        Assert.That(view.Visible, Is.True);
+        Assert.That(view.ClaimedClubName, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_CallerCompletedChain_MakesDisputeVisible()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        // The CALLER (bUserId) reaches terminal via the third disjunct,
+        // HasClosedChain() — neither busted nor timed out — a valid,
+        // chain-closing step of their own. The other two
+        // CallerX_MakesDisputeVisible tests above only exercise
+        // IsReallyBusted/TimedOut, leaving this branch of
+        // ConnectChainStepDisputeService.GetDisputesForMatchAsync's
+        // `callerIsTerminal` computation untested without this case.
+        var bClosingCandidate = await SeedPlayerAsync("B Closing Player");
+        await AddValidStepAsync(match.Id, bUserId, position: 1, attemptNumber: 1, bClosingCandidate.Id, closesChain: true, FixedNow.UtcDateTime);
+
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+
+        var view = result.Disputes.Single(v => v.ChainStepId == step.Id);
+        Assert.That(view.Visible, Is.True);
+        Assert.That(view.ClaimedClubName, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_DisputerOptedIntoAllowEarlyView_MakesDisputeVisible_RegardlessOfCallerTerminalState()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal", allowEarlyView: true);
+
+        // Caller (bUserId) is NOT terminal — no steps, no bust, no timeout.
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+
+        var view = result.Disputes[0];
+        Assert.That(view.Visible, Is.True);
+        Assert.That(view.Position, Is.EqualTo(1));
+        Assert.That(view.ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(view.CandidatePlayerName, Is.EqualTo("Middle Link Player"));
+    }
+
+    [Test]
+    public async Task REQ1420_RaiseDisputeAsync_OmittedAllowEarlyView_DefaultsToFalse()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+
+        var result = await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        Assert.That(result.Dispute!.AllowEarlyView, Is.False);
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputesForMatchAsync_OwnRaisedDispute_AlwaysVisible_EvenWhenCallerNonTerminalAndNoOptIn()
+    {
+        var (match, aUserId, _, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        // The caller here IS the disputer (aUserId) — neither terminal nor
+        // opted in, but a player's own dispute is never withheld from them.
+        var result = await disputeService.GetDisputesForMatchAsync(match.Id, aUserId);
+
+        var view = result.Disputes[0];
+        Assert.That(view.RaisedByMe, Is.True);
+        Assert.That(view.Visible, Is.True);
+        Assert.That(view.Position, Is.EqualTo(1));
+        Assert.That(view.ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(view.CandidatePlayerName, Is.EqualTo("Middle Link Player"));
+    }
+
+    [Test]
+    public async Task REQ1420_ReviewDisputeAsync_ApproveDeny_AreUnaffectedByWithheldVisibility()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        var raiseResult = await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        // Sanity check: bUserId (the reviewer) currently has this dispute
+        // withheld (non-terminal, no opt-in).
+        var beforeReview = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+        Assert.That(beforeReview.Disputes[0].Visible, Is.False);
+
+        // REQ-1420 explicitly leaves REQ-1413's review endpoints untouched —
+        // the opponent can still approve a dispute that is withheld from
+        // them via the list read.
+        var approveResult = await disputeService.ReviewDisputeAsync(match.Id, raiseResult.Dispute!.Id, bUserId, approve: true);
+
+        Assert.That(approveResult.Outcome, Is.EqualTo(ReviewChainStepDisputeOutcome.Approved));
+        var storedStep = (await _connectMatchRepository.GetChainStepsForMatchAndUserAsync(match.Id, aUserId)).Single(s => s.Id == step.Id);
+        Assert.That(storedStep.IsValid, Is.True);
+        Assert.That(storedStep.MatchedClubName, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ1420_ReviewDisputeAsync_Deny_IsUnaffectedByWithheldVisibility()
+    {
+        var (match, aUserId, bUserId, _, _) = await CreateActiveMatchAsync();
+        var candidate = await SeedPlayerAsync("Middle Link Player");
+        var step = await AddInvalidStepAsync(match.Id, aUserId, position: 1, attemptNumber: 1, candidate.Id, FixedNow.UtcDateTime);
+        var disputeService = BuildService(FixedNow);
+        var raiseResult = await disputeService.RaiseDisputeAsync(match.Id, step.Id, aUserId, "Arsenal");
+
+        var beforeReview = await disputeService.GetDisputesForMatchAsync(match.Id, bUserId);
+        Assert.That(beforeReview.Disputes[0].Visible, Is.False);
+
+        var denyResult = await disputeService.ReviewDisputeAsync(match.Id, raiseResult.Dispute!.Id, bUserId, approve: false);
+
+        Assert.That(denyResult.Outcome, Is.EqualTo(ReviewChainStepDisputeOutcome.Denied));
     }
 }

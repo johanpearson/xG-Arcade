@@ -35,7 +35,7 @@ public static class ConnectChainStepDisputeEndpoints
                 return Results.Unauthorized();
 
             var result = await connectChainStepDisputeService.RaiseDisputeAsync(
-                matchId, chainStepId, requestingUser.Id, request.ClaimedClubName, cancellationToken);
+                matchId, chainStepId, requestingUser.Id, request.ClaimedClubName, request.AllowEarlyView, cancellationToken);
 
             return result.Outcome switch
             {
@@ -163,11 +163,16 @@ public static class ConnectChainStepDisputeEndpoints
         new(dispute.Id, dispute.ConnectChainStepId, dispute.ClaimedClubName, dispute.Status.ToString(), dispute.RaisedAt, dispute.ReviewedAt);
 
     private static ChainStepDisputeListItemResponse ToResponse(ChainStepDisputeView view) =>
-        new(view.DisputeId, view.ChainStepId, view.Position, view.ClaimedClubName, view.Status.ToString(),
-            view.RaisedAt, view.ReviewedAt, view.RaisedByMe);
+        new(view.DisputeId, view.ChainStepId, view.Position, view.ClaimedClubName, view.CandidatePlayerName,
+            view.Status.ToString(), view.RaisedAt, view.ReviewedAt, view.RaisedByMe, view.Visible);
 }
 
-public record RaiseChainStepDisputeRequest(string ClaimedClubName);
+// REQ-1420: AllowEarlyView defaults to false when omitted from the JSON
+// body — the conservative, no-leak default this REQ requires (verified via
+// ASP.NET Core's record-with-default-parameter body binding, which applies
+// the parameter default for a missing property rather than leaving it
+// unset/erroring).
+public record RaiseChainStepDisputeRequest(string ClaimedClubName, bool AllowEarlyView = false);
 
 // Status is a string (Enum.ToString()) — same convention
 // ConnectMatchQueryEndpoints/ChallengeEndpoints already use for their own
@@ -175,6 +180,9 @@ public record RaiseChainStepDisputeRequest(string ClaimedClubName);
 public record ChainStepDisputeResponse(
     Guid DisputeId, Guid ChainStepId, string ClaimedClubName, string Status, DateTime RaisedAt, DateTime? ReviewedAt);
 
+// REQ-1420: Position/ClaimedClubName/CandidatePlayerName are nullable and
+// null exactly when Visible is false — see ChainStepDisputeView's own doc
+// comment for the full visibility rule this mirrors.
 public record ChainStepDisputeListItemResponse(
-    Guid DisputeId, Guid ChainStepId, int Position, string ClaimedClubName, string Status,
-    DateTime RaisedAt, DateTime? ReviewedAt, bool RaisedByMe);
+    Guid DisputeId, Guid ChainStepId, int? Position, string? ClaimedClubName, string? CandidatePlayerName,
+    string Status, DateTime RaisedAt, DateTime? ReviewedAt, bool RaisedByMe, bool Visible);

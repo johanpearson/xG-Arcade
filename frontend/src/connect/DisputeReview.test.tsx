@@ -28,16 +28,38 @@ const myPending: ChainStepDisputeListItem = {
   chainStepId: 'step-1',
   position: 2,
   claimedClubName: 'Chelsea',
+  candidatePlayerName: 'Some Player',
   status: 'Pending',
   raisedAt: '2026-09-03T00:00:00Z',
   reviewedAt: null,
   raisedByMe: true,
+  visible: true,
 };
 
+// REQ-1420: an opponent's Pending dispute the caller is allowed to see —
+// either because the caller has reached their own terminal state, or
+// because the disputer set allowEarlyView: true.
 const opponentPending: ChainStepDisputeListItem = {
   ...myPending,
   disputeId: 'dispute-2',
   raisedByMe: false,
+  visible: true,
+};
+
+// REQ-1420: an opponent's Pending dispute still withheld from the caller —
+// position/claimedClubName/candidatePlayerName are all null on the wire
+// exactly when visible is false.
+const opponentWithheld: ChainStepDisputeListItem = {
+  disputeId: 'dispute-4',
+  chainStepId: 'step-4',
+  position: null,
+  claimedClubName: null,
+  candidatePlayerName: null,
+  status: 'Pending',
+  raisedAt: '2026-09-03T00:00:00Z',
+  reviewedAt: null,
+  raisedByMe: false,
+  visible: false,
 };
 
 // REQ-1412/1413 (design-document.md SCREEN-16 addendum, ADR-0109): the
@@ -61,6 +83,20 @@ describe('DisputeReview', () => {
     expect(
       await screen.findByText('Waiting for your opponent to review your dispute on step 2: you claimed Chelsea.'),
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deny' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-1420: a raisedByMe: false, status: Pending, visible: false dispute renders a neutral withheld placeholder — no club/position/candidate name and no Approve/Deny buttons', async () => {
+    renderReview({}, vi.fn().mockImplementation(() => jsonResponse([opponentWithheld])));
+
+    expect(
+      await screen.findByText(
+        "Your opponent has a dispute pending review — you'll be able to see it once you finish your own chain.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Chelsea')).not.toBeInTheDocument();
+    expect(screen.queryByText('Some Player')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Deny' })).not.toBeInTheDocument();
   });
@@ -91,9 +127,13 @@ describe('DisputeReview', () => {
     const user = userEvent.setup();
     const { onReviewed } = renderReview({}, fetchMock);
 
-    expect(
-      await screen.findByText(/Your opponent disputed step 2, claiming they played together at/),
-    ).toBeInTheDocument();
+    // getByText's default matcher only concatenates an element's own direct
+    // text-node children (not nested elements'), so the two <strong>-wrapped
+    // names are asserted separately rather than as part of one regex
+    // spanning both.
+    await screen.findByText(/Your opponent disputed step 2, claiming/);
+    expect(screen.getByText('Some Player')).toBeInTheDocument();
+    expect(screen.getByText('Chelsea')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Approve' }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -132,7 +172,7 @@ describe('DisputeReview', () => {
     const user = userEvent.setup();
     const { onReviewed } = renderReview({}, fetchMock);
 
-    await screen.findByText(/Your opponent disputed step 2, claiming they played together at/);
+    await screen.findByText(/Your opponent disputed step 2, claiming/);
     await user.click(screen.getByRole('button', { name: 'Deny' }));
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -164,7 +204,7 @@ describe('DisputeReview', () => {
     const user = userEvent.setup();
     renderReview({}, fetchMock);
 
-    await screen.findByText(/Your opponent disputed step 2, claiming they played together at/);
+    await screen.findByText(/Your opponent disputed step 2, claiming/);
     await user.click(screen.getByRole('button', { name: 'Approve' }));
 
     expect(await screen.findByText('Already reviewed.')).toBeInTheDocument();

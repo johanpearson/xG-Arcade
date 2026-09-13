@@ -88,6 +88,12 @@ export function ChainBuilder({
   // of the player's very next submission.
   const [disputableStep, setDisputableStep] = useState<{ chainStepId: string } | null>(null);
   const [claimedClubName, setClaimedClubName] = useState('');
+  // REQ-1420: opts the match's other participant into seeing this dispute's
+  // content (`ChainStepDisputeListItem.visible`, DisputeReview.tsx) before
+  // that other participant reaches their own terminal state — defaults
+  // unchecked, the same conservative, no-leak default the backend itself
+  // falls back to when the field is omitted.
+  const [allowEarlyView, setAllowEarlyView] = useState(false);
   const disputeAction = useSubmitAction<ChainStepDisputeResponse>({ onAuthError });
   // Set once raiseChainStepDispute succeeds — the caller's own ephemeral
   // acknowledgment of a dispute they just raised (REQ-1412's own "You
@@ -280,11 +286,12 @@ export function ChainBuilder({
     const trimmedClub = claimedClubName.trim();
     if (!trimmedClub) return;
     disputeAction.run(
-      () => raiseChainStepDispute(accessToken, matchId, disputableStep.chainStepId, trimmedClub),
+      () => raiseChainStepDispute(accessToken, matchId, disputableStep.chainStepId, trimmedClub, allowEarlyView),
       async (dispute) => {
         setRaisedDispute({ claimedClubName: dispute.claimedClubName });
         setDisputableStep(null);
         setClaimedClubName('');
+        setAllowEarlyView(false);
         onChanged();
       },
     );
@@ -390,6 +397,15 @@ export function ChainBuilder({
             placeholder="Claimed club…"
             disabled={disputeAction.submitting}
           />
+          <label className="connect-match__checkbox">
+            <input
+              type="checkbox"
+              checked={allowEarlyView}
+              onChange={(event) => setAllowEarlyView(event.target.checked)}
+              disabled={disputeAction.submitting}
+            />
+            <span>Let my opponent see this dispute right away</span>
+          </label>
           <button
             type="button"
             className="connect-match__button"

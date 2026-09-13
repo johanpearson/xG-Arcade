@@ -303,6 +303,26 @@
   border-top: 1px dashed var(--color-border-hairline);
 }
 
+/* REQ-1420: the "let my opponent see this dispute right away" opt-in —
+   same shape as auth-screen__checkbox (AuthScreen.css), tokens only, no new
+   color/typeface introduced. min-height keeps the whole clickable label row
+   (not just the native control) at the accessibility floor's touch-target
+   minimum. */
+.connect-match__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  min-height: var(--touch-target-min);
+}
+
+.connect-match__checkbox input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
 .connect-match__dispute-card {
   display: flex;
   flex-direction: column;

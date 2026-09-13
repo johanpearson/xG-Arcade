@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -345,5 +346,186 @@ public class ConnectChainStepDisputeEndpointTests
         var response = await client.GetAsync($"/matches/{matchId}/disputes");
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    // ---- REQ-1420: withholding a pending dispute's content --------------------
+
+    private async Task MarkPlayerTimedOutAsync(Guid matchId, bool isPlayerA)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var connectMatchRepository = scope.ServiceProvider.GetRequiredService<IConnectMatchRepository>();
+        await connectMatchRepository.MarkPlayerTimedOutAsync(matchId, isPlayerA, DateTime.UtcNow);
+    }
+
+    [Test]
+    public async Task REQ1420_PostDispute_AllowEarlyViewOmittedFromJsonBody_DefaultsToFalse_LeavesDisputeWithheld()
+    {
+        // A raw JSON body with NO `allowEarlyView` property at all (not
+        // even `false`) — proves ASP.NET Core's record-with-default-
+        // parameter body binding actually applies the constructor's
+        // default (false) for a genuinely missing field, rather than
+        // erroring or leaving it in some other state, per REQ-1420's own
+        // "defaults to withheld" criterion.
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var candidateId = await SeedPlayerAsync("Middle Link Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var stepId = await AddInvalidChainStepAsync(matchId, userAId, candidateId, position: 1, attemptNumber: 1);
+        var disputingClient = CreateAuthenticatedClient(aAuthProviderUserId);
+
+        var content = new StringContent("""{"claimedClubName":"Arsenal"}""", Encoding.UTF8, "application/json");
+        var raiseResponse = await disputingClient.PostAsync($"/matches/{matchId}/chain-steps/{stepId}/dispute", content);
+
+        Assert.That(raiseResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        // The disputer (Alex) did not opt in (the field was entirely
+        // absent), so the opponent (Blair), who is not terminal, must
+        // still see it withheld.
+        var opponentClient = CreateAuthenticatedClient(bAuthProviderUserId);
+        var listResponse = await opponentClient.GetAsync($"/matches/{matchId}/disputes");
+        var body = await listResponse.Content.ReadFromJsonAsync<List<ChainStepDisputeListItemResponse>>();
+
+        Assert.That(body, Has.Count.EqualTo(1));
+        Assert.That(body![0].Visible, Is.False);
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputes_OtherParticipantDispute_CallerNonTerminal_NoOptIn_IsWithheld()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var candidateId = await SeedPlayerAsync("Middle Link Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var stepId = await AddInvalidChainStepAsync(matchId, userAId, candidateId, position: 1, attemptNumber: 1);
+        var disputingClient = CreateAuthenticatedClient(aAuthProviderUserId);
+        await disputingClient.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps/{stepId}/dispute", new RaiseChainStepDisputeRequest("Arsenal"));
+
+        var opponentClient = CreateAuthenticatedClient(bAuthProviderUserId);
+        var response = await opponentClient.GetAsync($"/matches/{matchId}/disputes");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<List<ChainStepDisputeListItemResponse>>();
+        Assert.That(body, Has.Count.EqualTo(1));
+        Assert.That(body![0].Visible, Is.False);
+        Assert.That(body[0].RaisedByMe, Is.False);
+        Assert.That(body[0].Position, Is.Null);
+        Assert.That(body[0].ClaimedClubName, Is.Null);
+        Assert.That(body[0].CandidatePlayerName, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputes_CallerReachedTerminalState_ReturnsVisibleContent()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var candidateId = await SeedPlayerAsync("Middle Link Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var stepId = await AddInvalidChainStepAsync(matchId, userAId, candidateId, position: 1, attemptNumber: 1);
+        var disputingClient = CreateAuthenticatedClient(aAuthProviderUserId);
+        await disputingClient.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps/{stepId}/dispute", new RaiseChainStepDisputeRequest("Arsenal"));
+        await MarkPlayerTimedOutAsync(matchId, isPlayerA: false);
+
+        var opponentClient = CreateAuthenticatedClient(bAuthProviderUserId);
+        var response = await opponentClient.GetAsync($"/matches/{matchId}/disputes");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<List<ChainStepDisputeListItemResponse>>();
+        Assert.That(body![0].Visible, Is.True);
+        Assert.That(body[0].Position, Is.EqualTo(1));
+        Assert.That(body[0].ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(body[0].CandidatePlayerName, Is.EqualTo("Middle Link Player"));
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputes_AllowEarlyViewOptIn_ReturnsVisibleContent_RegardlessOfCallerTerminalState()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var candidateId = await SeedPlayerAsync("Middle Link Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var stepId = await AddInvalidChainStepAsync(matchId, userAId, candidateId, position: 1, attemptNumber: 1);
+        var disputingClient = CreateAuthenticatedClient(aAuthProviderUserId);
+        await disputingClient.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps/{stepId}/dispute", new RaiseChainStepDisputeRequest("Arsenal", AllowEarlyView: true));
+
+        // Caller (Blair) is not terminal — no steps, no bust, no timeout.
+        var opponentClient = CreateAuthenticatedClient(bAuthProviderUserId);
+        var response = await opponentClient.GetAsync($"/matches/{matchId}/disputes");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<List<ChainStepDisputeListItemResponse>>();
+        Assert.That(body![0].Visible, Is.True);
+        Assert.That(body[0].ClaimedClubName, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ1420_GetDisputes_OwnRaisedDispute_AlwaysVisible()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var userBId = await SeedUserAsync(Guid.NewGuid(), "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var candidateId = await SeedPlayerAsync("Middle Link Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var stepId = await AddInvalidChainStepAsync(matchId, userAId, candidateId, position: 1, attemptNumber: 1);
+        var client = CreateAuthenticatedClient(aAuthProviderUserId);
+        await client.PostAsJsonAsync($"/matches/{matchId}/chain-steps/{stepId}/dispute", new RaiseChainStepDisputeRequest("Arsenal"));
+
+        var response = await client.GetAsync($"/matches/{matchId}/disputes");
+
+        var body = await response.Content.ReadFromJsonAsync<List<ChainStepDisputeListItemResponse>>();
+        Assert.That(body![0].RaisedByMe, Is.True);
+        Assert.That(body[0].Visible, Is.True);
+        Assert.That(body[0].ClaimedClubName, Is.EqualTo("Arsenal"));
+        Assert.That(body[0].CandidatePlayerName, Is.EqualTo("Middle Link Player"));
+    }
+
+    [Test]
+    public async Task REQ1420_PostApprove_UnaffectedByWithheldVisibility()
+    {
+        var aAuthProviderUserId = Guid.NewGuid();
+        var userAId = await SeedUserAsync(aAuthProviderUserId, "Alex");
+        var bAuthProviderUserId = Guid.NewGuid();
+        var userBId = await SeedUserAsync(bAuthProviderUserId, "Blair");
+        var aTargetPlayerId = await SeedPlayerAsync("A Target Player");
+        var bTargetPlayerId = await SeedPlayerAsync("B Target Player");
+        var candidateId = await SeedPlayerAsync("Middle Link Player");
+        var matchId = await CreateActiveMatchAsync(userAId, userBId, aTargetPlayerId, bTargetPlayerId);
+        var stepId = await AddInvalidChainStepAsync(matchId, userAId, candidateId, position: 1, attemptNumber: 1);
+        var disputingClient = CreateAuthenticatedClient(aAuthProviderUserId);
+        var raiseResponse = await disputingClient.PostAsJsonAsync(
+            $"/matches/{matchId}/chain-steps/{stepId}/dispute", new RaiseChainStepDisputeRequest("Arsenal"));
+        var raised = await raiseResponse.Content.ReadFromJsonAsync<ChainStepDisputeResponse>();
+
+        var opponentClient = CreateAuthenticatedClient(bAuthProviderUserId);
+        // Sanity check: withheld from the opponent via the list read.
+        var listResponse = await opponentClient.GetAsync($"/matches/{matchId}/disputes");
+        var listBody = await listResponse.Content.ReadFromJsonAsync<List<ChainStepDisputeListItemResponse>>();
+        Assert.That(listBody![0].Visible, Is.False);
+
+        var response = await opponentClient.PostAsync($"/matches/{matchId}/disputes/{raised!.DisputeId}/approve", null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ChainStepDisputeResponse>();
+        Assert.That(body!.Status, Is.EqualTo("Approved"));
     }
 }

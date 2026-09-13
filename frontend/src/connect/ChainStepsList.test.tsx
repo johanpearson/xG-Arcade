@@ -94,4 +94,51 @@ describe('ChainStepsList', () => {
     expect(formatMatchedClub('Chelsea', 2012, 2019)).toBe('Chelsea, 2012-2019');
     expect(formatMatchedClub('Chelsea', 2012, null)).toBe('Chelsea, 2012-present');
   });
+
+  // REQ-1420 display fix: a step whose dispute was Approved sets
+  // MatchedClubName but deliberately never populates the overlap years — the
+  // club name alone must still render, never a blank/broken output.
+  it('REQ-1420: formatMatchedClub returns the club name alone when overlap years are null but the club name is present, and empty only when the club name itself is null', () => {
+    expect(formatMatchedClub('Chelsea', null, null)).toBe('Chelsea');
+    expect(formatMatchedClub(null, null, null)).toBe('');
+  });
+
+  it('REQ-1420: renders no empty "()" for a matched-club (approved-dispute) step whose overlap years are null', () => {
+    const steps = [
+      step({
+        position: 1,
+        candidatePlayerName: 'Approved Dispute Link',
+        matchedClubName: 'Chelsea',
+        matchedOverlapStartYear: null,
+        matchedOverlapEndYear: null,
+      }),
+    ];
+
+    render(
+      <ChainStepsList targetPlayerName="Lionel Messi" otherTargetPlayerName="Cristiano Ronaldo" steps={steps} />,
+    );
+
+    expect(screen.getByText(/Approved Dispute Link/).textContent).toBe('Approved Dispute Link (Chelsea)');
+  });
+
+  it('REQ-1420: renders no empty "()" for the closing-club span when the formatted result is empty', () => {
+    const steps = [
+      step({
+        position: 1,
+        candidatePlayerName: 'Bridge Player',
+        closesChain: true,
+        closingClubName: null,
+        closingOverlapStartYear: null,
+        closingOverlapEndYear: null,
+      }),
+    ];
+
+    render(
+      <ChainStepsList targetPlayerName="Lionel Messi" otherTargetPlayerName="Cristiano Ronaldo" steps={steps} />,
+    );
+
+    const closingItem = screen.getByText(/Bridge Player/);
+    expect(closingItem.textContent).toBe('Bridge Player (Some Club, 2010-2015) — connects to your target');
+    expect(closingItem.textContent).not.toContain('()');
+  });
 });
