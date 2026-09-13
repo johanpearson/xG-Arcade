@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-13 — `docs/backlog.md` (Epic 30, new S-237) — added a story,
+  at the requester's direct request, to give ADR-0084's existing per-diff
+  code-health budget (`docs/coding-guidelines.md`'s "Code health budget"
+  section, applied manually by `quality-architect` on every diff review)
+  an automated CI backstop: a new `ci.yml` job that fails a PR when a
+  diff reintroduces a rule-of-three duplicate-block violation or adds a
+  clearly-oversized new file, so a missed manual review isn't the only
+  thing standing between a diff and a repeat of the "duplicated shape"
+  pattern this report keeps finding. Doesn't relitigate ADR-0084 itself —
+  purely a mechanical backstop on top of the already-decided policy. Tool
+  choice, threshold, and blocking-vs-warning behavior are left to the
+  implementing session, which should write its own ADR once decided.
 - 2026-09-13 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md`,
   `docs/backlog.md` (new Epic 30, S-235/S-236) — `code-health-auditor`
   periodic sweep, requested weighted toward code landed since the

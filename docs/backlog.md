@@ -12347,6 +12347,58 @@ surrounding S-number/date, not batch-replaced by text search; doc-only
 change, no tests to run.
 *Deps:* none.
 
+**S-237 · Add an automated CI backstop for the ADR-0084 code-health budget**
+`docs/coding-guidelines.md`'s "Code health budget (per diff)" section
+(ADR-0084) already commits `quality-architect` to applying three checks
+on every diff it reviews — duplicated-shape rule-of-three, sibling-relative
+god-file size, and churn-aware hotspot risk — specifically so the pattern
+`code-health-auditor`'s sweeps keep finding (`CODE_HEALTH_ASSESSMENT.md`'s
+now nine-times-repeated "duplicated shape repeated per near-identical
+case" finding, most recently `App.tsx`/S-235 above) gets caught at the
+diff that introduces it instead of a sweep or two later. That's a real,
+already-decided policy (ADR-0084) — this story does not relitigate it or
+add a fourth check. What's missing is a mechanical backstop for when the
+manual review doesn't happen or doesn't catch it: nothing today fails a
+build the way `npm run test`/`tsc -b`/`oxlint` already do in `ci.yml`
+if a diff quietly reintroduces a rule-of-three violation or a new
+clearly-oversized file. Add one CI job to `.github/workflows/ci.yml`
+(read `infra/README.md` first per `CLAUDE.md`'s standing "touching
+`.github/workflows`" instruction) that runs on every PR touching
+`frontend/` or `backend/` and fails when either: (a) a duplicate-code
+scanner (e.g. `jscpd` for `frontend/src/**`; a comparable C# option —
+survey what's realistic without a `dotnet` SDK in mind, since this
+sandbox doesn't have one to prototype against, so this may need to be
+frontend-only at first with the backend half filed as a follow-up once a
+session with `dotnet` access can evaluate options) reports a 3+-occurrence
+near-duplicate block above a tuned similarity threshold in files the diff
+touches, or (b) a new file added by the diff is already >50% larger than
+the next-largest sibling in its own directory with no doc-comment
+justification (a `grep`/line-count script, no tool dependency needed for
+this half). Threshold tuning matters more than tool choice here — start
+permissive (this report's own history shows every one of its "duplicated
+shape" findings was a judgment call about *near-identical*, not
+byte-identical, code; an over-eager scanner producing false positives on
+genuinely-parallel-but-distinct code would train reviewers to ignore it)
+and tighten only after running it against the current tree once to see
+what it flags on code this lineage has already reviewed and cleared.
+Whether the job blocks the merge or only annotates the PR (soft-fail
+first, promote to blocking once false-positive rate is known), and which
+duplicate-detection tool/threshold is chosen, are both "could reasonably
+have gone another way" calls this story doesn't make — write an ADR
+(superseding neither ADR-0084 nor `docs/decisions/0000-template.md`'s
+scope, just adding the automation layer on top) once the implementing
+session has picked.
+*Accept:* a deliberately-reintroduced rule-of-three violation (e.g. a
+throwaway branch that copies an existing fetch-call-site shape a third
+time) fails the new CI job on that PR; running the new job against the
+current `main` at time of implementation does not flag any of this
+report's already-reviewed-and-cleared "Investigated and declined" items
+above as false positives (tune the threshold against this exact set
+before considering the job done); `ci.yml`'s existing test/lint/build
+jobs are unaffected; an ADR exists for the tool/threshold/blocking-vs-
+warning choice actually made.
+*Deps:* none (independent of S-235/S-236; can run in parallel).
+
 **Investigated and declined this pass (not written up as stories):**
 - `backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs` (761
   lines, 18 commits — now the single highest-churn source file in the
