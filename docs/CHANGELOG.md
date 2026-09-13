@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-13 — `docs/requirements-document.md` (REQ-1420 status, v2.99 →
+  v3.0), `docs/architecture-document.md` (COMP-17 row, v1.70 → v1.71) —
+  backend half of REQ-1420 built: `ConnectChainStepDispute.AllowEarlyView`
+  (migration `20260913120000_AddConnectChainStepDisputeAllowEarlyView`),
+  `RaiseChainStepDisputeRequest.AllowEarlyView`, and
+  `ConnectChainStepDisputeService.GetDisputesForMatchAsync`'s new
+  visibility gate (`ChainStepDisputeView.Visible`, nullable
+  `Position`/`ClaimedClubName`, new nullable `CandidatePlayerName`) —
+  withholding a pending dispute raised by the other participant until the
+  caller reaches their own terminal state or the disputer opts in;
+  `ReviewDisputeAsync`/approve-deny untouched. REQ-1420 marked "Backend
+  built"; frontend `formatMatchedClub`/`ChainStepsList.tsx` display fix
+  still outstanding. Not yet verified by a CI run (no `dotnet` SDK in the
+  sandbox that built it).
 - 2026-09-11 — `docs/requirements-document.md` (REQ-305 status, v2.97 →
   v2.98), `docs/architecture-document.md` (COMP-03/COMP-04 row prose +
   decisions table, v1.69 → v1.70), `docs/backlog.md` (new S-234, Epic 29)

@@ -14,8 +14,15 @@ public interface IConnectChainStepDisputeService
     // candidate and the immediately preceding chain player. Check-before-
     // persist, same discipline as SubmitChainStepAsync — every precondition
     // is resolved before anything is written.
+    //
+    // REQ-1420: `allowEarlyView` (default false — the conservative, no-leak
+    // default) opts the match's other participant into seeing this
+    // dispute's content before that other participant is themselves
+    // terminal — see ConnectChainStepDispute.AllowEarlyView's own doc
+    // comment and GetDisputesForMatchAsync's visibility gate below.
     Task<RaiseChainStepDisputeResult> RaiseDisputeAsync(
-        Guid matchId, Guid chainStepId, Guid userId, string claimedClubName, CancellationToken cancellationToken = default);
+        Guid matchId, Guid chainStepId, Guid userId, string claimedClubName, bool allowEarlyView = false,
+        CancellationToken cancellationToken = default);
 
     // REQ-1413: only the match's OTHER participant (never the disputing
     // player, never anyone else) may resolve a Pending dispute — enforced
@@ -29,6 +36,15 @@ public interface IConnectChainStepDisputeService
     // participant in this match, in the caller's own perspective
     // (RaisedByMe) — backs both "what's the status of my own dispute" and
     // "what do I need to review as the opponent."
+    //
+    // REQ-1420: a dispute raised by the OTHER participant is withheld
+    // (ChainStepDisputeView.Visible: false, content fields null) unless the
+    // caller has reached their own terminal state (busted/timed-out/
+    // completed — the same concept ConnectMatchQueryService.
+    // GetMatchDetailAsync computes as myTerminalState) or the disputer
+    // opted into AllowEarlyView at raise time. A dispute the caller raised
+    // themselves is always fully visible. Never affects ReviewDisputeAsync
+    // above — approve/deny remain entirely unchanged by this REQ.
     Task<GetChainStepDisputesResult> GetDisputesForMatchAsync(
         Guid matchId, Guid userId, CancellationToken cancellationToken = default);
 }
@@ -124,14 +140,26 @@ public enum GetChainStepDisputesOutcome
 // RaisedByMe is true only when the CALLER raised this specific dispute —
 // the opponent-review UI filters/highlights on this; a dispute the caller
 // raised themselves is never reviewable by them (CannotReviewOwnDispute).
+//
+// REQ-1420: Position/ClaimedClubName/CandidatePlayerName are nullable and
+// Visible is the gate — for a dispute raised by the OTHER participant
+// (RaisedByMe: false) that the caller's own terminal state or the
+// disputer's AllowEarlyView opt-in hasn't yet unlocked, Visible is false and
+// all three of those fields are null; only DisputeId/ChainStepId/Status/
+// RaisedAt/ReviewedAt/RaisedByMe/Visible are populated. A dispute the
+// caller raised themselves (RaisedByMe: true) is always Visible: true with
+// every field populated — see GetDisputesForMatchAsync's own visibility
+// gate for the exact rule.
 public record ChainStepDisputeView(
     Guid DisputeId,
     Guid ChainStepId,
-    int Position,
-    string ClaimedClubName,
+    int? Position,
+    string? ClaimedClubName,
+    string? CandidatePlayerName,
     ConnectChainStepDisputeStatus Status,
     DateTime RaisedAt,
     DateTime? ReviewedAt,
-    bool RaisedByMe);
+    bool RaisedByMe,
+    bool Visible);
 
 public record GetChainStepDisputesResult(GetChainStepDisputesOutcome Outcome, IReadOnlyList<ChainStepDisputeView> Disputes);

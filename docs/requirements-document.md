@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "2.99"
+version: "3.0"
 status: draft
 last_updated: 2026-09-13
 owner: Johan
@@ -13181,8 +13181,10 @@ visible, and fixing a blank-club display bug on an approved-dispute step**
 > player's name once it is visible, so a dispute I'm asked to review never
 > hands me an unearned gameplay hint while I'm still guessing myself.
 
-**Status: Not yet implemented.** Confirmed directly by the product owner as
-intended-vs-actual behavior, not inferred. Builds on REQ-1412 (raising a
+**Status: Backend built, 2026-09-13; frontend display fix (the
+`formatMatchedClub`/`ChainStepsList.tsx` half below) not yet implemented.**
+Confirmed directly by the product owner as intended-vs-actual behavior, not
+inferred. Builds on REQ-1412 (raising a
 dispute) and REQ-1413 (the opponent's review) — see ADR-0109 for why a
 claimed-club input exists on the dispute flow at all. This REQ makes two
 corrections to `GET /matches/{matchId}/disputes`

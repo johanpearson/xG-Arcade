@@ -36,6 +36,16 @@ namespace XGArcade.Data.Entities;
 // one REQ-1407 retry is consumed, per the product-owner's 2026-09-05
 // confirmation — see REQ-1413's own status note). ReviewedAt is null until
 // Approved/Denied, set in that same review call, never independently.
+//
+// AllowEarlyView (REQ-1420, COMP-17): whether the disputing player opted, at
+// raise time, to let the match's other participant see this dispute's
+// content (Position/ClaimedClubName/CandidatePlayerName) before that other
+// participant has reached their own terminal state — see
+// ConnectChainStepDisputeService.GetDisputesForMatchAsync's own visibility
+// gate. Defaults to false (the conservative, no-leak default) — never null,
+// so an omitted `allowEarlyView` on the raise request is indistinguishable
+// from an explicit `false`. Never mutated after creation; REQ-1420
+// deliberately does not add a way to change this after a dispute is raised.
 public class ConnectChainStepDispute
 {
     public Guid Id { get; set; }
@@ -44,6 +54,7 @@ public class ConnectChainStepDispute
     public ConnectChainStepDisputeStatus Status { get; set; } = ConnectChainStepDisputeStatus.Pending;
     public required DateTime RaisedAt { get; set; }
     public DateTime? ReviewedAt { get; set; }
+    public bool AllowEarlyView { get; set; }
 }
 
 public enum ConnectChainStepDisputeStatus
