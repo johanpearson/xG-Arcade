@@ -392,7 +392,9 @@ describe('ChainBuilder', () => {
   it('REQ-1412: after a first invalid attempt, raising a dispute calls raiseChainStepDispute with the failed step and club, and once the parent reports the resulting provisional bust shows the "waiting for review" text', async () => {
     const { user, onChanged, rerenderWith } = await renderWithDisputableFirstFailure((url, init) => {
       if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && init?.method === 'POST') {
-        expect(JSON.parse(init!.body as string)).toEqual({ claimedClubName: 'Chelsea' });
+        // REQ-1420: allowEarlyView defaults to false, unless the new
+        // checkbox (its own dedicated test below) is checked.
+        expect(JSON.parse(init!.body as string)).toEqual({ claimedClubName: 'Chelsea', allowEarlyView: false });
         return jsonResponse({
           disputeId: 'dispute-1',
           chainStepId: 'step-1',
@@ -422,6 +424,73 @@ describe('ChainBuilder', () => {
         'You disputed this ruling, claiming they played together at Chelsea. Waiting for your opponent to review it.',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('REQ-1420: the "let my opponent see this dispute right away" checkbox defaults unchecked, is passed through as allowEarlyView when checked, and resets to unchecked after a successful raise', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.includes('/players/autocomplete')) return jsonResponse([{ playerId: 'cand-1', name: 'Some Player' }]);
+      if (url.endsWith('/matches/match-1/chain-steps') && method === 'POST') {
+        return jsonResponse({
+          isValid: false,
+          chainComplete: false,
+          position: 1,
+          attemptNumber: 1,
+          candidatePlayerId: 'p1',
+          chainStepId: 'step-1',
+          matchedClubName: null,
+          matchedOverlapStartYear: null,
+          matchedOverlapEndYear: null,
+          busted: false,
+        });
+      }
+      if (url.endsWith('/matches/match-1/chain-steps/step-1/dispute') && method === 'POST') {
+        expect(JSON.parse(init!.body as string)).toEqual({ claimedClubName: 'Chelsea', allowEarlyView: true });
+        return jsonResponse({
+          disputeId: 'dispute-1',
+          chainStepId: 'step-1',
+          claimedClubName: 'Chelsea',
+          status: 'Pending',
+          raisedAt: '2026-09-06T00:00:00Z',
+          reviewedAt: null,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const user = userEvent.setup();
+    const { rerenderWith } = renderBuilder({}, fetchMock);
+
+    await pickSuggestionAndSubmit(user, 'Some Player');
+    await screen.findByText(/one more attempt at this position/);
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Let my opponent see this dispute right away' });
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    await user.type(screen.getByLabelText(/Dispute this ruling/), 'Chelsea');
+    await user.click(screen.getByRole('button', { name: 'Dispute this ruling' }));
+
+    // Raising ANY dispute provisionally busts the caller's slot server-side
+    // — simulate the parent's post-onChanged refetch delivering that, same
+    // as the existing "waiting for review" test above.
+    rerenderWith({ myTerminalState: { busted: true, timedOut: false, completed: false } });
+    await screen.findByText(/You disputed this ruling/);
+
+    // REQ-1413's Approve path clears the provisional bust, bringing back the
+    // ordinary submission form — simulated the same way the existing "drops
+    // the local dispute-waiting state" test already does.
+    rerenderWith({ myTerminalState: { busted: false, timedOut: false, completed: false } });
+    expect(screen.queryByLabelText(/Dispute this ruling/)).not.toBeInTheDocument();
+
+    // Submitting the same candidate again fails the same way, offering a
+    // fresh dispute form — its checkbox must be unchecked again, not still
+    // carry the previous submission's choice.
+    await pickSuggestionAndSubmit(user, 'Some Player');
+    await screen.findByText(/one more attempt at this position/);
+    expect(screen.getByRole('checkbox', { name: 'Let my opponent see this dispute right away' })).not.toBeChecked();
   });
 
   it('REQ-1412/1413: after a Busted result, the dispute form appears; raising a dispute succeeds the same way, suppressing the busted terminal message in favor of the dispute-waiting text', async () => {

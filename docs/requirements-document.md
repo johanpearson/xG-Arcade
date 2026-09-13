@@ -13181,9 +13181,13 @@ visible, and fixing a blank-club display bug on an approved-dispute step**
 > player's name once it is visible, so a dispute I'm asked to review never
 > hands me an unearned gameplay hint while I'm still guessing myself.
 
-**Status: Backend built, 2026-09-13; frontend display fix (the
-`formatMatchedClub`/`ChainStepsList.tsx` half below) not yet implemented.**
-Confirmed directly by the product owner as intended-vs-actual behavior, not
+**Status: Built, 2026-09-13.** Both halves landed: the backend visibility
+gate/candidate-name disclosure (`GetDisputesForMatchAsync`,
+`RaiseChainStepDisputeRequest.AllowEarlyView`) and the frontend
+(`DisputeReview.tsx`'s withheld-placeholder bucket, `ChainBuilder.tsx`'s
+"let my opponent see this dispute right away" checkbox, and the
+`formatMatchedClub`/`ChainStepsList.tsx` blank-club display fix). Confirmed
+directly by the product owner as intended-vs-actual behavior, not
 inferred. Builds on REQ-1412 (raising a
 dispute) and REQ-1413 (the opponent's review) — see ADR-0109 for why a
 claimed-club input exists on the dispute flow at all. This REQ makes two

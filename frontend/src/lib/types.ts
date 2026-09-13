@@ -1225,24 +1225,39 @@ export interface ChainStepDisputeResponse {
   reviewedAt: string | null;
 }
 
-// REQ-1412/1413: mirrors ChainStepDisputeListItemResponse exactly — one
+// REQ-1412/1413/1420: mirrors ChainStepDisputeListItemResponse exactly — one
 // dispute in a match, from the caller's OWN perspective (GET
 // /matches/{matchId}/disputes). `raisedByMe: true` is the caller's own
 // dispute (read-only status only, DisputeReview.tsx's own-dispute
 // section); `raisedByMe: false` is the opponent's dispute (actionable — the
-// caller may approve/deny it, DisputeReview.tsx's review-card section).
-// `position` is the disputed step's own chain position, included here
-// (unlike ChainStepDisputeResponse above) so a review UI can label each
-// dispute without a second lookup against myChainSteps.
+// caller may approve/deny it, DisputeReview.tsx's review-card section, but
+// only once `visible` is true, see below). `position` is the disputed
+// step's own chain position, included here (unlike ChainStepDisputeResponse
+// above) so a review UI can label each dispute without a second lookup
+// against myChainSteps.
+//
+// REQ-1420: `position`/`claimedClubName`/`candidatePlayerName` are all
+// nullable, and null together exactly when `visible` is false — a Pending
+// dispute raised by the OTHER participant (`raisedByMe: false`), withheld
+// from the caller because the caller hasn't yet reached their own terminal
+// state and the disputer didn't set `allowEarlyView`. `visible` becomes
+// true (with all three fields populated) once the caller reaches a
+// terminal state, once the disputer opted into early view, or always for a
+// dispute the caller raised themselves (`raisedByMe: true`, never
+// withheld). `candidatePlayerName` is new on this shape (previously only
+// implied by ChainStepId) — DisputeReview.tsx's actionable card names it
+// once visible.
 export interface ChainStepDisputeListItem {
   disputeId: string;
   chainStepId: string;
-  position: number;
-  claimedClubName: string;
+  position: number | null;
+  claimedClubName: string | null;
+  candidatePlayerName: string | null;
   status: string;
   raisedAt: string;
   reviewedAt: string | null;
   raisedByMe: boolean;
+  visible: boolean;
 }
 
 // REQ-517 (S-183): a single pending avatar submission, as returned by

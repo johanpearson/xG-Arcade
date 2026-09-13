@@ -22,15 +22,27 @@ export function ChainStepsList({ targetPlayerName, steps, otherTargetPlayerName 
   return (
     <ol className="connect-match__chain">
       <li className="connect-match__chain-item connect-match__chain-item--target">{targetPlayerName}</li>
-      {validSteps.map((step) => (
-        <li key={step.position} className="connect-match__chain-item">
-          {step.candidatePlayerName}
-          <span className="connect-match__chain-club"> ({formatMatchedClub(step.matchedClubName, step.matchedOverlapStartYear, step.matchedOverlapEndYear)})</span>
-          {step.closesChain && (
-            <span className="connect-match__chain-closes"> — connects to your target ({formatMatchedClub(step.closingClubName, step.closingOverlapStartYear, step.closingOverlapEndYear)})</span>
-          )}
-        </li>
-      ))}
+      {validSteps.map((step) => {
+        // REQ-1420: formatMatchedClub can now legitimately return '' (only
+        // when the club itself is null — an approved-dispute step always
+        // has a club name, just no overlap years) — the parenthetical
+        // wrapper must be omitted entirely in that case, for both spans,
+        // rather than ever rendering a visibly-broken empty "()".
+        const matchedLabel = formatMatchedClub(step.matchedClubName, step.matchedOverlapStartYear, step.matchedOverlapEndYear);
+        const closingLabel = formatMatchedClub(step.closingClubName, step.closingOverlapStartYear, step.closingOverlapEndYear);
+        return (
+          <li key={step.position} className="connect-match__chain-item">
+            {step.candidatePlayerName}
+            {matchedLabel && <span className="connect-match__chain-club"> ({matchedLabel})</span>}
+            {step.closesChain && (
+              <span className="connect-match__chain-closes">
+                {' — connects to your target'}
+                {closingLabel && ` (${closingLabel})`}
+              </span>
+            )}
+          </li>
+        );
+      })}
       {validSteps.some((step) => step.closesChain) ? (
         <li className="connect-match__chain-item connect-match__chain-item--target">{otherTargetPlayerName}</li>
       ) : (
