@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-14 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md` —
+  `code-health-auditor` periodic sweep. Step 0 confirmed Epic 30's
+  S-235/S-236/S-237 (all landed since the 2026-09-13 revision) are
+  genuinely shipped by reading current code/config directly: `App.tsx`
+  826→690 lines with `frontend/src/lib/useAppNavigation.ts` extracted
+  (closing #15/the `App.tsx` hotspot — the one below-8.0 outlier from the
+  last revision, now 8.3/10), `docs/backlog.md`'s duplicate `## Epic 13`
+  header resolved (closing #16), and the `code-health-budget` CI job
+  (S-237, ADR-0115) confirmed real. No new duplication/god-file/boundary
+  finding surfaced (no feature commits landed since the last sweep).
+  **Overall system score: 8.5/10 (+0.2), no module below 8.0.** New this
+  pass, at the requester's explicit ask: a REQ-level test-coverage-gap
+  audit across NUnit unit, NUnit+`WebApplicationFactory` API, Vitest, and
+  Playwright (`CODE_HEALTH_ASSESSMENT.md` new §5) — found REQ-603
+  (concurrent-guess uniqueness correctness) and REQ-702/703/704/706
+  (confirmation-email flow) have no dedicated test despite
+  `docs/requirements-document.md` calling for one, plus a broader,
+  lower-urgency gap (Playwright E2E coverage exists only for the five
+  games' own play flows — no spec for auth/signup, leaderboard, admin
+  review, friends/challenges, or account deletion). Flagged for
+  `test-writer` directly, not written up as a new backlog epic story,
+  since writing new tests is new coverage and this lineage's epics
+  (Epic 7/9/17/21/22/23/24/30) are explicitly pure-refactor/no-new-coverage.
+  `npm install` (fresh), `npx vitest run` (993/993, 74 files), `tsc -b`,
+  `oxlint` all ran live and clean. No `dotnet` SDK in this sandbox,
+  confirmed again.
 - 2026-09-14 — `.github/workflows/ci.yml`, new `docs/decisions/0115-ci-backstop-for-code-health-budget.md`,
   `docs/backlog.md` (Epic 30: S-237 "Built as" note, new follow-up S-238) —
   implemented S-237, an automated CI backstop for ADR-0084's per-diff
