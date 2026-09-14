@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-14 — `docs/backlog.md`, `docs/requirements-document.md` (no
+  version bump, `last_updated` only), `docs/CHANGELOG.md`,
+  `docs/decisions/0101-account-deletion-purges-per-game-data-via-igamemodule.md`
+  — S-236 (`docs/backlog.md` Epic 30, `doc-sync`): disambiguated
+  `docs/backlog.md`'s two colliding `## Epic 13` headers. Renumbered the
+  second, later-written occurrence (line 9995, "xG Predict gap closure",
+  S-199–S-205) to `## Epic 31` — the next genuinely-unused epic number —
+  leaving it in place at its current file position rather than relocating
+  the ~1,400-line section to the end of the file, since the acceptance
+  criteria only require unique numbers, not file-position-matching-
+  number-order, and physically moving that much content risked corrupting
+  its own internal cross-references for no required benefit. Line 6272's
+  original "Autocomplete: threshold verification + cold-start latency"
+  Epic 13 is untouched and remains canonical. Fixed all ~15 downstream
+  "Epic 13" references individually against their surrounding S-number/
+  date: 6 stayed Epic 13 (`NOTES.md`; `docs/requirements-document.md` ×2;
+  `docs/CHANGELOG.md` ×3 — all S-142/S-151, autocomplete), 8 became Epic 31
+  (`docs/requirements-document.md`; `docs/CHANGELOG.md` ×6;
+  `docs/decisions/0101-*.md` — all S-199–S-205/xG Predict), and one
+  historical `docs/CHANGELOG.md` entry (2026-08-31, "new Epic 13") was
+  annotated "later renumbered Epic 31 by S-236" rather than rewritten, to
+  avoid misrepresenting what actually shipped that day. No ADR — this is a
+  documentation-numbering fix, not a structural/architectural decision
+  under ADR-0000's template scope, same precedent as S-235's own no-ADR
+  call. `CODE_HEALTH_ASSESSMENT.md`/`CODEBASE_ANALYSIS.md` also matched a
+  repo-wide grep but were left untouched — out of this story's named
+  scope, and both only describe the collision itself (not a reference
+  needing disambiguation), so no follow-up flag needed. Verified via
+  `grep -oE "^## Epic [0-9]+" docs/backlog.md | sort | uniq -c` (no count
+  above 1). Doc-only change, no tests to run.
 - 2026-09-13 — no docs changed beyond this entry — S-235 (`docs/backlog.md`
   Epic 30): extracted `App.tsx`'s hash-routing/seed-state navigation
   machinery (the `Screen` union, `SCREEN_HASHES`/`HASH_TO_SCREEN`/
@@ -1937,7 +1967,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `ci.yml`'s `workflow_dispatch` is still needed before this is treated as
   passing. REQ/ADR refs: REQ-301, REQ-1301, ADR-0102, ADR-0072, ADR-0027,
   ADR-0096, ADR-0097, ADR-0099.
-- 2026-09-02 — `docs/design-document.md` (0.85→0.86) — S-202 (Epic 13):
+- 2026-09-02 — `docs/design-document.md` (0.85→0.86) — S-202 (Epic 31):
   closed the frontend gap S-198 explicitly left open —
   `frontend/src/users/UserStatsScreen.tsx` (SCREEN-13) widened from a
   two-game (xG Grid/xG Path) switcher to three, mirroring
@@ -1990,7 +2020,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   default. No code changed by this correction — S-204 was not yet
   implemented.
 - 2026-09-02 — `docs/decisions/0095-xg-predict-scoring-direction-exception.md`,
-  `docs/requirements-document.md` (2.37→2.38) — S-205 (Epic 13): closed the
+  `docs/requirements-document.md` (2.37→2.38) — S-205 (Epic 31): closed the
   standing item S-193's `architecture-reviewer` left open —
   `XGPredictScoringStrategy.ScorePrediction` is now confirmed, via a new
   amendment to ADR-0095, as `"xg-predict"`'s deliberate and permanent
@@ -2006,7 +2036,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   "do not refactor speculatively" instruction.
 - 2026-09-02 — `docs/backlog.md`, `docs/requirements-document.md`
   (2.36→2.37), `docs/implementation-document.md` (1.16→1.17) — S-203
-  (Epic 13, REQ-1301/1302/1303/1304/1305/1306/410): doc-sync for
+  (Epic 31, REQ-1301/1302/1303/1304/1305/1306/410): doc-sync for
   `frontend/tests/e2e/play-predict.spec.ts`, the new Playwright E2E spec
   covering the full xG Predict playthrough (5-match slate, submission,
   round-wide lock notice, per-player confirm-and-lock including cancel,
@@ -2024,7 +2054,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `docs/requirements-document.md` (2.35→2.36), `docs/architecture-document.md`
   (1.30→1.31), `docs/implementation-document.md` (1.15→1.16),
   `docs/legal/privacy-policy-draft.md` (0.11→0.12) — S-201
-  (Epic 13, REQ-710): account deletion now anonymizes
+  (Epic 31, REQ-710): account deletion now anonymizes
   `PredictMatchPrediction.UserId` (nullable, same treatment as `Guess`) and
   hard-deletes `PredictPlayerLock` rows (`UserId` non-nullable, half its
   composite primary key) for the deleted user, closing the gap flagged in
@@ -2051,7 +2081,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   confirm-and-lock flag's hard-delete (vs. anonymize) treatment — REQ-710,
   ADR-0003, ADR-0101.
 - 2026-08-31 — `docs/decisions/0098-predict-confirm-lock-placement-and-storage.md`,
-  `docs/backlog.md` — S-200 (Epic 13): closed the security risk ADR-0098's
+  `docs/backlog.md` — S-200 (Epic 31): closed the security risk ADR-0098's
   Consequences section flagged — `GuessEndpoints`/`GuessSubmissionService`
   had no `GameKey` allow-list, so REQ-1306's per-player confirm-lock
   (enforced only in `PredictEndpoints`) was only incidentally protected by
@@ -2072,7 +2102,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   the risk closed — REQ-201/202, ADR-0098.
 - 2026-08-31 — `docs/requirements-document.md` (2.34→2.35),
   `docs/architecture-document.md` (1.29→1.30), `docs/backlog.md` — S-199
-  (Epic 13, ADR-0100): wired `"xg-predict"` round totals into
+  (Epic 31, ADR-0100): wired `"xg-predict"` round totals into
   `LeaderboardService` — every scope (REQ-404/406/407/408/409/411) now
   sources round totals through a new per-`GameKey`
   `Core.Scoring.IRoundScoreSource`/`IRoundScoreSourceResolver`, closing the
@@ -2161,7 +2191,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `PredictMatch` result retention if the account ever lapses, not a
   blocker today. The required frontend attribution line remains
   unimplemented, tracked in `TODO.md` — REQ-1301, REQ-1305, ADR-0099.
-- 2026-08-31 — `docs/backlog.md` (new Epic 13, S-199 through S-205) — audit
+- 2026-08-31 — `docs/backlog.md` (new Epic 13, later renumbered Epic 31 by
+  S-236, S-199 through S-205) — audit
   of the xG Predict stories (S-190–S-198), all now merged, against their
   own "Explicitly out of scope"/follow-up notes turned up seven open gaps,
   none silently fixed or dropped: (1) S-199, `LeaderboardService` never
