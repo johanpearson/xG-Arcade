@@ -12626,3 +12626,260 @@ benefits from being able to run it directly first).
   it go stale silently.
 
 ---
+
+## Epic 32 — Technical debt remediation, round 10 (2026-09-14 sweep, refactor half)
+
+Source: the same 2026-09-14 `code-health-auditor` sweep that produced
+Epic 30's re-verification (`CODE_HEALTH_ASSESSMENT.md`/
+`CODEBASE_ANALYSIS.md`, PR #379). That sweep's own top-10 refactoring-target
+ranking found **no current hotspots** — every other ranked item was
+explicitly re-confirmed as "not a finding" (large-but-cohesive registries,
+a deliberate lint-warning trade-off, a deliberate script divergence) or
+"watch-only, revisit later" (an `IGameModule` below the line-count
+threshold that triggered past splits). Only one item crossed from
+watch-only into an actionable story this pass. Same house rule as
+Epics 7/9/17/21/22/23/24/30: pure refactor — no behavior change, no new
+REQ IDs.
+
+**S-239 · Split `frontend/src/lib/types.ts` into domain-grouped modules**
+`frontend/src/lib/types.ts` has grown to 1,305 lines / 78 types (roughly
+2x its size at the last point it was checked), with high churn — nearly
+every new screen or game adds its own request/response/view-model types
+here. It carries no duplicated logic (it's pure type declarations, so the
+`code-health-budget` duplicated-shape scanner correctly doesn't flag it),
+but its size makes it hard to find a given type without a full-text
+search, and it has become a single high-churn file every feature branch
+touches, raising merge-conflict odds for unrelated work. Split it into
+domain-grouped modules mirroring `frontend/src/lib/api.ts`'s own S-111
+precedent (that file was split the same way for the same reason) — e.g.
+`types/grid.ts`, `types/predict.ts`, `types/connect.ts`,
+`types/higher-lower.ts`, `types/social.ts` (friends/challenges/
+matchmaking), `types/leagues.ts`, `types/auth.ts`, with a barrel
+`types/index.ts` (or `lib/types.ts` re-exporting from `types/`) so no
+import site outside `lib/` needs to change. Read every current import of
+`lib/types.ts` first (`grep -rn "from '.*lib/types'"` across
+`frontend/src/`) to confirm the split's module boundaries actually match
+how types are consumed together, rather than splitting by guesswork.
+*Accept:* every existing import of a type from `lib/types.ts` still
+resolves (either unchanged via the barrel, or updated at each call site —
+implementer's call which, consistent with how S-111 handled `api.ts`);
+`npm run test`, `tsc -b`, and `oxlint` all pass unchanged; no type is
+renamed or has its shape changed — pure file-organization move.
+*Deps:* none.
+
+---
+
+## Epic 33 — Test coverage closure (2026-09-14 code health sweep, coverage half)
+
+Source: the same 2026-09-14 sweep, extended this pass (at the user's
+request) to a REQ-mapped test coverage gap analysis — not previously
+tracked as backlog stories. Every REQ ID named below was checked directly
+against `docs/requirements-document.md`'s own "Test level" line and the
+actual test files on disk before being written up here, so none of this
+is guesswork from the aggregate coverage percentage. Unlike Epic 32 (and
+the Epic 7/9/17/21/22/23/24/30 lineage), these stories **add new test
+coverage** rather than refactor existing code — no production behavior
+change, no new REQ IDs, but not "pure refactor" either, so kept in a
+separate epic rather than folded into the tech-debt lineage. All assigned
+to `test-writer` except S-248.
+
+**S-240 · Backend unit test: concurrent-guess uniqueness correctness (REQ-603)**
+REQ-603 ("Uniqueness calculation must handle concurrent guesses correctly
+— no race conditions producing an incorrect percentage") is the only
+REQ-6xx non-functional requirement with no test anywhere in
+`backend/tests/` exercising it — a targeted search for `REQ603` across the
+test tree returns nothing. Write a test that submits multiple guesses for
+the same cell concurrently (`Task.WhenAll` over several
+`IGuessService`/`GuessEndpoints` calls against the same cell, sized enough
+to make a race condition observable, e.g. 20-50 concurrent submissions)
+and asserts the resulting uniqueness percentage/count matches what a
+sequential run of the same guesses would produce — no lost update, no
+double-count. Read `UniquenessScoringStrategy` (and whatever guards its
+read-modify-write path today — a DB transaction, an `EF Core` concurrency
+token, or an in-memory lock) before writing the test, since the test's
+own assertion strategy depends on knowing which mechanism is supposed to
+be preventing the race.
+*Accept:* a new `REQ603_...`-named test exists (unit if the scoring logic
+is DB-independent per REQ-601, otherwise API/integration against a real
+DB — match whatever `UniquenessScoringStrategy`'s existing tests already
+use); it fails against a deliberately-race-vulnerable version of the code
+(verify this before trusting the test) and passes against current `main`.
+*Deps:* a session with local `dotnet` SDK access, or CI-only verification
+per `CLAUDE.md`'s "Testing without a local dotnet SDK".
+
+**S-241 · Backend API test: auth confirmation-flow REQs (REQ-702/703/704/706)**
+`AuthEndpointTests.cs`'s own header comment explicitly scopes itself away
+from REQ-702 through REQ-705 ("out of scope for this file"), and no other
+test file picks up REQ-702 (unconfirmed accounts blocked from guessing/
+league actions), REQ-703 (confirmation email has both a link and a code;
+using one invalidates the other), or REQ-704 (resend respects the 60s
+cooldown, returns a clear wait-time message rather than a generic error)
+— a targeted search for each REQ number across `backend/tests/` confirms
+zero hits for all three. (REQ-705's expiry behavior is covered elsewhere,
+per the original code-health sweep's finding — do not re-add it here.)
+REQ-706 is `Status: Deferred` (its own "Test level: Not yet applicable"
+line) — confirm on pickup that it's still deferred in
+`docs/requirements-document.md` before treating it as in-scope; if still
+deferred, only add the one concrete already-built piece REQ-706 describes
+today (`NotificationPreference.RoundResultsOptIn` defaulting to `true` on
+account creation, if that column/default already exists) and leave the
+email-sending half alone.
+*Accept:* `REQ702_...`/`REQ703_...`/`REQ704_...`-named API tests exist and
+pass against current `main`, each covering the acceptance-criteria bullets
+in `docs/requirements-document.md` (REQ-702: guess/create-league/join-
+league blocked pre-confirmation with a clear message, public browsing
+unaffected; REQ-703: both link and code confirm, using one invalidates the
+other, an already-confirmed second attempt returns a clear message not an
+error; REQ-704: resend respects cooldown, pre-cooldown resend returns a
+clear wait-time message).
+*Deps:* a session with local `dotnet` SDK access, or CI-only verification
+per `CLAUDE.md`'s "Testing without a local dotnet SDK".
+
+**S-242 · Frontend unit test: `PredictMatchInput.tsx`**
+`frontend/src/predict/PredictMatchInput.tsx` (the interactive
+match-typeahead input for xG Predict) has no dedicated test file — its
+only coverage is indirect, via `PredictScreen.test.tsx` exercising it as
+a rendered child. Every other interactive input-shaped component in this
+codebase (per the pattern `quality-architect`/`test-writer` have applied
+elsewhere) has its own direct unit test covering its own input/selection/
+validation behavior in isolation, independent of whatever screen happens
+to render it. Add `PredictMatchInput.test.tsx` covering: typing filters
+the candidate list, selecting a candidate (click and keyboard) fires the
+expected callback with the right value, and whatever empty/no-match state
+the component renders.
+*Accept:* new `PredictMatchInput.test.tsx` passes; `npm run test`,
+`tsc -b`, and `oxlint` all pass unchanged; `PredictScreen.test.tsx`'s
+existing indirect coverage is left in place, not removed (belt-and-
+suspenders, not a replacement).
+*Deps:* none — verifiable in a normal frontend session.
+
+**S-243 · E2E: account signup and email confirmation (REQ-701-705)**
+Of the 9 existing Playwright specs (`frontend/tests/e2e/`), none cover
+account creation or email confirmation — every spec assumes a login
+helper or a pre-seeded session. This is the highest-priority E2E gap by
+user-journey criticality: a brand-new user's first-ever interaction with
+the product is entirely untested end-to-end, covered only at the Vitest/
+NUnit level. Add a spec covering: sign up with a new email → confirmation
+required before play (REQ-702, e.g. attempting a guess or league action
+pre-confirmation shows the blocking message) → confirm via the numeric
+code path (the link path requires receiving a real email, out of scope
+for a Playwright run against a real backend — confirm which confirmation
+path, if any, the backend's test-data endpoints let this suite trigger
+without a live inbox, per COMP-09/ADR-0006's `/internal/test-data/*`
+pattern already used by `play-grid.spec.ts`) → post-confirmation, the
+same previously-blocked action now succeeds.
+*Accept:* a new `frontend/tests/e2e/signup-confirmation.spec.ts` passes
+against `ci.yml`'s real backend, following the existing specs'
+`/internal/test-data/*`-seeding and Turnstile-stub conventions
+(`turnstile-stub.ts`); registered in whatever spec list `ci.yml`'s E2E
+job already runs (confirm it isn't glob-based and doesn't need an
+explicit addition).
+*Deps:* a session that can run `npm run test:e2e` against a real backend,
+or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+
+**S-244 · E2E: leaderboard and league flows (REQ-401/402/404/405)**
+No existing spec ever opens the leaderboard or exercises custom leagues —
+today's 9 specs stop at "play the game," never checking that a result
+actually lands on a leaderboard a player can see, or that REQ-402/403's
+custom-league create/join flow works end-to-end. Add a spec covering: a
+seeded round closes → the global leaderboard (REQ-401/404) shows the
+locked result → creating a custom league (REQ-402) produces an invite
+code → joining via that code (REQ-403) adds the second player to it. Time
+-window resolutions (REQ-405) can be a lighter follow-on assertion in the
+same spec (switch to "week"/"month" and confirm the view renders) rather
+than a separate file, since it reuses the same seeded-round setup.
+*Accept:* a new `frontend/tests/e2e/leaderboard-leagues.spec.ts` passes
+against a real backend, using the same round-force-close test-data
+endpoint (REQ-806) `play-grid.spec.ts` already depends on to get a locked
+result without waiting out a real round.
+*Deps:* a session that can run `npm run test:e2e` against a real backend,
+or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+
+**S-245 · E2E: admin review flows (REQ-501/509/510)**
+No existing spec logs in as an admin or touches `AdminScreen.tsx`/
+`SuggestionsScreen.tsx` — the entire admin surface (manual player-override
+correction, REQ-509's suggestion review-and-commit, REQ-510's direct
+Wikidata search-and-add) is API- and Vitest-tested only. Add a spec
+covering, as one admin session: submit a player suggestion as a regular
+user (REQ-215) → log in as an admin (test-data endpoints presumably seed
+an `Admin__UserIds`-listed account, same allowlist
+`architecture-document.md` §7 describes) → review and commit it
+(REQ-509) → separately, use the standalone search-and-add path (REQ-510)
+to correct a different player directly → confirm both changes are
+reflected in a subsequent guess's correctness (mirroring
+`REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess`'s
+own API-level pattern, but through the UI this time).
+*Accept:* a new `frontend/tests/e2e/admin-review.spec.ts` passes against
+a real backend; confirms the commit path's effect is externally
+observable (a guess flips from incorrect to correct), not just that the
+admin UI shows a success toast.
+*Deps:* a session that can run `npm run test:e2e` against a real backend,
+or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+
+**S-246 · E2E: friends, challenges, and matchmaking (REQ-1401-1403/1417/1418)**
+`play-connect.spec.ts` covers playing a single xG Connect match, but
+nothing exercises how two players actually get matched in the first
+place — REQ-1401's friend request send/accept/decline, REQ-1402's direct
+challenge-a-friend flow, REQ-1403's opt-in random matchmaking, REQ-1417's
+Not-Started/Ongoing/Completed match-list tabs, or REQ-1418's opponent-
+chain reveal after resolution. This needs two authenticated browser
+contexts in the same test (Playwright's multi-context support — see
+Playwright's own docs for the pattern, not a single-page trick) since
+friending/challenging is inherently a two-player interaction. Add a spec
+covering: user A sends a friend request → user B accepts (REQ-1401) → A
+challenges B (REQ-1402) → B accepts, producing a `ConnectMatch` → both
+play it out (reusing `play-connect.spec.ts`'s own play-through logic
+rather than duplicating it — extract a shared helper if needed) → after
+resolution, each can see the other's completed chain (REQ-1418). Random
+matchmaking (REQ-1403)'s 12-hour pairing window and the sweep service are
+better suited to a backend integration/API test than E2E (no realistic
+way to observe a 12h expiry in a Playwright run) — note this explicitly
+rather than attempting it, and file that as backend API coverage if it
+doesn't already exist.
+*Accept:* a new `frontend/tests/e2e/friends-challenges.spec.ts` passes
+against a real backend using two Playwright browser contexts; REQ-1403's
+opt-in call itself (not the 12h expiry) is still exercised, either in this
+spec or confirmed already covered elsewhere.
+*Deps:* a session that can run `npm run test:e2e` against a real backend,
+or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+
+**S-247 · E2E: account deletion (REQ-710)**
+REQ-710's account deletion (password-reconfirmation, anonymized `Guess`
+rows, Supabase Auth identity removal, email freed for re-registration) is
+covered at the API level (S-025) and presumably at the Vitest level
+(S-039's frontend flow), but no E2E spec exercises the full delete-account
+UI flow against a real backend. Add a spec covering: log in → navigate to
+the delete-account flow (S-039) → confirm with password → assert the
+session is logged out and a subsequent login attempt with the same
+credentials fails → optionally, re-register with the same email to
+confirm REQ-710's "email becomes available for a new account" bullet.
+*Accept:* a new `frontend/tests/e2e/account-deletion.spec.ts` passes
+against a real backend; does not depend on or interfere with other specs'
+seeded users (use a freshly-signed-up user within the spec itself, not a
+shared fixture account).
+*Deps:* a session that can run `npm run test:e2e` against a real backend,
+or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+
+**S-248 · Decide REQ-711 (data export)'s launch status — not a test-writer story**
+REQ-711 (GDPR data export: account info, guess history, league
+memberships, notification preferences as a machine-readable export) has
+no implementation anywhere in `backend/src/` — a targeted search for
+`export` across `XGArcade.Api`/`XGArcade.Core` finds nothing REQ-711-
+shaped. Its "no test" status reflects "not built," not a testing gap, so
+this is not a `test-writer` pickup: it needs a product decision first —
+is this in scope before launch (it's a real GDPR right, same legal
+footing as REQ-710, which is already implemented), or explicitly deferred
+like REQ-706 was? Route to `requirements-writer` to either (a) mark
+REQ-711 `Status: Deferred` with the same explicit reasoning REQ-706 got,
+updating `docs/legal/*.md` to match if the privacy policy currently
+implies export is available, or (b) leave it as-is and write the actual
+implementation story (backend export endpoint + minimal UI entry point,
+sized similarly to S-025's REQ-710 delivery) for a future session.
+*Accept:* either an explicit `Status: Deferred` note lands on REQ-711
+(with `docs/legal/*.md` checked for consistency), or a new, properly
+-scoped implementation story is added to this backlog — not left silently
+unimplemented with no tracking either way.
+*Deps:* none — a documentation/planning decision, not an implementation
+session.
+
+---
