@@ -12436,6 +12436,41 @@ jobs are unaffected; an ADR exists for the tool/threshold/blocking-vs-
 warning choice actually made.
 *Deps:* none (independent of S-235/S-236; can run in parallel).
 
+**S-238 · Survey a backend (C#) duplicate-shape scanner for the `code-health-budget` CI job**
+S-237's `code-health-budget` job (`.github/workflows/ci.yml`,
+`docs/decisions/0115-ci-backstop-for-code-health-budget.md`) implements
+ADR-0084's duplicated-shape check for `frontend/src/**` only, via
+`jscpd`. It deliberately does not cover `backend/` — the sandbox that
+built S-237 has no `dotnet` SDK (`which dotnet` returns nothing) and
+could not prototype or validate a C# duplicate-detection tool against
+this repo's real code before shipping it, and shipping an unverified
+backend check risked either silently doing nothing or over-firing with
+no way to tell which. This story is that survey, explicitly gated on
+`dotnet` SDK access: evaluate realistic options for exact/near-duplicate
+block detection in C# (e.g. a Roslyn-syntax-tree-based analyzer, a CPD-
+style tool with a C# grammar/language module), pick one following the
+same "start permissive, tune against this tree's already-reviewed-and-
+cleared findings" approach S-237 used (the current Epic 30 "Investigated
+and declined" backend items — `ServiceRegistration.cs`,
+`CliVerbDispatcher.cs`, `WikidataClient.cs`, `XGPredictGameModule.cs`,
+`ConnectChainStepDisputeService.cs`/`ConnectChainStepDisputeEndpoints.cs`/
+`RoundGenerationService.cs` — must not be flagged as false positives),
+wire it into the same `code-health-budget` job as a second scan
+(diff-touch-filtered the same way the frontend half is, 3+-occurrence
+grouping, not just pairwise), and record the tool/threshold choice in an
+ADR extending 0115 (or a new one, implementer's call once the option is
+known). Keep it non-required (soft-fail), matching 0115's blocking-vs-
+warning decision for the frontend half, unless a reason emerges to
+diverge.
+*Accept:* a backend duplicate-shape scan runs in `code-health-budget`
+(or a clearly-named sibling job) on every PR touching `backend/`; it does
+not false-positive on the backend items named above; an ADR documents the
+tool/threshold choice; the frontend half (S-237) is untouched.
+*Deps:* a session with local `dotnet` SDK access (or CI-only
+verification — see `CLAUDE.md`'s "Testing without a local dotnet SDK" for
+how to validate without one locally, though tool *selection* still
+benefits from being able to run it directly first).
+
 **Investigated and declined this pass (not written up as stories):**
 - `backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs` (761
   lines, 18 commits — now the single highest-churn source file in the

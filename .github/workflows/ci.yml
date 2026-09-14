@@ -137,6 +137,118 @@ jobs:
           reporter: java-junit
           use-actions-summary: false
 
+  # S-237 / ADR-0084 CI backstop. Mechanical automation for two of the
+  # three "Code health budget (per diff)" checks in docs/coding-
+  # guidelines.md that quality-architect otherwise applies by hand on
+  # every review (duplicated-shape rule-of-three, sibling-relative
+  # god-file size — the churn-hotspot check stays judgment-based, it's
+  # deliberately not part of this job, see docs/decisions/ for the
+  # rationale). Not in this repo's branch-protection required-checks list
+  # (only backend-tests/frontend-unit-tests/e2e-tests are, see the
+  # `changes` job's comment above) — this job can go red without blocking
+  # merge, a deliberate soft-fail/informational-for-now choice, also
+  # documented in that ADR.
+  code-health-budget:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: both checks diff against a base commit (PR base
+          # branch or the pre-push tip) to tell new/changed content apart
+          # from what already existed — a shallow clone wouldn't have that
+          # history available to diff against.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Determine diff base and touched/added files
+        id: diff
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            pull_request)
+              # Explicit refspec (not just `origin <base_ref>`): actions/
+              # checkout doesn't always leave the standard
+              # `+refs/heads/*:refs/remotes/origin/*` fetch refspec in
+              # place, so this makes sure `origin/<base_ref>` actually
+              # exists locally afterwards instead of relying on it. No
+              # --depth here (unlike a throwaway shallow fetch elsewhere in
+              # this file) — fetch-depth: 0 above already means full
+              # history for every branch is available locally, and
+              # git merge-base needs that full ancestry to find a common
+              # commit with a feature branch that has diverged from a
+              # `main` that's since moved on.
+              git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+              base_sha=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+              git diff --name-only --diff-filter=ACMR "${base_sha}...HEAD" > /tmp/diff-touched-files.txt
+              echo "base_sha=${base_sha}" >> "$GITHUB_OUTPUT"
+              echo "mode=enforce" >> "$GITHUB_OUTPUT"
+              ;;
+            push)
+              base_sha="${{ github.event.before }}"
+              git diff --name-only --diff-filter=ACMR "${base_sha}..${{ github.sha }}" > /tmp/diff-touched-files.txt
+              echo "base_sha=${base_sha}" >> "$GITHUB_OUTPUT"
+              echo "mode=enforce" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_dispatch)
+              # No base to diff against, and a manual trigger means someone
+              # explicitly wants to see what the checks report — same
+              # "report, don't enforce" choice the `changes` job makes for
+              # path filtering on this event.
+              : > /tmp/diff-touched-files.txt
+              echo "base_sha=" >> "$GITHUB_OUTPUT"
+              echo "mode=report-only" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          echo "Diff-touched files:"
+          cat /tmp/diff-touched-files.txt
+      - name: Duplicate-shape scan (frontend/src, jscpd)
+        working-directory: frontend
+        run: |
+          mkdir -p /tmp/jscpd-report
+          # jscpd@5.2.0 pinned exactly (this repo's devDependencies use
+          # caret ranges for things it builds against long-term; a
+          # one-shot CI tool invoked via npx is pinned exactly instead, so
+          # a new jscpd release can't silently change what this job
+          # flags). min-tokens/min-lines are jscpd's own defaults, kept
+          # explicit here rather than implicit, and landed on after
+          # validating them against this tree (see the ADR for this
+          # story) — deliberately permissive per the backlog's own
+          # "start permissive" instruction, since 3+ grouping (done by the
+          # next step, jscpd has no such concept itself) is what actually
+          # keeps this from being noisy. mode=mild (default) + no
+          # --ignore-identifiers/--ignore-literals: only *exact* token
+          # matches count, not "same shape, different names" — the latter
+          # is closer to code-health-auditor's judgment-based sweep than
+          # something this backstop should attempt.
+          npx --yes jscpd@5.2.0 src \
+            --format typescript,tsx \
+            --ignore "**/*.test.ts,**/*.test.tsx,**/*.d.ts" \
+            --min-tokens 50 \
+            --min-lines 5 \
+            --mode mild \
+            --reporters json,console \
+            --no-colors \
+            --output /tmp/jscpd-report
+      - name: Evaluate duplicate-shape budget
+        id: duplicate-shapes
+        run: |
+          node .github/scripts/check-duplicate-shapes.mjs \
+            /tmp/jscpd-report/jscpd-report.json \
+            /tmp/diff-touched-files.txt \
+            "${{ steps.diff.outputs.mode }}"
+      - name: Evaluate god-file/sibling-size budget
+        # Runs even if the duplicate-shape step above failed, so both
+        # checks always get a chance to report — the job as a whole still
+        # ends up red if either one failed (GitHub Actions' default: a job
+        # fails if any of its steps fail, `if: always()` only controls
+        # whether *this* step still runs, not the job's overall outcome).
+        if: always()
+        run: |
+          bash .github/scripts/check-new-file-sizes.sh "${{ steps.diff.outputs.base_sha }}"
+
   e2e-tests:
     runs-on: ubuntu-latest
     needs: [changes, backend-tests, frontend-unit-tests]
