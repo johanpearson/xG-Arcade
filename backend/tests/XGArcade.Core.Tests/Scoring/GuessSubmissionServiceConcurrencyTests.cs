@@ -147,8 +147,23 @@ public class GuessSubmissionServiceConcurrencyTests
         var concurrentCellId = Guid.NewGuid();
         var concurrentGameModule = BuildGameModule(answerByUserId);
 
-        await Task.WhenAll(plan.Select(p =>
-            SubmitOneAsync(concurrentDatabaseName, concurrentRound.Id, p.UserId, concurrentCellId, p.AnswerId, concurrentGameModule)));
+        // Task.Run, not a bare SubmitOneAsync(...) call, is load-bearing here:
+        // EF Core's InMemory provider has no real I/O, so every "async" step
+        // in SubmitOneAsync's call chain (GetAsync/ScoreSubmissionAsync/
+        // AddAsync/SaveChangesAsync) tends to complete synchronously. An
+        // async method only yields back to its caller at its first
+        // genuinely-incomplete await — if every await inside completes
+        // synchronously, calling SubmitOneAsync(...) directly inside
+        // Select(...) would run each submission to completion, one at a
+        // time, on the single thread driving Task.WhenAll's enumeration,
+        // before the next one is even started — sequential execution
+        // disguised as "concurrent" code, which would make this test pass
+        // even against a genuinely race-vulnerable version. Task.Run forces
+        // each submission onto its own ThreadPool thread, giving real,
+        // OS-scheduled parallel execution instead of relying on async
+        // interleaving InMemory's synchronous implementation won't provide.
+        await Task.WhenAll(plan.Select(p => Task.Run(() =>
+            SubmitOneAsync(concurrentDatabaseName, concurrentRound.Id, p.UserId, concurrentCellId, p.AnswerId, concurrentGameModule))));
 
         List<Guess> concurrentGuesses;
         await using (var readContext = new XGArcadeDbContext(concurrentOptions))
