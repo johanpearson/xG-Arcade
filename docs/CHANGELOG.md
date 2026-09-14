@@ -13,6 +13,53 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-14 — `.github/workflows/ci.yml`, new `docs/decisions/0115-ci-backstop-for-code-health-budget.md`,
+  `docs/backlog.md` (Epic 30: S-237 "Built as" note, new follow-up S-238) —
+  implemented S-237, an automated CI backstop for ADR-0084's per-diff
+  "Code health budget" (`docs/coding-guidelines.md`), which until now
+  `quality-architect` applied only by manual review. New `code-health-budget`
+  job in `ci.yml` runs two of the three ADR-0084 checks mechanically:
+  a `jscpd`-based duplicate-shape scan (`frontend/src/**` only, via new
+  `.github/scripts/check-duplicate-shapes.mjs`, which groups jscpd's
+  pairwise clone output into 3+-occurrence groups and fails only when a
+  diff-touched file is in one — "rule of three, not five") and a
+  sibling-relative god-file size check (`frontend/` + `backend/`, via new
+  `.github/scripts/check-new-file-sizes.sh`, flagging a diff-*added* file
+  more than 50% larger than the largest pre-existing sibling in its
+  directory with no doc-comment justification). The third ADR-0084 check
+  (churn-aware hotspot risk) stays `quality-architect`'s manual judgment
+  call, unchanged. Backend duplicate-shape detection is explicitly
+  frontend-deferred — this sandbox has no `dotnet` SDK to prototype a C#
+  tool against, so a new follow-up story (S-238, Epic 30) surveys that
+  once a session with `dotnet` access exists. The new job is deliberately
+  **not** added to branch protection's required-status-checks list
+  (confirmed to be exactly `backend-tests`/`frontend-unit-tests`/
+  `e2e-tests`) — it can go red without blocking merge, the "soft-fail
+  first" default the backlog story asked for, achieved with no extra
+  mechanism. Validated against current `main`: none of S-237's own
+  "Investigated and declined" false-positive set (`ServiceRegistration.cs`,
+  `CliVerbDispatcher.cs`, `WikidataClient.cs`, `frontend/src/social/*.tsx`
+  post-`FetchListSection.tsx`-extraction, `XGPredictGameModule.cs`, the
+  `ConnectChainStepDispute*`/`RoundGenerationService.cs` group) is flagged;
+  a deliberately reintroduced rule-of-three duplicate and a deliberately
+  oversized new file were each confirmed to fail the job before being
+  removed. `quality-architect`'s pre-merge review caught one real bug —
+  the god-file script's sibling listing could silently miscount a
+  subdirectory as a file (this repo's C#-namespace-per-folder layout makes
+  that a real false-negative risk, not hypothetical) — fixed, and
+  committed regression tests were added for both scripts under
+  `.github/scripts/tests/` (wired into the job itself as its first step),
+  replacing the original reset-away manual fixture testing. `architecture-
+  reviewer` found no blocking issues; ADR-0115 was updated to explicitly
+  note it substitutes duplicated-shape automation for the churn-count half
+  ADR-0084's own Follow-up literally named, with independent reasoning
+  rather than silently re-litigating ADR-0084's Alternatives table (which
+  had rejected automating shape detection specifically). No
+  `docs/requirements-document.md`/`docs/architecture-document.md` change —
+  process/CI tooling only, no REQ or COMP-xxx affected; `infra/README.md`
+  read per the standing `.github/workflows` instruction but not edited (no
+  new secret, environment, or deploy-pipeline change). ADR-0115 supersedes
+  neither ADR-0084 nor `docs/decisions/0000-template.md`'s scope.
 - 2026-09-14 — `docs/backlog.md`, `docs/requirements-document.md` (no
   version bump, `last_updated` only), `docs/CHANGELOG.md`,
   `docs/decisions/0101-account-deletion-purges-per-game-data-via-igamemodule.md`

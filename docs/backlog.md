@@ -12471,6 +12471,81 @@ before considering the job done); `ci.yml`'s existing test/lint/build
 jobs are unaffected; an ADR exists for the tool/threshold/blocking-vs-
 warning choice actually made.
 *Deps:* none (independent of S-235/S-236; can run in parallel).
+**Built as:** matches the plan, scoped frontend-only for the duplicate-shape
+half exactly as pre-authorized (backend half filed as the new S-238 below,
+blocked on `dotnet` SDK access). New `code-health-budget` job in
+`.github/workflows/ci.yml`: `npx jscpd@5.2.0` scans `frontend/src/**`,
+`.github/scripts/check-duplicate-shapes.mjs` groups its pairwise output
+into 3+-occurrence groups and fails only when a diff-touched file is in
+one; `.github/scripts/check-new-file-sizes.sh` covers both `frontend/`
+and `backend/`, flagging a diff-*added* file (never a modified one) that's
+>50% larger than the largest pre-existing sibling in its directory with no
+doc-comment justification. Deliberately not added to branch protection's
+required-checks list (confirmed to be exactly `backend-tests`/
+`frontend-unit-tests`/`e2e-tests`) — the job can go red without blocking
+merge, giving the "start permissive/soft-fail first" behavior the story
+asked for with no extra mechanism. Validated against current `main`:
+none of this entry's own "Investigated and declined" items below are
+flagged (the god-file check is add-only by design so pre-existing files
+can never trip it regardless of size; a whole-tree jscpd scan of
+`frontend/src/social/*.tsx` specifically confirms zero clones post-
+`FetchListSection.tsx` extraction); a deliberately reintroduced
+rule-of-three duplicate and a deliberately oversized new file were each
+confirmed to fail the job, then removed. `quality-architect`'s review
+caught one real bug before merge — `check-new-file-sizes.sh`'s sibling
+listing (`git ls-tree`) returns both files and subdirectories with no
+type filtering, and `git show base:<subdir>` doesn't fail, so a
+subdirectory could be silently miscounted as a "sibling file" in this
+repo's C#-namespace-per-folder layout (a false-negative risk, e.g.
+`backend/src/XGArcade.Core/`'s 8 subdirs + 1 real file) — fixed by
+guarding with `git cat-file -t`, plus committed regression tests for both
+scripts under `.github/scripts/tests/` (wired into the job itself, since
+the original validation had been `git reset --hard`-away manual testing
+with nothing left to catch a regression). `architecture-reviewer` found
+no blocking issues (one non-blocking note, addressed: ADR-0115 now
+explicitly acknowledges it substitutes duplicated-shape detection for the
+churn-count half ADR-0084's own Follow-up literally named, backed by
+independent reasoning rather than silently re-litigating ADR-0084's
+Alternatives table). ADR-0115 (`docs/decisions/`) records the tool/
+threshold/blocking-vs-warning choices. No `docs/requirements-document.md`/
+`docs/architecture-document.md` change — process/CI tooling, no REQ or
+COMP-xxx affected. Full detail: `docs/CHANGELOG.md`, 2026-09-14 entry
+(S-237).
+
+**S-238 · Survey a backend (C#) duplicate-shape scanner for the `code-health-budget` CI job**
+S-237's `code-health-budget` job (`.github/workflows/ci.yml`,
+`docs/decisions/0115-ci-backstop-for-code-health-budget.md`) implements
+ADR-0084's duplicated-shape check for `frontend/src/**` only, via
+`jscpd`. It deliberately does not cover `backend/` — the sandbox that
+built S-237 has no `dotnet` SDK (`which dotnet` returns nothing) and
+could not prototype or validate a C# duplicate-detection tool against
+this repo's real code before shipping it, and shipping an unverified
+backend check risked either silently doing nothing or over-firing with
+no way to tell which. This story is that survey, explicitly gated on
+`dotnet` SDK access: evaluate realistic options for exact/near-duplicate
+block detection in C# (e.g. a Roslyn-syntax-tree-based analyzer, a CPD-
+style tool with a C# grammar/language module), pick one following the
+same "start permissive, tune against this tree's already-reviewed-and-
+cleared findings" approach S-237 used (the current Epic 30 "Investigated
+and declined" backend items — `ServiceRegistration.cs`,
+`CliVerbDispatcher.cs`, `WikidataClient.cs`, `XGPredictGameModule.cs`,
+`ConnectChainStepDisputeService.cs`/`ConnectChainStepDisputeEndpoints.cs`/
+`RoundGenerationService.cs` — must not be flagged as false positives),
+wire it into the same `code-health-budget` job as a second scan
+(diff-touch-filtered the same way the frontend half is, 3+-occurrence
+grouping, not just pairwise), and record the tool/threshold choice in an
+ADR extending 0115 (or a new one, implementer's call once the option is
+known). Keep it non-required (soft-fail), matching 0115's blocking-vs-
+warning decision for the frontend half, unless a reason emerges to
+diverge.
+*Accept:* a backend duplicate-shape scan runs in `code-health-budget`
+(or a clearly-named sibling job) on every PR touching `backend/`; it does
+not false-positive on the backend items named above; an ADR documents the
+tool/threshold choice; the frontend half (S-237) is untouched.
+*Deps:* a session with local `dotnet` SDK access (or CI-only
+verification — see `CLAUDE.md`'s "Testing without a local dotnet SDK" for
+how to validate without one locally, though tool *selection* still
+benefits from being able to run it directly first).
 
 **Investigated and declined this pass (not written up as stories):**
 - `backend/src/XGArcade.Api/CompositionRoot/ServiceRegistration.cs` (761
