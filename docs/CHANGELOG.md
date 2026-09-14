@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-14 — `docs/backlog.md` (new Epic 32, Epic 33: S-239 through
+  S-248) — turned the same-day code health sweep's top refactoring
+  targets and REQ-mapped test coverage gaps into backlog stories, at the
+  user's explicit request. Epic 32 (refactor half, pure-refactor lineage
+  rule kept): S-239, splitting `frontend/src/lib/types.ts` (grown to
+  1,305 lines/78 types) into domain-grouped modules mirroring `api.ts`'s
+  own S-111 precedent — the sweep's only genuinely actionable refactoring
+  target; every other ranked item was re-confirmed as "not a finding" or
+  "watch-only," so no story was forced for those rather than pad the list.
+  Epic 33 (coverage half, new epic — adds coverage, not a refactor, so not
+  folded into the pure-refactor lineage): S-240 (REQ-603 concurrent-guess
+  unit test), S-241 (REQ-702/703/704/706 auth-confirmation API tests),
+  S-242 (`PredictMatchInput.tsx` direct unit test), S-243 through S-247
+  (five new Playwright E2E specs — signup/confirmation, leaderboard/
+  leagues, admin review, friends/challenges/matchmaking, account
+  deletion — closing the "only play-the-game flows have E2E coverage"
+  gap), and S-248 (REQ-711 data export has no implementation at all, so
+  routed to `requirements-writer` for a launch-status decision rather than
+  written as a `test-writer` story). Every REQ ID cited was checked
+  against `docs/requirements-document.md`'s own "Test level" line and the
+  actual test files on disk before being written up, not inferred from
+  the sweep's aggregate summary alone.
 - 2026-09-14 — `CODE_HEALTH_ASSESSMENT.md`, `CODEBASE_ANALYSIS.md` —
   `code-health-auditor` periodic sweep. Step 0 confirmed Epic 30's
   S-235/S-236/S-237 (all landed since the 2026-09-13 revision) are
