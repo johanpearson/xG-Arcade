@@ -117,7 +117,7 @@ public class GuessSubmissionServiceConcurrencyTests
     // Computes, for every user in the plan, the uniqueness score
     // UniquenessCalculator.Calculate produces given the full set of correct
     // Guess rows for the cell — a stable, order-independent view of the
-    // resulting population (REQ-604's formula depends only on the
+    // resulting population (REQ-204's formula depends only on the
     // population's composition, never on write order), keyed by UserId so
     // the concurrent-run and sequential-run results can be compared
     // directly without depending on either run's completion order.
