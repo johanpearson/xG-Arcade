@@ -6482,7 +6482,7 @@ covered by `backend/tests/XGArcade.Core.Tests/Scoring/GuessSubmissionServiceConc
 calls for the same cell, asserted to produce the same per-user uniqueness
 scores as a sequential run of the same guesses. Test-only; no change to
 this REQ's acceptance criteria or to the production read-then-write path
-described in `implementation-document.md` §5's race-condition note.
+described in `implementation-document.md` §6's race-condition note.
 
 **REQ-604 – Performance**
 - Page loads showing the live uniqueness percentage must respond within a

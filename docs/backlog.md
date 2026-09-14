@@ -12739,13 +12739,13 @@ synchronous awaits. Asserts no submission is lost and the resulting
 per-user uniqueness scores exactly match a sequential run of the same
 (user, answer) pairs. A third commit (`d37cf6d`) fixed an unrelated
 REQ-604→REQ-204 typo in a `UniquenessCalculator` comment found during
-quality-gate review. Verified via two CI runs: `architecture-reviewer`
-and `quality-architect` both returned PASS on the diff (quality flagged
-two non-blocking follow-ups — test-infrastructure duplication and
-`FakeGameModule`'s unsynchronized counters — neither requiring a doc
-change), and a manual `ci.yml` `workflow_dispatch` run confirmed
-backend-tests/frontend-unit-tests/e2e-tests all green, per the sandbox
-having no local `dotnet` SDK.
+quality-gate review. `architecture-reviewer` and `quality-architect` both
+returned PASS on the diff (quality flagged two non-blocking follow-ups —
+test-infrastructure duplication and `FakeGameModule`'s unsynchronized
+counters — neither requiring a doc change); since the sandbox had no
+local `dotnet` SDK, a manual `ci.yml` `workflow_dispatch` run was
+triggered per `CLAUDE.md`'s "Testing without a local dotnet SDK" and
+confirmed backend-tests/frontend-unit-tests/e2e-tests all green.
 
 **S-241 · Backend API test: auth confirmation-flow REQs (REQ-702/703/704/706)**
 `AuthEndpointTests.cs`'s own header comment explicitly scopes itself away
