@@ -3,7 +3,7 @@ doc_id: implementation-document
 title: Implementation Document
 version: "1.28"
 status: draft
-last_updated: 2026-09-06
+last_updated: 2026-09-14
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1265,8 +1265,27 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      existing caller) so "Back" from that
                                      screen returns to 'friends' when reached
                                      this way
-    /lib                          -> api.ts (typed fetch client), types.ts,
-                                     categoryDisplay.ts, guessRules.ts,
+    /types                         -> S-239 (2026-09-14): the 78 types
+                                     formerly in lib/types.ts (1,305 lines),
+                                     split by domain mirroring lib/api.ts's
+                                     own S-111 split — shared.ts (cross-domain,
+                                     e.g. PlayerAutocompleteSuggestion),
+                                     grid.ts, path.ts, predict.ts,
+                                     higher-lower.ts, connect.ts, auth.ts,
+                                     leaderboard.ts, leagues.ts, social.ts
+                                     (friends/challenges/matchmaking/
+                                     notifications), users.ts, admin.ts
+                                     (22 types, the largest), announcements.ts,
+                                     incidents.ts. No type renamed or
+                                     reshaped; lib/types.ts re-exports all of
+                                     them so every pre-existing import site
+                                     was left unchanged
+    /lib                          -> api.ts (typed fetch client), types.ts
+                                     (S-239, 2026-09-14: reduced to a 14-line
+                                     barrel re-exporting from /types above —
+                                     see that entry for where the 78 types
+                                     actually live now), categoryDisplay.ts,
+                                     guessRules.ts,
                                      scoringRules.ts (MAX_POINTS_PER_CELL,
                                      added 2026-07-14 bugfix), roundTime.ts
                                      (REQ-303's 2026-07-21 addition: pure

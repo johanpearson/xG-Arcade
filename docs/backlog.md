@@ -12666,6 +12666,21 @@ implementer's call which, consistent with how S-111 handled `api.ts`);
 `npm run test`, `tsc -b`, and `oxlint` all pass unchanged; no type is
 renamed or has its shape changed — pure file-organization move.
 *Deps:* none.
+**Built as:** 14 domain-grouped files under `frontend/src/types/`, matching
+the plan's named files plus the ones the story text left open —
+`shared.ts` (cross-domain, e.g. `PlayerAutocompleteSuggestion`), `grid.ts`,
+`path.ts`, `predict.ts`, `higher-lower.ts`, `connect.ts`, `auth.ts`,
+`leaderboard.ts`, `leagues.ts`, `social.ts` (friends/challenges/
+matchmaking/notifications), `users.ts`, `admin.ts` (22 types, the
+largest), `announcements.ts`, `incidents.ts`. `frontend/src/lib/types.ts`
+itself became a 14-line pure re-export barrel (the `lib/types.ts`
+re-exporting from `types/` option the story text offered), so all 48
+pre-existing import sites across ~40 files needed zero changes — none
+outside `lib/` were touched. No type was renamed and no shape changed.
+`npx tsc -b`, `npm run test` (Vitest), and `npx oxlint` all pass
+unchanged; `architecture-reviewer` and `quality-architect` both returned
+clean PASS verdicts with zero findings — no ADR warranted, same reasoning
+as S-111's original `api.ts` split.
 
 ---
 

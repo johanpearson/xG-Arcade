@@ -11831,3 +11831,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 - 2026-07-04 — requirements-document.md, architecture-document.md,
   implementation-document.md — Initial documentation set created, including
   incremental data cache strategy — ADR-0001, ADR-0002
+- 2026-09-14 — `docs/implementation-document.md`, `docs/backlog.md` — synced
+  docs for S-239 (`docs/backlog.md` Epic 32): split `frontend/src/lib/types.ts`
+  (1,305 lines, 78 exported types) into 14 domain-grouped files under
+  `frontend/src/types/` — `shared.ts` (cross-domain, e.g.
+  `PlayerAutocompleteSuggestion`), `grid.ts`, `path.ts`, `predict.ts`,
+  `higher-lower.ts`, `connect.ts`, `auth.ts`, `leaderboard.ts`, `leagues.ts`,
+  `social.ts` (friends/challenges/matchmaking/notifications), `users.ts`,
+  `admin.ts` (22 types, the largest), `announcements.ts`, `incidents.ts` —
+  mirroring `lib/api.ts`'s own S-111 split. `lib/types.ts` itself became a
+  14-line pure re-export barrel, so all 48 pre-existing import sites across
+  ~40 files needed zero changes; no type was renamed or reshaped. Pure
+  refactor — no behavior change, no new REQ IDs; `tsc -b`/`oxlint`/
+  `vitest run` all pass unchanged, and `architecture-reviewer`/
+  `quality-architect` both already returned clean PASS verdicts with zero
+  findings, so no ADR (same reasoning as S-111's original `api.ts` split).
+  `docs/implementation-document.md` §4's project-structure block gained a
+  `/types` entry and an updated `/lib` note pointing to it — the one place
+  the folder tree explicitly enumerated `types.ts` as a single file, per
+  the S-110 precedent for keeping that block honest. `docs/backlog.md`
+  gained a "Built as" note directly under the S-239 story entry.
+  `requirements-document.md` and `architecture-document.md` needed no
+  change — neither documents frontend files at this level of granularity
+  beyond citing `lib/types.ts` as an import path for a specific type, which
+  remains valid unchanged via the barrel.
