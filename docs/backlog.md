@@ -9992,7 +9992,7 @@ change.
 
 ---
 
-## Epic 13 — xG Predict gap closure
+## Epic 31 — xG Predict gap closure
 
 S-190 through S-198 shipped every planned xG Predict story, but several
 explicitly flagged "not fixed here, tracked as follow-up" gaps accumulated
@@ -12383,6 +12383,42 @@ former Epic 13s after the rename, checked individually against its
 surrounding S-number/date, not batch-replaced by text search; doc-only
 change, no tests to run.
 *Deps:* none.
+**Built as (2026-09-14, `doc-sync`):** renumbered the second, later-written
+occurrence (line 9995, "xG Predict gap closure", S-199–S-205) to
+`## Epic 31` — the next genuinely-unused epic number — leaving it in place
+at its current file position rather than relocating the ~1,400-line
+section to the end of the file. Chose in-place renumbering over relocation
+because the acceptance criteria only require unique numbers, not
+file-position-matching-number-order (several other epics, e.g. the
+technical-debt-remediation rounds, are already numbered in write-order,
+not topic order), and physically moving ~1,400 lines carries a much larger
+diff risk (corrupting internal cross-references within that section) for
+no benefit the criteria actually need. Line 6272's original "Autocomplete:
+threshold verification + cold-start latency" Epic 13 is untouched and
+remains canonical. Checked all ~15 downstream "Epic 13" references
+individually against their surrounding S-number/date (not batch-replaced):
+6 stayed Epic 13 (`NOTES.md:204`; `docs/requirements-document.md:1740,1751`;
+`docs/CHANGELOG.md:4058,4104,4667` — all S-142/S-151, autocomplete), 8
+became Epic 31 (`docs/requirements-document.md:6793`;
+`docs/CHANGELOG.md:1940,1993,2009,2027,2054,2075`;
+`docs/decisions/0101-*.md:10` — all S-199–S-205/xG Predict), and one
+historical entry (`docs/CHANGELOG.md:2164`, the 2026-08-31 entry that
+introduced "new Epic 13") was left describing what actually happened that
+day but annotated "later renumbered Epic 31 by S-236" rather than
+rewritten, since rewriting it to say "new Epic 31" would misrepresent what
+was literally shipped on that date. `docs/CHANGELOG.md:85` (S-235's own
+finding that flagged this collision) was left unchanged — it correctly
+describes the pre-fix state of the two colliding headers, not a reference
+needing disambiguation. Verified with
+`grep -oE "^## Epic [0-9]+" docs/backlog.md | sort | uniq -c` (no count
+above 1) and a repo-wide `grep -rn "Epic 13"` (every remaining hit
+confirmed to mean only the original autocomplete epic). No ADR — this is a
+documentation-numbering fix, not an architectural/structural decision
+under ADR-0000's template scope, same precedent as S-235. Doc-only change,
+no tests to run; `CODE_HEALTH_ASSESSMENT.md`/`CODEBASE_ANALYSIS.md` also
+matched the repo-wide grep but are outside this story's explicit scope and
+were left untouched (neither actually cites the ambiguous "Epic 13" in a
+way that misleads, so no follow-up flag needed).
 
 **S-237 · Add an automated CI backstop for the ADR-0084 code-health budget**
 `docs/coding-guidelines.md`'s "Code health budget (per diff)" section
