@@ -6473,6 +6473,17 @@ its own explicit opt-in separate from this one, not be folded into it.
 - Uniqueness calculation must handle concurrent guesses correctly (no race
   conditions producing an incorrect percentage)
 
+**Status note (2026-09-14, S-240):** was previously the only REQ-6xx
+non-functional requirement with no test anywhere in `backend/tests/`
+exercising it (flagged by the same-day `code-health-auditor` sweep). Now
+covered by `backend/tests/XGArcade.Core.Tests/Scoring/GuessSubmissionServiceConcurrencyTests.cs`'s
+`REQ603_SubmitGuessAsync_ConcurrentGuessesForSameCell_ProducesSameUniquenessAsSequentialSubmission`
+— 30 genuinely concurrent (`Task.Run`-scheduled) `GuessSubmissionService.SubmitGuessAsync`
+calls for the same cell, asserted to produce the same per-user uniqueness
+scores as a sequential run of the same guesses. Test-only; no change to
+this REQ's acceptance criteria or to the production read-then-write path
+described in `implementation-document.md` §5's race-condition note.
+
 **REQ-604 – Performance**
 - Page loads showing the live uniqueness percentage must respond within a
   reasonable time (< 1s for typical cell volumes) even with a few thousand

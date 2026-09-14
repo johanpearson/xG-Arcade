@@ -12721,6 +12721,31 @@ use); it fails against a deliberately-race-vulnerable version of the code
 (verify this before trusting the test) and passes against current `main`.
 *Deps:* a session with local `dotnet` SDK access, or CI-only verification
 per `CLAUDE.md`'s "Testing without a local dotnet SDK".
+**Built as:** `backend/tests/XGArcade.Core.Tests/Scoring/GuessSubmissionServiceConcurrencyTests.cs`,
+`REQ603_SubmitGuessAsync_ConcurrentGuessesForSameCell_ProducesSameUniquenessAsSequentialSubmission`.
+Unit-level, not API — `UniquenessCalculator.Calculate`/
+`UniquenessScoringStrategy.ScoreCorrectGuess` are pure and DB-independent
+per REQ-601, so the actual race lives one layer up in
+`GuessSubmissionService.SubmitGuessAsync`'s read-then-write path, which is
+what this test exercises directly. Builds a 30-user submission plan (4
+groups of 5 sharing one of 4 answers, plus 10 users each with a distinct
+singleton answer) and fires all 30 `SubmitGuessAsync` calls concurrently,
+each against its own `XGArcadeDbContext`/repository/service instance
+sharing one EF Core InMemory database (mirroring production's per-request
+Scoped `DbContext`), wrapped in `Task.Run` per a same-day follow-up commit
+(`5ef6b5f`) after the first version's `Task.WhenAll` risked collapsing to
+effectively-sequential execution against the InMemory provider's
+synchronous awaits. Asserts no submission is lost and the resulting
+per-user uniqueness scores exactly match a sequential run of the same
+(user, answer) pairs. A third commit (`d37cf6d`) fixed an unrelated
+REQ-604→REQ-204 typo in a `UniquenessCalculator` comment found during
+quality-gate review. Verified via two CI runs: `architecture-reviewer`
+and `quality-architect` both returned PASS on the diff (quality flagged
+two non-blocking follow-ups — test-infrastructure duplication and
+`FakeGameModule`'s unsynchronized counters — neither requiring a doc
+change), and a manual `ci.yml` `workflow_dispatch` run confirmed
+backend-tests/frontend-unit-tests/e2e-tests all green, per the sandbox
+having no local `dotnet` SDK.
 
 **S-241 · Backend API test: auth confirmation-flow REQs (REQ-702/703/704/706)**
 `AuthEndpointTests.cs`'s own header comment explicitly scopes itself away
