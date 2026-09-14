@@ -163,6 +163,16 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
+      - name: Regression-test the budget-check scripts themselves
+        # A backstop for the backstop: these scripts' own overlap-merge/
+        # union-find (duplicate-shape) and blob-vs-tree-entry filtering
+        # (god-file) logic is subtle enough to regress silently otherwise
+        # — see the quality-gate review that caught a subdirectory-
+        # miscounted-as-sibling bug here. Fails fast, before spending time
+        # on the real jscpd scan below, if either script itself is broken.
+        run: |
+          node .github/scripts/tests/check-duplicate-shapes.test.mjs
+          bash .github/scripts/tests/check-new-file-sizes.test.sh
       - name: Determine diff base and touched/added files
         id: diff
         run: |

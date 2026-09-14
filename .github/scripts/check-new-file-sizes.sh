@@ -51,6 +51,16 @@ for f in "${added_files[@]}"; do
   max_sibling_path=""
   while IFS= read -r sibling_path; do
     [[ -z "$sibling_path" ]] && continue
+    # `git ls-tree --name-only -- "$dir/"` returns BOTH blob (file) and
+    # tree (subdirectory) entries at that level with no type filtering —
+    # `git show base:path` on a subdirectory does NOT fail, it exits 0 and
+    # prints that directory's own entry listing, which `wc -l` would then
+    # silently miscount as a "file"'s line count. Guard with `cat-file -t`
+    # and only treat actual blobs as siblings (this repo's C#
+    # namespace-per-folder layout means a directory that's mostly
+    # subdirectories plus one real file is common, not an edge case).
+    type=$(git cat-file -t "${BASE_SHA}:${sibling_path}" 2>/dev/null) || continue
+    [[ "$type" == "blob" ]] || continue
     lines=$(git show "${BASE_SHA}:${sibling_path}" 2>/dev/null | wc -l | tr -d ' ') || continue
     if (( lines > max_sibling )); then
       max_sibling=$lines

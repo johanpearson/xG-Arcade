@@ -1,0 +1,24 @@
+{
+  "duplicates": [
+    {
+      "firstFile": { "name": "cases/A.ts", "start": 10, "end": 25 },
+      "secondFile": { "name": "cases/B.ts", "start": 10, "end": 25 }
+    },
+    {
+      "firstFile": { "name": "cases/A.ts", "start": 14, "end": 30 },
+      "secondFile": { "name": "cases/C.ts", "start": 10, "end": 25 }
+    },
+    {
+      "firstFile": { "name": "cases/D.ts", "start": 10, "end": 20 },
+      "secondFile": { "name": "cases/E.ts", "start": 10, "end": 20 }
+    },
+    {
+      "firstFile": { "name": "cases/D.ts", "start": 20, "end": 30 },
+      "secondFile": { "name": "cases/F.ts", "start": 10, "end": 20 }
+    },
+    {
+      "firstFile": { "name": "cases/G.ts", "start": 5, "end": 15 },
+      "secondFile": { "name": "cases/H.ts", "start": 5, "end": 15 }
+    }
+  ]
+}

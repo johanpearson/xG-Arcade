@@ -40,6 +40,27 @@ This ADR's scope is deliberately the first two only, matching the backlog
 story; the churn check stays `quality-architect`'s manual review item,
 untouched.
 
+**Explicit divergence from ADR-0084's own wording:** ADR-0084's Follow-up
+literally names the "objectively-measurable half" as "sibling-relative
+file size, churn count" — not duplicated-shape detection, and its own
+Alternatives table explicitly rejected automating duplicated-*shape*
+detection via a CI script ("near-identical-block-shape detection... is
+not something a line-count or naive AST-diff rule reliably catches").
+This ADR substitutes duplicated-shape detection for churn count as the
+second automated check instead (churn count is left out entirely — see
+above), on the strength of an independent argument ADR-0084 didn't have
+in front of it: exact-token-only matching (no `--ignore-identifiers`),
+script-side 3+-occurrence grouping, and diff-scoped filtering narrow the
+check to precisely the byte-for-byte-repeated case ADR-0084 itself
+treated as safe to flag, while explicitly leaving "same shape, different
+names" — the harder, judgment-requiring case ADR-0084 was actually
+worried about — to `quality-architect`'s manual review and
+`code-health-auditor`'s periodic sweep, unautomated. This is a deliberate
+divergence, not an oversight or a silent re-litigation of ADR-0084's
+Alternatives table; a future reader comparing the two ADRs should read
+this paragraph before concluding the automation here went further than
+ADR-0084's own reasoning allows.
+
 This sandbox has no `dotnet` SDK (`which dotnet` returns nothing) and no
 Docker daemon, so a comparable C# duplicate-detection tool could not be
 evaluated or prototyped as part of this pass — see Alternatives and the
@@ -76,7 +97,21 @@ checks:
    commit's tree, so neither the new file nor any other file the same
    diff adds can count as a sibling), and fails if it's >50% larger with
    no leading doc comment citing a REQ/ADR/COMP or otherwise explaining
-   its size/cohesion.
+   its size/cohesion. `git ls-tree` at that directory level returns both
+   blob (file) and tree (subdirectory) entries with no type filtering, and
+   `git show base:path` on a subdirectory path does not fail — it exits 0
+   and prints that directory's own entry listing — so each candidate
+   sibling is guarded with `git cat-file -t base:path == blob` before its
+   line count is trusted; without that guard a subdirectory could be
+   silently miscounted as a "sibling file" (a real risk given this repo's
+   C# namespace-per-folder layout, not a hypothetical one — see
+   Validation).
+
+Both scripts have a committed regression test under `.github/scripts/
+tests/`, run as the `code-health-budget` job's own first real step
+(before checkout even resolves the diff base) — see Validation for what
+they cover and why this exists rather than relying on manual, reset-away
+fixture testing alone.
 
 Both checks resolve their diff base the same way, computed once in a
 shared `Determine diff base and touched/added files` step: `pull_request`
@@ -175,8 +210,33 @@ criteria):
   a leading `// REQ-9999: ...` justification comment to confirm the
   doc-comment escape hatch works. Both fixtures and the temporary commit
   used to test them were removed immediately afterward (`git reset --hard`
-  to the pre-fixture commit) — nothing from this validation pass remains
-  in the tree.
+  to the pre-fixture commit) — nothing from this manual validation pass
+  remains in the tree.
+- That manual-only validation was itself a gap: a quality-gate review of
+  the initial implementation found a real bug it should have caught —
+  `check-new-file-sizes.sh`'s sibling lookup used `git ls-tree --name-only`
+  without filtering to blob (file) entries, so a subdirectory at the same
+  level could be silently miscounted as a "sibling file" (`git show
+  base:path-to-a-directory` exits 0 and prints that directory's own entry
+  listing rather than failing, so `wc -l` happily "counts" it). This
+  repo's C# namespace-per-folder layout makes "mostly subdirectories, one
+  real file" common (e.g. `backend/src/XGArcade.Core/`), so this was a
+  real false-negative risk, not a theoretical one — fixed by guarding each
+  candidate sibling with `git cat-file -t base:path == blob` before
+  counting it. Both scripts now have a **committed** regression test
+  (`.github/scripts/tests/`, run as this job's own first step, before the
+  real jscpd scan) instead of relying solely on manual, reset-away
+  fixture testing: `check-new-file-sizes.test.sh` builds a throwaway git
+  repo reproducing the exact subdirectory-miscounted-as-sibling shape and
+  asserts the fix holds; `check-duplicate-shapes.test.mjs` exercises the
+  overlap-merge/union-find grouping logic against a small synthetic jscpd
+  report fixture (`tests/fixtures/jscpd-report.sample.json`), covering the
+  genuinely-overlapping-fragments-must-merge case, the
+  touching-but-not-overlapping-fragments-must-not-merge case, and an
+  ordinary 2-file pairwise clone that must never be flagged. Both tests
+  were confirmed to actually catch their respective bugs (re-run against
+  a deliberately reintroduced version of each bug, confirmed to fail; the
+  reintroduced bug was never left in the committed script).
 
 ## Alternatives considered
 
