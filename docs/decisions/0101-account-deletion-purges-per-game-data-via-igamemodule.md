@@ -7,7 +7,7 @@
 
 ## Context
 
-S-201 (Epic 13) closed a gap flagged in S-197: `AccountDeletionService`
+S-201 (Epic 31) closed a gap flagged in S-197: `AccountDeletionService`
 (Core.Auth, COMP-01) anonymized `Guess` rows on account deletion (REQ-710)
 but never touched xG Predict's own `PredictMatchPrediction`/
 `PredictPlayerLock` tables, which have no per-user handling at all today.

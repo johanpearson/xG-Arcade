@@ -3,7 +3,7 @@ doc_id: requirements-document
 title: Requirements Document
 version: "3.0"
 status: draft
-last_updated: 2026-09-13
+last_updated: 2026-09-14
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -6790,7 +6790,7 @@ closed that gap, scoped narrowly to the delete-account flow only (no
 general profile/settings page) — see "Built as (S-039)" below for what was
 actually built.
 
-**Extended (S-201, Epic 13, ADR-0101, 2026-08-31):** this REQ's "past
+**Extended (S-201, Epic 31, ADR-0101, 2026-08-31):** this REQ's "past
 records are anonymized rather than deleted outright" acceptance criterion
 originally only covered `Guess`, since xG Grid/xG Path have no other
 per-user table. xG Predict does — `PredictMatchPrediction`/
