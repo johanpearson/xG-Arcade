@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-14 — `docs/backlog.md` (S-240 "Built as" note), `docs/requirements-document.md`
+  (REQ-603 status note) — doc-sync for S-240: added
+  `GuessSubmissionServiceConcurrencyTests.cs`'s `REQ603_...` test (30
+  genuinely concurrent `SubmitGuessAsync` calls vs. a sequential baseline),
+  closing the REQ-603 coverage gap the same-day sweep flagged. Test-only —
+  no production code, no REQ/ADR text change, no architecture/implementation
+  doc update needed (no boundary/data-flow/data-model change). CI confirmed
+  green via manual `ci.yml` workflow_dispatch; architecture-reviewer and
+  quality-architect both PASS.
 - 2026-09-14 — `docs/backlog.md` (new Epic 32, Epic 33: S-239 through
   S-248) — turned the same-day code health sweep's top refactoring
   targets and REQ-mapped test coverage gaps into backlog stories, at the
