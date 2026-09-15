@@ -151,6 +151,11 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     // for its convenient 16-byte output to build a Guid from — not used for
     // any cryptographic property (collision resistance, etc.), and this
     // whole class is unreachable outside Development (see LocalE2EAuth above).
+    // WARNING: .github/workflows/ci.yml hardcodes this algorithm's output for
+    // "e2e-admin@test.invalid" as Admin__UserIds (S-245's admin-review.spec.ts
+    // needs one E2E account pre-recognized as admin) — changing this method's
+    // hashing/byte-layout would silently invalidate that fixed GUID and start
+    // failing admin-review.spec.ts with no obvious link back to this method.
     private static Guid DeterministicGuid(string email) =>
         new(MD5.HashData(Encoding.UTF8.GetBytes(email.Trim().ToLowerInvariant())));
 }
