@@ -1,5 +1,12 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { stubTurnstile } from './turnstile-stub'
+import { expect, test } from '@playwright/test'
+import {
+  fetchOwnUserId,
+  loginForApi,
+  seedConnectPlayers,
+  signUpNewConnectPlayer,
+  submitClosingChainStep,
+  submitTargetPick,
+} from './connect-playthrough'
 
 // S-218's own accept criterion: "Vitest + Playwright E2E covering a full
 // match happy path (challenge -> both picks -> chain to completion ->
@@ -14,27 +21,13 @@ import { stubTurnstile } from './turnstile-stub'
 // fixture) can only ever represent one logged-in session at a time.
 const API_BASE_URL = process.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 
-// Matches backend/src/XGArcade.Api/Connect/InternalConnectTestDataEndpoints.cs's
-// SeedConnectPlayersResponse record exactly (System.Text.Json's default
-// camelCase policy). See that file's own top-of-file comment for exactly
-// why this endpoint exists, including the real cross-boundary id-space bug
-// (REQ-1404, now fixed on both backend and frontend) it originally had to
-// work around before target-pick resolution moved to name-based lookup —
-// this endpoint's PlayerNameIndex seeding step remains useful afterward for
-// an unrelated reason, noted again at this spec's own target-pick step below.
-interface SeedConnectPlayersResponse {
-  targetPlayerAName: string
-  targetPlayerBName: string
-  connectorPlayerName: string
-  clubOverlappingWithA: string
-  clubOverlappingWithB: string
-}
-
-// Matches AuthController.Me's MeResponse record (backend/src/XGArcade.Api/
-// Auth/AuthController.cs) — only `id` is used here.
-interface MeResponse {
-  id: string
-}
+// S-246 (docs/backlog.md): signUpNewConnectPlayer/loginForApi/
+// fetchOwnUserId/SeedConnectPlayersResponse/seedConnectPlayers/
+// submitTargetPick/submitClosingChainStep now live in
+// ./connect-playthrough.ts, shared with friends-challenges.spec.ts — see
+// that module for their own doc comments. Kept here only: this spec's own
+// scenario-specific setup and every assertion (unchanged by that
+// extraction).
 
 // Same "one continuous playthrough" serial-mode precedent as play-grid.spec.ts/
 // play-path.spec.ts — this file happens to have only one test today, but a
@@ -44,48 +37,6 @@ interface MeResponse {
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
 test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match happy path', () => {
-  // REQ-701/REQ-806's real-signup-endpoint convention (see play-grid.spec.ts/
-  // play-path.spec.ts's own identical helper) — a fresh, unique @test.invalid
-  // account per player, created and auto-logged-in through the real UI,
-  // landing on GameSelectScreen ("Choose a game").
-  async function signUpNewConnectPlayer(page: Page, displayName: string, email: string): Promise<void> {
-    await stubTurnstile(page)
-    await page.goto('/')
-    await page.getByRole('button', { name: 'Log in or sign up' }).click()
-    await page.getByRole('tab', { name: 'Sign up' }).click()
-    await page.getByLabel('Email').fill(email)
-    await page.getByLabel('Password', { exact: true }).fill('password123')
-    await page.getByLabel('Confirm password').fill('password123')
-    await page.getByLabel('Display name').fill(displayName)
-    await page.getByLabel(/at least 16 years old/).check()
-    await page.getByRole('button', { name: 'Create account' }).click()
-
-    await expect(page.getByText('Choose a game')).toBeVisible()
-  }
-
-  // A second, API-only login for the SAME account the UI signup above just
-  // created (same email/password) — purely to get a Bearer token for direct
-  // setup calls below. Same "probe login via the request context" shape as
-  // play-path.spec.ts's clearAnyExistingActivePathRound helper, just reused
-  // for a real, already-signed-up player instead of a throwaway probe.
-  async function loginForApi(request: APIRequestContext, email: string): Promise<string> {
-    const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
-      data: { email, password: 'password123', captchaToken: 'e2e-test-token' },
-    })
-    expect(loginResponse.ok(), `login failed: ${loginResponse.status()}`).toBeTruthy()
-    const { accessToken } = (await loginResponse.json()) as { accessToken: string }
-    return accessToken
-  }
-
-  async function fetchOwnUserId(request: APIRequestContext, accessToken: string): Promise<string> {
-    const meResponse = await request.get(`${API_BASE_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    expect(meResponse.ok(), `GET /auth/me failed: ${meResponse.status()}`).toBeTruthy()
-    const me = (await meResponse.json()) as MeResponse
-    return me.id
-  }
-
   test('REQ-1402/1404/1405/1406/1408/1409/1410: challenge, both target picks, chain to completion, resolution, chat', async ({
     browser,
     request,
@@ -156,9 +107,7 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // itself is now by name (COMP-06), not by that row's PlayerId, since
       // REQ-1404's id-space mismatch bug was fixed. No live Wikidata
       // reachability is needed anywhere in this spec.
-      const seedResponse = await request.post(`${API_BASE_URL}/internal/test-data/seed-connect-players`)
-      expect(seedResponse.ok(), `seed-connect-players failed: ${seedResponse.status()}`).toBeTruthy()
-      const seed = (await seedResponse.json()) as SeedConnectPlayersResponse
+      const seed = await seedConnectPlayers(request)
 
       // ---- Challenge send (REQ-1402), via the real UI ---------------------
       // The "Friends" nav entry is a plain, unchanging "Friends" label
@@ -195,17 +144,10 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       await pageA.getByRole('button', { name: 'View match' }).click()
 
       // ---- Target-pick phase (REQ-1404) -----------------------------------
-      // TargetPickPanel.tsx requires selecting a real `/players/autocomplete`
-      // suggestion before "Set target pick" is enabled at all — this is why
-      // InternalConnectTestDataEndpoints.cs seeds a PlayerNameIndex row for
-      // each target player (see that file's top-of-file comment). The
-      // submission itself sends the selected suggestion's NAME, resolved
-      // server-side against Player/COMP-06 (REQ-1404's id-space mismatch fix)
-      // — this is now the same real path a genuine, Wikidata-imported player
-      // selection would take, not a test-only workaround.
-      // Deliberately no shared post-submit assertion inside this helper: the
-      // UI genuinely diverges after submitting depending on whether this is
-      // the first or the completing (second) target pick (see
+      // submitTargetPick (./connect-playthrough.ts) deliberately makes no
+      // shared post-submit assertion of its own: the UI genuinely diverges
+      // after submitting depending on whether this is the first or the
+      // completing (second) target pick (see
       // ConnectTargetPickService.SubmitTargetPickAsync — both rows only flip
       // `locked` together, atomically, on the SECOND submission). The first
       // submitter's own TargetPickPanel re-renders its still-unlocked form
@@ -219,12 +161,6 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // auto-retrying `expect(...).toBeVisible()` already waits out the
       // submit/refetch round trip, so no extra assertion is needed here to
       // "confirm" the submission landed.
-      async function submitTargetPick(page: Page, name: string): Promise<void> {
-        await page.getByLabel('Target player name').fill(name)
-        await page.getByRole('option', { name }).click()
-        await page.getByRole('button', { name: 'Set target pick' }).click()
-      }
-
       await submitTargetPick(pageA, seed.targetPlayerAName)
       // User A is the FIRST submitter here — their own pick isn't locked yet
       // (TargetPickPanel.tsx's non-locked branch), so the form re-renders
@@ -269,80 +205,10 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       // player both times, by this spec's own seed-connect-players design.
       // Equal 1-connector/zero-penalty scores on both sides resolve as a draw
       // (REQ-1409's equal-score branch) — a concrete, assertable outcome on
-      // BOTH browser contexts below, not just one.
-      // Design change (2026-09-04, REQ-1406, ADR-0104): the player no
-      // longer types a claimed club — only the candidate name — so this
-      // helper no longer takes one either; the server computes which
-      // club(s) actually connect the two players.
-      // Bug fix (2026-09-05, ADR-0107): a real /players/autocomplete
-      // suggestion must now be clicked (same requirement submitTargetPick
-      // above already has) — typing the name alone no longer enables
-      // "Submit connector," since that free-text path is exactly the
-      // same-name-collision-prone one a real incident showed is a genuine
-      // bug. InternalConnectTestDataEndpoints now seeds a matching
-      // PlayerNameIndex row (with WikidataQid) for the connector player too,
-      // so this suggestion is always findable here.
-      async function submitClosingChainStep(page: Page): Promise<void> {
-        await page.getByLabel('Candidate player name').fill(seed.connectorPlayerName)
-        await page.getByRole('option', { name: seed.connectorPlayerName }).click()
-        // Captured (not awaited) BEFORE the click below, purely for
-        // diagnostics on failure — recording the promise doesn't delay or
-        // otherwise change the click/assert timing that follows, since
-        // nothing here awaits it unless the "Connected!" assertion below
-        // actually fails.
-        const chainStepResponsePromise = page.waitForResponse(
-          (response) => response.url().includes('/chain-steps') && response.request().method() === 'POST',
-        )
-        await page.getByRole('button', { name: 'Submit connector' }).click()
-        // 2026-09-04 CONFIRMED root cause and fix (this assertion's own CI
-        // trail — four failures across this spec's history, the fourth
-        // genuine bug this E2E spec has caught): "Connected!" was
-        // ORIGINALLY set from local React state the instant the POST
-        // response arrived (ChainBuilder.tsx's own handleSubmit), with no
-        // dependency on the follow-up refetch. That was fragile in exactly
-        // one real scenario, caught with diagnostic logging on a real CI
-        // run: when THIS submission is also the one that completes match
-        // resolution (the submitter's opponent had already reached their
-        // own terminal state first), `ConnectChainStepService
-        // .SubmitChainStepAsync` resolves the match server-side INLINE in
-        // the same request, so the very next `onChanged()`-triggered
-        // refetch comes back `status: 'Resolved'` — MatchScreen.tsx
-        // immediately swaps ChainBuilder out for MatchResolution, wiping
-        // ChainBuilder's local `feedback` state, sometimes before that
-        // state was ever painted at all. Real product bug, not a test
-        // artifact: a real player closing the completing connector could
-        // see the same zero-perceptible-time flash (or nothing).
-        //
-        // Fixed on both sides of that swap: ChainBuilder.tsx now derives
-        // this acknowledgment from `myTerminalState.completed` (refreshed
-        // props, durable across re-renders) instead of one-shot local
-        // state, for the non-resolving case (this spec's User A, whose own
-        // completion doesn't resolve the match since their opponent isn't
-        // terminal yet); MatchResolution.tsx now shows the same
-        // acknowledgment itself, derived from the same field in the
-        // resolved-match payload, for the resolving case (User B below) —
-        // see both components' own S-218 comments. Either way, this
-        // assertion now depends on a real `GET /matches/{matchId}` round
-        // trip completing (the POST's own follow-up refetch), not an
-        // instantaneous local-state flip — the generous 20s timeout below
-        // (this spec's existing precedent for other round-trip-sensitive
-        // assertions, e.g. the chat-attribution check) covers that
-        // legitimately, on top of covering the plain CI resource-
-        // contention flake this wait was originally widened for.
-        try {
-          await expect(page.getByText('Connected! Your chain is complete.')).toBeVisible({ timeout: 20_000 })
-        } catch (err) {
-          const response = await chainStepResponsePromise.catch(() => null)
-          const bodyText = response ? await response.text().catch(() => '<unreadable body>') : '<no response observed>'
-          console.error(
-            `submitClosingChainStep: "Connected!" never appeared for connector="${seed.connectorPlayerName}". ` +
-              `POST /chain-steps responded ${response?.status() ?? '<none>'}: ${bodyText}`,
-          )
-          throw err
-        }
-      }
-
-      await submitClosingChainStep(pageA)
+      // BOTH browser contexts below, not just one. submitClosingChainStep
+      // itself (./connect-playthrough.ts) covers the mechanics/history of
+      // this step in detail.
+      await submitClosingChainStep(pageA, seed.connectorPlayerName)
       // User A alone has reached a terminal state so far (their own screen
       // now shows their own "finished their chain" status, replacing the
       // submission form) — but the MATCH itself is not yet resolved
@@ -356,7 +222,7 @@ test.describe('REQ-1402/1404/1405/1406/1408/1409/1410: xG Connect full match hap
       await expect(pageA.getByText('You have finished their chain.')).toBeVisible({ timeout: 20_000 })
       await expect(pageA.getByText("It's a draw.")).not.toBeVisible()
 
-      await submitClosingChainStep(pageB)
+      await submitClosingChainStep(pageB, seed.connectorPlayerName)
 
       // ---- Resolution (REQ-1409) ------------------------------------------
       // User B's own closing step was the SECOND of the two terminal-reaching

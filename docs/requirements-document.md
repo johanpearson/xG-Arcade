@@ -11276,7 +11276,12 @@ day. See design-document.md SCREEN-15's own "Identity gap — resolved" and
 **Test level:** Unit/API — send/accept/decline each independently
 verifiable against persisted friendship/request state; duplicate-pending
 rejection in both directions; already-friends rejection; self-request
-rejection; a declined request does not block a later resend.
+rejection; a declined request does not block a later resend. E2E
+(`tests/e2e/friends-challenges.spec.ts`, added S-246): send and accept
+driven end-to-end through the real UI (a leaderboard-row → UserStatsScreen
+detour to reach `SendFriendRequestAction`, since this REQ has no
+user-search-by-name endpoint); decline remains Unit/API-only, not E2E —
+out of that spec's scope.
 
 **REQ-1402 – Direct challenge to a friend**
 > As a player, I want to challenge a specific friend to a game of xG
@@ -11342,7 +11347,10 @@ challenger's real name.
 
 **Test level:** Unit/API — challenge send/accept/decline; duplicate-pending
 rejection; non-friend rejection; the accepted-challenge-creates-a-match
-transition.
+transition. E2E (`tests/e2e/friends-challenges.spec.ts`, added S-246):
+challenge send and accept driven end-to-end through the real UI between
+two already-friended players, producing a match that is then played to
+resolution.
 
 **Status note (2026-09-09, S-230 — sent-challenge visibility fix, direct
 user feedback).** A real, reported gap: a challenger had no way to see a
@@ -11452,7 +11460,12 @@ awaiting their next move.
 
 **Test level:** Unit/API — pairing within the window; expiry with no
 pairing after 12 hours; no player double-booked into two matches from one
-pairing event.
+pairing event. E2E (`tests/e2e/friends-challenges.spec.ts`, added S-246):
+the opt-in action itself only, driven through the real UI. The 12-hour
+pairing-window expiry and sweep-driven pairing remain Unit/API-only —
+deliberately not attempted in E2E (no realistic way to fast-forward real
+time in a Playwright run); already covered by
+`MatchmakingSweepServiceTests.cs`/`MatchmakingEndpointTests.cs`.
 
 **REQ-1404 – Target-pick selection, including rejecting an
 already-directly-connected pair**
@@ -13148,7 +13161,11 @@ match status except `Resolved`, and returned once it is `Resolved`; a
 non-participant is rejected regardless of match status — regression
 coverage alongside REQ-1406's own suite for the unchanged pre-resolution
 rule), UI (Vitest: the resolution screen renders the opponent's chain once
-`Resolved`, and neither requests nor renders it before then).
+`Resolved`, and neither requests nor renders it before then), E2E
+(`tests/e2e/play-connect.spec.ts`'s existing API-seeded-friendship case;
+`tests/e2e/friends-challenges.spec.ts`, added S-246, proving the same
+opponent-chain reveal holds in a genuine, non-API-seeded friend-request/
+challenge-created match too).
 
 **REQ-1419 – In-match chat closes to new messages one hour after match
 resolution**
