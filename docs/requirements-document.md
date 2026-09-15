@@ -3,7 +3,7 @@ doc_id: requirements-document
 title: Requirements Document
 version: "3.0"
 status: draft
-last_updated: 2026-09-14
+last_updated: 2026-09-15
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -3854,7 +3854,9 @@ requested for this story.
 - Then a `League(type="custom")` is created with a unique `invite_code`
 - And the creator is automatically added as a member
 
-**Test level:** Unit, API
+**Test level:** Unit, API, E2E (`tests/e2e/leaderboard-leagues.spec.ts`'s
+REQ-402/403-tagged case creates a league via the real UI and asserts the
+returned invite code is exactly 6 characters, S-244)
 
 **REQ-403 – Join a league via code**
 *(Status: Implemented (S-063), 2026-07-20.)* `POST /leagues/join`
@@ -3874,7 +3876,10 @@ undefined.
 - Then the player is added as a `LeagueMembership`
 - And an invalid code returns a clear error without creating a membership
 
-**Test level:** Unit, API
+**Test level:** Unit, API, E2E (`tests/e2e/leaderboard-leagues.spec.ts`'s
+REQ-402/403-tagged case joins via a second, independent browser context
+using the invite code created above; a separate REQ-403-tagged case covers
+the invalid-code error branch and confirms no membership is created, S-244)
 
 **REQ-404 – Leaderboard per league**
 > As a player, I want to see the leaderboard for any league I'm a member of,
@@ -4058,7 +4063,11 @@ happens to be 0)
   criteria requires a REQ-607-aligned indexing plan as part of implementing
   this REQ, not just "add a `WHERE` clause"
 
-**Test level:** Unit, API, UI
+**Test level:** Unit, API, UI, E2E (`tests/e2e/leaderboard-leagues.spec.ts`'s
+REQ-405-tagged case switches the leaderboard's Time Windows scope to Week
+then Month and asserts the view resolves without erroring — deliberately
+no specific-row/points assertions, since concurrent spec files' own closed
+rounds can legitimately contribute to the same calendar window, S-244)
 
 **REQ-406 – Leaderboard totals include live points from the active round**
 *(Status: Implemented (Tier 0, S-053), 2026-07-19 — this is the revisit
@@ -4374,7 +4383,14 @@ recent first; a specific round's total matches REQ-206's own locked
 formula exactly), API (round-list pagination matches REQ-607's cursor/
 pageSize shape; not-found vs. not-closed-yet are distinct, correctly-coded
 responses), UI (round-selection list, then that round's leaderboard, on
-SCREEN-03)
+SCREEN-03), E2E (`tests/e2e/leaderboard-leagues.spec.ts`'s
+REQ-401/404/408-tagged case seeds and force-closes a real round, submits a
+correct guess, then drives the real UI to the leaderboard's Previous
+Rounds scope, selects that specific round by its `closedAt` value, and
+asserts the sole correct guesser's row shows `0 pts` — this is the case
+that exercises REQ-408's Previous Rounds view specifically, not REQ-401/
+404's own All-time scope, despite the test name; see `docs/backlog.md`
+S-244's "Built as" note, S-244)
 
 **REQ-409 – Median, participation-gated score for the all-time leaderboard**
 *(Status: Implemented (Tier 0, S-060), 2026-07-20 — decided and built the
