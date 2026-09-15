@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/backlog.md` (S-244 "Built as" note),
+  `docs/requirements-document.md` (REQ-402/403/405/408 "Test level" lines)
+  — doc-sync for S-244: `frontend/tests/e2e/leaderboard-leagues.spec.ts`
+  (commits `57d28cf`/`82116a1`) landed the first Playwright coverage that
+  ever opens the leaderboard or exercises custom leagues, closing part of
+  the "only play-the-game flows have E2E coverage" gap Epic 33 exists for.
+  Test-only — no production code in either commit, so no architecture doc
+  change and no ADR (architecture-reviewer already confirmed zero boundary/
+  component change; the REQ-408-vs-REQ-401 test-scope call below is a
+  test-design decision, not a structural one). Recorded one real scope
+  deviation from this story's own wording, flagged by `quality-architect`'s
+  review as a "minor traceability gap": the story text says "the global
+  leaderboard (REQ-401/404) shows the locked result," but the spec's first
+  test actually exercises the leaderboard's **"Previous Rounds" scope
+  (REQ-408)**, not the "All-time" scope that's REQ-401/404's own view —
+  deliberately, since REQ-409's all-time ranking now requires >= 5
+  qualifying closed rounds before it ranks anyone
+  (`LeaderboardService.MinimumQualifyingRoundsForRanking`), and REQ-408's
+  Previous Rounds drill-in reads the exact same locked `ILeaderboardService`
+  result for one specific round without that seeding overhead (the same
+  reason `play-grid.spec.ts`'s own REQ-401 test already has to carry it).
+  Updated REQ-408's "Test level" line to cite this case explicitly, and
+  added E2E citations to REQ-402/403 (custom league create/join, plus the
+  invalid-code error branch) and REQ-405 (Time Windows scope renders after
+  switching to Week/Month, no row-level assertions) — all four are
+  genuinely, directly exercised by this spec. Left REQ-401's and REQ-404's
+  own "Test level" lines unchanged: neither is directly asserted against
+  end-to-end here (REQ-401's global-membership grant is only exercised
+  implicitly, and REQ-404's All-time scope is never opened by this spec at
+  all), so citing E2E coverage for either would overstate what the spec
+  checks. `docs/architecture-document.md` intentionally not touched (no
+  boundary/component/data-flow change — pure test coverage).
 - 2026-09-15 — `docs/backlog.md` (S-242 "Built as" note) — closed the
   S-242 coverage gap: added `frontend/src/predict/PredictMatchInput.test.tsx`
   (12 `REQ1302_.../REQ1303_.../REQ1303_1306_...`-named tests) giving
