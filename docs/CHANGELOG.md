@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/backlog.md` (S-242 "Built as" note) — closed the
+  S-242 coverage gap: added `frontend/src/predict/PredictMatchInput.test.tsx`
+  (12 `REQ1302_.../REQ1303_.../REQ1303_1306_...`-named tests) giving
+  `PredictMatchInput.tsx` its own direct, isolated unit coverage —
+  previously only exercised indirectly via `PredictScreen.test.tsx`
+  (left unchanged). S-242's own wording described a "match-typeahead
+  input" with a "candidate list" and click/keyboard candidate
+  "selection" — stale/generic boilerplate that doesn't match this
+  component, which is (and always has been) a per-match two-integer
+  score-prediction row. No typeahead behavior was added to the component
+  to force-fit that wording; the tests instead cover the same intent
+  (typing/validation/save/lock-detection in isolation) against its real
+  behavior, and the backlog entry's "Built as" note records the
+  correction so the next reader isn't misled. Test-only — no production
+  code changed, `REQ-1302/1303/1306` already matched the component
+  exactly, so no requirements/architecture doc update was needed.
+  `npm run test` (1005/1005), `tsc -b`, and `oxlint` all confirmed green.
 - 2026-09-14 — `docs/backlog.md` (S-240 "Built as" note), `docs/requirements-document.md`
   (REQ-603 status note) — doc-sync for S-240: added
   `GuessSubmissionServiceConcurrencyTests.cs`'s `REQ603_...` test (30
