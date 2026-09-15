@@ -2216,3 +2216,19 @@ Not yet run against real Wikidata data from this sandbox (no
 and a real dev-environment `backfill-player-trophy-stats` run, followed by
 `report-international-stats-coverage`, before trusting that `"trophy"`
 coverage actually grew past 20.
+
+### 2026-09-15 — `frontend/tests/e2e/` has crossed the rule-of-three on its per-file "clear the Active round" helper
+
+S-244's new `leaderboard-leagues.spec.ts` is the fifth spec file with its
+own near-identical copy of the "probe-signup → loop `GET /rounds/current`
+→ force-close → throw after 10 attempts" helper (`play-grid.spec.ts`,
+`play-path.spec.ts`, `play-higher-lower.spec.ts`, and `play-predict.spec.ts`
+already each had one). `signUpAndLoginViaApi`/`submitGuessViaApi` are also
+byte-for-byte duplicated from `play-grid.spec.ts` in the new file.
+`docs/coding-guidelines.md`'s code-health budget calls this out at three
+copies; flagged here rather than fixed in S-244 itself since it's a
+cross-file refactor outside that story's scope — next `code-health-auditor`
+sweep should extract a shared `frontend/tests/e2e/helpers.ts` (the
+`GET /rounds/current`-clearing helper would need the endpoint path
+parameterized per `GameKey`, since each existing copy targets a different
+game's round-seeding endpoint).

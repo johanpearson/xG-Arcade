@@ -59,10 +59,13 @@ test.describe('REQ-401/402/403/404/405/408/701/806/807: leaderboard and league f
   // play-grid.spec.ts's own `clearAnyExistingActiveRound` — see that file's
   // comment for the full reasoning (a hardcoded hit against REQ-701's
   // display-name uniqueness check on a local rerun, etc.). Duplicated here
-  // rather than imported: each spec file in this directory is self-
-  // contained, matching the existing convention (no shared test-helper
-  // module between play-grid.spec.ts/play-path.spec.ts/play-connect.spec.ts
-  // today).
+  // rather than imported: this is now the fifth near-identical copy of this
+  // shape (play-grid.spec.ts, play-path.spec.ts, play-higher-lower.spec.ts,
+  // and play-predict.spec.ts each already have their own) — past
+  // docs/coding-guidelines.md's rule-of-three threshold for extracting a
+  // shared `tests/e2e/helpers.ts`. That extraction is a cross-file refactor
+  // outside this story's scope; flagged in NOTES.md for the next
+  // code-health-auditor sweep rather than attempted here.
   async function clearAnyExistingActiveRound(request: APIRequestContext): Promise<void> {
     const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     const email = `test-probe-${tag}@test.invalid`
