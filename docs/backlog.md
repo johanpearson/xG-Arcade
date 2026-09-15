@@ -12747,33 +12747,35 @@ local `dotnet` SDK, a manual `ci.yml` `workflow_dispatch` run was
 triggered per `CLAUDE.md`'s "Testing without a local dotnet SDK" and
 confirmed backend-tests/frontend-unit-tests/e2e-tests all green.
 
-**S-241 · Backend API test: auth confirmation-flow REQs (REQ-702/703/704/706)**
-`AuthEndpointTests.cs`'s own header comment explicitly scopes itself away
-from REQ-702 through REQ-705 ("out of scope for this file"), and no other
-test file picks up REQ-702 (unconfirmed accounts blocked from guessing/
-league actions), REQ-703 (confirmation email has both a link and a code;
-using one invalidates the other), or REQ-704 (resend respects the 60s
-cooldown, returns a clear wait-time message rather than a generic error)
-— a targeted search for each REQ number across `backend/tests/` confirms
-zero hits for all three. (REQ-705's expiry behavior is covered elsewhere,
-per the original code-health sweep's finding — do not re-add it here.)
-REQ-706 is `Status: Deferred` (its own "Test level: Not yet applicable"
-line) — confirm on pickup that it's still deferred in
-`docs/requirements-document.md` before treating it as in-scope; if still
-deferred, only add the one concrete already-built piece REQ-706 describes
-today (`NotificationPreference.RoundResultsOptIn` defaulting to `true` on
-account creation, if that column/default already exists) and leave the
-email-sending half alone.
-*Accept:* `REQ702_...`/`REQ703_...`/`REQ704_...`-named API tests exist and
-pass against current `main`, each covering the acceptance-criteria bullets
-in `docs/requirements-document.md` (REQ-702: guess/create-league/join-
-league blocked pre-confirmation with a clear message, public browsing
-unaffected; REQ-703: both link and code confirm, using one invalidates the
-other, an already-confirmed second attempt returns a clear message not an
-error; REQ-704: resend respects cooldown, pre-cooldown resend returns a
-clear wait-time message).
-*Deps:* a session with local `dotnet` SDK access, or CI-only verification
-per `CLAUDE.md`'s "Testing without a local dotnet SDK".
+**S-241 · Invalid — REQ-702/703/704/706 are deferred, not implemented; no coverage gap exists**
+Originally framed as a coverage gap: `AuthEndpointTests.cs`'s header comment
+excludes REQ-702 through REQ-705, and no other test file picks up REQ-702/
+703/704 by name. On pickup (2026-09-15) this turned out to be a false
+premise, not an oversight. `AuthEndpointTests.cs`'s own header comment
+already says why those REQs aren't covered there: "REQ-702 through
+REQ-705 — confirmation flow — ... are deferred per MVP-SCOPE.md; not
+covered here" — not "untested." `AuthController.cs` confirms this in code:
+`EmailConfirmed = true` is hardcoded at signup ("Tier 0: Supabase's
+confirm-email requirement is off"), and no confirm/resend endpoints exist
+anywhere in it. `MVP-SCOPE.md` lists "Email confirmation + Resend
+(REQ-701-705)" as deferred to Tier 1 (trigger: "opening the game to
+anyone you don't personally know/trust"), with no note marking it pulled
+forward — unlike guest play/custom leagues elsewhere in that same doc,
+which are. `docs/CHANGELOG.md`'s 2026-07-09 entry already recorded this
+explicitly ("REQ-702–705 not yet built"). REQ-706 was re-confirmed
+`Status: Deferred` in `docs/requirements-document.md` per this story's own
+pickup instructions, but its one hedge ("if that column/default already
+exists") also doesn't hold: `NotificationPreference` isn't a real entity
+anywhere in `backend/` — it's referenced only in a comment
+(`AccountDeletionService.cs`). There is nothing built, for any of the four
+REQs, for a test to cover. Writing REQ-named tests here would either fail
+against real behavior or require pulling Tier 1 email-confirmation work
+forward into Tier 0 — a deliberate, much larger scope decision this story
+never asked for and CLAUDE.md says to flag rather than do silently. No
+test or production code written. Kept as a numbered entry with this
+explanation rather than deleted, matching this backlog's own S-092/S-133
+precedent.
+*Deps:* none — closed.
 
 **S-242 · Frontend unit test: `PredictMatchInput.tsx`**
 `frontend/src/predict/PredictMatchInput.tsx` (the interactive

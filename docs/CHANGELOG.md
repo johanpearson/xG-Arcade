@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/backlog.md` (S-241) — S-241 ("REQ-702/703/704/706
+  auth-confirmation API tests") turned out to be based on a false premise
+  and was closed as invalid, no test or production code added. The
+  same-day code-health sweep that created S-241 (see the 2026-09-14 entry
+  below) mistook "deferred, not built" for "built but untested":
+  `AuthEndpointTests.cs`'s own header comment already explains why
+  REQ-702–705 aren't covered there ("deferred per MVP-SCOPE.md; not
+  covered here"), `AuthController.cs` hardcodes `EmailConfirmed = true` at
+  signup with no confirm/resend endpoints at all, and `MVP-SCOPE.md` lists
+  REQ-701-705 as deferred to Tier 1 with no pulled-forward note (unlike
+  guest play/custom leagues elsewhere in that doc). REQ-706 was
+  re-confirmed `Status: Deferred` in `docs/requirements-document.md` per
+  the story's own pickup instructions, and its hedge condition ("if that
+  column/default already exists") also doesn't hold — `NotificationPreference`
+  isn't a real entity in `backend/`, only named in a comment. Nothing was
+  built for any of the four REQs, so there was nothing for a test to cover;
+  writing REQ-named tests would have either failed against real behavior
+  or silently pulled Tier 1 work into Tier 0, which `CLAUDE.md` says to
+  flag rather than do without a deliberate scope decision. Confirmed with
+  the user before closing (chose "correct the backlog" over pulling
+  REQ-702-705 forward). No requirements/architecture/implementation doc
+  change needed — REQ-706's status note was already accurate.
 - 2026-09-14 — `docs/backlog.md` (S-240 "Built as" note), `docs/requirements-document.md`
   (REQ-603 status note) — doc-sync for S-240: added
   `GuessSubmissionServiceConcurrencyTests.cs`'s `REQ603_...` test (30
