@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
+using XGArcade.Api.DataSync;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
@@ -131,14 +132,16 @@ public static class AdminSuggestionEndpoints
                 // "Lookup unavailable" report is diagnosable — before this
                 // fix both admin lookup endpoints failed identically and
                 // silently, indistinguishable from each other in the logs.
-                logger.LogWarning(
+                // Shared log+503 plumbing: WikidataQueryFailureResult (this
+                // file's own catch block, InternalRoundEndpoints.cs's
+                // seed-guessable-round-with-missing-club, and the standalone
+                // /admin/player-search/lookup endpoint below are its three
+                // call sites — see that class's own doc comment).
+                return WikidataQueryFailureResult.Problem(
+                    logger,
                     ex,
                     "Wikidata lookup failed for suggestion {SuggestionId} (player name {PlayerName}) via the suggestion-scoped admin lookup endpoint",
                     id, suggestion.PlayerName);
-                return Results.Problem(
-                    title: "Live verification unavailable",
-                    detail: "We couldn't reach Wikidata to verify this player. Please try again.",
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
             return Results.Ok(response);
@@ -283,15 +286,13 @@ public static class AdminSuggestionEndpoints
                 // Same ADR-0046 timeout-vs-no-match distinction as
                 // /admin/suggestions/{id}/lookup above, and the same
                 // server-side-only logging (bug fix, 2026-08-09) — see that
-                // endpoint's catch block for the full reasoning.
-                logger.LogWarning(
+                // endpoint's catch block for the full reasoning. Shared
+                // log+503 plumbing: WikidataQueryFailureResult.
+                return WikidataQueryFailureResult.Problem(
+                    logger,
                     ex,
                     "Wikidata lookup failed for player name {PlayerName} via the standalone admin player-search lookup endpoint",
                     request.PlayerName);
-                return Results.Problem(
-                    title: "Live verification unavailable",
-                    detail: "We couldn't reach Wikidata to verify this player. Please try again.",
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
             return Results.Ok(response);

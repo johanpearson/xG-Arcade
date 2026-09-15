@@ -1,3 +1,4 @@
+using XGArcade.Api.DataSync;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Internal;
 using XGArcade.Api.Path;
@@ -428,15 +429,15 @@ public static class InternalRoundEndpoints
                 // own CI log, so it gets the same "never surface ex.Message"
                 // treatment a player-reachable admin endpoint would, not the
                 // /internal/* bearer-token-gated-scheduled-job carve-out
-                // (docs/coding-guidelines.md).
-                logger.LogWarning(
+                // (docs/coding-guidelines.md). Shared log+503 plumbing:
+                // WikidataQueryFailureResult (XGArcade.Api.DataSync) — this
+                // is its third call site, alongside AdminSuggestionEndpoints.cs's
+                // two /lookup endpoints; see that class's own doc comment.
+                return WikidataQueryFailureResult.Problem(
+                    logger,
                     ex,
                     "Wikidata lookup failed for realPlayerName {RealPlayerName} while seeding the REQ-509/510 missing-club E2E scenario",
                     realPlayerName);
-                return Results.Problem(
-                    title: "Live verification unavailable",
-                    detail: "We couldn't reach Wikidata to verify this player. Please try again.",
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
             if (lookup is null)

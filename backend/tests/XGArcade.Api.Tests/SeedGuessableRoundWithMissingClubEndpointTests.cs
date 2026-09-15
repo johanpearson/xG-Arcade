@@ -14,6 +14,7 @@ using XGArcade.Api.Suggestions;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.DataSync.Wikidata;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Api.Tests;
 
@@ -31,11 +32,12 @@ namespace XGArcade.Api.Tests;
 // AdminEndpointTests.REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess
 // already established for the manual-override path, applied here to this
 // story's two admin-commit paths instead. A swapped-in fake IWikidataClient
-// (this file's own FakeWikidataClient, mirroring
-// AdminSuggestionEndpointTests' identical precedent — same "reuse the
-// pattern, not a shared class" convention this codebase already uses four
-// times) means no test here ever makes a real network call. This suite
-// proves the WRITE-PATH WIRING (seed step and commit step agree on the same
+// (XGArcade.TestSupport.FakeWikidataClient, the same shared fake
+// AdminSuggestionEndpointTests.cs and AdminEndpointTests.cs now use —
+// promoted there once this file would have been its 5th near-verbatim copy,
+// quality-architect follow-up, S-245 review) means no test here ever makes a
+// real network call. This suite proves the WRITE-PATH WIRING (seed step and
+// commit step agree on the same
 // Player row, category values line up exactly) is correct; it can't
 // substitute for a real Wikidata response, which only ci.yml's real E2E run
 // exercises — see this endpoint's own top comment in
@@ -342,133 +344,5 @@ public class SeedGuessableRoundWithMissingClubEndpointTests
         var afterBody = await after.Content.ReadFromJsonAsync<SubmitGuessResponse>();
         Assert.That(afterBody, Is.Not.Null);
         Assert.That(afterBody!.IsCorrect, Is.True, "REQ-509: an admin's suggestion review-and-commit must flip the same cell/guess from incorrect to correct");
-    }
-
-    // Same IWikidataClient fake shape as AdminSuggestionEndpointTests'
-    // private FakeWikidataClient — duplicated here rather than shared/made
-    // public, matching this codebase's own established "hand-rolled Fake*
-    // per test file, no mocking framework, no shared fake library" precedent
-    // (docs/coding-guidelines.md; already duplicated across AdminEndpointTests,
-    // AdminSuggestionEndpointTests, and two DataSync/XGGrid test files).
-    private sealed class FakeWikidataClient : IWikidataClient
-    {
-        private readonly Dictionary<string, WikidataPlayerCareerLookupResult> _careerLookupByName = new();
-        private int _remainingCareerLookupFailures;
-
-        public void SetCareerLookup(string playerName, WikidataPlayerCareerLookupResult result) =>
-            _careerLookupByName[playerName] = result;
-
-        public void FailNextCareerLookups(int calls) => _remainingCareerLookupFailures = calls;
-
-        public Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
-            string playerName, CancellationToken cancellationToken = default)
-        {
-            if (_remainingCareerLookupFailures > 0)
-            {
-                _remainingCareerLookupFailures--;
-                throw new WikidataQueryException("simulated WDQS failure for admin career/nationality lookup");
-            }
-
-            var result = _careerLookupByName.TryGetValue(playerName, out var configured) ? configured : null;
-            return Task.FromResult(result);
-        }
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
-            string countryWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
-            string nationalTeamWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
-            string clubAWikidataQid, string clubBWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
-            string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
-            string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyCountryIntersectionAsync(
-            string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyNationalTeamIntersectionAsync(
-            string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyClubIntersectionAsync(
-            string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyNationalTeamIntersectionAsync(
-            string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null, WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
-            Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
-
-        public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
-            int birthYear, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
-
-        public Task<IReadOnlyDictionary<string, string>> QueryPlayerPhotosByQidsAsync(
-            IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
-
-        public Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
-            IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>>(new Dictionary<string, PlayerPositionBirthYearEntry>());
-
-        public Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
-            IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>>(new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>());
-
-        public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
-            string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
-
-        public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByClubAsync(
-            string clubWikidataQid, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<WikidataNameIndexEntry>>([]);
-
-        public Task<RecentClubTransferLookupResult> QueryRecentClubTransfersAsync(
-            string clubWikidataQid, string clubName, DateTime sinceUtc, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new RecentClubTransferLookupResult(
-                new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>(), new Dictionary<string, string>()));
-
-        public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
-            IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());
-
-        public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
-            string playerName, CancellationToken cancellationToken = default) =>
-            Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
-
-        public Task<WikidataPlayerRefreshData> QueryPlayerRefreshDataByQidAsync(
-            string wikidataQid, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new WikidataPlayerRefreshData(null, null, null, null));
-
-        public Task<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>> QueryInternationalStatsByQidsAsync(
-            IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, WikidataInternationalStatsEntry>>(new Dictionary<string, WikidataInternationalStatsEntry>());
-
-        public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryIndividualTrophyStatsByQidsAsync(
-            IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>>(new Dictionary<string, IReadOnlyList<string>>());
-
-        public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> QueryTeamTrophyStatsByQidsAsync(
-            IReadOnlyList<string> playerWikidataQids, IReadOnlyList<string> trophyWikidataQids, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<string>>>(new Dictionary<string, IReadOnlyList<string>>());
     }
 }
