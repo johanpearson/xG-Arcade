@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/requirements-document.md` — S-245 (REQ-509/REQ-510):
+  documented a third `/internal/test-data/*` endpoint,
+  `POST /internal/test-data/seed-guessable-round-with-missing-club`
+  (`backend/src/XGArcade.Api/Rounds/InternalRoundEndpoints.cs`), extending
+  REQ-807. Seeds a REAL, live-Wikidata-resolved footballer (not a
+  fake/tagged test player) with one category already satisfied and the
+  other deliberately not yet effective, so
+  `frontend/tests/e2e/admin-review.spec.ts` can prove REQ-509's
+  suggestion-review-and-commit and REQ-510's standalone search-and-commit
+  each flip a guess from incorrect to correct through the real UI/
+  endpoints. Covered at the API level by the new
+  `backend/tests/XGArcade.Api.Tests/SeedGuessableRoundWithMissingClubEndpointTests.cs`,
+  which drives the seed endpoint plus the real REQ-509/510 admin endpoints
+  end-to-end against a fake `IWikidataClient`.
 - 2026-09-15 — `docs/backlog.md` (S-241) — S-241 ("REQ-702/703/704/706
   auth-confirmation API tests") turned out to be based on a false premise
   and was closed as invalid, no test or production code added. The
