@@ -2232,3 +2232,17 @@ sweep should extract a shared `frontend/tests/e2e/helpers.ts` (the
 `GET /rounds/current`-clearing helper would need the endpoint path
 parameterized per `GameKey`, since each existing copy targets a different
 game's round-seeding endpoint).
+
+**Addendum (2026-09-15, S-246):** a second, unrelated duplication of the
+same shape has now appeared alongside the one above: S-246's new
+`frontend/tests/e2e/friends-challenges.spec.ts` has its own near-identical
+copy of `leaderboard-leagues.spec.ts`'s `fetchClosedAtForRound` helper
+(look up a seeded round's real `closedAt` off `GET
+/leagues/global/leaderboard/closed-rounds` rather than relying on list
+position, since concurrent spec files can close their own rounds at any
+time under `fullyParallel: true`). That's two occurrences, not yet three —
+no extraction needed now — but flagged here so the next
+`code-health-auditor` sweep already knows about it if a third copy shows up
+before that sweep runs. Both `architecture-reviewer` and `quality-architect`
+called this out as a non-blocking observation on S-246's diff, same as
+the original entry above.

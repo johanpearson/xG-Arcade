@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/backlog.md` (S-246 "Built as" note),
+  `docs/requirements-document.md` (REQ-1401/1402/1403/1418 "Test level"
+  lines), `NOTES.md` (addendum to the 2026-09-15 rule-of-three entry) — doc
+  sync for S-246: `frontend/tests/e2e/friends-challenges.spec.ts` (commit
+  `a2b26e8`) adds the first E2E coverage of how two players actually get
+  into an xG Connect match — REQ-1401's friend-request send/accept and
+  REQ-1402's direct-challenge send/accept, both driven through the real UI
+  with two Playwright browser contexts, plus REQ-1403's matchmaking opt-in
+  call — and proves REQ-1418's opponent-chain reveal holds in a genuine,
+  non-API-seeded friendship path (`play-connect.spec.ts`'s existing
+  REQ-1418 case is API-seeded). The same commit extracted
+  `play-connect.spec.ts`'s own play-through helpers into a new
+  `frontend/tests/e2e/connect-playthrough.ts` so both specs share them —
+  confirmed by both `architecture-reviewer` and `quality-architect` as a
+  pure extraction with no behavior change. REQ-1401's decline branch and
+  REQ-1403's 12-hour pairing-window expiry remain Unit/API-only,
+  deliberately, exactly as this story's own text scoped them (the expiry
+  already has backend coverage in `MatchmakingSweepServiceTests.cs`/
+  `MatchmakingEndpointTests.cs` — no new backend work was needed). Updated
+  the "Test level" lines for REQ-1401, REQ-1402, REQ-1403, and REQ-1418 to
+  cite the new spec accordingly; REQ-1417's existing Test level line was
+  reread and left unchanged (not inaccurate — it's exercised only
+  incidentally here and already has dedicated E2E coverage elsewhere).
+  Test-only change — no production code in this commit, so
+  `docs/architecture-document.md` was checked and intentionally left
+  untouched (no boundary/component/data-flow change), and no ADR was
+  added (both review agents already confirmed there's no structural
+  decision here to explain). Logged a second, still-sub-three-copies
+  occurrence of `leaderboard-leagues.spec.ts`'s `fetchClosedAtForRound`
+  helper shape in `NOTES.md` for a future `code-health-auditor` sweep.
 - 2026-09-15 — `docs/backlog.md` (S-244 "Built as" note),
   `docs/requirements-document.md` (REQ-402/403/405/408 "Test level" lines)
   — doc-sync for S-244: `frontend/tests/e2e/leaderboard-leagues.spec.ts`

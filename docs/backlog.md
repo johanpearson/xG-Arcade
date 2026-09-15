@@ -12940,6 +12940,33 @@ opt-in call itself (not the 12h expiry) is still exercised, either in this
 spec or confirmed already covered elsewhere.
 *Deps:* a session that can run `npm run test:e2e` against a real backend,
 or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+**Built as:** matches the plan. Extracted the shared xG Connect play-through
+helpers (`signUpNewConnectPlayer`, `loginForApi`, `fetchOwnUserId`,
+`seedConnectPlayers`, `submitTargetPick`, `submitClosingChainStep`) out of
+`play-connect.spec.ts` into a new `frontend/tests/e2e/connect-playthrough.ts`
+first, per this story's own "extract a shared helper if needed" wording —
+confirmed by both `architecture-reviewer` and `quality-architect` as a pure
+extraction with no behavior change to `play-connect.spec.ts` itself (only
+`submitClosingChainStep` now takes an explicit `connectorPlayerName`
+parameter instead of closing over a local `seed` variable). Added
+`frontend/tests/e2e/friends-challenges.spec.ts` driving the full A-sends-
+request/B-accepts (REQ-1401) → A-challenges/B-accepts (REQ-1402) → match
+flow entirely through the real UI, reusing the extracted helpers, then
+plays the resulting match to resolution and asserts REQ-1418's opponent-
+chain reveal on both sides for this genuine (non-API-seeded) friendship
+path — distinct from `play-connect.spec.ts`'s existing API-seeded-
+friendship REQ-1418 case. REQ-1403's opt-in call itself is exercised
+through the real UI in the same spec, exactly as scoped; its 12-hour
+pairing-window expiry remains explicitly out of scope for E2E, as this
+story's own text already called for — confirmed, not newly built, that
+backend coverage for that expiry/sweep behavior already exists
+(`MatchmakingSweepServiceTests.cs`/`MatchmakingEndpointTests.cs`), so no new
+backend work was needed or added. REQ-1417's tab coverage was not
+specifically re-tested here (it's exercised only incidentally by this
+spec's own navigation) since it already has dedicated E2E coverage in
+`play-connect.spec.ts` per that REQ's own existing Test level line, which
+was reread and left unchanged. Test-only change — no production code in
+this commit.
 
 **S-247 · E2E: account deletion (REQ-710)**
 REQ-710's account deletion (password-reconfirmation, anonymized `Guess`
