@@ -12794,6 +12794,31 @@ the component renders.
 existing indirect coverage is left in place, not removed (belt-and-
 suspenders, not a replacement).
 *Deps:* none — verifiable in a normal frontend session.
+**Built as:** `frontend/src/predict/PredictMatchInput.test.tsx` (12
+tests, `REQ1302_.../REQ1303_.../REQ1303_1306_...`-named). **Correction to
+this story's own wording:** the paragraph above describes
+`PredictMatchInput.tsx` as a "match-typeahead input" with a "candidate
+list" and candidate "selection" — that's stale/generic boilerplate that
+does not match the component. On pickup, `PredictMatchInput.tsx` was
+(and, per git history, always has been) a per-match two-integer
+score-prediction row (REQ-1302/1303/1306): two goal inputs, a Save
+button, and status/error text — no typeahead, no candidate list, no
+selection concept. No typeahead behavior was added to the component to
+force-fit the wording (that would have been unauthorized scope creep);
+instead the tests cover the same underlying intent — direct, isolated
+coverage of typing/validation/save/lock-detection — against the
+component's real behavior: typing updates the field and clears a prior
+saved/error status; Save with valid input calls `submitPrediction` then
+`onSaved` with the server-returned values; Save is reachable via
+Tab+Enter (the keyboard-selection analog); blank/non-integer/negative
+input on Save shows the exact validation message without calling
+`submitPrediction`/`onSaved` (the empty/no-match-state analog); a 409
+shows its error and calls `onLockDetected` (a companion test confirms a
+non-409 failure does not); `disabled` disables both fields and Save and
+discards an unsaved edit back to the match's stored values.
+`PredictScreen.test.tsx` untouched. `REQ-1302/1303/1306` in
+`docs/requirements-document.md` already match the component's actual
+behavior exactly, so no requirements/architecture doc change was needed.
 
 **S-243 · E2E: account signup and email confirmation (REQ-701-705)**
 Of the 9 existing Playwright specs (`frontend/tests/e2e/`), none cover
