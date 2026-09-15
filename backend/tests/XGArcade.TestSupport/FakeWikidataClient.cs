@@ -3,15 +3,20 @@ using XGArcade.DataSync.Wikidata;
 namespace XGArcade.TestSupport;
 
 // Hand-rolled IWikidataClient fake (docs/coding-guidelines.md: no mocking
-// framework). Promoted here (quality-architect follow-up, S-245 review)
-// once a near-verbatim copy of this exact class was about to land for the
-// 5th time overall and the 3rd time within XGArcade.Api.Tests alone
-// (AdminEndpointTests.cs, AdminSuggestionEndpointTests.cs, and the new
-// SeedGuessableRoundWithMissingClubEndpointTests.cs all had their own
-// private copy) — the same rule-of-three trigger FixedTimeProvider.cs's own
-// doc comment describes, and docs/coding-guidelines.md's Code health budget
-// section is explicit that a diff shouldn't wait for a fifth copy before
-// extracting.
+// framework). Promoted here (ADR-0084's Code health budget, quality-architect
+// follow-up, S-245 review) once a near-verbatim copy of this exact class was
+// about to land for the 5th time overall and the 3rd time within
+// XGArcade.Api.Tests alone (AdminEndpointTests.cs, AdminSuggestionEndpointTests.cs,
+// and the new SeedGuessableRoundWithMissingClubEndpointTests.cs all had their
+// own private copy) — the same rule-of-three trigger FixedTimeProvider.cs's
+// own doc comment describes, and docs/coding-guidelines.md's Code health
+// budget section is explicit that a diff shouldn't wait for a fifth copy
+// before extracting. This file's size relative to its siblings in
+// XGArcade.TestSupport (the next-largest, FakeHttpMessageHandler.cs, is much
+// shorter) is a direct, expected consequence of that promotion, not a
+// cohesion problem: it's a single class with one clear responsibility
+// (faking one interface), and the bulk of its line count is the mechanical
+// stub surface described below, not accidental sprawl.
 //
 // Exposes BOTH configurable behaviors those three call sites actually used
 // — AdminEndpointTests.cs only ever configures the refresh-by-QID path
