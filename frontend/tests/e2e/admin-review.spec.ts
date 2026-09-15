@@ -97,6 +97,35 @@ test.describe('REQ-215/501/509/510: admin review flows', () => {
     await clearAnyExistingActiveRound(request)
   })
 
+  // Unlike every other spec in this suite, this test deliberately seeds TWO
+  // co-existing Active xG Grid rounds (Vieira's/Bergkamp's — see the
+  // sequencing comments in the test body for why that's useful here) rather
+  // than closing one before seeding the next. GET /rounds/current resolves
+  // a single "active round" per game key across the WHOLE shared CI
+  // Postgres instance, not per-spec — so unlike play-grid.spec.ts/
+  // play-path.spec.ts/etc., which each fold their own force-close into their
+  // last test's own body (safe there, since they only ever have one round
+  // outstanding at a time), a round left dangling here leaks into whatever
+  // spec runs next in the same job and breaks its own "no active round"
+  // assumption (confirmed by a real CI run: header-nav.spec.ts's REQ-720
+  // empty-state case failed this exact way before this fix). Captured at
+  // module scope by the test body below and closed here instead, in
+  // test.afterAll, so cleanup runs regardless of which assertion in the
+  // test body throws (or whether it throws at all) — never just
+  // end-of-test-body code a failure could skip.
+  let vieiraRoundId: string | undefined
+  let bergkampRoundId: string | undefined
+
+  test.afterAll(async ({ request }) => {
+    for (const roundId of [vieiraRoundId, bergkampRoundId]) {
+      if (!roundId) continue
+      // Best-effort: this test's own assertions already report the real
+      // failure if something went wrong above — a second, unrelated
+      // cleanup failure on top would only obscure that, not add signal.
+      await request.post(`${API_BASE_URL}/internal/test-data/force-close-round/${roundId}`).catch(() => {})
+    }
+  })
+
   // REQ-807's third seed endpoint (S-245 addition): unlike seed-guessable-round,
   // this creates its OWN brand-new Round every call, entirely unrelated to
   // whichever round GET /rounds/current currently resolves as "the" active
@@ -194,6 +223,10 @@ test.describe('REQ-215/501/509/510: admin review flows', () => {
     // effective, so a guess of correctPlayerFullName is guaranteed incorrect
     // until an admin commits it.
     const vieiraSeed = await seedMissingClubRound(request, 'Patrick Vieira')
+    // Captured immediately (module-scope, read by test.afterAll above) —
+    // even an assertion further down this test failing must not skip
+    // closing this round, since it now exists in the shared CI DB either way.
+    vieiraRoundId = vieiraSeed.roundId
     const vieiraCell = page.getByTestId(`grid-cell-${vieiraSeed.cellId}`)
 
     await signUpNewGridPlayer(page)
@@ -242,6 +275,9 @@ test.describe('REQ-215/501/509/510: admin review flows', () => {
     // guess submission from here on addresses its own already-known
     // roundId/cellId directly rather than re-resolving "the" current round.
     const bergkampSeed = await seedMissingClubRound(request, 'Dennis Bergkamp')
+    // Same "capture immediately, close in afterAll regardless of what
+    // happens next" reasoning as vieiraRoundId above.
+    bergkampRoundId = bergkampSeed.roundId
 
     const contextB = await browser.newContext()
     const contextC = await browser.newContext()
