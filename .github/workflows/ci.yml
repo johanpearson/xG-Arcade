@@ -345,6 +345,18 @@ jobs:
           # environment keeps REQ-606's real 10.
           RateLimiting__AuthSignupPermitLimit: "1000"
           RateLimiting__AuthLoginPermitLimit: "1000"
+          # S-245 (REQ-501/509/510): admin-review.spec.ts needs one E2E
+          # account recognized as admin (AdminAuthorizationHandler reads this
+          # exact env var — see AdminAuthorization.cs). No admin E2E coverage
+          # existed before this story, so this var was never set here.
+          # LocalE2EAuthClient.DeterministicGuid derives an authProviderUserId
+          # from `email.Trim().ToLowerInvariant()` via
+          # `new Guid(MD5.HashData(...))` — this is that deterministic GUID
+          # for the fixed email "e2e-admin@test.invalid", which
+          # admin-review.spec.ts signs up as to become admin. Not tied to any
+          # real Supabase identity — this whole mechanism only exists in
+          # Auth__Mode=local-e2e (Development-only, see LocalE2EAuth.cs).
+          Admin__UserIds: "03a57244-ba5b-782e-303b-37cd79dc9d18"
       - name: E2E (Playwright against local stack)
         # playwright.config uses its `webServer` option to boot the Vite dev
         # server on :5173 itself — only the API needs manual starting above.

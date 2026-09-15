@@ -1,3 +1,4 @@
+using XGArcade.Api.DataSync;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Internal;
 using XGArcade.Api.Path;
@@ -7,6 +8,7 @@ using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGHigherLower;
 using XGArcade.Games.XGPath;
@@ -328,6 +330,220 @@ public static class InternalRoundEndpoints
                 roundRepository, GridGameModule.XGGridGameKey, instance.Id, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
 
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
+        });
+
+        // S-245/REQ-509/REQ-510: seeds the "misfit player" scenario admin-
+        // review.spec.ts needs to prove REQ-509's suggestion-review-and-commit
+        // and REQ-510's standalone search-and-commit each flip a guess from
+        // incorrect to correct through the real UI/endpoints — the E2E-level
+        // counterpart of AdminEndpointTests.
+        // REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess's
+        // own API-level proof (backend/tests/XGArcade.Api.Tests/
+        // AdminEndpointTests.cs).
+        //
+        // Deliberately a REAL Wikidata player, not a CreateUniqueTestPlayerAsync
+        // fake — REQ-509/510's own commit path resolves/creates its local
+        // Player row by WikidataQid (AdminSuggestionEndpoints.
+        // CommitPlayerDataAsync -> IPlayerRepository.
+        // GetOrCreatePlayersByWikidataQidAsync), and the admin's live lookup
+        // (POST /admin/suggestions/{id}/lookup or /admin/player-search/lookup)
+        // resolves that same QID by running the identical
+        // IWikidataClient.QueryPlayerCareerAndNationalityByNameAsync call this
+        // endpoint runs below, keyed on the player's real NAME. A fake/guessed
+        // WikidataQid here would make the seed step and the later admin-commit
+        // step write two DIFFERENT Player rows, and the guess would never
+        // flip — this endpoint sidesteps that entirely by never inventing a
+        // QID: it resolves the real one live, the same way the admin flow
+        // will, so whichever QID Wikidata actually returns, both steps agree
+        // on it.
+        //
+        // realPlayerName must name a real, well-known footballer with a
+        // single unambiguous Wikidata entity, a resolvable nationality (P27),
+        // and at least one resolvable club (P54) — admin-review.spec.ts is
+        // expected to pass two different, well-known, RETIRED players (their
+        // careers/attributions are stable and non-controversial, unlike an
+        // active player's) with independent Wikidata records, e.g. "Patrick
+        // Vieira" for REQ-509's suggestion-review scenario and "Dennis
+        // Bergkamp" for REQ-510's standalone search scenario — both real,
+        // unambiguous single-entity Wikidata footballers as of this story's
+        // authoring, NOT independently re-verified against a live Wikidata
+        // endpoint from this sandbox (no wikidata.org access here — see
+        // NOTES.md's recurring "network policy blocks wikidata.org" entries);
+        // if either name doesn't resolve cleanly in CI, swap in a different
+        // real, unambiguous, retired footballer instead. No QID/club/
+        // nationality string is ever hardcoded here; every value this
+        // endpoint writes comes from the live Wikidata response itself, so
+        // it's immune to "the curated club/country name doesn't literally
+        // match Wikidata's own label text" drift (e.g. "Arsenal" vs.
+        // whatever label Wikidata actually returns) — this endpoint uses
+        // that exact raw text for both the seeded requirement (GridCell)
+        // and (indirectly, via the admin's own later lookup returning the
+        // same text) whatever the commit path writes, rather than trying to
+        // predict it.
+        //
+        // Row category is always Country/nationality, column category is
+        // always Club — the ONE missing category is deliberately always the
+        // club (never nationality): PlayerAttribute's "club" write is
+        // strictly additive (CommitPlayerDataAsync only ever ADDS a new row
+        // for a club not already effective, never removes/replaces one),
+        // whereas PlayerOverride's nationality write REPLACES the whole
+        // field — reusing the additive shape here means a second call for
+        // the same realPlayerName (e.g. a Playwright retry within the same
+        // CI Postgres instance/job) never corrupts an already-good prior
+        // scenario, it just needs a still-not-yet-effective club to build a
+        // fresh one from (see the "already fully committed" 409 branch
+        // below).
+        app.MapPost("/internal/test-data/seed-guessable-round-with-missing-club", async (
+            string realPlayerName,
+            IWikidataClient wikidataClient,
+            IGridInstanceRepository gridInstanceRepository,
+            IPlayerRepository playerRepository,
+            IPlayerAttributeRepository playerAttributeRepository,
+            IPlayerOverrideRepository playerOverrideRepository,
+            IRoundRepository roundRepository,
+            ILogger<SeedGuessableRoundWithMissingClubLogCategory> logger,
+            TimeProvider timeProvider,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(realPlayerName))
+            {
+                return Results.Problem(
+                    title: "Invalid realPlayerName",
+                    detail: "realPlayerName must not be empty.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            WikidataPlayerCareerLookupResult? lookup;
+            try
+            {
+                lookup = await wikidataClient.QueryPlayerCareerAndNationalityByNameAsync(realPlayerName, cancellationToken);
+            }
+            catch (WikidataQueryException ex)
+            {
+                // Same ADR-0046 timeout-vs-no-match distinction, and the same
+                // server-side-only logging, as AdminSuggestionEndpoints'
+                // two /lookup endpoints (which call this exact same
+                // IWikidataClient method) — see those catch blocks for the
+                // full reasoning. This IS an /internal/test-data/* endpoint,
+                // but its caller is a Playwright spec, not a scheduled job's
+                // own CI log, so it gets the same "never surface ex.Message"
+                // treatment a player-reachable admin endpoint would, not the
+                // /internal/* bearer-token-gated-scheduled-job carve-out
+                // (docs/coding-guidelines.md). Shared log+503 plumbing:
+                // WikidataQueryFailureResult (XGArcade.Api.DataSync) — this
+                // is its third call site, alongside AdminSuggestionEndpoints.cs's
+                // two /lookup endpoints; see that class's own doc comment.
+                return WikidataQueryFailureResult.Problem(
+                    logger,
+                    ex,
+                    "Wikidata lookup failed for realPlayerName {RealPlayerName} while seeding the REQ-509/510 missing-club E2E scenario",
+                    realPlayerName);
+            }
+
+            if (lookup is null)
+            {
+                return Results.Problem(
+                    title: "No matching Wikidata footballer",
+                    detail: $"Wikidata has no footballer matching '{realPlayerName}'. Pick a different, unambiguous, well-known real player name.",
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
+
+            if (string.IsNullOrWhiteSpace(lookup.Nationality) || lookup.Clubs.Count == 0)
+            {
+                return Results.Problem(
+                    title: "Insufficient Wikidata data",
+                    detail: $"'{realPlayerName}' (WikidataQid {lookup.WikidataQid}) is missing a nationality and/or every club — this scenario needs both to build a guessable cell.",
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
+
+            // Same upsert-by-WikidataQid semantics CommitPlayerDataAsync
+            // itself uses — a second call for the same realPlayerName (this
+            // story's own retry concern, see this endpoint's top comment)
+            // reuses the same Player row rather than colliding on
+            // WikidataQid's unique index.
+            var playersByQid = await playerRepository.GetOrCreatePlayersByWikidataQidAsync(
+                [new PlayerCreationRequest(lookup.WikidataQid, lookup.FullName, PhotoUrl: null)], cancellationToken);
+            var (player, _) = playersByQid[lookup.WikidataQid];
+
+            // Ensures the row category (nationality) is satisfied BEFORE any
+            // admin action — idempotent across repeat calls for the same
+            // player (only adds the row if not already effective, so reruns
+            // never accumulate duplicate PlayerAttribute rows for the same
+            // value).
+            var nationalityAlreadyEffective = await playerOverrideRepository.HasEffectiveAttributeAsync(
+                player.Id, "nationality", lookup.Nationality, cancellationToken);
+            if (!nationalityAlreadyEffective)
+            {
+                await playerAttributeRepository.AddPlayerAttributeAsync(
+                    new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = lookup.Nationality },
+                    cancellationToken);
+            }
+
+            // Picks the first of this player's real Wikidata clubs that is
+            // NOT yet an effective "club" attribute for them — deliberately
+            // NEVER the first club outright, so a second call for the same
+            // realPlayerName within the same CI Postgres instance (a
+            // Playwright retry, or two E2E runs sharing one job) still finds
+            // a genuinely unsatisfied column category to seed, instead of
+            // silently reusing one an earlier call's admin-commit already
+            // added (which would make the "before" guess wrongly correct).
+            string? targetClub = null;
+            foreach (var club in lookup.Clubs)
+            {
+                var alreadyEffective = await playerOverrideRepository.HasEffectiveAttributeAsync(
+                    player.Id, "club", club, cancellationToken);
+                if (!alreadyEffective)
+                {
+                    targetClub = club;
+                    break;
+                }
+            }
+
+            if (targetClub is null)
+            {
+                // Every real club Wikidata knows about for this player is
+                // already an effective attribute — this player's scenario has
+                // already been fully exercised (committed) within this same
+                // database instance, so seeding it again could never
+                // reproduce an "incorrect before" guess. Reported as a
+                // conflict, not silently building a broken scenario — the
+                // caller should pass a different realPlayerName.
+                return Results.Problem(
+                    title: "No unsatisfied club available",
+                    detail: $"Every known Wikidata club for '{realPlayerName}' is already an effective attribute for this player (WikidataQid {lookup.WikidataQid}) — likely already committed by a prior test run against this database. Pass a different realPlayerName.",
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            var instanceId = Guid.NewGuid();
+            var cellId = Guid.NewGuid();
+            await gridInstanceRepository.AddInstanceAsync(new GridInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                Cells =
+                [
+                    new GridCell
+                    {
+                        Id = cellId,
+                        GridInstanceId = instanceId,
+                        Row = 0,
+                        Col = 0,
+                        RowCategoryType = CategoryPairingRules.Country,
+                        RowCategoryValue = lookup.Nationality,
+                        ColCategoryType = CategoryPairingRules.Club,
+                        ColCategoryValue = targetClub,
+                    },
+                ],
+            }, cancellationToken);
+
+            // REQ-304: see CreateSequencedRoundAsync's own doc comment
+            // (bottom of this file) for the shared implementation.
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var round = await CreateSequencedRoundAsync(
+                roundRepository, GridGameModule.XGGridGameKey, instanceId, now.AddMinutes(-1), now.AddHours(1), cancellationToken);
+
+            return Results.Ok(new SeedGuessableRoundWithMissingClubResponse(
+                round.Id, cellId, player.Id, lookup.WikidataQid, player.FullName, lookup.Nationality, targetClub, lookup.Clubs));
         });
 
         // S-088/REQ-807 extension: the xg-path counterpart to
@@ -667,6 +883,29 @@ public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
 
 public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName, string AlternateCorrectPlayerName);
 
+// S-245/REQ-509/REQ-510: seed-guessable-round-with-missing-club's response.
+// CorrectPlayerFullName is the exact name (Wikidata's own canonical label,
+// via Player.FullName) to submit as a guess/suggestion PlayerName — matching
+// it drives NormalizedFullName-based guess matching (REQ-208) the same way
+// any other Player row's FullName does. Nationality is the exact RowCategoryValue
+// seeded on the cell (already an effective attribute for this player before
+// any admin action). ExpectedClubName is the exact ColCategoryValue seeded
+// on the cell — the one real Wikidata club this player does NOT yet have as
+// an effective "club" attribute, i.e. the value REQ-509/510's commit must add
+// (whether via the confirmed suggestion review or the standalone search) for
+// the guess to flip from incorrect to correct. AllKnownClubs is every club
+// Wikidata returned for this player (informational — e.g. for an E2E spec
+// asserting the admin UI's lookup response lists ExpectedClubName among them).
+public record SeedGuessableRoundWithMissingClubResponse(
+    Guid RoundId,
+    Guid CellId,
+    Guid PlayerId,
+    string WikidataQid,
+    string CorrectPlayerFullName,
+    string Nationality,
+    string ExpectedClubName,
+    IReadOnlyList<string> AllKnownClubs);
+
 // S-088/REQ-807 extension: PuzzleId is the "cell id" an E2E test submits
 // guesses against via the existing game-agnostic
 // POST /rounds/{roundId}/cells/{cellId}/guesses (XGArcade.Api.Guesses.
@@ -709,3 +948,9 @@ public record SeedGuessableHigherLowerComparatorResponse(Guid PlayerId, string N
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.
 internal sealed class RoundGenerationLogCategory;
+
+// Pure log-category marker for ILogger<T> — same pattern as
+// AdminSuggestionEndpointsLogCategory (AdminSuggestionEndpoints.cs), whose
+// exact WikidataQueryException catch-and-log shape
+// seed-guessable-round-with-missing-club reuses.
+internal sealed class SeedGuessableRoundWithMissingClubLogCategory;

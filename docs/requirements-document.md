@@ -6732,6 +6732,35 @@ flow: signup → guess → force-close → verify locked score)
   eligibility logic. The acceptance criteria below now cover both
   endpoints; this REQ's original text ("only grid/round content is seeded
   this way") predated the second game and is corrected below.
+  **Extended again in S-245 (REQ-509/REQ-510):** a third endpoint, `POST
+  /internal/test-data/seed-guessable-round-with-missing-club` (same
+  `XGArcade.Api.Rounds.InternalRoundEndpoints` file), seeds the "misfit
+  real player" scenario `frontend/tests/e2e/admin-review.spec.ts` needs to
+  prove REQ-509's suggestion-review-and-commit and REQ-510's standalone
+  search-and-commit each flip a guess from incorrect to correct through
+  the real UI/endpoints. Unlike the other seed endpoints, this one takes a
+  required `realPlayerName` query parameter and seeds a REAL, genuinely
+  Wikidata-known footballer rather than a fake/tagged test player — REQ-
+  509/510's own commit path resolves/creates its local `Player` row keyed
+  on `WikidataQid`, so this endpoint resolves that QID the same way the
+  admin flow will: by running the identical live
+  `IWikidataClient.QueryPlayerCareerAndNationalityByNameAsync` call, keyed
+  on the real player's name, rather than inventing or guessing a QID. It
+  seeds the player's real nationality as an effective `PlayerAttribute`
+  (satisfying the cell's row category before any admin action) and
+  deliberately leaves one real, live-fetched club unsatisfied (picking the
+  first of the player's known clubs not already an effective attribute for
+  them, so a repeated call for the same `realPlayerName` within one CI
+  database never reuses an already-committed club) as the cell's column
+  category — the value REQ-509/510's commit must add for the guess to flip
+  correct. Every category value the endpoint writes comes from the live
+  Wikidata response itself, never a hardcoded/curated string, so it can
+  never drift from whatever raw label text that same live call returns to
+  the admin flow later. Returns `422 Unprocessable Entity` when Wikidata
+  has no match or insufficient data for the name, `503` (never a silent
+  no-match) when the live query fails, and `409 Conflict` when every known
+  club for that player is already an effective attribute (signaling the
+  scenario needs a different `realPlayerName`).
 - Given `ASPNETCORE_ENVIRONMENT` is not `Production`
 - When a test calls `POST /internal/test-data/seed-guessable-round`
 - Then an active Round and a single-cell `GridInstance` are created, together
@@ -6750,16 +6779,40 @@ flow: signup → guess → force-close → verify locked score)
   `PuzzleId` is the "cell id" a test submits guesses against via the
   existing game-agnostic `POST /rounds/{roundId}/cells/{cellId}/guesses`,
   per `IGameModule.GetCellIdsAsync`'s PathPuzzle.Id-is-the-cell-id contract
-- And both endpoints above are never registered when
+- Given `ASPNETCORE_ENVIRONMENT` is not `Production`
+- When a test calls `POST /internal/test-data/seed-guessable-round-with-missing-club?realPlayerName={a real, well-known, retired footballer's name}`
+- Then an active Round and a single-cell `GridInstance` are created, with a
+  real `Player` row (real `WikidataQid`, resolved live from
+  `realPlayerName`) whose nationality already satisfies the cell's row
+  category and whose column-category club is deliberately not yet an
+  effective attribute
+- And the response returns `RoundId`/`CellId`/`PlayerId`/`WikidataQid`/
+  `CorrectPlayerFullName`/`Nationality`/`ExpectedClubName`/`AllKnownClubs`
+  — `ExpectedClubName` is the exact club value REQ-509/510's commit must
+  add for a subsequent guess of `CorrectPlayerFullName` to flip from
+  incorrect to correct
+- And a blank `realPlayerName` returns 400, an unresolvable/ambiguous name
+  or one missing nationality/club data returns 422, a live Wikidata query
+  failure returns 503 (ADR-0046's same timeout-vs-no-match distinction
+  REQ-509/510's own lookup endpoints use), and a `realPlayerName` whose
+  every known club is already an effective attribute for that player
+  (e.g. a repeated call within the same database instance) returns 409
+- And all three endpoints above are never registered when
   `ASPNETCORE_ENVIRONMENT == Production`, enforced in startup
   configuration, same discipline as REQ-801/REQ-806
 - And test users are still created via the real signup endpoint (REQ-806's
-  existing convention) for both endpoints — only grid/round or
-  xg-path/round content is seeded this way, never user accounts
+  existing convention) for all three endpoints — only grid/round,
+  xg-path/round, or the missing-club scenario's `Player`/`PlayerAttribute`
+  data is seeded this way, never user accounts
 
-**Test level:** Integration (both endpoints absent when Production), used
-as E2E setup by S-010's Playwright suite (`seed-guessable-round`) and
-S-088's Playwright suite (`seed-guessable-path-round`)
+**Test level:** Integration (all three endpoints absent when Production;
+`seed-guessable-round-with-missing-club` additionally covered by
+`backend/tests/XGArcade.Api.Tests/SeedGuessableRoundWithMissingClubEndpointTests.cs`,
+which drives the real REQ-509/REQ-510 admin endpoints end-to-end against a
+fake `IWikidataClient` to prove the write-path wiring), used as E2E setup by
+S-010's Playwright suite (`seed-guessable-round`), S-088's Playwright suite
+(`seed-guessable-path-round`), and S-245's Playwright suite
+(`seed-guessable-round-with-missing-club`, `frontend/tests/e2e/admin-review.spec.ts`)
 
 ---
 

@@ -2217,21 +2217,37 @@ and a real dev-environment `backfill-player-trophy-stats` run, followed by
 `report-international-stats-coverage`, before trusting that `"trophy"`
 coverage actually grew past 20.
 
+S-245 (Epic 33, admin-review E2E coverage) left a flagged-but-not-fixed
+code-health finding from `quality-architect`'s diff-time review, out of
+scope for that story but worth picking up in the next technical-debt sweep
+(`code-health-auditor`):
+
+1. `backend/src/XGArcade.Api/Rounds/InternalRoundEndpoints.cs` is now 955
+   lines (was 711 pre-S-245, +34%), already ~2.9x its one sibling in
+   `Rounds/` (`RoundEndpoints.cs`, 243 lines) before this story and now
+   ~3.9x — past the god-file threshold and growing. It has clearly
+   separable sections by game (grid seed-*, higher-lower seed-*, xg-path
+   seed-*, predict seed-*, generic round-generation/force-close) that
+   would split cleanly.
+
 ### 2026-09-15 — `frontend/tests/e2e/` has crossed the rule-of-three on its per-file "clear the Active round" helper
 
-S-244's new `leaderboard-leagues.spec.ts` is the fifth spec file with its
-own near-identical copy of the "probe-signup → loop `GET /rounds/current`
-→ force-close → throw after 10 attempts" helper (`play-grid.spec.ts`,
-`play-path.spec.ts`, `play-higher-lower.spec.ts`, and `play-predict.spec.ts`
-already each had one). `signUpAndLoginViaApi`/`submitGuessViaApi` are also
-byte-for-byte duplicated from `play-grid.spec.ts` in the new file.
+S-244's `leaderboard-leagues.spec.ts` and S-245's `admin-review.spec.ts`
+(landed the same day, independently) each added another near-identical
+copy of the "probe-signup → loop `GET /rounds/current` → force-close →
+throw after 10 attempts" helper — `play-grid.spec.ts`, `play-path.spec.ts`,
+`play-higher-lower.spec.ts`, and `play-predict.spec.ts` already each had
+one, making this the 6th copy. `signUpAndLoginViaApi`/`submitGuessViaApi`-
+shaped helpers are similarly duplicated across most of these files.
 `docs/coding-guidelines.md`'s code-health budget calls this out at three
-copies; flagged here rather than fixed in S-244 itself since it's a
-cross-file refactor outside that story's scope — next `code-health-auditor`
-sweep should extract a shared `frontend/tests/e2e/helpers.ts` (the
-`GET /rounds/current`-clearing helper would need the endpoint path
-parameterized per `GameKey`, since each existing copy targets a different
-game's round-seeding endpoint).
+copies; flagged here rather than fixed in either story since it's a
+cross-file refactor outside both stories' own scope — next
+`code-health-auditor` sweep (or a dedicated `quality-architect`
+test-architecture pass) should extract a shared
+`frontend/tests/e2e/helpers.ts` (the `GET /rounds/current`-clearing helper
+would need the endpoint path parameterized per `GameKey`, since each
+existing copy targets a different game's round-seeding endpoint) that
+every spec, including future ones, imports instead of copy-pasting.
 
 **Addendum (2026-09-15, S-246):** a second, unrelated duplication of the
 same shape has now appeared alongside the one above: S-246's new

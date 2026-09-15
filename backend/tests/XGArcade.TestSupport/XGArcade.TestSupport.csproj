@@ -8,4 +8,13 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- FakeWikidataClient needs IWikidataClient/WikidataQueryException and
+         friends — promoted here (quality-architect follow-up, S-245 review)
+         once a 5th near-verbatim FakeWikidataClient copy (3rd within
+         XGArcade.Api.Tests alone) was about to land, the same rule-of-three
+         trigger FixedTimeProvider.cs's own doc comment describes. -->
+    <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
+  </ItemGroup>
+
 </Project>
