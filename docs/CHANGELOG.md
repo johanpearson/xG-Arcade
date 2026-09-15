@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/backlog.md` (S-245) — closed out S-245 with a "Built
+  as" note: the story's assumed seed shape (a fake/tagged test player)
+  doesn't work for REQ-509/510's real live-Wikidata-lookup commit path,
+  since it resolves/creates the local `Player` row by `WikidataQid` — see
+  the requirements-document.md entry below for the actual endpoint added.
+  Also records `frontend/playwright.config.ts`'s `workers: process.env.CI
+  ? 1 : undefined` fix for a genuine, previously-latent cross-file E2E
+  race (`header-nav.spec.ts`'s REQ-720 "no active round" check vs. any
+  concurrently-scheduled round-seeding spec under `fullyParallel: true`),
+  found via three real `ci.yml` runs, not guessed at.
 - 2026-09-15 — `docs/requirements-document.md` — S-245 (REQ-509/REQ-510):
   documented a third `/internal/test-data/*` endpoint,
   `POST /internal/test-data/seed-guessable-round-with-missing-club`

@@ -12858,6 +12858,56 @@ admin UI shows a success toast.
 *Deps:* a session that can run `npm run test:e2e` against a real backend,
 or CI-only verification via `ci.yml`'s `workflow_dispatch`.
 
+**Built as:** the seed shape the story assumed (a fake/tagged test player)
+doesn't work for REQ-509/510's real live-Wikidata-lookup commit path — the
+commit resolves/creates a local `Player` row by `WikidataQid`, so a seeded
+"misfit" player needs a genuinely Wikidata-resolvable QID or the admin's
+commit lands on a different row than the one the guess was checked
+against. Added a new REQ-807-extension endpoint,
+`POST /internal/test-data/seed-guessable-round-with-missing-club?realPlayerName={name}`
+(`backend/src/XGArcade.Api/Rounds/InternalRoundEndpoints.cs`), which
+resolves a real, well-known, retired footballer's real WikidataQid live at
+seed time (same client the admin flow itself uses), seeds their real
+nationality as already-effective and deliberately withholds one real club,
+and returns everything the E2E spec needs
+(`RoundId`/`CellId`/`PlayerId`/`WikidataQid`/`CorrectPlayerFullName`/
+`Nationality`/`ExpectedClubName`/`AllKnownClubs`). Covered independently at
+the API level by
+`backend/tests/XGArcade.Api.Tests/SeedGuessableRoundWithMissingClubEndpointTests.cs`,
+which drives the real REQ-509/REQ-510 admin endpoints end-to-end against a
+fake `IWikidataClient`. `frontend/tests/e2e/admin-review.spec.ts` calls it
+twice (Patrick Vieira for REQ-509's suggestion-review path, Dennis Bergkamp
+for REQ-510's standalone search path — two independent real players, two
+independent rounds/cells), using two Playwright browser contexts (one
+persistent regular-player session per scenario, one admin session) per
+S-246's own multi-context precedent, and proves each flip the same way
+`REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess`
+proves it at the API level. `Admin__UserIds` was never set in `ci.yml`'s
+E2E job before this story (no admin E2E coverage existed at all) — wired
+to the deterministic GUID `LocalE2EAuth.cs`'s `Auth:Mode=local-e2e` stack
+derives for a fixed `e2e-admin@test.invalid` email. A first real `ci.yml`
+run surfaced a genuine, previously-latent suite-wide bug this story's
+longer-lived seeded rounds finally made deterministic: `header-nav.spec.ts`'s
+REQ-720 "no active round" check races against any concurrently-scheduled
+round-seeding spec under `fullyParallel: true` — fixed by serializing the
+E2E suite in CI only (`playwright.config.ts`'s `workers: process.env.CI ? 1
+: undefined`), which closes the whole class of shared-global-round-state
+race for every current and future spec, not just this one. `quality-architect`'s
+diff-time review also flagged (and fixed, in the same story) two real
+rule-of-three violations the new endpoint/test file crossed: a duplicated
+`WikidataQueryException`-to-503 shape (now a shared
+`WikidataApi.DataSync.WikidataQueryFailureResult` helper) and a duplicated
+`FakeWikidataClient` (now promoted to `backend/tests/XGArcade.TestSupport`).
+Two further findings — `InternalRoundEndpoints.cs`'s god-file growth and
+the E2E suite's own signup/round-clear helper duplication — were logged in
+`NOTES.md` for the next `code-health-auditor` sweep rather than fixed here,
+since both predate this diff and are explicitly out of this story's scope.
+CI confirmed fully green (`backend-tests`/`frontend-unit-tests`/
+`code-health-budget`/`e2e-tests` all passing) via `ci.yml`'s
+`workflow_dispatch` after three real-CI iterations (the WikidataQid-
+matching design, the round-cleanup leak, and the cross-file scheduling
+race were each found and fixed against real CI runs, not guessed at).
+
 **S-246 · E2E: friends, challenges, and matchmaking (REQ-1401-1403/1417/1418)**
 `play-connect.spec.ts` covers playing a single xG Connect match, but
 nothing exercises how two players actually get matched in the first
