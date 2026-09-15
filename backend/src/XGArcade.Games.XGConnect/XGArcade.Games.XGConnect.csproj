@@ -4,6 +4,7 @@
     <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
          ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo) live in
          XGArcade.Core. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
     <!-- ADR-0103: COMP-17's own persistence
          (IConnectMatchRepository/ConnectMatch/ConnectTargetPick/
