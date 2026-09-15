@@ -2216,3 +2216,26 @@ Not yet run against real Wikidata data from this sandbox (no
 and a real dev-environment `backfill-player-trophy-stats` run, followed by
 `report-international-stats-coverage`, before trusting that `"trophy"`
 coverage actually grew past 20.
+
+S-245 (Epic 33, admin-review E2E coverage) left two flagged-but-not-fixed
+code-health findings from `quality-architect`'s diff-time review, out of
+scope for that story but worth picking up in the next technical-debt sweep
+(`code-health-auditor`):
+
+1. `backend/src/XGArcade.Api/Rounds/InternalRoundEndpoints.cs` is now 955
+   lines (was 711 pre-S-245, +34%), already ~2.9x its one sibling in
+   `Rounds/` (`RoundEndpoints.cs`, 243 lines) before this story and now
+   ~3.9x — past the god-file threshold and growing. It has clearly
+   separable sections by game (grid seed-*, higher-lower seed-*, xg-path
+   seed-*, predict seed-*, generic round-generation/force-close) that
+   would split cleanly.
+2. `frontend/tests/e2e/` now has 5+ near-identical
+   `clearAnyExistingActiveRound`-shaped helpers (probe signup → login →
+   poll `/rounds/current` → force-close loop) across `play-grid.spec.ts`,
+   `play-path.spec.ts`, `play-higher-lower.spec.ts`, `play-predict.spec.ts`,
+   and now `admin-review.spec.ts`, plus a 5-6th occurrence of a
+   `signUpNewPlayer`-shaped signup helper — well past the rule-of-three.
+   Needs a shared `frontend/tests/e2e/helpers.ts` (parameterized by
+   game-key/rounds-path) that every spec, including future ones, imports
+   instead of copy-pasting. Test-architecture work, so `quality-architect`
+   owns it once scheduled, not `code-health-auditor` directly.
