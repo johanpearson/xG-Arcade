@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.12"
+version: "0.13"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-08-31
+last_updated: 2026-09-15
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -134,8 +134,10 @@ have the right to:
 - **Delete** your account and personal data
 - **Correct** inaccurate data we hold about you
 
-You can exercise deletion and export directly from your account settings.
-For anything else, contact us at [contact email].
+You can exercise deletion directly from your account settings. Export is
+not yet available as a self-service feature in the account settings — until
+it is, contact us at [contact email] and we'll provide a copy of your data
+manually. For anything else, contact us at [contact email].
 
 ## Data sources for gameplay content
 

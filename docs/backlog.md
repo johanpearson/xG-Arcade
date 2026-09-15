@@ -13057,4 +13057,51 @@ unimplemented with no tracking either way.
 *Deps:* none — a documentation/planning decision, not an implementation
 session.
 
+**Decision (2026-09-15, `requirements-writer`):** option (b) — REQ-711
+stays in scope, not deferred. `docs/legal/privacy-policy-draft.md` already
+tells users "You can exercise deletion and export directly from your
+account settings" (line ~137), which is an active claim about a live GDPR
+right, not a discretionary feature like REQ-706's notification emails;
+deferring would leave that claim false. REQ-711 sits on the same
+Article 20 (portability) footing REQ-710 (Article 17, erasure) already has,
+and REQ-710 shipped rather than being deferred. `MVP-SCOPE.md` gives
+REQ-711 no explicit Tier assignment either way, so there is no existing
+scoping decision to defer to. See REQ-711's own new status note and S-249
+below for the implementation story this spawns, and
+`docs/legal/privacy-policy-draft.md`'s "Your rights" section, corrected in
+the same pass to stop overstating export as already available.
+
+---
+
+## Epic 34 — GDPR data export (REQ-711)
+
+**S-249 · Self-service data export (REQ-711)**
+`GET /account/export` (or similar; the exact route is an implementation
+detail) — an `[Authorize]`-protected, synchronous endpoint returning a
+single JSON document containing only the caller's own data: account info
+(the `User` row, excluding the credential itself, which the auth provider
+holds — not a copy of the password), guess history (`Guess` rows
+attributed to the caller), league memberships (`LeagueMembership` rows,
+joined to league name), and notification preferences. Until
+`NotificationPreference` exists (Tier 1, `MVP-SCOPE.md`), that field is
+empty/absent rather than blocking the rest of the export — the same
+no-op-until-built precedent REQ-710/S-025 already established for the same
+table. Plus a minimal UI entry point: an "Export your data" action on
+`SettingsScreen.tsx` (REQ-713), following `DeleteAccountScreen.tsx`'s
+existing pattern for an authenticated, single-purpose account-action
+screen, triggering a browser download of the returned JSON rather than
+rendering it inline.
+*Accept:* REQ711-named test (API): a logged-in user's export contains
+exactly their own account info, guess history, and league memberships (and
+notification preferences once that table exists), never another user's
+rows; an unauthenticated request is rejected (401). REQ711-named test
+(UI/Vitest): the Settings entry point calls the export endpoint and
+triggers a file download on success, and surfaces a visible error state if
+the request fails, following `DeleteAccountScreen.test.tsx`'s existing
+conventions for this class of screen-level test.
+*Deps:* S-004 (auth), S-009 (`Guess` exists to export), S-039/REQ-713
+(the Settings screen this hangs its entry point on already exists), S-025
+(the `NotificationPreference`-is-a-no-op-until-built precedent, reused
+rather than re-litigated).
+
 ---

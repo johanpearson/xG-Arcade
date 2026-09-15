@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "3.0"
+version: "3.1"
 status: draft
 last_updated: 2026-09-15
 owner: Johan
@@ -6972,6 +6972,14 @@ captcha-rejection title does not trigger the screen's existing
 - And the export is provided within a reasonable timeframe (a synchronous
   API response is acceptable at this scale; no background job needed
   unless export size becomes a real problem)
+
+**Status note (2026-09-15):** this REQ has no implementation anywhere in
+`backend/src/` or `frontend/src/` as of this note — unlike REQ-706, it is
+not deferred; it remains in scope (see `docs/backlog.md` S-248's reasoning:
+the privacy policy already tells users this right is exercisable today, and
+it sits on the same GDPR footing as REQ-710, which is implemented).
+Implementation is a separately queued story, not yet built — see
+`docs/backlog.md` S-249.
 
 **Test level:** API
 
