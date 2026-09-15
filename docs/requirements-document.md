@@ -6775,6 +6775,12 @@ flow: signup → guess → force-close → verify locked score)
   — `ExpectedClubName` is the exact club value REQ-509/510's commit must
   add for a subsequent guess of `CorrectPlayerFullName` to flip from
   incorrect to correct
+- And a blank `realPlayerName` returns 400, an unresolvable/ambiguous name
+  or one missing nationality/club data returns 422, a live Wikidata query
+  failure returns 503 (ADR-0046's same timeout-vs-no-match distinction
+  REQ-509/510's own lookup endpoints use), and a `realPlayerName` whose
+  every known club is already an effective attribute for that player
+  (e.g. a repeated call within the same database instance) returns 409
 - And all three endpoints above are never registered when
   `ASPNETCORE_ENVIRONMENT == Production`, enforced in startup
   configuration, same discipline as REQ-801/REQ-806
