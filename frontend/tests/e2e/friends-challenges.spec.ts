@@ -164,7 +164,25 @@ test.describe('REQ-1401/1402/1403/1417/1418: friend request, challenge, matchmak
       // from "Friend requests" (FriendsTab.tsx has no separate post-accept
       // banner/copy of its own) and User A now appears under "My friends"
       // instead.
-      await expect(pendingRequestRow).not.toBeVisible()
+      //
+      // Bug found by this spec's own first CI run (ci.yml run #954): a bare
+      // `expect(pendingRequestRow).not.toBeVisible()` here is a real
+      // strict-mode-shaped collision, not just a slow refetch — B's "Friend
+      // requests" section and "My friends" section both render the
+      // identical `<li className="friends-screen__row">` shape
+      // (FriendsTab.tsx's PendingFriendRequestRow/FriendRow), so
+      // `pendingRequestRow`'s bare, page-wide `getByRole('listitem').filter({
+      // hasText: nameA })` locator matches BOTH the old (now-gone) pending
+      // row AND the brand-new "My friends" row for the same nameA that
+      // appears the instant accept succeeds — so it never actually observes
+      // "gone," even though the request itself resolved correctly. Asserting
+      // the "Friend requests" section's own empty-state text instead
+      // (FetchListSection's `emptyMessage` prop, unique to that section,
+      // never rendered by "My friends") proves the same thing without that
+      // ambiguity — same technique play-connect.spec.ts/this spec's own
+      // `.connect-match__chain-club` scoping already use elsewhere in this
+      // codebase for visually-identical-but-distinct sections.
+      await expect(pageB.getByText('No pending friend requests.')).toBeVisible()
       const friendRowOfA = pageB.getByRole('listitem').filter({ hasText: nameA })
       await expect(friendRowOfA).toBeVisible()
       await expect(friendRowOfA.getByRole('button', { name: 'Challenge' })).toBeVisible()
