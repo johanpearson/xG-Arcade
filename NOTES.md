@@ -2217,8 +2217,8 @@ and a real dev-environment `backfill-player-trophy-stats` run, followed by
 `report-international-stats-coverage`, before trusting that `"trophy"`
 coverage actually grew past 20.
 
-S-245 (Epic 33, admin-review E2E coverage) left two flagged-but-not-fixed
-code-health findings from `quality-architect`'s diff-time review, out of
+S-245 (Epic 33, admin-review E2E coverage) left a flagged-but-not-fixed
+code-health finding from `quality-architect`'s diff-time review, out of
 scope for that story but worth picking up in the next technical-debt sweep
 (`code-health-auditor`):
 
@@ -2229,13 +2229,22 @@ scope for that story but worth picking up in the next technical-debt sweep
    separable sections by game (grid seed-*, higher-lower seed-*, xg-path
    seed-*, predict seed-*, generic round-generation/force-close) that
    would split cleanly.
-2. `frontend/tests/e2e/` now has 5+ near-identical
-   `clearAnyExistingActiveRound`-shaped helpers (probe signup → login →
-   poll `/rounds/current` → force-close loop) across `play-grid.spec.ts`,
-   `play-path.spec.ts`, `play-higher-lower.spec.ts`, `play-predict.spec.ts`,
-   and now `admin-review.spec.ts`, plus a 5-6th occurrence of a
-   `signUpNewPlayer`-shaped signup helper — well past the rule-of-three.
-   Needs a shared `frontend/tests/e2e/helpers.ts` (parameterized by
-   game-key/rounds-path) that every spec, including future ones, imports
-   instead of copy-pasting. Test-architecture work, so `quality-architect`
-   owns it once scheduled, not `code-health-auditor` directly.
+
+### 2026-09-15 — `frontend/tests/e2e/` has crossed the rule-of-three on its per-file "clear the Active round" helper
+
+S-244's `leaderboard-leagues.spec.ts` and S-245's `admin-review.spec.ts`
+(landed the same day, independently) each added another near-identical
+copy of the "probe-signup → loop `GET /rounds/current` → force-close →
+throw after 10 attempts" helper — `play-grid.spec.ts`, `play-path.spec.ts`,
+`play-higher-lower.spec.ts`, and `play-predict.spec.ts` already each had
+one, making this the 6th copy. `signUpAndLoginViaApi`/`submitGuessViaApi`-
+shaped helpers are similarly duplicated across most of these files.
+`docs/coding-guidelines.md`'s code-health budget calls this out at three
+copies; flagged here rather than fixed in either story since it's a
+cross-file refactor outside both stories' own scope — next
+`code-health-auditor` sweep (or a dedicated `quality-architect`
+test-architecture pass) should extract a shared
+`frontend/tests/e2e/helpers.ts` (the `GET /rounds/current`-clearing helper
+would need the endpoint path parameterized per `GameKey`, since each
+existing copy targets a different game's round-seeding endpoint) that
+every spec, including future ones, imports instead of copy-pasting.

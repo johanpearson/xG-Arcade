@@ -12794,6 +12794,31 @@ the component renders.
 existing indirect coverage is left in place, not removed (belt-and-
 suspenders, not a replacement).
 *Deps:* none — verifiable in a normal frontend session.
+**Built as:** `frontend/src/predict/PredictMatchInput.test.tsx` (12
+tests, `REQ1302_.../REQ1303_.../REQ1303_1306_...`-named). **Correction to
+this story's own wording:** the paragraph above describes
+`PredictMatchInput.tsx` as a "match-typeahead input" with a "candidate
+list" and candidate "selection" — that's stale/generic boilerplate that
+does not match the component. On pickup, `PredictMatchInput.tsx` was
+(and, per git history, always has been) a per-match two-integer
+score-prediction row (REQ-1302/1303/1306): two goal inputs, a Save
+button, and status/error text — no typeahead, no candidate list, no
+selection concept. No typeahead behavior was added to the component to
+force-fit the wording (that would have been unauthorized scope creep);
+instead the tests cover the same underlying intent — direct, isolated
+coverage of typing/validation/save/lock-detection — against the
+component's real behavior: typing updates the field and clears a prior
+saved/error status; Save with valid input calls `submitPrediction` then
+`onSaved` with the server-returned values; Save is reachable via
+Tab+Enter (the keyboard-selection analog); blank/non-integer/negative
+input on Save shows the exact validation message without calling
+`submitPrediction`/`onSaved` (the empty/no-match-state analog); a 409
+shows its error and calls `onLockDetected` (a companion test confirms a
+non-409 failure does not); `disabled` disables both fields and Save and
+discards an unsaved edit back to the match's stored values.
+`PredictScreen.test.tsx` untouched. `REQ-1302/1303/1306` in
+`docs/requirements-document.md` already match the component's actual
+behavior exactly, so no requirements/architecture doc change was needed.
 
 **S-243 · E2E: account signup and email confirmation (REQ-701-705)**
 Of the 9 existing Playwright specs (`frontend/tests/e2e/`), none cover
@@ -12836,6 +12861,37 @@ endpoint (REQ-806) `play-grid.spec.ts` already depends on to get a locked
 result without waiting out a real round.
 *Deps:* a session that can run `npm run test:e2e` against a real backend,
 or CI-only verification via `ci.yml`'s `workflow_dispatch`.
+**Built as:** matches the plan, plus one deliberate scope deviation from
+this story's own wording, flagged by `quality-architect`'s review as a
+"minor traceability gap, worth a one-line backlog clarification" rather
+than a blocker. This story's text says "the global leaderboard (REQ-401/
+404) shows the locked result" — what the spec's first test actually
+drives is the leaderboard's **"Previous Rounds" scope (REQ-408)**, not the
+"All-time" scope that's REQ-401/404's own view. REQ-409's all-time ranking
+now requires >= 5 qualifying closed rounds before it ranks anyone
+(`LeaderboardService.MinimumQualifyingRoundsForRanking`) — seeding and
+closing 5 rounds just to exercise one locked-result assertion would have
+pulled in exactly the overhead `play-grid.spec.ts`'s own REQ-401 test
+already has to carry. REQ-408's "Previous Rounds" drill-in reads the same
+locked result off the same `ILeaderboardService` ranking, for one specific
+closed round, without that overhead, so the test uses it instead — the
+test name and this file's own acceptance line still reference REQ-401/404
+because REQ-401 (auto global-league membership) is what makes the row
+exist at all, even though the scope actually asserted against is REQ-408's.
+`docs/requirements-document.md`'s REQ-408 Test level line now cites this
+case explicitly; REQ-401/404's own Test level lines are unchanged, since
+neither is directly exercised end-to-end here. Everything else shipped as
+scoped: REQ-402/403 (create/join a custom league, plus the invalid-code
+error branch, via two independent browser contexts) and REQ-405 (Time
+Windows scope renders after switching to Week/Month, no row-level
+assertions since concurrent spec files' own closed rounds can legitimately
+land in the same calendar window). A same-session follow-up commit
+(`82116a1`) fixed a comment that inaccurately described this file's
+"why duplicate `clearAnyExistingActiveRound` instead of sharing a helper"
+reasoning (per `quality-architect` review) and logged the resulting
+rule-of-three extraction candidate in `NOTES.md` for a future
+`code-health-auditor` sweep, rather than attempting that cross-file
+refactor inside this story.
 
 **S-245 · E2E: admin review flows (REQ-501/509/510)**
 No existing spec logs in as an admin or touches `AdminScreen.tsx`/

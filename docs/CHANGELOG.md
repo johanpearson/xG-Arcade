@@ -37,6 +37,55 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `backend/tests/XGArcade.Api.Tests/SeedGuessableRoundWithMissingClubEndpointTests.cs`,
   which drives the seed endpoint plus the real REQ-509/510 admin endpoints
   end-to-end against a fake `IWikidataClient`.
+- 2026-09-15 — `docs/backlog.md` (S-244 "Built as" note),
+  `docs/requirements-document.md` (REQ-402/403/405/408 "Test level" lines)
+  — doc-sync for S-244: `frontend/tests/e2e/leaderboard-leagues.spec.ts`
+  (commits `57d28cf`/`82116a1`) landed the first Playwright coverage that
+  ever opens the leaderboard or exercises custom leagues, closing part of
+  the "only play-the-game flows have E2E coverage" gap Epic 33 exists for.
+  Test-only — no production code in either commit, so no architecture doc
+  change and no ADR (architecture-reviewer already confirmed zero boundary/
+  component change; the REQ-408-vs-REQ-401 test-scope call below is a
+  test-design decision, not a structural one). Recorded one real scope
+  deviation from this story's own wording, flagged by `quality-architect`'s
+  review as a "minor traceability gap": the story text says "the global
+  leaderboard (REQ-401/404) shows the locked result," but the spec's first
+  test actually exercises the leaderboard's **"Previous Rounds" scope
+  (REQ-408)**, not the "All-time" scope that's REQ-401/404's own view —
+  deliberately, since REQ-409's all-time ranking now requires >= 5
+  qualifying closed rounds before it ranks anyone
+  (`LeaderboardService.MinimumQualifyingRoundsForRanking`), and REQ-408's
+  Previous Rounds drill-in reads the exact same locked `ILeaderboardService`
+  result for one specific round without that seeding overhead (the same
+  reason `play-grid.spec.ts`'s own REQ-401 test already has to carry it).
+  Updated REQ-408's "Test level" line to cite this case explicitly, and
+  added E2E citations to REQ-402/403 (custom league create/join, plus the
+  invalid-code error branch) and REQ-405 (Time Windows scope renders after
+  switching to Week/Month, no row-level assertions) — all four are
+  genuinely, directly exercised by this spec. Left REQ-401's and REQ-404's
+  own "Test level" lines unchanged: neither is directly asserted against
+  end-to-end here (REQ-401's global-membership grant is only exercised
+  implicitly, and REQ-404's All-time scope is never opened by this spec at
+  all), so citing E2E coverage for either would overstate what the spec
+  checks. `docs/architecture-document.md` intentionally not touched (no
+  boundary/component/data-flow change — pure test coverage).
+- 2026-09-15 — `docs/backlog.md` (S-242 "Built as" note) — closed the
+  S-242 coverage gap: added `frontend/src/predict/PredictMatchInput.test.tsx`
+  (12 `REQ1302_.../REQ1303_.../REQ1303_1306_...`-named tests) giving
+  `PredictMatchInput.tsx` its own direct, isolated unit coverage —
+  previously only exercised indirectly via `PredictScreen.test.tsx`
+  (left unchanged). S-242's own wording described a "match-typeahead
+  input" with a "candidate list" and click/keyboard candidate
+  "selection" — stale/generic boilerplate that doesn't match this
+  component, which is (and always has been) a per-match two-integer
+  score-prediction row. No typeahead behavior was added to the component
+  to force-fit that wording; the tests instead cover the same intent
+  (typing/validation/save/lock-detection in isolation) against its real
+  behavior, and the backlog entry's "Built as" note records the
+  correction so the next reader isn't misled. Test-only — no production
+  code changed, `REQ-1302/1303/1306` already matched the component
+  exactly, so no requirements/architecture doc update was needed.
+  `npm run test` (1005/1005), `tsc -b`, and `oxlint` all confirmed green.
 - 2026-09-15 — `docs/backlog.md` (S-241) — S-241 ("REQ-702/703/704/706
   auth-confirmation API tests") turned out to be based on a false premise
   and was closed as invalid, no test or production code added. The
