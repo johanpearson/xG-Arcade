@@ -13035,6 +13035,50 @@ shared fixture account).
 *Deps:* a session that can run `npm run test:e2e` against a real backend,
 or CI-only verification via `ci.yml`'s `workflow_dispatch`.
 
+**Built as:** matches the plan, with one deliberate, `quality-architect`
+-reviewed deviation from this story's own wording. `frontend/tests/e2e/
+account-deletion.spec.ts` covers the full flow (fresh signup → Settings
+→ REQ-713's consolidated delete-account entry → password-confirmed
+deletion → logout to the splash screen) as one UI-driven test, then a
+second, serial API-level test for REQ-710's remaining two guarantees.
+The "a subsequent login attempt with the same credentials fails" half of
+that second test is **not** asserted as a rejected `POST /auth/login`
+call — `ci.yml`'s local E2E stack has no live Supabase project, so
+`Program.cs` swaps in `LocalE2EAuthClient`
+(`backend/src/XGArcade.Api/Auth/LocalE2EAuth.cs`) for
+`ISupabaseAuthClient`. Its `SignInWithPasswordAsync` (used by both
+`POST /auth/login` and `DeleteAccount`'s own password re-confirmation)
+performs no real password or account-existence check at all — it's a
+pure function of the email alone (an MD5-derived deterministic GUID),
+always `Success = true` — documented, pre-existing test-stack behavior,
+not a bug (see `NOTES.md`'s 2026-07-09 entry). `AuthController.Login`
+also never checks that a local `User` row exists before returning `200`
+with a token. So against this stack, logging in again with the deleted
+account's exact credentials still returns `200`, and driving the real
+login *form* would misleadingly land back on "Choose a game" rather than
+showing an error. What genuinely, verifiably changes post-deletion is
+`GET /auth/me`: it resolves the JWT to a local `User` row and 404s once
+`AccountDeletionService` has deleted it — the spec asserts that instead,
+which is the real, backend-accurate form of "can no longer log in"
+available in this stack (see the spec's own inline comment for the full
+trace through `LocalE2EAuth.cs`/`AuthController.cs`). The "email becomes
+available for a new account" bullet has no such fidelity gap and is
+asserted directly and literally (`POST /auth/signup` again with the
+freed email returns `201`) — made load-bearing rather than left
+"optional" as this story's text allowed, since it's the cleanest,
+gap-free proof of deletion this spec can give. `architecture-reviewer`:
+pass, no boundary drift, no ADR (test-only, exercises only public HTTP
+endpoints/UI, no new decision — the substitution above documents a
+pre-existing test-double limitation rather than introducing one).
+`quality-architect`: pass; independently re-traced the same backend code
+paths rather than taking the spec's comment at face value, confirmed the
+substitution is sound, and flagged (not blocking) that
+`frontend/tests/e2e/`'s repeated `signUpNewPlayer`-shaped signup
+boilerplate has now reached six near-identical copies across spec
+files — logged in `NOTES.md` as a `code-health-auditor` sweep candidate
+rather than attempting that cross-file extraction inside this story,
+same precedent S-244's own rule-of-three note set.
+
 **S-248 · Decide REQ-711 (data export)'s launch status — not a test-writer story**
 REQ-711 (GDPR data export: account info, guess history, league
 memberships, notification preferences as a machine-readable export) has

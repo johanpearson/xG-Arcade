@@ -2262,3 +2262,20 @@ no extraction needed now — but flagged here so the next
 before that sweep runs. Both `architecture-reviewer` and `quality-architect`
 called this out as a non-blocking observation on S-246's diff, same as
 the original entry above.
+
+**Addendum (2026-09-15, S-247):** a third, separate duplication of the same
+shape, in the same directory: the "stub Turnstile → goto → click the
+splash CTA → Sign up tab → fill Email/Password/Confirm/Display name →
+check the age box → Create account" signup helper (`signUpNewPlayer` or
+equivalent) is now copy-pasted, with only cosmetic differences, across
+`url-routing.spec.ts`, `play-grid.spec.ts`, `header-nav.spec.ts`,
+`splash-screen.spec.ts` (inlined), `leaderboard-leagues.spec.ts`
+(`signUpNewPlayerViaUi`), and now `account-deletion.spec.ts` — six copies,
+well past the rule-of-three. `quality-architect`'s S-247 review flagged
+this explicitly rather than extracting it inline (out of that story's own
+scope, same reasoning as the two entries above). All three of these
+`frontend/tests/e2e/` duplication findings point at the same fix: a shared
+`frontend/tests/e2e/helpers.ts` is overdue, not three separate ones — the
+next `code-health-auditor` sweep should extract the signup helper, the
+round-clearing helper, and the closed-round-lookup helper together in one
+pass rather than one at a time.

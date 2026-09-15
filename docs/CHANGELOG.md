@@ -11989,3 +11989,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   change — neither documents frontend files at this level of granularity
   beyond citing `lib/types.ts` as an import path for a specific type, which
   remains valid unchanged via the barrel.
+- 2026-09-15 — `docs/backlog.md`, `NOTES.md` — doc-sync for S-247
+  (`docs/backlog.md` Epic 33): added `frontend/tests/e2e/account-deletion.spec.ts`,
+  a real-backend E2E spec for REQ-710 (account deletion) — fresh signup →
+  delete via Settings (REQ-713) with password confirmation → assert logout
+  to the splash screen → REQ-710's two post-deletion guarantees at the API
+  level. `docs/backlog.md`'s S-247 entry gained a "Built as" note recording
+  one deliberate deviation from its own wording: "a subsequent login
+  attempt... fails" is asserted as `GET /auth/me` 404ing on a post-deletion
+  token, not a rejected `POST /auth/login`, since `ci.yml`'s local-e2e
+  `LocalE2EAuthClient` stub (`backend/src/XGArcade.Api/Auth/LocalE2EAuth.cs`)
+  has no real password/existence check on login at all — documented,
+  pre-existing test-stack behavior (`NOTES.md`'s 2026-07-09 entry), not
+  something this story changed. `architecture-reviewer`/`quality-architect`
+  both PASS, the latter independently re-tracing the backend code before
+  agreeing the substitution is accurate rather than a weaker stand-in.
+  `NOTES.md` gained an addendum to the existing 2026-09-15 `frontend/tests/e2e/`
+  duplication entry: `quality-architect` flagged the "sign up a fresh
+  player" helper as now copy-pasted across six spec files (past the
+  rule-of-three), logged as a `code-health-auditor` sweep candidate rather
+  than fixed inline, same as that entry's other two duplication findings.
+  No REQ/ADR text changed — this is test-only coverage of already-Implemented
+  REQ-710, and the deviation is a pre-existing test-double limitation, not a
+  new structural decision.
