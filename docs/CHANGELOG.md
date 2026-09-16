@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-15 — `docs/backlog.md` (S-248's launch-status decision recorded,
+  new Epic 34/S-249 added), `docs/requirements-document.md` (REQ-711 status
+  note pointing to S-249, version 3.0 → 3.1), `docs/legal/privacy-policy-draft.md`
+  ("Your rights" section corrected, version 0.12 → 0.13) — resolved S-248
+  (REQ-711 data export's launch status): kept in scope rather than deferred
+  (unlike REQ-706), since the privacy policy already claimed export was
+  live and REQ-711 shares REQ-710's GDPR footing; added S-249 as the
+  properly-scoped implementation story (backend export endpoint + Settings
+  entry point) for a future session, and corrected the privacy policy's
+  "Your rights" section so it no longer overstates export as already
+  self-service. No code changed — planning/documentation only.
 - 2026-09-15 — `docs/backlog.md` (S-246 "Built as" note),
   `docs/requirements-document.md` (REQ-1401/1402/1403/1418 "Test level"
   lines), `NOTES.md` (addendum to the 2026-09-15 rule-of-three entry) — doc
