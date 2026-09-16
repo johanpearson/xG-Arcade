@@ -13147,5 +13147,28 @@ conventions for this class of screen-level test.
 (the Settings screen this hangs its entry point on already exists), S-025
 (the `NotificationPreference`-is-a-no-op-until-built precedent, reused
 rather than re-litigated).
+**Built as (backend half, 2026-09-16):** `GET /auth/export`
+(`AuthController.Export`, `[Authorize]`) — lives under `/auth` rather than a
+new `/account` route, matching where `DeleteAccount`/`UpdateDisplayName`/
+`Claim`/`Me` already live, and resolves the caller the identical way all of
+those do (JWT → `IUserRepository.GetByAuthProviderUserIdAsync`, never a
+route/body-supplied id). Returns `DataExportResponse` (new,
+`XGArcade.Api.Auth.AuthDtos`): `DataExportAccountInfo` (the `User` row minus
+nothing except the credential Supabase Auth holds — `AuthProviderUserId` is
+included since it's not itself a credential), `DataExportGuess[]` (a new
+DTO mirroring `Guess` directly — no existing guess-export shape to reuse;
+`SubmitGuessResponse` only ever describes one just-submitted guess, not a
+full history) via new `IGuessRepository.GetByUserIdAsync`, and
+`DataExportLeagueMembership[]` (`LeagueId`/`LeagueName`/`LeagueType`) via
+new `ILeagueRepository.GetMembershipsWithLeagueNameByUserIdAsync` — a new
+join-projection method returning every membership (global included),
+unlike the existing `GetCustomLeaguesByMemberUserIdAsync`, which
+deliberately excludes it. `NotificationPreferences` is always `null` — same
+no-op-until-`NotificationPreference`-exists precedent REQ-710/
+`AccountDeletionService` already established. No Supabase Auth call
+anywhere in this path (read-only against local Postgres data only), so
+ADR-0026's service-role key is not needed here. Frontend entry point
+(`SettingsScreen.tsx`) is a separate, parallel piece of work — see
+REQ-711's own status note for whether it had landed as of this note.
 
 ---

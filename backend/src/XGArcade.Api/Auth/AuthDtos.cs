@@ -96,3 +96,62 @@ public record RefreshRequest(string RefreshToken);
 // SignupRequest above, deliberately not a second, looser policy just
 // because the caller already has a session.
 public record ClaimAccountRequest(string Email, string Password, string ConfirmPassword);
+
+// REQ-711 (S-249): the caller's own GDPR data export — never another user's
+// data (AuthController.Export resolves the row exclusively from the
+// caller's own JWT, the same pattern every other authenticated endpoint
+// here uses; there is deliberately no id parameter anywhere on this DTO or
+// its endpoint for a caller to tamper with).
+public record DataExportResponse(
+    DataExportAccountInfo Account,
+    IReadOnlyList<DataExportGuess> Guesses,
+    IReadOnlyList<DataExportLeagueMembership> LeagueMemberships,
+    // REQ-711/MVP-SCOPE.md: NotificationPreference doesn't exist yet (Tier
+    // 1) — same no-op-until-built precedent REQ-710/AccountDeletionService
+    // already established for the same table (see that class's own doc
+    // comment). Always null here; once that table exists, this becomes a
+    // real, populated value rather than a new field being added.
+    object? NotificationPreferences);
+
+// AuthProviderUserId is included even though it's not player-facing
+// anywhere else in this API — it's a genuine piece of data this system
+// holds about the account (the link to the Supabase Auth identity), and
+// REQ-711 asks for "the User row, excluding the credential itself, which
+// the auth provider holds" — this identifier is not itself a credential
+// (no password/secret ever lives in this table; see User.cs), so excluding
+// it would under-deliver on "a copy of what the platform holds."
+public record DataExportAccountInfo(
+    Guid Id,
+    Guid AuthProviderUserId,
+    string? Email,
+    string DisplayName,
+    bool EmailConfirmed,
+    bool IsGuest,
+    DateTime? ClaimedAt,
+    DateTime CreatedAt,
+    DateTime LastActiveAt);
+
+// Mirrors XGArcade.Data.Entities.Guess directly (minus nothing — unlike
+// SubmitGuessResponse elsewhere in this API, there's no "only reveal on a
+// locked/correct guess" narrowing here: this is the player's own full
+// record of their own guess, not something shown to any other player, so
+// REQ-201/216's normal reveal-timing rules don't apply to an export of your
+// own data).
+public record DataExportGuess(
+    Guid Id,
+    Guid RoundId,
+    Guid CellId,
+    string SubmittedName,
+    Guid? PlayerAnswerId,
+    bool IsCorrect,
+    int AttemptCount,
+    double? FinalUniquenessScore,
+    int? FinalPoints,
+    DateTime CreatedAt,
+    string? MatchedPlayerName,
+    string? MatchedPlayerPhotoUrl);
+
+// LeagueName (never just LeagueId) is REQ-711's own explicit acceptance
+// criterion — resolved by ILeagueRepository.GetMembershipsWithLeagueNameByUserIdAsync's
+// join so this DTO can be built directly from repository output.
+public record DataExportLeagueMembership(Guid LeagueId, string LeagueName, string LeagueType);

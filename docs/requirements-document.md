@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "3.1"
+version: "3.2"
 status: draft
-last_updated: 2026-09-15
+last_updated: 2026-09-16
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -6973,13 +6973,15 @@ captcha-rejection title does not trigger the screen's existing
   API response is acceptable at this scale; no background job needed
   unless export size becomes a real problem)
 
-**Status note (2026-09-15):** this REQ has no implementation anywhere in
-`backend/src/` or `frontend/src/` as of this note — unlike REQ-706, it is
-not deferred; it remains in scope (see `docs/backlog.md` S-248's reasoning:
-the privacy policy already tells users this right is exercisable today, and
-it sits on the same GDPR footing as REQ-710, which is implemented).
-Implementation is a separately queued story, not yet built — see
-`docs/backlog.md` S-249.
+**Status note (2026-09-16):** the backend half of S-249 is now built —
+`GET /auth/export` (`AuthController.Export`) returns account info, guess
+history, and league memberships (joined to league name) for the caller,
+resolved from their own JWT exactly like `DeleteAccount`/`Me`. Notification
+preferences remain an always-null no-op (`NotificationPreference` doesn't
+exist yet, Tier 1 per `MVP-SCOPE.md`) — same precedent REQ-710 established
+for the same table. The frontend entry point on `SettingsScreen.tsx` is a
+separate, parallel unit of work not yet confirmed landed as of this note —
+see `docs/backlog.md` S-249's own "Built as" note once both halves are in.
 
 **Test level:** API
 

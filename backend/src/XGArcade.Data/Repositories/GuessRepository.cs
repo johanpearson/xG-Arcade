@@ -116,6 +116,13 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             .ToDictionary(g => g.Key, g => (IReadOnlyList<int>)g.Select(x => x.Total).ToList());
     }
 
+    // REQ-711: see IGuessRepository's own doc comment.
+    public async Task<IReadOnlyList<Guess>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        await dbContext.Guesses
+            .AsNoTracking()
+            .Where(g => g.UserId == userId)
+            .ToListAsync(cancellationToken);
+
     public async Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default)
     {
         dbContext.Guesses.Add(guess);

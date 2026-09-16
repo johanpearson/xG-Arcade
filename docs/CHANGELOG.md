@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-16 — `docs/backlog.md` (S-249 "Built as (backend half)" note),
+  `docs/requirements-document.md` (REQ-711 status note updated, version
+  3.1 → 3.2) — implemented S-249's backend half (REQ-711 GDPR data export):
+  new `GET /auth/export` (`AuthController.Export`), new
+  `IGuessRepository.GetByUserIdAsync` and
+  `ILeagueRepository.GetMembershipsWithLeagueNameByUserIdAsync`. No ADR
+  needed (confirmed no Supabase Auth call in this path, so ADR-0026's
+  service-role key doesn't apply here). Frontend entry point
+  (`SettingsScreen.tsx`) is separate, parallel work not covered by this
+  change.
 - 2026-09-15 — `docs/backlog.md` (S-248's launch-status decision recorded,
   new Epic 34/S-249 added), `docs/requirements-document.md` (REQ-711 status
   note pointing to S-249, version 3.0 → 3.1), `docs/legal/privacy-policy-draft.md`

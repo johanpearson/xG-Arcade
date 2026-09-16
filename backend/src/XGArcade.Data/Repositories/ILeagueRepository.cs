@@ -66,4 +66,18 @@ public interface ILeagueRepository
     // deliberately excluding the Type="global" league every user is also
     // always a member of (REQ-401), since that's not what this list is for.
     Task<IReadOnlyList<League>> GetCustomLeaguesByMemberUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
+
+    // REQ-711: every league a user belongs to (global included — unlike
+    // GetCustomLeaguesByMemberUserIdAsync above, a GDPR export must list
+    // every membership the platform actually holds, not just the
+    // player-facing "custom leagues" list), joined to the league's own name
+    // so AuthController.Export never has to resolve names with a second
+    // round trip per membership.
+    Task<IReadOnlyList<LeagueMembershipExportRow>> GetMembershipsWithLeagueNameByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 }
+
+// REQ-711: a projection, not a domain entity — exists only to carry a
+// membership's league name alongside it for GetMembershipsWithLeagueNameByUserIdAsync
+// above, so the API layer's DataExportLeagueMembership DTO can be built
+// directly from repository output without a second query.
+public record LeagueMembershipExportRow(Guid LeagueId, string LeagueName, string LeagueType);
