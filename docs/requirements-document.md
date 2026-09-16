@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "3.2"
+version: "3.3"
 status: draft
 last_updated: 2026-09-16
 owner: Johan
@@ -6983,7 +6983,15 @@ for the same table. The frontend entry point on `SettingsScreen.tsx` is a
 separate, parallel unit of work not yet confirmed landed as of this note —
 see `docs/backlog.md` S-249's own "Built as" note once both halves are in.
 
-**Test level:** API
+**Status note (2026-09-16, frontend half landed):** the UI entry point on
+`SettingsScreen.tsx` (REQ-713) is now built too — an "Export your data"
+button that fetches `GET /auth/export` and triggers a browser download of
+the resulting JSON, no confirmation step (this action is read-only and
+non-destructive, unlike `DeleteAccountScreen`'s password-confirmed
+deletion). See `docs/backlog.md` S-249's "Built as (frontend half..." note
+for the concrete files/functions/test-ids.
+
+**Test level:** API, UI (`SettingsScreen.test.tsx`)
 
 **REQ-712 – Header navigation collapses behind a menu toggle on mobile**
 > As a player using the app on a narrow viewport, I want the header

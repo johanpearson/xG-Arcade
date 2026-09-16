@@ -1,4 +1,10 @@
-import type { CurrentUser, LoginResponse, SignupResponse, UpdateDisplayNameResponse } from './types';
+import type {
+  CurrentUser,
+  DataExportResponse,
+  LoginResponse,
+  SignupResponse,
+  UpdateDisplayNameResponse,
+} from './types';
 import { apiRequest } from './apiClient';
 
 // REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
@@ -172,4 +178,16 @@ export async function updateDisplayName(
     method: 'PUT',
     body: JSON.stringify({ displayName }),
   });
+}
+
+// REQ-711/REQ-713 (S-249): GET /auth/export — a synchronous, read-only export
+// of the caller's own account info, guess history, and league memberships
+// (notification preferences always null for now, see DataExportResponse's
+// own doc comment). Unlike deleteAccount above, this is deliberately not
+// destructive/irreversible, so it needs no password re-confirmation or
+// captcha step — the endpoint's own comment states this explicitly. A 401
+// here means the token itself is dead, same meaning as every other
+// authenticated GET in this app.
+export async function exportData(accessToken: string): Promise<DataExportResponse> {
+  return apiRequest<DataExportResponse>(accessToken, '/auth/export');
 }

@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-16 — `docs/backlog.md` (S-249 "Built as (frontend half)" note),
+  `docs/requirements-document.md` (REQ-711 status note updated), `docs/
+  design-document.md` (SCREEN-08 gained an "Export your data" section
+  entry, version 0.97 → 0.98) — implemented S-249's frontend half (REQ-711/
+  REQ-713 GDPR data export UI): new `exportData` (`frontend/src/lib/
+  auth.ts`), new `DataExportResponse`/`DataExportAccountInfo`/
+  `DataExportGuess`/`DataExportLeagueMembership` types (`frontend/src/
+  types/auth.ts`), and an "Export your data" button on
+  `SettingsScreen.tsx` that triggers a browser download of the JSON
+  response (`Blob`/`URL.createObjectURL`/temporary `<a download>`). No ADR
+  needed — no new structural decision, just a new client function and UI
+  section following existing conventions.
 - 2026-09-16 — `docs/backlog.md` (S-249 "Built as (backend half)" note),
   `docs/requirements-document.md` (REQ-711 status note updated, version
   3.1 → 3.2) — implemented S-249's backend half (REQ-711 GDPR data export):

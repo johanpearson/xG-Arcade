@@ -32,3 +32,54 @@ export interface UpdateDisplayNameResponse {
   id: string;
   displayName: string;
 }
+
+// REQ-711/REQ-713: GET /auth/export's response shape
+// (AuthController.Export / DataExportResponse and its nested records,
+// backend/src/XGArcade.Api/Auth/AuthController.cs). Mirrors the backend's
+// camelCase System.Text.Json serialization exactly, same convention as
+// every other type in this file.
+export interface DataExportAccountInfo {
+  id: string;
+  authProviderUserId: string;
+  email: string | null;
+  displayName: string;
+  emailConfirmed: boolean;
+  isGuest: boolean;
+  claimedAt: string | null;
+  createdAt: string;
+  lastActiveAt: string;
+}
+
+export interface DataExportGuess {
+  id: string;
+  roundId: string;
+  cellId: string;
+  submittedName: string;
+  playerAnswerId: string | null;
+  isCorrect: boolean;
+  attemptCount: number;
+  finalUniquenessScore: number | null;
+  finalPoints: number | null;
+  createdAt: string;
+  matchedPlayerName: string | null;
+  matchedPlayerPhotoUrl: string | null;
+}
+
+export interface DataExportLeagueMembership {
+  leagueId: string;
+  leagueName: string;
+  leagueType: string;
+}
+
+// `notificationPreferences` is always `null` for now — `NotificationPreference`
+// doesn't exist yet (Tier 1, MVP-SCOPE.md), the same no-op-until-built
+// precedent REQ-710/S-025 already established for the same table. Typed as
+// `unknown | null` rather than inventing a shape that doesn't exist on the
+// backend yet (the backend field itself is `object?`) — widen this once the
+// table and a real DTO exist.
+export interface DataExportResponse {
+  account: DataExportAccountInfo;
+  guesses: DataExportGuess[];
+  leagueMemberships: DataExportLeagueMembership[];
+  notificationPreferences: unknown | null;
+}
