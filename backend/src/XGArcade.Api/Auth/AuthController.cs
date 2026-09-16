@@ -17,6 +17,7 @@ public class AuthController(
     ISupabaseAuthClient authClient,
     IUserRepository userRepository,
     ILeagueRepository leagueRepository,
+    IGuessRepository guessRepository,
     IAccountDeletionService accountDeletionService,
     IConfiguration configuration,
     ILogger<AuthController> logger,
@@ -460,6 +461,68 @@ public class AuthController(
         var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
 
         return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed, isAdmin, user.IsGuest));
+    }
+
+    // REQ-711/S-249: GDPR self-service data export — a synchronous, single
+    // JSON document containing only the caller's own data (account info,
+    // guess history, league memberships; notification preferences are an
+    // always-null no-op until that table exists — see
+    // DataExportResponse.NotificationPreferences's own doc comment). Lives
+    // under /auth (rather than a new /account route) for the same reason
+    // DeleteAccount/UpdateDisplayName/Claim all do: every other
+    // authenticated, single-account-row action in this API is already here,
+    // and this endpoint resolves the caller from their JWT exactly the same
+    // way as every one of them — GET /auth/me's own [Authorize] +
+    // GetAuthProviderUserId() pattern, never a route/body-supplied id, so a
+    // caller can never fetch another user's export by parameter tampering.
+    // No confirmation step is needed the way DeleteAccount's re-verified
+    // password is — this is a read-only, reversible, non-destructive
+    // action, nothing here is deleted or changed.
+    [Authorize]
+    [HttpGet("export")]
+    public async Task<IActionResult> Export(CancellationToken cancellationToken)
+    {
+        var authProviderUserId = User.GetAuthProviderUserId();
+        if (authProviderUserId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        var guesses = await guessRepository.GetByUserIdAsync(user.Id, cancellationToken);
+        var memberships = await leagueRepository.GetMembershipsWithLeagueNameByUserIdAsync(user.Id, cancellationToken);
+
+        return Ok(new DataExportResponse(
+            new DataExportAccountInfo(
+                user.Id,
+                user.AuthProviderUserId,
+                user.Email,
+                user.DisplayName,
+                user.EmailConfirmed,
+                user.IsGuest,
+                user.ClaimedAt,
+                user.CreatedAt,
+                user.LastActiveAt),
+            guesses.Select(g => new DataExportGuess(
+                g.Id,
+                g.RoundId,
+                g.CellId,
+                g.SubmittedName,
+                g.PlayerAnswerId,
+                g.IsCorrect,
+                g.AttemptCount,
+                g.FinalUniquenessScore,
+                g.FinalPoints,
+                g.CreatedAt,
+                g.MatchedPlayerName,
+                g.MatchedPlayerPhotoUrl)).ToList(),
+            memberships.Select(m => new DataExportLeagueMembership(m.LeagueId, m.LeagueName, m.LeagueType)).ToList(),
+            NotificationPreferences: null));
     }
 
     // REQ-714: edit the caller's own DisplayName from Settings — reuses

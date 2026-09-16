@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
-import { claimAccount, updateDisplayName } from '../lib/auth';
+import { claimAccount, exportData, updateDisplayName } from '../lib/auth';
 import { fetchAvatarImageObjectUrl, fetchAvatarStatus, submitAvatar } from '../lib/avatar';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
 import { PersonSilhouetteIcon } from '../components/PersonSilhouetteIcon';
@@ -311,6 +311,14 @@ export function SettingsScreen({
   const [avatarSaved, setAvatarSaved] = useState(false);
   const avatarFileInputRef = useRef<HTMLInputElement>(null);
 
+  // REQ-711/REQ-713 (S-249): the "Export your data" section's own state,
+  // separate from every form above — a single read-only action with no
+  // success banner of its own (the browser's own download prompt is the
+  // success signal), just a submitting flag and an error surface for the
+  // rare failure case.
+  const [exportSubmitting, setExportSubmitting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!touched) {
       setNewDisplayName(displayName);
@@ -478,6 +486,44 @@ export function SettingsScreen({
       setError(describeError(err));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // REQ-711/REQ-713 (S-249): fetches the caller's own data export and
+  // triggers a browser download of it as a JSON file — no confirmation step
+  // (unlike handleSubmit in DeleteAccountScreen.tsx), since this is a
+  // read-only, reversible, non-destructive action, matching the backend
+  // endpoint's own comment. The Blob/object-URL/temporary-<a> download
+  // mechanism is a new, self-contained pattern in this codebase (no
+  // existing client-side file download to reuse — the avatar code in this
+  // same file only ever downloads INTO an <img>/object-URL for display, it
+  // never triggers a save-to-disk).
+  async function handleExportData() {
+    setExportError(null);
+    setExportSubmitting(true);
+    try {
+      const result = await exportData(accessToken);
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `xg-arcade-data-export-${dateStamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // A 401 here means the session itself is dead, same "any other 401 is
+      // a dead token" handling every other authenticated action on this
+      // screen already uses.
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      setExportError(describeError(err));
+    } finally {
+      setExportSubmitting(false);
     }
   }
 
@@ -813,6 +859,30 @@ export function SettingsScreen({
         <button type="button" className="settings-screen__stats-link" onClick={onOpenStats}>
           My stats
         </button>
+      </section>
+
+      {/* REQ-711/REQ-713 (S-249): "Export your data" — a single button, no
+          confirmation step, matching every other universal (non-admin-gated)
+          bordered-row section on this screen (My stats above, Appearance
+          below) rather than a whole separate confirmation screen the way
+          DeleteAccountScreen needs one — this action is read-only,
+          reversible, and non-destructive, so there's nothing to confirm. */}
+      <section className="settings-screen__section" data-testid="settings-export-data-section">
+        <button
+          type="button"
+          className="settings-screen__export-data-button"
+          data-testid="settings-export-data-button"
+          onClick={handleExportData}
+          disabled={exportSubmitting}
+        >
+          {exportSubmitting ? 'Preparing your export…' : 'Export your data'}
+        </button>
+
+        {exportError && (
+          <p className="settings-screen__export-data-error" role="alert">
+            {exportError}
+          </p>
+        )}
       </section>
 
       {isAdmin && (

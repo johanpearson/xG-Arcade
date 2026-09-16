@@ -94,4 +94,14 @@ public class LeagueRepository(XGArcadeDbContext dbContext) : ILeagueRepository
             where membership.UserId == userId && league.Type == LeagueTypes.Custom
             select league
         ).ToListAsync(cancellationToken);
+
+    // REQ-711: see ILeagueRepository's own doc comment — every membership
+    // (global included), not just custom ones.
+    public async Task<IReadOnlyList<LeagueMembershipExportRow>> GetMembershipsWithLeagueNameByUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        await (
+            from membership in dbContext.LeagueMemberships.AsNoTracking()
+            join league in dbContext.Leagues.AsNoTracking() on membership.LeagueId equals league.Id
+            where membership.UserId == userId
+            select new LeagueMembershipExportRow(league.Id, league.Name, league.Type)
+        ).ToListAsync(cancellationToken);
 }

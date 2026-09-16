@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.97"
+version: "0.98"
 status: draft
-last_updated: 2026-09-10
+last_updated: 2026-09-16
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -2629,6 +2629,26 @@ preserve the chronological build record this document otherwise keeps.
    2026-07-21 placement — it was already directly below the profile header
    once REQ-722/S-184 added that header above it, so no reordering was
    needed to keep the two next to each other.
+
+**Added 2026-09-16, REQ-711/REQ-713/S-249:** an "Export your data" section,
+placed directly after the "My stats" link (both are universal, non-admin-
+gated actions) and before the admin-only "Admin" link. A single button, no
+confirmation step — same `settings-screen__section` bordered-row shell as
+every other non-destructive section on this screen, not a whole separate
+confirmation screen the way `DeleteAccountScreen` needs one, since this
+action (`GET /auth/export`) is read-only, reversible, and non-destructive
+(the endpoint's own comment says so explicitly). Clicking it fetches the
+export and immediately triggers a browser file download of the resulting
+JSON (`xg-arcade-data-export-YYYY-MM-DD.json`) — nothing is rendered inline.
+Button copy: "Export your data" (in flight: "Preparing your export…"). A
+failure (including a 401, which signs the user out the same way every other
+authenticated action on this screen does) shows the server's own detail
+text inline below the button, `accent-red`, same convention as every other
+error text on this screen. No new tokens — no wireframe row added to the
+ASCII mockups above for this entry (a single button with no distinct
+layout shape beyond the existing bordered-row pattern already shown for
+"My stats"/"Admin"), flagged here rather than silently left undrawn, same
+practice as this document's other unreviewed-wireframe gaps (§7).
 
 ### SCREEN-09: Game select (post-login landing)
 

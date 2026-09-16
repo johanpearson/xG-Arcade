@@ -86,6 +86,15 @@ public interface IGuessRepository
         IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default,
         bool applyGuestEligibilityRules = true);
 
+    // REQ-711: the caller's entire guess history for their own GDPR data
+    // export (AuthController.Export) — every Guess row still attributed to
+    // this user (UserId is nullable only after REQ-710 anonymization, which
+    // by definition means the row no longer belongs to anyone; there is
+    // nothing to export for a userId that's since been anonymized away).
+    // No round/cell filter, unlike GetByRoundAndUserAsync above, which is
+    // scoped to one active round's UI rendering rather than a full export.
+    Task<IReadOnlyList<Guess>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
+
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 
     // REQ-206/ADR-0021: round-close materializes one synthetic Guess row per

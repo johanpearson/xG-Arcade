@@ -1754,6 +1754,179 @@ public class AuthEndpointTests
         Assert.That(stillThere, Is.Not.Null, "the guest row must be untouched by the rejected request");
     }
 
+    // ---- REQ-711/S-249: GDPR self-service data export ----
+    //
+    // GET /auth/export (AuthController.Export) resolves the caller from
+    // their own JWT exactly like every other [Authorize] endpoint in this
+    // file (User.GetAuthProviderUserId() -> IUserRepository
+    // .GetByAuthProviderUserIdAsync) — never a route/body id — so the
+    // isolation assertions below (another user's Guess/LeagueMembership rows
+    // never appearing in the caller's own export) are this requirement's
+    // single most important guarantee, not an incidental check.
+
+    [Test]
+    public async Task REQ711_Export_Get_ReturnsCallersOwnAccountInfo_ExcludingAnyCredential()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "export-owner@example.com", displayName: "Export Owner");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/export");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<DataExportResponse>();
+        Assert.That(body, Is.Not.Null);
+        // Matches the caller's own User row exactly — DataExportAccountInfo
+        // has no Password/credential field at all (AuthDtos.cs's own doc
+        // comment: the auth provider holds that, not this DB), so there is
+        // structurally nothing to assert is absent beyond the fields below
+        // actually matching the seeded row.
+        Assert.That(body!.Account.Id, Is.EqualTo(user.Id));
+        Assert.That(body.Account.AuthProviderUserId, Is.EqualTo(authProviderUserId));
+        Assert.That(body.Account.Email, Is.EqualTo("export-owner@example.com"));
+        Assert.That(body.Account.DisplayName, Is.EqualTo("Export Owner"));
+        Assert.That(body.Account.EmailConfirmed, Is.True);
+        Assert.That(body.Account.IsGuest, Is.False);
+        Assert.That(body.Account.CreatedAt, Is.EqualTo(user.CreatedAt).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    // The requirement's own "never another user's rows" acceptance
+    // criterion: a Guess seeded for a different user in the same database
+    // must never appear in the caller's export.
+    [Test]
+    public async Task REQ711_Export_Get_ReturnsOnlyCallersOwnGuesses_NeverAnotherUsersGuesses()
+    {
+        var callerAuthProviderUserId = Guid.NewGuid();
+        var caller = await SeedDeletableUserAsync(callerAuthProviderUserId, email: "export-guesses-caller@example.com");
+        var otherUser = await SeedDeletableUserAsync(Guid.NewGuid(), email: "export-guesses-other@example.com");
+        await SeedGuessAsync(caller.Id);
+        await SeedGuessAsync(otherUser.Id);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(callerAuthProviderUserId));
+
+        var response = await client.GetAsync("/auth/export");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<DataExportResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Guesses, Has.Count.EqualTo(1));
+    }
+
+    // Same isolation guarantee as the Guesses test above, this time for
+    // LeagueMemberships — including the "joined to league name" acceptance
+    // criterion, exercised with a league the caller and another user both
+    // belong to, so the isolation is proven by user id, not merely by which
+    // leagues exist.
+    [Test]
+    public async Task REQ711_Export_Get_ReturnsOnlyCallersOwnLeagueMemberships_JoinedToLeagueName_NeverAnotherUsersMemberships()
+    {
+        var callerAuthProviderUserId = Guid.NewGuid();
+        var caller = await SeedDeletableUserAsync(callerAuthProviderUserId, email: "export-leagues-caller@example.com");
+        var otherUser = await SeedDeletableUserAsync(Guid.NewGuid(), email: "export-leagues-other@example.com");
+        var sharedLeague = await SeedCustomLeagueAsync("Shared Export League", createdByUserId: otherUser.Id);
+        await SeedLeagueMembershipAsync(sharedLeague.Id, caller.Id);
+        await SeedLeagueMembershipAsync(sharedLeague.Id, otherUser.Id);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(callerAuthProviderUserId));
+
+        var response = await client.GetAsync("/auth/export");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<DataExportResponse>();
+        Assert.That(body, Is.Not.Null);
+        // The other user's membership in the same league must never appear
+        // here — only the caller's own row, even though both belong to it.
+        Assert.That(body!.LeagueMemberships, Has.Count.EqualTo(1));
+        Assert.That(body.LeagueMemberships[0].LeagueId, Is.EqualTo(sharedLeague.Id));
+        Assert.That(body.LeagueMemberships[0].LeagueName, Is.EqualTo("Shared Export League"));
+        Assert.That(body.LeagueMemberships[0].LeagueType, Is.EqualTo(LeagueTypes.Custom));
+    }
+
+    // REQ-711/MVP-SCOPE.md: NotificationPreference doesn't exist yet
+    // (Tier 1) — the same no-op-until-built precedent REQ-710 already
+    // established for the same table (AuthDtos.cs's own doc comment on
+    // DataExportResponse.NotificationPreferences). Deliberately not
+    // asserting any real shape here since none exists yet — only that the
+    // field is present and null, not silently omitted or defaulted to
+    // something else.
+    [Test]
+    public async Task REQ711_Export_Get_ReturnsNullNotificationPreferences_UntilThatTableExists()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId, email: "export-notifications@example.com");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/export");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<DataExportResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.NotificationPreferences, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ711_Export_Get_Unauthenticated_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/auth/export");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // Mirrors REQ718_Logout_Post_UnclaimedGuest_SubsequentRequestWithSameTokenIsRejected's
+    // precedent for AuthController.Me's identical branch: once the account
+    // row is gone, the same still-cryptographically-valid JWT must not
+    // still reach this caller's own data. AuthController.Export resolves
+    // the caller by AuthProviderUserId exactly like Me does and returns 404
+    // once that row is gone.
+    [Test]
+    public async Task REQ711_Export_Get_UserRowMissing_Returns404()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+        var logoutResponse = await client.PostAsync("/auth/logout", content: null);
+        Assert.That(logoutResponse.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        var exportResponse = await client.GetAsync("/auth/export");
+
+        Assert.That(exportResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // REQ-711: a custom league (Type="custom") for the LeagueMemberships
+    // isolation test above — distinct from SeedGuestUserAsync's own
+    // Global-league enrollment, since this requirement's acceptance
+    // criterion is proven more sharply by a league two specific users share
+    // by name, not the one every user is already a member of.
+    private async Task<League> SeedCustomLeagueAsync(string name, Guid createdByUserId)
+    {
+        using var seedScope = _factory.Services.CreateScope();
+        var leagueRepository = seedScope.ServiceProvider.GetRequiredService<ILeagueRepository>();
+        return await leagueRepository.AddCustomLeagueAsync(new League
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Type = LeagueTypes.Custom,
+            InviteCode = $"EXPORT-{Guid.NewGuid():N}"[..12],
+            CreatedByUserId = createdByUserId,
+        });
+    }
+
+    private async Task SeedLeagueMembershipAsync(Guid leagueId, Guid userId)
+    {
+        using var seedScope = _factory.Services.CreateScope();
+        var leagueRepository = seedScope.ServiceProvider.GetRequiredService<ILeagueRepository>();
+        await leagueRepository.AddMembershipAsync(leagueId, userId);
+    }
+
     // ---- REQ-718/ADR-0038: guest account lifecycle cleanup ----
 
     // ---- LastActiveAt activity tracking (four events: signup/guest/login/

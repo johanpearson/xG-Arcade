@@ -1224,6 +1224,159 @@ describe('SettingsScreen', () => {
       expect(screen.getAllByTestId('avatar-section-pending')).toHaveLength(1);
     });
   });
+
+  // REQ-711/REQ-713 (S-249): the "Export your data" section — a single
+  // button, no confirmation step (unlike DeleteAccountScreen), that fetches
+  // GET /auth/export and triggers a browser download of the JSON result.
+  // jsdom has neither a real download mechanism nor URL.createObjectURL, so
+  // both are stubbed the same way the avatar section's own
+  // stubAvatarObjectUrls above already stubs URL for object-URL previews.
+  // The extra piece specific to a real file download (vs. an <img> preview)
+  // is the temporary <a download> element's own .click() call — jsdom does
+  // implement anchor click as a real DOM event, but a "download" click has
+  // no real effect there (no file is actually saved) and jsdom logs a
+  // "Not implemented: navigation" console error for it, so
+  // HTMLAnchorElement.prototype.click is spied on/no-op'd here (there's no
+  // existing precedent for a client-side file download anywhere else in
+  // this codebase to instead follow, per SettingsScreen.tsx's own comment
+  // on handleExportData). Asserting the spy was called once is this test's
+  // proxy for "a download was triggered," since nothing downloadable to a
+  // real filesystem can be observed inside jsdom.
+  describe('export data (REQ-711)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    function stubDownloadMechanism() {
+      const createObjectURL = vi.fn(() => 'blob:mock-export-url');
+      const revokeObjectURL = vi.fn();
+      vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      return { createObjectURL, revokeObjectURL, clickSpy };
+    }
+
+    const sampleExport = {
+      account: {
+        id: 'user-1',
+        authProviderUserId: 'auth-1',
+        email: 'player@example.com',
+        displayName: 'Current Name',
+        emailConfirmed: true,
+        isGuest: false,
+        claimedAt: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        lastActiveAt: '2026-09-01T00:00:00Z',
+      },
+      guesses: [],
+      leagueMemberships: [],
+      notificationPreferences: null,
+    };
+
+    // Every fetchMock below also needs to answer the avatar section's own
+    // mount-time GET /users/me/avatar (same reasoning as the REQ-714/717 401
+    // tests above) — this helper keeps that one line from being repeated in
+    // every test.
+    function fetchMockFor(exportResponse: () => ReturnType<typeof vi.fn>) {
+      return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        if (String(input).includes('/users/me/avatar')) {
+          return jsonResponse({ pending: null, rejected: null, approved: null });
+        }
+        return exportResponse();
+      });
+    }
+
+    it('REQ711_SettingsScreen_ExportButtonClick_CallsExportEndpointAndTriggersDownload', async () => {
+      const { createObjectURL, revokeObjectURL, clickSpy } = stubDownloadMechanism();
+      const fetchMock = fetchMockFor(() => jsonResponse(sampleExport));
+      const user = userEvent.setup();
+      renderSettingsScreen({ accessToken: 'token-abc' }, fetchMock);
+
+      await user.click(screen.getByTestId('settings-export-data-button'));
+
+      await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/export'),
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }) }),
+      );
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-export-url');
+      // Flips back to usable once the download has been triggered.
+      expect(screen.getByRole('button', { name: 'Export your data' })).not.toBeDisabled();
+    });
+
+    it('REQ711_SettingsScreen_ExportButtonClick_ShowsLoadingStateWhileInFlight', async () => {
+      stubDownloadMechanism();
+      let resolveExport: (value: Response) => void = () => {};
+      const fetchMock = fetchMockFor(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveExport = resolve;
+          }) as unknown as ReturnType<typeof vi.fn>,
+      );
+      const user = userEvent.setup();
+      renderSettingsScreen({}, fetchMock);
+
+      await user.click(screen.getByTestId('settings-export-data-button'));
+
+      const loadingButton = await screen.findByRole('button', { name: 'Preparing your export…' });
+      expect(loadingButton).toBeInTheDocument();
+      expect(loadingButton).toBeDisabled();
+
+      resolveExport({ ok: true, status: 200, json: () => Promise.resolve(sampleExport) } as Response);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Export your data' })).toBeInTheDocument(),
+      );
+    });
+
+    it('REQ711_SettingsScreen_ExportFailure_ShowsInlineErrorAndDoesNotTriggerDownload', async () => {
+      const { createObjectURL, clickSpy } = stubDownloadMechanism();
+      const fetchMock = fetchMockFor(() =>
+        jsonResponse(
+          { title: 'Request failed', detail: 'Something went wrong generating your export.' },
+          500,
+        ),
+      );
+      const user = userEvent.setup();
+      renderSettingsScreen({}, fetchMock);
+
+      await user.click(screen.getByTestId('settings-export-data-button'));
+
+      // DeleteAccountScreen (rendered below, always) has its own permanent
+      // role="alert" irreversibility warning, so this asserts on the set of
+      // alerts rather than assuming there's only one — same convention
+      // DeleteAccountScreen.test.tsx's own "shows the irreversibility
+      // warning as an alert" test already uses.
+      const alerts = await screen.findAllByRole('alert');
+      expect(
+        alerts.some((alert) => alert.textContent?.includes('Something went wrong generating your export.')),
+      ).toBe(true);
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(clickSpy).not.toHaveBeenCalled();
+      // The button flips back to usable — not stuck showing the loading text.
+      expect(screen.getByRole('button', { name: 'Export your data' })).not.toBeDisabled();
+    });
+
+    it('REQ711_SettingsScreen_ExportReturns401_CallsOnAuthErrorInsteadOfShowingInlineError', async () => {
+      const { createObjectURL, clickSpy } = stubDownloadMechanism();
+      // 401s on every path, same as the REQ-714/REQ-717 401 tests above — the
+      // avatar section's own mount-time GET independently observes the dead
+      // session too, so onAuthError is asserted as "called" rather than
+      // "called exactly once".
+      const fetchMock = vi.fn().mockImplementation(() => jsonResponse({ title: 'Unauthorized' }, 401));
+      const user = userEvent.setup();
+      const { onAuthError } = renderSettingsScreen({}, fetchMock);
+
+      await user.click(screen.getByTestId('settings-export-data-button'));
+
+      await waitFor(() => expect(onAuthError).toHaveBeenCalled());
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(clickSpy).not.toHaveBeenCalled();
+      expect(screen.queryByText('Unauthorized')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Export your data' })).not.toBeDisabled();
+    });
+  });
 });
 
 // REQ-903/ADR-0064: the incident-report entry point moved out of Settings
