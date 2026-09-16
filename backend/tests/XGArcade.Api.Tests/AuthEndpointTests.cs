@@ -1880,6 +1880,27 @@ public class AuthEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    // Mirrors REQ718_Logout_Post_UnclaimedGuest_SubsequentRequestWithSameTokenIsRejected's
+    // precedent for AuthController.Me's identical branch: once the account
+    // row is gone, the same still-cryptographically-valid JWT must not
+    // still reach this caller's own data. AuthController.Export resolves
+    // the caller by AuthProviderUserId exactly like Me does and returns 404
+    // once that row is gone.
+    [Test]
+    public async Task REQ711_Export_Get_UserRowMissing_Returns404()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+        var logoutResponse = await client.PostAsync("/auth/logout", content: null);
+        Assert.That(logoutResponse.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        var exportResponse = await client.GetAsync("/auth/export");
+
+        Assert.That(exportResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
     // REQ-711: a custom league (Type="custom") for the LeagueMemberships
     // isolation test above — distinct from SeedGuestUserAsync's own
     // Global-league enrollment, since this requirement's acceptance
