@@ -13425,6 +13425,29 @@ monitor with a named threshold to revisit at).
 *Deps:* none — a real-data investigation, avatars/photos already ruled out
 above.
 
+**Built as (2026-09-16/17, PR #395 + real dev runs):** built
+`GetCareerStintFootprintAsync`/`report-career-stint-footprint` (new,
+read-only) and wired the existing `clean-duplicate-career-stints`
+(ADR-0059/ADR-0063) to a dispatchable workflow for the first time, then
+ran both against real dev data. Results (full detail in `NOTES.md`'s
+2026-09-17 close-out entry): 558,422 total stints, 539,740 (96.7%) at an
+unseeded club across 98,076 distinct players; dedup removed only 728 rows
+(0.13%). **Decision: accept-and-monitor, not prune** — dedup was never the
+lever, and the 96.7% unseeded share is very likely mostly legitimate
+career history for players who are otherwise xG Path-eligible (their
+unseeded stints feed `PathClueSequenceBuilder`'s full career-reveal
+sequence), not confirmed dead weight; ADR-0059 already established that a
+disproportionate-availability-risk purge isn't the right trade here, and
+this session found no narrower, evidence-backed prune target to act on
+instead. This raises S-261's stakes rather than resolving them — pruning
+can't be assumed to buy headroom, so the stay-on-Supabase-vs-pay decision
+there should not assume a prune will rescue the free tier. A follow-up
+query (count players/rows with ZERO seeded-club stints at all — the
+actual dead-weight subset the 96.7% figure conflates with real eligible-
+player history) is a real next step if S-261 ever needs more evidence, but
+wasn't built this session to avoid widening scope past what was actually
+found.
+
 **S-261 · Revisit ADR-0004's own Follow-up: is migrating off Supabase's free tier justified yet?**
 ADR-0004 (2026-07-04) chose Supabase specifically because "there is no
 equivalent free-forever managed Postgres on Azure," and explicitly logged

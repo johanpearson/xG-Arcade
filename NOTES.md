@@ -2358,3 +2358,55 @@ is plain object storage, not a queryable relational database, so it can't
 substitute for Supabase's Postgres regardless. See `docs/backlog.md`'s new
 S-261 for the explicit decision this now warrants, given ADR-0004's own
 Follow-up anticipated exactly this point being reached.
+
+### 2026-09-17 — S-260 closed with real numbers: dedup barely helps, 96.7% of PlayerCareerStint is unseeded-club data, no safe broad prune found
+
+Ran the two new/newly-wired diagnostics (PR #395) against real dev data:
+
+- `report-career-stint-footprint`: **558,422 total stints**, of which
+  **539,740 (96.7%) sit at a club with no matching `ClubDefinition`**,
+  spanning **98,076 distinct players**.
+- `clean-duplicate-career-stints` (ADR-0059/ADR-0063, run for the first
+  time since 2026-08-10's widening): removed **728 rows** provably
+  duplicating an already-canonical row — 0.13% of the table.
+
+Two conclusions, both load-bearing for S-261:
+
+1. **Duplication was never the lever.** The existing dedup cleaner already
+   does its job — there's no meaningful reclaimable space hiding in
+   cross-writer duplicates. Re-running it periodically is still cheap and
+   harmless (now that PR #395 wired it to a dispatchable workflow), but
+   nobody should expect it to move the DB-size needle again.
+2. **The 96.7% unseeded share is very likely mostly legitimate, not dead
+   weight** — and NOT confirmed safe to bulk-delete. A stint at an
+   unseeded club still belongs to a player's real, displayed career
+   history; many (likely most) of these 98,076 players also hold a
+   qualifying seeded-club stint that makes them xG Path-eligible per
+   `GetCareerStintCandidatePlayerIdsAsync`'s two conditions — deleting
+   their unseeded stints would corrupt `PathClueSequenceBuilder`'s full
+   career-reveal sequence for currently-eligible players, not just trim
+   byproduct. `report-career-stint-footprint` does not (and deliberately
+   does not) distinguish that case from a genuinely dead-end player who
+   will never qualify under current seeding — see Follow-up below for the
+   one query that could still narrow this further without guessing.
+
+**Decision for S-260 (prune / upgrade / accept-and-monitor):** no safe,
+evidence-backed prune target was found this session — the honest answer
+per ADR-0059's own already-established caution against a disproportionate
+availability-risking purge. **Accept-and-monitor** is the near-term
+answer: the 439MB figure reflects real, mostly-in-use game data, not
+reclaimable waste. This makes S-261 (revisit ADR-0004: stay on Supabase
+free tier vs. pay) more decision-relevant, not less, since pruning cannot
+be relied on to buy meaningful headroom — flagging that there for whoever
+picks S-261 up, without acting on it now per the explicit instruction to
+hold off on S-261 this session.
+
+**Follow-up (not built, a real next step if S-261 needs more evidence):**
+a narrower query — count `PlayerCareerStint` rows/players where NO stint
+at all is at a seeded club (i.e., a player `GetCareerStintCandidatePlayerIdsAsync`
+could never surface as eligible under current seeding, regardless of
+total stint count) — would isolate the actual dead-weight subset instead
+of the full 96.7% unseeded figure, which conflates dead-weight with real
+eligible-player history. Worth a dedicated story if S-261's decision ever
+hinges on finding more prunable headroom; not built here to avoid
+widening this session's scope past what real evidence already supports.
