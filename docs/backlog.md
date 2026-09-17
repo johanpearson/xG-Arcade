@@ -13194,3 +13194,175 @@ entry (2026-09-16 addition) for the visual spec. Tests are a separate,
 parallel `test-writer` piece of work, not included in this note.
 
 ---
+
+## Epic 35 — Session-prompt follow-ups from `NOTES.md` (2026-09-17 sweep)
+
+A pass over `NOTES.md`'s recent entries (2026-08-03 through 2026-09-15)
+plus S-249's own close-out note, looking for flagged-but-not-done work:
+unverified fixes, deferred real-data checks that need a real dev/CI run,
+open product-decision calls, and code-health findings logged rather than
+fixed inline. Each story below cites the exact `NOTES.md` entry (or, for
+S-259, the `docs/backlog.md` story) it comes from — read that entry first,
+it already has the full root-cause/context; do not re-derive it. Ordered
+by how self-contained each is, not by priority. None of these depend on
+each other.
+
+**S-250 · Verify `backfill-player-international-stats.yml`'s idempotency fix against a real re-run**
+`NOTES.md`'s 2026-09-10 entry ("`backfill-player-international-stats.yml`
+'idempotent' claim was wrong") landed a fix the same day (the
+`PlayerData.InternationalStatsCheckedField` marker) but says explicitly:
+"not yet re-verified against a real production re-run (the orchestrating
+session, which holds CI/GitHub Actions access, still needs to trigger
+that)." Trigger `backfill-player-international-stats.yml` via
+`workflow_dispatch` against dev, twice in a row, and confirm the second run
+attempts only the small remaining/failed population — not the full
+~139,639/170,678-player pool the bug caused before the fix.
+*Accept:* a new dated `NOTES.md` entry recording the two runs' actual
+attempted-player counts, confirming (or, if it doesn't hold, reopening as a
+bug against `PlayerInternationalStatsBackfillService`) that the fix is
+genuinely idempotent now.
+*Deps:* S-231/ADR-0112, S-232/ADR-0113 (the fix itself, already merged).
+
+**S-251 · Verify the trophy sweep (S-232/ADR-0113) against real Wikidata coverage**
+`NOTES.md`'s second 2026-09-10 entry (S-232/ADR-0113) built
+`PlayerTrophyStatsRefreshService`/`PlayerTrophyStatsBackfillService` but
+says: "Not yet run against real Wikidata data from this sandbox... needs a
+real `ci.yml` `workflow_dispatch` run and a real dev-environment
+`backfill-player-trophy-stats` run, followed by
+`report-international-stats-coverage`, before trusting that `"trophy"`
+coverage actually grew past 20." Run that exact sequence against dev.
+*Accept:* a dated `NOTES.md` follow-up entry recording the before (20) and
+after trophy-coverage numbers; if coverage is still sparse among genuinely
+well-known players, escalate per the precedent the ADR-0111 Follow-up
+entry already set (a product call, not a silent acceptance).
+*Deps:* S-232/ADR-0113.
+
+**S-252 · Root-cause `import-player-name-index`'s 8-slice truncation failures (2026-09-05)**
+`NOTES.md`'s 2026-09-05 entry found 8 birth-year slices failing with
+mid-JSON-value truncation (`BytePositionInLine` in the hundreds-of-
+thousands-to-millions range) — a different failure shape from the
+ADR-0108 control-character bug, and explicitly "not investigated further."
+Re-run `import-player-name-index.yml`; if the truncation pattern recurs
+(not just one bad day), check whether it correlates with response size
+(the note names 1949, 1971, 1982, 1990, 1992, 1994, 1995, 2003, 2004, 2010
+as the originally affected years) before treating it as ADR-worthy —
+per the note's own guidance, do not "fix" this the way the 2026-07-18 WDQS
+timeout entry warns against (raising a client timeout does not fix a
+response actually cut off in transit).
+*Accept:* either confirmed one-off network flakiness (documented, no code
+change) or, if a real recurring pattern is found, a fix (e.g. smaller
+per-slice batch size for the affected years) plus a new ADR.
+*Deps:* ADR-0105–0108 (the fix chain this failure mode sits alongside).
+
+**S-253 · Close the S-141 xG Path eligible-pool before/after verification handoff**
+`NOTES.md`'s 2026-08-18 S-141 entry built `reset-path-target-cycle` but
+the actual "before/after eligible-player count" this story asked for was
+never produced — no route to live Wikidata or real dev Postgres from this
+sandbox. The entry ends with an explicit 5-step handoff. Follow it exactly:
+(1) `GET /admin/xg-path/cycle` for the current `ObservedPoolSize`; (2)
+trigger one real xG Path round generation under the now-deployed
+S-137–140 rules; (3) `GET /admin/xg-path/cycle` again for the "after"
+figure; (4) run `dotnet run -- reset-path-target-cycle` once; (5) record
+both numbers in a new `NOTES.md` entry.
+*Accept:* the `NOTES.md` entry from step 5 exists with real numbers; if
+the pool dropped by more than roughly half, escalate to the product owner
+per the entry's own instruction rather than accepting it silently.
+*Deps:* S-137, S-138, S-139, S-140.
+
+**S-254 · Close the S-151 autocomplete warm-up cold-start latency handoff**
+`NOTES.md`'s 2026-08-18 S-151 entry built and tested the DB-touching
+`GET /players/autocomplete/warmup` warm-up call but could not measure its
+actual effect: this sandbox never scales a Container App to zero, so there
+was no cold path to measure against. Let the dev Container App idle long
+enough to scale to zero (per `minReplicas`/idle-timeout in
+`infra/bicep/modules/backend-container-app.bicep`), then time first-
+suggestion latency on a cold hit; compare against a pre-S-151 revision if
+still reachable, otherwise record the current cold figure as the new
+baseline.
+*Accept:* a new dated `NOTES.md` entry with the real measured number(s),
+or an explicit note if a true pre/post comparison is no longer possible.
+*Deps:* S-151.
+
+**S-255 · Product decision: extend a recognizability signal to xG Higher/Lower (ADR-0111 Follow-up)**
+`NOTES.md`'s first 2026-09-10 entry, "Update" section, says REQ-1506's new
+international-caps->=10 floor is only a "partial" recognizability signal —
+"NOT the general 'fame/popularity' signal... no Wikipedia-sitelink-style
+broad familiarity check the way `PlayerFamiliarityService`/ADR-0056 gives
+xG Path." This follows a *direct, negative* real-user-tester report about
+recognizability, not a hypothetical. Route to `requirements-writer` for an
+explicit decision, same shape as the S-248→S-249 precedent already in this
+backlog: should `IPlayerFamiliarityService` (or equivalent) be extended to
+xG Higher/Lower's eligibility pool?
+*Accept:* an explicit status note lands on REQ-1506 (or a new ADR
+amendment to ADR-0111/0112) recording either "extend
+`PlayerFamiliarityService`, sized as story S-26x" or "not now, because
+X" — not left as a silent, undecided gap the way item 2 currently is.
+*Deps:* ADR-0056, ADR-0111, ADR-0112.
+
+**S-256 · Audit remaining full-table-read helpers at real `PlayerCareerStint` scale (608K rows)**
+`NOTES.md`'s 2026-08-03 entry fixed the one hot-path offender
+(`GetAllCareerStintsByPlayerAsync`, replaced by a two-pass narrow-then-load
+approach in `XGPathGameModule`) but says explicitly: "`GetPlayersMissing
+PhotoAsync` and the general 'few thousand rows' assumption elsewhere are
+still unaddressed — this fix only covered the one hot-path method called
+out above." Find every other method still relying on that stale
+"tolerate a full-table read at Tier 0 scale" precedent; fix any that run
+on a hot path (called per-request or per-round-generation, not just from a
+manual/occasional CLI job) the same narrow-then-load way; leave genuinely
+occasional jobs (like `audit-club-gaps`) alone.
+*Accept:* audit result recorded (`NOTES.md` or `CHANGELOG.md`); any
+hot-path fix ships with a REQ-tagged test proving unchanged eligibility
+semantics, mirroring the 2026-08-03 fix's own "true superset, never
+excluding a player `IsEligible` would have accepted" guarantee.
+*Deps:* ADR-0055.
+
+**S-257 · Split `InternalRoundEndpoints.cs` by game (955 lines, code-health finding)**
+Flagged at the end of `NOTES.md`'s second 2026-09-10 entry (S-245
+close-out, `quality-architect`): `backend/src/XGArcade.Api/Rounds/
+InternalRoundEndpoints.cs` is 955 lines (+34% from S-245 alone), ~3.9x its
+sibling `RoundEndpoints.cs` (243 lines), past the god-file threshold and
+still growing. It already has clearly separable sections by game (grid
+seed-*, higher-lower seed-*, xg-path seed-*, predict seed-*, plus generic
+round-generation/force-close). Split along those lines — partial classes
+or separate per-game endpoint-registration files, whichever matches how
+other per-game splits in this codebase are organized.
+*Accept:* pure refactor, no behavior or test change; existing tests pass
+unchanged; `architecture-reviewer`/`quality-architect` both pass.
+*Deps:* none.
+
+**S-258 · Extract shared `frontend/tests/e2e/helpers.ts` (rule-of-three code-health finding)**
+`NOTES.md`'s 2026-09-15 entry and its two addenda flag three separate
+helper duplications across `frontend/tests/e2e/`, all pointing at the same
+fix: (1) the "clear the Active round" helper (probe-signup → loop
+`GET /rounds/current` → force-close), 6 copies across `play-grid.spec.ts`,
+`play-path.spec.ts`, `play-higher-lower.spec.ts`, `play-predict.spec.ts`,
+`leaderboard-leagues.spec.ts`, `admin-review.spec.ts`; (2) the
+`signUpNewPlayer`-shaped signup helper, 6 copies across
+`url-routing.spec.ts`, `play-grid.spec.ts`, `header-nav.spec.ts`,
+`splash-screen.spec.ts`, `leaderboard-leagues.spec.ts`, and
+`account-deletion.spec.ts`; (3) the `fetchClosedAtForRound`-shaped
+closed-round lookup, currently 2 copies (`leaderboard-leagues.spec.ts`,
+`friends-challenges.spec.ts`). Extract all three into
+`frontend/tests/e2e/helpers.ts` in one pass (the round-clearing helper
+needs its endpoint path parameterized per `GameKey`) and update every
+listed spec file to import instead of inlining.
+*Accept:* zero remaining duplicated copies of any of the three helpers;
+every affected spec file still passes unchanged; no REQ/behavior change.
+*Deps:* none — pure refactor, but touches the most files of any story here.
+
+**S-259 · Write the missing REQ-711 tests (S-249 close-out gap)**
+Not from `NOTES.md` but from `docs/backlog.md`'s own S-249 close-out
+notes: both the backend (`GET /auth/export`) and frontend (`SettingsScreen`
+export button) halves of REQ-711 were built and merged 2026-09-16, but
+each note ends with "Tests are a separate, parallel `test-writer` piece of
+work, not included in this note" — no REQ711-named test exists yet, so
+S-249's own *Accept* criteria are still unmet.
+*Accept:* exactly S-249's own *Accept* criteria, verbatim: a REQ711-named
+API test (an export contains exactly the caller's own account info, guess
+history, and league memberships — never another user's — and an
+unauthenticated request 401s) and a REQ711-named Vitest test (the Settings
+entry point triggers a download on success and shows a visible inline
+error on failure).
+*Deps:* S-249 (already built, this only adds the tests it deferred).
+
+---
