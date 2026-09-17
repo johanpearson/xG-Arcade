@@ -2279,3 +2279,82 @@ scope, same reasoning as the two entries above). All three of these
 next `code-health-auditor` sweep should extract the signup helper, the
 round-clearing helper, and the closed-round-lookup helper together in one
 pass rather than one at a time.
+
+### 2026-09-17 — real Supabase usage-dashboard check ahead of S-250/S-251: egress burn rate and DB size both worth flagging before any more bulk backfills run
+
+Checked the Supabase org dashboard directly (`xg-arcade-dev`, Free Plan)
+before scoping the S-250/S-251 real-data verification handoffs in
+`docs/backlog.md` (Epic 35) — both stories re-dispatch bulk Wikidata-backed
+jobs against the full player pool, the same class of job ADR-0088/ADR-0090
+already tie to a confirmed past egress overage. Two things worth recording
+before either story runs:
+
+1. **Egress**: the org's own banner reads "Organization exceeded its quota
+   in the previous billing cycle... Projects will be restricted from 24
+   Sep, 2026 if your organization remains over quota." The *current* cycle
+   (08 Sep–08 Oct 2026) shows 2.23GB/5GB (44.6%) used, 0GB overage, as of
+   day 9 of a ~30-day cycle — a burn rate that, if it continues linearly,
+   projects to roughly 7.4GB by cycle end, back over the 5GB cap. Cached
+   egress is a separate, currently-empty (0.00GB/5GB) counter, not
+   contributing. This is not yet an incident, but it's an active trend, not
+   just historical (ADR-0088's incident was 2026-08-18) — check current
+   usage immediately before dispatching S-250 or S-251, not just before the
+   first one, since either alone could plausibly push the cycle over.
+2. **Database size — a new, distinct risk not covered by ADR-0088/ADR-0090
+   at all** (those are egress-only): `xg-arcade-dev`'s database size is
+   439.01MB against the free tier's 0.5GB (512MB)/project cap — 87.8% full,
+   closer to its own limit than egress is to its. Unlike egress (which just
+   costs an overage or, per the banner, eventually restricts the project),
+   a full database can start **rejecting writes outright** — which would
+   break round generation, guess submission, and every backfill job in this
+   backlog, not just the two bulk-sweep stories. Likely largest consumer:
+   `PlayerCareerStint`'s 607,914+ rows (2026-08-03 entry above), plus
+   whatever `PlayerAttribute`/`PlayerData` growth the international-stats
+   and trophy sweeps have added since. Not investigated further here —
+   see `docs/backlog.md`'s new S-260 for the follow-up (find what's
+   actually consuming the space, decide prune/upgrade/accept-and-monitor).
+
+**Recommendation for anyone picking up S-250 or S-251:** re-check both
+numbers on the live dashboard immediately before dispatching (they will
+have moved since this entry), don't run the two back-to-back in the same
+session, and treat S-260 as worth doing alongside them rather than after —
+a full database blocks the very jobs S-250/S-251 need to run.
+
+**Addendum (2026-09-17, same day):** confirmed by codebase investigation
+that avatars are **not** the cause of the 439MB database size. User
+avatars live in Supabase **Storage** (`AvatarSubmission.ImageStorageKey`,
+`backend/src/XGArcade.Data/Entities/AvatarSubmission.cs:28`, ADR-0087) —
+only a storage-key string is in Postgres, never raw bytes — and Storage is
+a wholly separate quota from "Database size" on the dashboard, sitting
+near-empty (~0/1GB per the ADR-0088 incident readout). Game player photos
+(`Player.PhotoUrl`) are likewise just a URL string column. That leaves
+`PlayerCareerStint` (607,914+ rows, the 2026-08-03 entry above) as by far
+the most likely dominant consumer of the 439MB — see `docs/backlog.md`'s
+S-260, rewritten the same day to target it directly instead of an open
+"investigate everything" story.
+
+Also checked whether Supabase's **Cached Egress** (a separate 5GB quota,
+0.00GB used) could relieve the regular-egress burn rate flagged above:
+`AvatarEndpoints.cs` already sets `Cache-Control: private, max-age=86400`
+on avatar-image responses (added in S-186, cutting Storage egress), but
+this is *browser*-side caching on our own backend's HTTP response, not
+traffic served by Supabase's own CDN/edge cache — it won't register in
+Supabase's "Cached Egress" bucket, since the frontend never talks to
+Supabase directly (ADR-0013's backend-mediation rule keeps avatar buckets
+private with no public CDN URLs, deliberately, per ADR-0087). More
+importantly, the egress that's actually trending toward the cap (the bulk
+Wikidata backfill jobs) is raw Postgres wire-protocol traffic via EF
+Core/Npgsql, not HTTP — structurally invisible to any CDN/edge cache.
+Cached egress is not a usable lever for the risk S-250/S-251 carry.
+
+Separately, verified (web search, 2026-09-17 — re-verify before relying on
+this for a real decision, same caution `infra/README.md`'s cost table
+already carries) that Azure still has no indefinite free tier for managed
+Postgres: Azure Database for PostgreSQL Flexible Server's free allowance
+(750 Burstable hours + 32GB/month) is a 12-month new-account grant, not
+permanent, reconfirming ADR-0004's original reasoning for choosing
+Supabase unchanged. Azure Blob Storage's ~5GB always-free tier is real but
+is plain object storage, not a queryable relational database, so it can't
+substitute for Supabase's Postgres regardless. See `docs/backlog.md`'s new
+S-261 for the explicit decision this now warrants, given ADR-0004's own
+Follow-up anticipated exactly this point being reached.

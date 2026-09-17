@@ -196,4 +196,25 @@ public class PlayerDataQualityRepository(XGArcadeDbContext dbContext) : IPlayerD
             .Take(top)
             .ToList();
     }
+
+    public async Task<CareerStintFootprint> GetCareerStintFootprintAsync(CancellationToken cancellationToken = default)
+    {
+        var seededClubNames = new HashSet<string>(
+            await dbContext.ClubDefinitions.AsNoTracking().Select(c => c.Name).ToListAsync(cancellationToken),
+            StringComparer.OrdinalIgnoreCase);
+
+        var totalStintCount = await dbContext.PlayerCareerStints.AsNoTracking().CountAsync(cancellationToken);
+
+        var unseededStints = await dbContext.PlayerCareerStints
+            .AsNoTracking()
+            .Select(s => new { s.ClubName, s.PlayerId })
+            .ToListAsync(cancellationToken);
+
+        var unseeded = unseededStints.Where(s => !seededClubNames.Contains(s.ClubName)).ToList();
+
+        return new CareerStintFootprint(
+            totalStintCount,
+            unseeded.Count,
+            unseeded.Select(s => s.PlayerId).Distinct().Count());
+    }
 }

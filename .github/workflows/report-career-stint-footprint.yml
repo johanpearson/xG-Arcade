@@ -1,0 +1,27 @@
+name: report-career-stint-footprint
+
+# S-260 (docs/backlog.md Epic 35, 2026-09-17 Supabase DB-size
+# investigation): prints PlayerCareerStint's total row count plus how much
+# of it sits at a seeded vs. unseeded club, to the job log — a CLI-verb
+# convenience for checking real table composition without needing dashboard
+# access. See CliVerbDispatcher.HandleReportCareerStintFootprintAsync's own
+# doc comment for the full "why". Read-only: never writes anything, never
+# touches Wikidata, never triggers Round generation.
+#
+# Manual trigger only, same posture as report-international-stats-coverage.yml
+# — this is a diagnostic check run on demand, not a recurring job.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  report-career-stint-footprint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Report career stint footprint
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: report-career-stint-footprint
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

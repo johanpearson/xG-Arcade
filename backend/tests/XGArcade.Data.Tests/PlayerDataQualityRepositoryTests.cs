@@ -432,4 +432,71 @@ public class PlayerDataQualityRepositoryTests
 
         Assert.That(candidates, Is.Empty);
     }
+
+    // ---- S-260 (`report-career-stint-footprint` CLI verb, GetCareerStintFootprintAsync) ----
+
+    [Test]
+    public async Task GetCareerStintFootprintAsync_ReturnsZeroes_WhenNoCareerStintsExist()
+    {
+        var footprint = await _repository.GetCareerStintFootprintAsync();
+
+        Assert.That(footprint.TotalStintCount, Is.EqualTo(0));
+        Assert.That(footprint.UnseededClubStintCount, Is.EqualTo(0));
+        Assert.That(footprint.UnseededClubDistinctPlayerCount, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task GetCareerStintFootprintAsync_CountsTotalStints_AcrossSeededAndUnseededClubs()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q9617" });
+        await _dbContext.SaveChangesAsync();
+
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Napoli", StartYear = 2010, EndYear = 2015 },
+        ]);
+
+        var footprint = await _repository.GetCareerStintFootprintAsync();
+
+        Assert.That(footprint.TotalStintCount, Is.EqualTo(2), "total must include both seeded- and unseeded-club stints");
+        Assert.That(footprint.UnseededClubStintCount, Is.EqualTo(1), "only the Napoli stint has no matching ClubDefinition");
+    }
+
+    [Test]
+    public async Task GetCareerStintFootprintAsync_CountsUnseededDistinctPlayers_NotStints()
+    {
+        var playerWithTwoUnseededStints = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "Q1" };
+        await _playerRepository.AddPlayerAsync(playerWithTwoUnseededStints);
+        await _playerCareerStintRepository.AddCareerStintsAsync(playerWithTwoUnseededStints.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerWithTwoUnseededStints.Id, ClubName = "Napoli", StartYear = 2005, EndYear = 2007 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerWithTwoUnseededStints.Id, ClubName = "Napoli", StartYear = 2010, EndYear = 2012 },
+        ]);
+
+        var footprint = await _repository.GetCareerStintFootprintAsync();
+
+        Assert.That(footprint.UnseededClubStintCount, Is.EqualTo(2), "both stints count toward the row total");
+        Assert.That(footprint.UnseededClubDistinctPlayerCount, Is.EqualTo(1), "but they belong to only one distinct player");
+    }
+
+    [Test]
+    public async Task GetCareerStintFootprintAsync_CaseInsensitiveMatch_TreatsClubAsSeeded()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q9617" });
+        await _dbContext.SaveChangesAsync();
+
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "ARSENAL", StartYear = 1999, EndYear = 2007 }]);
+
+        var footprint = await _repository.GetCareerStintFootprintAsync();
+
+        Assert.That(footprint.TotalStintCount, Is.EqualTo(1));
+        Assert.That(footprint.UnseededClubStintCount, Is.EqualTo(0),
+            "a case-only difference from a seeded ClubDefinition.Name must not count as unseeded, matching GetUnseededClubCandidatesAsync's own rule");
+    }
 }

@@ -13221,6 +13221,16 @@ attempts only the small remaining/failed population — not the full
 attempted-player counts, confirming (or, if it doesn't hold, reopening as a
 bug against `PlayerInternationalStatsBackfillService`) that the fix is
 genuinely idempotent now.
+**Egress caution (see `NOTES.md`'s 2026-09-17 entry):** the Supabase org
+went over its free-tier quota last billing cycle and will be restricted
+from 24 Sep 2026 if it's still over; the current cycle (08 Sep–08 Oct
+2026) had already used 2.23GB/5GB (44.6%) egress after only 9 days as of
+this writing — a burn rate that projects past the cap again before the
+cycle ends. Re-check the Supabase usage dashboard immediately before
+dispatching this workflow. If the fix works as intended this run should be
+cheap (most players already carry the "checked" marker), but confirm
+current headroom first rather than assuming — don't run this back-to-back
+with S-251 in the same session.
 *Deps:* S-231/ADR-0112, S-232/ADR-0113 (the fix itself, already merged).
 
 **S-251 · Verify the trophy sweep (S-232/ADR-0113) against real Wikidata coverage**
@@ -13235,6 +13245,12 @@ coverage actually grew past 20." Run that exact sequence against dev.
 after trophy-coverage numbers; if coverage is still sparse among genuinely
 well-known players, escalate per the precedent the ADR-0111 Follow-up
 entry already set (a product call, not a silent acceptance).
+**Egress caution:** same real-usage warning as S-250 above — check the
+Supabase usage dashboard for current headroom before dispatching, and
+don't run this back-to-back with S-250 in the same session. This job has
+never run against real Wikidata data at all, so there's no "should be
+cheap now" precedent to lean on the way S-250's re-run has — treat it as a
+genuinely new full-pool sweep for egress-budgeting purposes.
 *Deps:* S-232/ADR-0113.
 
 **S-252 · Root-cause `import-player-name-index`'s 8-slice truncation failures (2026-09-05)**
@@ -13350,19 +13366,105 @@ listed spec file to import instead of inlining.
 every affected spec file still passes unchanged; no REQ/behavior change.
 *Deps:* none — pure refactor, but touches the most files of any story here.
 
-**S-259 · Write the missing REQ-711 tests (S-249 close-out gap)**
-Not from `NOTES.md` but from `docs/backlog.md`'s own S-249 close-out
-notes: both the backend (`GET /auth/export`) and frontend (`SettingsScreen`
-export button) halves of REQ-711 were built and merged 2026-09-16, but
-each note ends with "Tests are a separate, parallel `test-writer` piece of
-work, not included in this note" — no REQ711-named test exists yet, so
-S-249's own *Accept* criteria are still unmet.
-*Accept:* exactly S-249's own *Accept* criteria, verbatim: a REQ711-named
-API test (an export contains exactly the caller's own account info, guess
-history, and league memberships — never another user's — and an
-unauthenticated request 401s) and a REQ711-named Vitest test (the Settings
-entry point triggers a download on success and shows a visible inline
-error on failure).
-*Deps:* S-249 (already built, this only adds the tests it deferred).
+**S-259 · Write the missing REQ-711 tests (S-249 close-out gap)** — **already done, superseded before this Epic merged**
+Written from a stale read of S-249's close-out notes ("Tests are a
+separate, parallel `test-writer` piece of work, not included in this
+note"). By the time Epic 35 was drafted, a separate session had already
+merged exactly this work via PR #391 (commits `f4d7ad0`/`4994716`,
+2026-09-16): `backend/tests/XGArcade.Api.Tests/AuthEndpointTests.cs` gained
+`REQ711_Export_Get_ReturnsCallersOwnAccountInfo_ExcludingAnyCredential`,
+`REQ711_Export_Get_ReturnsOnlyCallersOwnGuesses_NeverAnotherUsersGuesses`,
+`REQ711_Export_Get_ReturnsOnlyCallersOwnLeagueMemberships_...`,
+`REQ711_Export_Get_ReturnsNullNotificationPreferences_UntilThatTableExists`,
+`REQ711_Export_Get_Unauthenticated_Returns401`, and
+`REQ711_Export_Get_UserRowMissing_Returns404`; `frontend/src/settings/
+SettingsScreen.test.tsx` gained
+`REQ711_SettingsScreen_ExportButtonClick_CallsExportEndpointAndTriggersDownload`,
+`..._ShowsLoadingStateWhileInFlight`, `..._ShowsInlineErrorAndDoesNotTriggerDownload`,
+and `..._CallsOnAuthErrorInsteadOfShowingInlineError`. S-249's own *Accept*
+criteria are fully met by this existing coverage — no further work needed
+here. Left in place (not deleted) as a record of why this story appears in
+Epic 35's original PR despite needing no session of its own; do not pick
+this up.
+
+**S-260 · Prune/compact `PlayerCareerStint` — the confirmed driver of Supabase dev DB size (439.01MB/500MB, 87.8%)**
+Follow-up to the 2026-09-17 Supabase usage-dashboard check (`NOTES.md`).
+A same-day investigation (2026-09-17, see `NOTES.md`'s addendum) ruled out
+the obvious suspect: user avatars live in Supabase **Storage**
+(`AvatarSubmission.ImageStorageKey`, ADR-0087), a separate quota from
+"Database size" entirely, and were near-empty (~0/1GB) as of the ADR-0088
+incident — they cannot be the cause. Game player photos
+(`Player.PhotoUrl`) are a plain URL string column, negligible size. That
+leaves `PlayerCareerStint` (607,914+ rows, 2026-08-03 `NOTES.md` entry,
+already flagged as a byproduct of xG Grid's country×club lookups rather
+than deliberate data) as by far the most likely dominant consumer of the
+~439MB, with `PlayerAttribute`/`PlayerData` growth from the international-
+stats/trophy sweeps a secondary contributor.
+Unlike egress (ADR-0088/ADR-0090's incident history), a full database
+**rejects writes outright** rather than just costing an overage — this
+would block round generation, guess submission, and every backfill job in
+this backlog, not just the bulk-sweep stories. At 87.8% full, this is
+closer to becoming a real incident than the egress quota (44.6%, but
+trending — see S-250/S-251's caution notes).
+Confirm via Supabase's own table-size breakdown that `PlayerCareerStint`
+is in fact the dominant consumer, then decide: (a) whether the existing
+duplicate-stint cleanup (ADR-0059/ADR-0063) is actually keeping this table
+lean or only handles a narrow duplicate case (608K rows suggests the
+latter); (b) whether stints for players/clubs no longer relevant to the
+seeded pool can be pruned outright, since this data is an accumulated
+lookup byproduct, not an intentional import, unlike most other tables in
+this schema; (c) if neither closes enough headroom, size the cost of a
+paid Supabase tier (see S-261 for the Azure-migration alternative) rather
+than silently accepting the risk. Do **not** treat this as a reason to
+delay S-250/S-251 indefinitely — check current headroom before each of
+those runs and prioritize this investigation alongside them, not instead
+of them.
+*Accept:* a dated `NOTES.md` entry recording the confirmed table-size
+breakdown and a decided path forward (prune, upgrade, or accept-and-
+monitor with a named threshold to revisit at).
+*Deps:* none — a real-data investigation, avatars/photos already ruled out
+above.
+
+**S-261 · Revisit ADR-0004's own Follow-up: is migrating off Supabase's free tier justified yet?**
+ADR-0004 (2026-07-04) chose Supabase specifically because "there is no
+equivalent free-forever managed Postgres on Azure," and explicitly logged
+its own Follow-up: "if traffic or cost ever justifies it, evaluate
+migrating Supabase's Postgres into an Azure-hosted Postgres instance...
+since it's standard Postgres, this is a data migration, not an
+application rewrite." With the dev database now at 87.8% of its 500MB cap
+and egress trending toward its own 5GB cap in the same billing cycle
+(`NOTES.md`'s 2026-09-17 entry), this is the point that Follow-up was
+written for — worth an explicit, dated answer rather than continuing to
+defer it by default.
+Verified directly against Azure's own pricing docs (2026-09-17, via web
+search — re-verify before relying on these for a real decision, same
+caution `infra/README.md`'s cost table already gives): **Azure still has
+no indefinite free tier for managed Postgres.** Azure Database for
+PostgreSQL Flexible Server's free allowance (750 Burstable compute
+hours + 32GB storage/month) is part of the general Azure free-account
+grant and lasts only 12 months from account creation, after which it's
+paid (Burstable B1ms starts around $12/month) — this matches, and
+reconfirms, ADR-0004's original "time-limited trial credit" reasoning
+unchanged. Azure Blob Storage's ~5GB always-free allowance is real and
+larger than Supabase Storage's role here, but Blob Storage is plain object
+storage, not a queryable relational database — it could plausibly replace
+Supabase Storage (avatars) at some point, but it cannot substitute for the
+actual Postgres database where the DB-size problem lives.
+So the real options, once S-260's pruning is done and its result known,
+are: (a) stay on Supabase free tier with S-260's pruning as ongoing
+maintenance, accepting the 500MB/5GB ceilings as a permanent constraint;
+(b) pay for Supabase's next tier; (c) pay for Azure Database for
+PostgreSQL Flexible Server (bringing the database inside the existing
+Azure/Bicep infrastructure surface, closing ADR-0004's own "two
+infrastructure surfaces" trade-off, at the cost of ADR-0004's original
+"free-now" constraint no longer holding). None of these is free — this
+story's job is to make that trade-off explicit and pick one, not to find
+a free option that doesn't exist.
+*Accept:* an explicit decision recorded as an amendment to ADR-0004 (or a
+new superseding ADR if the answer is "migrate"), stating which of (a)/(b)/
+(c) was chosen and why, informed by S-260's actual pruning result (don't
+decide this before knowing whether pruning alone closes the gap).
+*Deps:* S-260 (need its pruning result to know if a migration/upgrade is
+even necessary).
 
 ---

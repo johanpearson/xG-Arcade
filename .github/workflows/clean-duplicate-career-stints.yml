@@ -1,0 +1,29 @@
+name: clean-duplicate-career-stints
+
+# S-260 (docs/backlog.md Epic 35, 2026-09-17 Supabase DB-size
+# investigation) fills a gap: the `clean-duplicate-career-stints` CLI verb
+# (ADR-0059/ADR-0063, 2026-08-04/2026-08-10) has existed since then but was
+# never wired to a dispatchable workflow — see
+# CliVerbDispatcher.HandleCleanDuplicateCareerStintsAsync's own doc comment,
+# and DuplicateCareerStintCleaner's own doc comment for the full "why" this
+# is a narrow, provable-only cleanup and NOT a broader prune. Idempotent and
+# safe to re-run (DuplicateCareerStintCleaner's own doc comment) — a
+# re-dispatch with nothing left to merge is a cheap no-op.
+#
+# Manual trigger only — this is maintenance run on demand, not a recurring
+# job, same posture as clear-pair-lookup-failures/purge-player-pool.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  clean-duplicate-career-stints:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Clean duplicate career stints
+        uses: ./.github/actions/run-cli-verb
+        with:
+          verb: clean-duplicate-career-stints
+          connection-string: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

@@ -115,6 +115,25 @@ public interface IPlayerDataQualityRepository
     // list it wants, this method doesn't hardcode a count itself.
     Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
         int top, CancellationToken cancellationToken = default);
+
+    // S-260 (docs/backlog.md Epic 35, 2026-09-17 Supabase DB-size
+    // investigation): read-only footprint summary for the `dotnet run --
+    // report-career-stint-footprint` CLI verb — how much of
+    // PlayerCareerStint's row count sits at a seeded club (i.e. is directly
+    // tied to xG Path's own active candidate pool, per
+    // IPlayerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync)
+    // versus an unseeded one (an accumulated lookup byproduct, per NOTES.md's
+    // 2026-08-02 "side effect of xG Grid's country×club lookups" entry).
+    // This is diagnostic-only, informing a human decision (accept the size,
+    // upgrade, or a future narrowly-scoped prune) — it never deletes
+    // anything itself, and deliberately does not attempt to answer "is it
+    // safe to delete the unseeded share," since ADR-0059 already rejected a
+    // much smaller-scope full purge as a disproportionate availability
+    // regression for xG Path; that same caution applies here. Reuses
+    // GetUnseededClubCandidatesAsync's exact case-insensitive seeded-name
+    // comparison so the two diagnostics never disagree on what counts as
+    // "seeded."
+    Task<CareerStintFootprint> GetCareerStintFootprintAsync(CancellationToken cancellationToken = default);
 }
 
 // One-off diagnostic (audit-club-gaps): one candidate club — a
@@ -124,3 +143,11 @@ public interface IPlayerDataQualityRepository
 // Wikidata's P54 qualifier label produced) — that's exactly why this is a
 // candidate for human review, not an automatic seed.
 public record UnseededClubCandidate(string ClubName, int PlayerCount);
+
+// S-260: total PlayerCareerStint row count, how many of those rows sit at a
+// club with no matching ClubDefinition (case-insensitive — see
+// GetUnseededClubCandidatesAsync's own doc comment for why), and how many
+// distinct players have at least one such unseeded-club stint. Not a claim
+// about which rows are safe to prune — see GetCareerStintFootprintAsync's
+// own doc comment.
+public record CareerStintFootprint(int TotalStintCount, int UnseededClubStintCount, int UnseededClubDistinctPlayerCount);
