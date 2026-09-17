@@ -2319,3 +2319,42 @@ numbers on the live dashboard immediately before dispatching (they will
 have moved since this entry), don't run the two back-to-back in the same
 session, and treat S-260 as worth doing alongside them rather than after —
 a full database blocks the very jobs S-250/S-251 need to run.
+
+**Addendum (2026-09-17, same day):** confirmed by codebase investigation
+that avatars are **not** the cause of the 439MB database size. User
+avatars live in Supabase **Storage** (`AvatarSubmission.ImageStorageKey`,
+`backend/src/XGArcade.Data/Entities/AvatarSubmission.cs:28`, ADR-0087) —
+only a storage-key string is in Postgres, never raw bytes — and Storage is
+a wholly separate quota from "Database size" on the dashboard, sitting
+near-empty (~0/1GB per the ADR-0088 incident readout). Game player photos
+(`Player.PhotoUrl`) are likewise just a URL string column. That leaves
+`PlayerCareerStint` (607,914+ rows, the 2026-08-03 entry above) as by far
+the most likely dominant consumer of the 439MB — see `docs/backlog.md`'s
+S-260, rewritten the same day to target it directly instead of an open
+"investigate everything" story.
+
+Also checked whether Supabase's **Cached Egress** (a separate 5GB quota,
+0.00GB used) could relieve the regular-egress burn rate flagged above:
+`AvatarEndpoints.cs` already sets `Cache-Control: private, max-age=86400`
+on avatar-image responses (added in S-186, cutting Storage egress), but
+this is *browser*-side caching on our own backend's HTTP response, not
+traffic served by Supabase's own CDN/edge cache — it won't register in
+Supabase's "Cached Egress" bucket, since the frontend never talks to
+Supabase directly (ADR-0013's backend-mediation rule keeps avatar buckets
+private with no public CDN URLs, deliberately, per ADR-0087). More
+importantly, the egress that's actually trending toward the cap (the bulk
+Wikidata backfill jobs) is raw Postgres wire-protocol traffic via EF
+Core/Npgsql, not HTTP — structurally invisible to any CDN/edge cache.
+Cached egress is not a usable lever for the risk S-250/S-251 carry.
+
+Separately, verified (web search, 2026-09-17 — re-verify before relying on
+this for a real decision, same caution `infra/README.md`'s cost table
+already carries) that Azure still has no indefinite free tier for managed
+Postgres: Azure Database for PostgreSQL Flexible Server's free allowance
+(750 Burstable hours + 32GB/month) is a 12-month new-account grant, not
+permanent, reconfirming ADR-0004's original reasoning for choosing
+Supabase unchanged. Azure Blob Storage's ~5GB always-free tier is real but
+is plain object storage, not a queryable relational database, so it can't
+substitute for Supabase's Postgres regardless. See `docs/backlog.md`'s new
+S-261 for the explicit decision this now warrants, given ADR-0004's own
+Follow-up anticipated exactly this point being reached.

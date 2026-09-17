@@ -13381,32 +13381,84 @@ entry point triggers a download on success and shows a visible inline
 error on failure).
 *Deps:* S-249 (already built, this only adds the tests it deferred).
 
-**S-260 · Investigate Supabase dev DB size approaching its free-tier cap (439.01MB/500MB, 87.8%)**
-New finding, not from `NOTES.md` — surfaced 2026-09-17 from a direct
-Supabase usage-dashboard check while scoping S-250/S-251's egress risk
-(see `NOTES.md`'s 2026-09-17 entry for the full dashboard readout). Unlike
-ADR-0088/ADR-0090's egress-only incident history, this is a **storage**
-quota, a distinct risk: if `xg-arcade-dev`'s database size hits the free
-tier's 0.5GB/project cap, writes can start failing outright, which would
-block every write-shaped story in this backlog (round generation, guesses,
-any of the bulk backfill jobs above), not just cost an overage the way
-egress does. At 87.8% full, this is closer to becoming a real incident
-than the egress quota currently is (44.6% of its own cap, but with a
-concerning burn rate — see S-250/S-251's caution notes).
-Find out what's actually consuming the ~439MB (the likely candidate is
-`PlayerCareerStint`'s 607,914+ rows, per the 2026-08-03 `NOTES.md` entry,
-plus whatever `PlayerAttribute`/`PlayerData` growth the international-
-stats and trophy sweeps have added since) via Supabase's own
-table-size breakdown, and decide a path before it fills: prune/compact
-something genuinely redundant, move to a paid tier, or explicitly accept
-the risk with a monitoring plan. Do **not** treat this as a reason to
-delay S-250/S-251 indefinitely — it's a reason to check current headroom
-before each of those runs and prioritize this investigation alongside
-them, not instead of them.
-*Accept:* a dated `NOTES.md` entry recording which tables actually consume
-the space and a decided path forward (prune, upgrade, or accept-and-
+**S-260 · Prune/compact `PlayerCareerStint` — the confirmed driver of Supabase dev DB size (439.01MB/500MB, 87.8%)**
+Follow-up to the 2026-09-17 Supabase usage-dashboard check (`NOTES.md`).
+A same-day investigation (2026-09-17, see `NOTES.md`'s addendum) ruled out
+the obvious suspect: user avatars live in Supabase **Storage**
+(`AvatarSubmission.ImageStorageKey`, ADR-0087), a separate quota from
+"Database size" entirely, and were near-empty (~0/1GB) as of the ADR-0088
+incident — they cannot be the cause. Game player photos
+(`Player.PhotoUrl`) are a plain URL string column, negligible size. That
+leaves `PlayerCareerStint` (607,914+ rows, 2026-08-03 `NOTES.md` entry,
+already flagged as a byproduct of xG Grid's country×club lookups rather
+than deliberate data) as by far the most likely dominant consumer of the
+~439MB, with `PlayerAttribute`/`PlayerData` growth from the international-
+stats/trophy sweeps a secondary contributor.
+Unlike egress (ADR-0088/ADR-0090's incident history), a full database
+**rejects writes outright** rather than just costing an overage — this
+would block round generation, guess submission, and every backfill job in
+this backlog, not just the bulk-sweep stories. At 87.8% full, this is
+closer to becoming a real incident than the egress quota (44.6%, but
+trending — see S-250/S-251's caution notes).
+Confirm via Supabase's own table-size breakdown that `PlayerCareerStint`
+is in fact the dominant consumer, then decide: (a) whether the existing
+duplicate-stint cleanup (ADR-0059/ADR-0063) is actually keeping this table
+lean or only handles a narrow duplicate case (608K rows suggests the
+latter); (b) whether stints for players/clubs no longer relevant to the
+seeded pool can be pruned outright, since this data is an accumulated
+lookup byproduct, not an intentional import, unlike most other tables in
+this schema; (c) if neither closes enough headroom, size the cost of a
+paid Supabase tier (see S-261 for the Azure-migration alternative) rather
+than silently accepting the risk. Do **not** treat this as a reason to
+delay S-250/S-251 indefinitely — check current headroom before each of
+those runs and prioritize this investigation alongside them, not instead
+of them.
+*Accept:* a dated `NOTES.md` entry recording the confirmed table-size
+breakdown and a decided path forward (prune, upgrade, or accept-and-
 monitor with a named threshold to revisit at).
-*Deps:* none — a real-data investigation, size numbers already captured
+*Deps:* none — a real-data investigation, avatars/photos already ruled out
 above.
+
+**S-261 · Revisit ADR-0004's own Follow-up: is migrating off Supabase's free tier justified yet?**
+ADR-0004 (2026-07-04) chose Supabase specifically because "there is no
+equivalent free-forever managed Postgres on Azure," and explicitly logged
+its own Follow-up: "if traffic or cost ever justifies it, evaluate
+migrating Supabase's Postgres into an Azure-hosted Postgres instance...
+since it's standard Postgres, this is a data migration, not an
+application rewrite." With the dev database now at 87.8% of its 500MB cap
+and egress trending toward its own 5GB cap in the same billing cycle
+(`NOTES.md`'s 2026-09-17 entry), this is the point that Follow-up was
+written for — worth an explicit, dated answer rather than continuing to
+defer it by default.
+Verified directly against Azure's own pricing docs (2026-09-17, via web
+search — re-verify before relying on these for a real decision, same
+caution `infra/README.md`'s cost table already gives): **Azure still has
+no indefinite free tier for managed Postgres.** Azure Database for
+PostgreSQL Flexible Server's free allowance (750 Burstable compute
+hours + 32GB storage/month) is part of the general Azure free-account
+grant and lasts only 12 months from account creation, after which it's
+paid (Burstable B1ms starts around $12/month) — this matches, and
+reconfirms, ADR-0004's original "time-limited trial credit" reasoning
+unchanged. Azure Blob Storage's ~5GB always-free allowance is real and
+larger than Supabase Storage's role here, but Blob Storage is plain object
+storage, not a queryable relational database — it could plausibly replace
+Supabase Storage (avatars) at some point, but it cannot substitute for the
+actual Postgres database where the DB-size problem lives.
+So the real options, once S-260's pruning is done and its result known,
+are: (a) stay on Supabase free tier with S-260's pruning as ongoing
+maintenance, accepting the 500MB/5GB ceilings as a permanent constraint;
+(b) pay for Supabase's next tier; (c) pay for Azure Database for
+PostgreSQL Flexible Server (bringing the database inside the existing
+Azure/Bicep infrastructure surface, closing ADR-0004's own "two
+infrastructure surfaces" trade-off, at the cost of ADR-0004's original
+"free-now" constraint no longer holding). None of these is free — this
+story's job is to make that trade-off explicit and pick one, not to find
+a free option that doesn't exist.
+*Accept:* an explicit decision recorded as an amendment to ADR-0004 (or a
+new superseding ADR if the answer is "migrate"), stating which of (a)/(b)/
+(c) was chosen and why, informed by S-260's actual pruning result (don't
+decide this before knowing whether pruning alone closes the gap).
+*Deps:* S-260 (need its pruning result to know if a migration/upgrade is
+even necessary).
 
 ---

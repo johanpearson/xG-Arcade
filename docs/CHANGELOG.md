@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-17 — `NOTES.md`, `docs/backlog.md` (S-260 rewritten to target
+  `PlayerCareerStint` directly; new S-261) — a same-day follow-up
+  investigation ruled out user avatars/player photos as the cause of the
+  439MB database size (avatars live in Supabase Storage, a separate quota,
+  near-empty; player photos are a plain URL column) and confirmed
+  `PlayerCareerStint`'s 607,914+ rows as the likely dominant consumer,
+  narrowing S-260 from an open-ended audit to a targeted prune/compact
+  story. Also confirmed Supabase's "Cached Egress" quota can't relieve the
+  S-250/S-251 egress risk, since the traffic that's actually trending
+  toward the cap is raw Postgres wire-protocol traffic, invisible to any
+  HTTP-level CDN cache. Added new S-261 to give ADR-0004's own 2026-07-04
+  Follow-up ("evaluate migrating Supabase's Postgres into an Azure-hosted
+  Postgres instance if traffic or cost ever justifies it") an explicit,
+  dated answer, now that both Supabase quotas are being approached —
+  reconfirmed via current Azure pricing docs that Azure still has no
+  indefinite free tier for managed Postgres, so ADR-0004's original
+  reasoning for choosing Supabase still holds; the decision needed now is
+  which paid/pruning trade-off to accept, not whether a free Azure
+  alternative exists (it doesn't). No requirements/architecture change; no
+  ADR filed by this entry itself — S-261 asks for one as its own
+  deliverable once S-260's pruning result is known.
 - 2026-09-17 — `NOTES.md`, `docs/backlog.md` (S-250, S-251 egress caution
   notes; new S-260) — recorded a real Supabase usage-dashboard check ahead
   of S-250/S-251: current-cycle egress at 2.23GB/5GB (44.6%) with a
