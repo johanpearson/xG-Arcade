@@ -52,6 +52,7 @@ public static class CliVerbDispatcher
         ["backfill-player-international-stats"] = HandleBackfillPlayerInternationalStatsAsync,
         ["backfill-player-trophy-stats"] = HandleBackfillPlayerTrophyStatsAsync,
         ["report-international-stats-coverage"] = HandleReportInternationalStatsCoverageAsync,
+        ["report-career-stint-footprint"] = HandleReportCareerStintFootprintAsync,
         ["prefetch-player-careers"] = HandlePrefetchPlayerCareersAsync,
         ["sweep-recent-transfers"] = HandleSweepRecentTransfersAsync,
         ["verify-wikidata-player-data"] = HandleVerifyWikidataPlayerDataAsync,
@@ -459,6 +460,34 @@ public static class CliVerbDispatcher
             $"with caps {capsByPlayerId.Count}, with goals {goalsByPlayerId.Count}, " +
             $"with trophy {trophyCountsByPlayerId.Count}, " +
             $"meeting caps>={coverageOptions.MinimumInternationalCaps} floor {playersMeetingCapsFloorCount}.");
+        return true;
+    }
+
+    // S-260 (docs/backlog.md Epic 35, 2026-09-17 Supabase DB-size
+    // investigation): `dotnet run -- report-career-stint-footprint` — same
+    // "read-only CLI-verb convenience, no admin session needed" shape as
+    // report-international-stats-coverage above, for a different question:
+    // how much of the ~608K-row PlayerCareerStint table sits at a seeded
+    // club (tied to xG Path's active pool) versus an unseeded one (an
+    // accumulated byproduct — see PlayerDataQualityRepository.
+    // GetCareerStintFootprintAsync's own doc comment for why this
+    // deliberately does not attempt to answer "is it safe to delete the
+    // unseeded share"). Read-only: no SaveChangesAsync call anywhere on
+    // this path.
+    private static async Task<bool> HandleReportCareerStintFootprintAsync(string[] args)
+    {
+        if (args.Length != 1)
+            return false;
+
+        await using var footprintDbContext = BuildDbContext();
+        var footprintRepository = new PlayerDataQualityRepository(footprintDbContext);
+
+        var footprint = await footprintRepository.GetCareerStintFootprintAsync();
+
+        Console.WriteLine(
+            $"report-career-stint-footprint: total stints {footprint.TotalStintCount}, " +
+            $"at an unseeded club {footprint.UnseededClubStintCount} " +
+            $"({footprint.UnseededClubDistinctPlayerCount} distinct player(s)).");
         return true;
     }
 

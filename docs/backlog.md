@@ -13366,20 +13366,26 @@ listed spec file to import instead of inlining.
 every affected spec file still passes unchanged; no REQ/behavior change.
 *Deps:* none — pure refactor, but touches the most files of any story here.
 
-**S-259 · Write the missing REQ-711 tests (S-249 close-out gap)**
-Not from `NOTES.md` but from `docs/backlog.md`'s own S-249 close-out
-notes: both the backend (`GET /auth/export`) and frontend (`SettingsScreen`
-export button) halves of REQ-711 were built and merged 2026-09-16, but
-each note ends with "Tests are a separate, parallel `test-writer` piece of
-work, not included in this note" — no REQ711-named test exists yet, so
-S-249's own *Accept* criteria are still unmet.
-*Accept:* exactly S-249's own *Accept* criteria, verbatim: a REQ711-named
-API test (an export contains exactly the caller's own account info, guess
-history, and league memberships — never another user's — and an
-unauthenticated request 401s) and a REQ711-named Vitest test (the Settings
-entry point triggers a download on success and shows a visible inline
-error on failure).
-*Deps:* S-249 (already built, this only adds the tests it deferred).
+**S-259 · Write the missing REQ-711 tests (S-249 close-out gap)** — **already done, superseded before this Epic merged**
+Written from a stale read of S-249's close-out notes ("Tests are a
+separate, parallel `test-writer` piece of work, not included in this
+note"). By the time Epic 35 was drafted, a separate session had already
+merged exactly this work via PR #391 (commits `f4d7ad0`/`4994716`,
+2026-09-16): `backend/tests/XGArcade.Api.Tests/AuthEndpointTests.cs` gained
+`REQ711_Export_Get_ReturnsCallersOwnAccountInfo_ExcludingAnyCredential`,
+`REQ711_Export_Get_ReturnsOnlyCallersOwnGuesses_NeverAnotherUsersGuesses`,
+`REQ711_Export_Get_ReturnsOnlyCallersOwnLeagueMemberships_...`,
+`REQ711_Export_Get_ReturnsNullNotificationPreferences_UntilThatTableExists`,
+`REQ711_Export_Get_Unauthenticated_Returns401`, and
+`REQ711_Export_Get_UserRowMissing_Returns404`; `frontend/src/settings/
+SettingsScreen.test.tsx` gained
+`REQ711_SettingsScreen_ExportButtonClick_CallsExportEndpointAndTriggersDownload`,
+`..._ShowsLoadingStateWhileInFlight`, `..._ShowsInlineErrorAndDoesNotTriggerDownload`,
+and `..._CallsOnAuthErrorInsteadOfShowingInlineError`. S-249's own *Accept*
+criteria are fully met by this existing coverage — no further work needed
+here. Left in place (not deleted) as a record of why this story appears in
+Epic 35's original PR despite needing no session of its own; do not pick
+this up.
 
 **S-260 · Prune/compact `PlayerCareerStint` — the confirmed driver of Supabase dev DB size (439.01MB/500MB, 87.8%)**
 Follow-up to the 2026-09-17 Supabase usage-dashboard check (`NOTES.md`).
