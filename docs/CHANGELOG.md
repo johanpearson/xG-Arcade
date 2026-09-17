@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-17 — `docs/backlog.md` (new Epic 35, S-250 through S-259) —
+  planning-only sweep of `NOTES.md`'s recent entries (2026-08-03 through
+  2026-09-15) plus S-249's own close-out note, turning ten flagged-but-not-
+  done items into scoped backlog stories/session prompts: two real-data
+  verification handoffs already built but never run against real dev data
+  (S-253 xG Path eligible-pool count, S-254 autocomplete cold-start
+  latency), two CI verification runs for fixes merged without a real
+  re-run (S-250 international-stats backfill idempotency, S-251 trophy
+  sweep coverage), one unresolved failure investigation (S-252
+  `import-player-name-index` truncation), one open product-decision call
+  (S-255, ADR-0111 Follow-up recognizability signal), one stale-assumption
+  audit (S-256, `PlayerCareerStint` full-table reads), two logged
+  code-health findings (S-257 `InternalRoundEndpoints.cs` split, S-258
+  `frontend/tests/e2e/helpers.ts` extraction), and one shipped-without-
+  tests gap (S-259, REQ-711). No requirements/architecture text changed —
+  this is backlog planning, not implementation; no ADR needed (no
+  structural decision made, only tracking existing ones).
 - 2026-09-16 — `docs/backlog.md` (S-249 "Built as (frontend half)" note),
   `docs/requirements-document.md` (REQ-711 status note updated), `docs/
   design-document.md` (SCREEN-08 gained an "Export your data" section
