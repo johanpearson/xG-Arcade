@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-17 — `NOTES.md`, `docs/backlog.md` (S-260 closed) — ran the new
+  `report-career-stint-footprint` diagnostic and the newly-wired
+  `clean-duplicate-career-stints` workflow (both PR #395) against real dev
+  data: 558,422 total `PlayerCareerStint` rows, 539,740 (96.7%) at an
+  unseeded club across 98,076 distinct players, only 728 rows (0.13%)
+  removed as provable duplicates. Decision: accept-and-monitor, not
+  prune — dedup was never the lever, and the unseeded share is very likely
+  mostly legitimate career history for otherwise xG Path-eligible players,
+  not confirmed dead weight; ADR-0059's existing caution against a
+  disproportionate-availability-risk purge still applies and no narrower
+  safe prune target was found. Flags that S-261 (staying on Supabase's
+  free tier vs. paying) should not assume pruning will buy headroom. No
+  requirements/architecture change; no ADR (no new structural decision —
+  this only records a real-data finding and a decision not to act
+  further).
 - 2026-09-17 — `NOTES.md`, `docs/backlog.md` (S-260 rewritten to target
   `PlayerCareerStint` directly; new S-261) — a same-day follow-up
   investigation ruled out user avatars/player photos as the cause of the
