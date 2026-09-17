@@ -13221,6 +13221,16 @@ attempts only the small remaining/failed population — not the full
 attempted-player counts, confirming (or, if it doesn't hold, reopening as a
 bug against `PlayerInternationalStatsBackfillService`) that the fix is
 genuinely idempotent now.
+**Egress caution (see `NOTES.md`'s 2026-09-17 entry):** the Supabase org
+went over its free-tier quota last billing cycle and will be restricted
+from 24 Sep 2026 if it's still over; the current cycle (08 Sep–08 Oct
+2026) had already used 2.23GB/5GB (44.6%) egress after only 9 days as of
+this writing — a burn rate that projects past the cap again before the
+cycle ends. Re-check the Supabase usage dashboard immediately before
+dispatching this workflow. If the fix works as intended this run should be
+cheap (most players already carry the "checked" marker), but confirm
+current headroom first rather than assuming — don't run this back-to-back
+with S-251 in the same session.
 *Deps:* S-231/ADR-0112, S-232/ADR-0113 (the fix itself, already merged).
 
 **S-251 · Verify the trophy sweep (S-232/ADR-0113) against real Wikidata coverage**
@@ -13235,6 +13245,12 @@ coverage actually grew past 20." Run that exact sequence against dev.
 after trophy-coverage numbers; if coverage is still sparse among genuinely
 well-known players, escalate per the precedent the ADR-0111 Follow-up
 entry already set (a product call, not a silent acceptance).
+**Egress caution:** same real-usage warning as S-250 above — check the
+Supabase usage dashboard for current headroom before dispatching, and
+don't run this back-to-back with S-250 in the same session. This job has
+never run against real Wikidata data at all, so there's no "should be
+cheap now" precedent to lean on the way S-250's re-run has — treat it as a
+genuinely new full-pool sweep for egress-budgeting purposes.
 *Deps:* S-232/ADR-0113.
 
 **S-252 · Root-cause `import-player-name-index`'s 8-slice truncation failures (2026-09-05)**
@@ -13364,5 +13380,33 @@ unauthenticated request 401s) and a REQ711-named Vitest test (the Settings
 entry point triggers a download on success and shows a visible inline
 error on failure).
 *Deps:* S-249 (already built, this only adds the tests it deferred).
+
+**S-260 · Investigate Supabase dev DB size approaching its free-tier cap (439.01MB/500MB, 87.8%)**
+New finding, not from `NOTES.md` — surfaced 2026-09-17 from a direct
+Supabase usage-dashboard check while scoping S-250/S-251's egress risk
+(see `NOTES.md`'s 2026-09-17 entry for the full dashboard readout). Unlike
+ADR-0088/ADR-0090's egress-only incident history, this is a **storage**
+quota, a distinct risk: if `xg-arcade-dev`'s database size hits the free
+tier's 0.5GB/project cap, writes can start failing outright, which would
+block every write-shaped story in this backlog (round generation, guesses,
+any of the bulk backfill jobs above), not just cost an overage the way
+egress does. At 87.8% full, this is closer to becoming a real incident
+than the egress quota currently is (44.6% of its own cap, but with a
+concerning burn rate — see S-250/S-251's caution notes).
+Find out what's actually consuming the ~439MB (the likely candidate is
+`PlayerCareerStint`'s 607,914+ rows, per the 2026-08-03 `NOTES.md` entry,
+plus whatever `PlayerAttribute`/`PlayerData` growth the international-
+stats and trophy sweeps have added since) via Supabase's own
+table-size breakdown, and decide a path before it fills: prune/compact
+something genuinely redundant, move to a paid tier, or explicitly accept
+the risk with a monitoring plan. Do **not** treat this as a reason to
+delay S-250/S-251 indefinitely — it's a reason to check current headroom
+before each of those runs and prioritize this investigation alongside
+them, not instead of them.
+*Accept:* a dated `NOTES.md` entry recording which tables actually consume
+the space and a decided path forward (prune, upgrade, or accept-and-
+monitor with a named threshold to revisit at).
+*Deps:* none — a real-data investigation, size numbers already captured
+above.
 
 ---

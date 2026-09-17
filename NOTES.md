@@ -2279,3 +2279,43 @@ scope, same reasoning as the two entries above). All three of these
 next `code-health-auditor` sweep should extract the signup helper, the
 round-clearing helper, and the closed-round-lookup helper together in one
 pass rather than one at a time.
+
+### 2026-09-17 — real Supabase usage-dashboard check ahead of S-250/S-251: egress burn rate and DB size both worth flagging before any more bulk backfills run
+
+Checked the Supabase org dashboard directly (`xg-arcade-dev`, Free Plan)
+before scoping the S-250/S-251 real-data verification handoffs in
+`docs/backlog.md` (Epic 35) — both stories re-dispatch bulk Wikidata-backed
+jobs against the full player pool, the same class of job ADR-0088/ADR-0090
+already tie to a confirmed past egress overage. Two things worth recording
+before either story runs:
+
+1. **Egress**: the org's own banner reads "Organization exceeded its quota
+   in the previous billing cycle... Projects will be restricted from 24
+   Sep, 2026 if your organization remains over quota." The *current* cycle
+   (08 Sep–08 Oct 2026) shows 2.23GB/5GB (44.6%) used, 0GB overage, as of
+   day 9 of a ~30-day cycle — a burn rate that, if it continues linearly,
+   projects to roughly 7.4GB by cycle end, back over the 5GB cap. Cached
+   egress is a separate, currently-empty (0.00GB/5GB) counter, not
+   contributing. This is not yet an incident, but it's an active trend, not
+   just historical (ADR-0088's incident was 2026-08-18) — check current
+   usage immediately before dispatching S-250 or S-251, not just before the
+   first one, since either alone could plausibly push the cycle over.
+2. **Database size — a new, distinct risk not covered by ADR-0088/ADR-0090
+   at all** (those are egress-only): `xg-arcade-dev`'s database size is
+   439.01MB against the free tier's 0.5GB (512MB)/project cap — 87.8% full,
+   closer to its own limit than egress is to its. Unlike egress (which just
+   costs an overage or, per the banner, eventually restricts the project),
+   a full database can start **rejecting writes outright** — which would
+   break round generation, guess submission, and every backfill job in this
+   backlog, not just the two bulk-sweep stories. Likely largest consumer:
+   `PlayerCareerStint`'s 607,914+ rows (2026-08-03 entry above), plus
+   whatever `PlayerAttribute`/`PlayerData` growth the international-stats
+   and trophy sweeps have added since. Not investigated further here —
+   see `docs/backlog.md`'s new S-260 for the follow-up (find what's
+   actually consuming the space, decide prune/upgrade/accept-and-monitor).
+
+**Recommendation for anyone picking up S-250 or S-251:** re-check both
+numbers on the live dashboard immediately before dispatching (they will
+have moved since this entry), don't run the two back-to-back in the same
+session, and treat S-260 as worth doing alongside them rather than after —
+a full database blocks the very jobs S-250/S-251 need to run.

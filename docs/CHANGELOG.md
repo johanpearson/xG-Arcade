@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-09-17 — `NOTES.md`, `docs/backlog.md` (S-250, S-251 egress caution
+  notes; new S-260) — recorded a real Supabase usage-dashboard check ahead
+  of S-250/S-251: current-cycle egress at 2.23GB/5GB (44.6%) with a
+  concerning burn rate after the org already went over quota last cycle
+  (restriction threatened from 24 Sep 2026 if it recurs), and — a new
+  finding not previously tracked by ADR-0088/ADR-0090's egress-only
+  history — database size at 439.01MB/500MB (87.8% of the free-tier
+  storage cap), which risks rejecting writes outright rather than just
+  costing an overage. Added an explicit caution to both S-250 and S-251
+  (check current dashboard headroom before dispatching, don't run them
+  back-to-back) and a new S-260 to investigate what's consuming the
+  database size and decide prune/upgrade/accept-and-monitor before it
+  fills. No requirements/architecture change; no ADR (a real-data
+  observation and backlog-caution update, not a new structural decision).
 - 2026-09-17 — `docs/backlog.md` (new Epic 35, S-250 through S-259) —
   planning-only sweep of `NOTES.md`'s recent entries (2026-08-03 through
   2026-09-15) plus S-249's own close-out note, turning ten flagged-but-not-
