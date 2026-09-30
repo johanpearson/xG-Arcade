@@ -4,6 +4,7 @@
     <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
          ScoreResult, CellCategoryTypes, WrongGuessPlayerInfo,
          PredictionSubmission) live in XGArcade.Core. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
     <!-- ADR-0096: COMP-15's own persistence
          (IPredictInstanceRepository/PredictTemplate/PredictInstance/

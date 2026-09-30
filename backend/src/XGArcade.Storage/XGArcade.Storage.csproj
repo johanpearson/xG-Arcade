@@ -7,6 +7,7 @@
          own project instead of XGArcade.Core (ADR-0004's hosting-agnostic
          boundary) or XGArcade.Api (never holds a provider-specific HTTP
          client directly). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
   </ItemGroup>
 
