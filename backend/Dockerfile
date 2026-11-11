@@ -1,5 +1,5 @@
 # Build context is the backend/ directory itself (see .github/workflows/deploy.yml).
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 COPY XGArcade.sln ./
